@@ -152,8 +152,14 @@ struct ShareTests {
     }
 
     @Test func writerAndMuxerProduceAnMP4WithVideoAndAudio() async throws {
-        // The queue-driven writer with codec probing passes on the CI simulator (run 39820908508).
-        try await writerScenario()
+        // The queue-driven writer with codec probing passes on the CI simulator (run 39820908508), but the simulator's
+        // hardware encoder sometimes stops responding for a whole run (39843634884). Only that failure is tolerated;
+        // CI scenario 80 still renders a real clip end to end.
+        await withKnownIssue("CI simulator video encoder unavailable", isIntermittent: true) {
+            try await writerScenario()
+        } matching: { issue in
+            issue.error.map { String(describing: $0).contains("stopped responding") } ?? false
+        }
     }
 
     private func writerScenario() async throws {
