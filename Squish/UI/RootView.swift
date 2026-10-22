@@ -89,7 +89,8 @@ struct RootView: View {
         ))
         .onAppear {
             director.start()
-            if !seenSafetyHint {
+            let demoSuppressesHint = DemoScenario.current.map { $0.name != "launch" } ?? false
+            if !seenSafetyHint && !demoSuppressesHint {
                 seenSafetyHint = true
                 withAnimation { showSafetyHint = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {

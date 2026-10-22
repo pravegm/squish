@@ -25,6 +25,19 @@ enum PressMapping {
         depth(travel: travel(angle: angle, start: start, config: config), config: config)
     }
 
+    /// Inverse of `depth(angle:start:config:)`: the hinge angle that produces a given depth.
+    static func angle(forDepth depth: Double, start: Double, config: PressConfig) -> Double {
+        let d = clamp(depth, 0, 1)
+        let contact = config.contactT
+        let t: Double
+        if d < contact {
+            t = d
+        } else {
+            t = contact + (1 - contact) * pow((d - contact) / (1 - contact), 1 / config.easeExponent)
+        }
+        return start - t * (start - config.endAngle)
+    }
+
     static func compression(depth: Double, config: PressConfig) -> Double {
         clamp((depth - config.contactT) / (1 - config.contactT), 0, 1)
     }

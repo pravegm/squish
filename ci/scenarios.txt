@@ -1,0 +1,6 @@
+# name|scenario  (interpreted by Squish/App/DemoMode.swift)
+01-launch|launch
+02-duck-idle|object=rubberDuck
+03-duck-mid|object=rubberDuck;depth=0.6
+04-bubble-mid|object=bubbleWrap;depth=0.55
+05-reveal-duck|object=rubberDuck;reveal

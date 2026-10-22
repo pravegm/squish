@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Squish/**"
+      - "SquishTests/**"
+      - "project.yml"
+      - "ci/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+    inputs:
+      screenshots:
+        description: "Capture simulator screenshots"
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      DEVICE: "iPhone 18 Pro"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build and test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Squish.xcodeproj -scheme Squish \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|warning: .*Squish/|Test Suite|Test case|passed|failed|\*\* " || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" build.log
+
+      - name: Summarise errors
+        if: failure()
+        run: |
+          grep -E "error:" build.log | sort -u | head -200 > errors.txt || true
+          cat errors.txt
+
+      - name: Capture screenshots
+        if: success() && (github.event_name == 'push' || inputs.screenshots)
+        run: bash ci/screenshots.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: |
+            build.log
+            errors.txt
+          if-no-files-found: ignore
+
+      - name: Upload screenshots
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ci-screens/
+          if-no-files-found: ignore

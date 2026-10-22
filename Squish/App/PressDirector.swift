@@ -41,6 +41,34 @@ final class PressDirector {
         haptics.start()
         engine.activate(at: CACurrentMediaTime())
         load(.bubbleWrap)
+        if let demo = DemoScenario.current {
+            runDemo(demo)
+        }
+    }
+
+    /// Drives the touch fallback to a scripted state for screenshots (see DemoMode.swift).
+    private func runDemo(_ demo: DemoScenario) {
+        engine.config.ignoreInputAfterActivation = 0
+        hingeUnavailable()
+        if let kind = demo.object { load(kind) }
+        let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
+        guard let targetDepth else { return }
+        let targetAngle = PressMapping.angle(forDepth: targetDepth, start: engine.config.armAngleMax, config: engine.config)
+        Task { @MainActor in
+            virtualPress(0)
+            try? await Task.sleep(for: .milliseconds(300))
+            let steps = 90
+            for step in 1...steps {
+                let angle = 180 + (targetAngle - 180) * Double(step) / Double(steps)
+                virtualPress((180 - angle) / 180)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            // Keep feeding the held angle so the filter settles exactly on target.
+            for _ in 0..<30 {
+                virtualPress((180 - targetAngle) / 180)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
     }
 
     func sceneBecameActive() {
