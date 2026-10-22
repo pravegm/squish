@@ -152,6 +152,17 @@ struct ShareTests {
     }
 
     @Test func writerAndMuxerProduceAnMP4WithVideoAndAudio() async throws {
+        #if targetEnvironment(simulator)
+        // The CI simulator's software H.264 encoder stalls (run 39816993098); verify on device.
+        await withKnownIssue("Simulator video encoder stalls on CI", isIntermittent: true) {
+            try await writerScenario()
+        }
+        #else
+        try await writerScenario()
+        #endif
+    }
+
+    private func writerScenario() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ShareTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
