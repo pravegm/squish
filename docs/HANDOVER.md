@@ -71,8 +71,12 @@ Once it feels right, tap *Copy config JSON* and send it to me. Those values beco
 - **Book-pose vs tabletop framing** was tuned on the simulator only. Eye position (FOLD-PRESS §9.4) needs real people.
 - **App icon:** CI renders `AppIcon-1024.png` from `AppIconArt.swift` and it gets committed into the asset catalog. Check it on the home screen.
 - **Gauge scales differ.** The P-48 gauge reads 0–60 tons; the Fold Press bezel reads 0–80. Pick one.
-- **Share clip render** takes about 2 minutes on CI. It should be much faster on the device. If not, the offscreen studio needs to be lighter.
-- **The design-critic score** for Duo frames is at 5.8/10 after round 2. The target before submission is 8. The reviews are in `design/FOLD-REVIEW-*.md`.
+- **Share clip render** takes about 80–130 s on CI. It should be much faster on the device. If not, the offscreen studio needs to be lighter.
+  - The CI simulator's video encoder sometimes stops responding for a whole run. `ShareTests` tolerates only that specific error; please confirm a share clip on the Duo.
+- **Store shots.** `FoldStoreShot.swift` renders a modelled folded Duo for App Store frames. CI writes them as `*-storeshot-*.png`.
+  - They are good for layout and captions. A real hand-held Duo video from you will sell the fold better than any render.
+- **Patience achievement** needs 30 s of engaged pressing. It is suppressed in CI demo runs.
+- **The design-critic score** for Duo frames was 6.3/10 after round 3. The target before submission is 8. The reviews are in `design/FOLD-REVIEW-*.md`.
 
 ## 6. Where things are
 
