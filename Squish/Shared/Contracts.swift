@@ -130,7 +130,17 @@ enum Achievement: String, Codable, CaseIterable, Sendable, Identifiable {
     case firstSquish, perfectionist, midas, whatsInside, patience, collector, theSecret, popStar, steadyHands, pumped
 
     var id: String { rawValue }
-    var gameCenterID: String { "com.pravegm.squish.ach.\(rawValue)" }
+    /// Matches docs/appstore/achievements.md (snake_case IDs registered in App Store Connect).
+    var gameCenterID: String {
+        let snake = rawValue.reduce(into: "") { result, character in
+            if character.isUppercase {
+                result += "_" + character.lowercased()
+            } else {
+                result.append(character)
+            }
+        }
+        return "com.pravegm.squish.ach.\(snake)"
+    }
 }
 
 /// What the collection reports back after recording a press.

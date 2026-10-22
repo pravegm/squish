@@ -14,6 +14,8 @@ struct RevealCardView: View {
     let collecting: Bool
     /// Global centre of the Shelf key once the card should fly into it.
     let flyTarget: CGPoint?
+    /// Foldable: keep the card off the crease.
+    var hinge = false
     let onNext: () -> Void
     let onAgain: () -> Void
 
@@ -55,7 +57,7 @@ struct RevealCardView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let bands = ScreenBands(proxy)
+            let bands = ScreenBands(proxy, hinge: hinge)
             let origin = proxy.frame(in: .global).origin
             if bands.isLandscape {
                 landscape(bands, origin: origin)
@@ -70,11 +72,13 @@ struct RevealCardView: View {
     // MARK: Layouts
 
     private func portrait(_ bands: ScreenBands, origin: CGPoint) -> some View {
-        let bandHeight = bands.height(0.06, 0.44)
-        let width = min(bands.fullWidth * 0.84, 340, bandHeight * 0.75)
-        let center = CGPoint(x: bands.size.width / 2, y: bands.y(0.06) + bandHeight / 2)
+        // Width per VISUAL-REVIEW-1 #12 (min 84%, 340 pt); height fits the 6–44% band and stays clear of the crease.
+        let top = bands.y(0.06)
+        let width = min(bands.fullWidth * 0.84, 340)
+        let height = min(bands.topBandBottom - top, width * 1.15)
+        let center = CGPoint(x: bands.size.width / 2, y: top + height / 2)
         return ZStack {
-            card(width: width, center: center, origin: origin)
+            card(width: width, height: height, center: center, origin: origin)
                 .position(center)
             toastSlot
                 .frame(maxWidth: 420)
@@ -88,12 +92,15 @@ struct RevealCardView: View {
     }
 
     private func landscape(_ bands: ScreenBands, origin: CGPoint) -> some View {
-        let columnWidth = bands.fullWidth * 0.30
-        let width = min(columnWidth - bands.margin, (bands.size.height - Theme.s5) * 0.75)
+        // Left column, never reaching the book-pose crease.
+        var columnWidth = bands.fullWidth * 0.30
+        if let crease = bands.crease { columnWidth = min(columnWidth, crease.minX - bands.margin) }
+        let width = max(160, columnWidth - bands.margin)
+        let height = min(bands.size.height - Theme.s5, width * 1.25)
         let consoleWidth = bands.fullWidth * 0.22
         let center = CGPoint(x: bands.margin + width / 2, y: bands.size.height / 2)
         return ZStack(alignment: .topLeading) {
-            card(width: width, center: center, origin: origin)
+            card(width: width, height: height, center: center, origin: origin)
                 .position(center)
             VStack(alignment: .trailing, spacing: Theme.s3) {
                 Spacer(minLength: 0)
@@ -109,7 +116,7 @@ struct RevealCardView: View {
 
     // MARK: Card
 
-    private func card(width: CGFloat, center: CGPoint, origin: CGPoint) -> some View {
+    private func card(width: CGFloat, height: CGFloat, center: CGPoint, origin: CGPoint) -> some View {
         let flight: CGSize = flyTarget.map {
             CGSize(width: $0.x - (origin.x + center.x), height: $0.y - (origin.y + center.y))
         } ?? .zero
@@ -117,7 +124,7 @@ struct RevealCardView: View {
         let tilt = Double(Int(specimen.variant.seed % 11) - 5) * 0.5
         return SpecimenCardView(specimen: specimen, thumbnail: collection.thumbnail(for: specimen),
                                 style: .reveal, animateStamp: true)
-            .frame(width: width)
+            .frame(width: width, height: height)
             .overlay(alignment: .topLeading) { ribbon }
             .scaleEffect(flying && !reduceMotion ? 0.16 : 1)
             .rotationEffect(.degrees(flying && !reduceMotion ? tilt : 0))
@@ -144,12 +151,15 @@ struct RevealCardView: View {
                 .foregroundStyle(Theme.graphite)
                 .padding(.horizontal, Theme.s2)
                 .padding(.vertical, 4)
-                .background(outcome.specimen.variant.isGolden ? Theme.goldSoft : Theme.yellow,
-                            in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .background {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(outcome.specimen.variant.isGolden ? Theme.goldSoft : Theme.yellow)
+                        .elevation(.e1)
+                }
                 .topHighlight(cornerRadius: 6)
                 .rotationEffect(.degrees(-5))
-                .elevation(.e1)
-                .offset(x: Theme.s3, y: -Theme.s2)
+                // Sits on the card's top edge, 8 pt lower than before, so it stays out of the 0–6% band.
+                .offset(x: Theme.s3, y: 0)
                 .accessibilityHidden(true)
         }
     }

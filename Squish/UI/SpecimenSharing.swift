@@ -152,9 +152,8 @@ private struct ClipProgressCard: View {
                 }
             }
             .padding(Theme.s5)
-            .background(PaperBackground().clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)))
+            .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)).elevation(.e3) }
             .topHighlight(cornerRadius: Theme.cardRadius)
-            .elevation(.e3)
             .frame(maxWidth: 380)
             .padding(Theme.s5)
             .accessibilityElement(children: .contain)

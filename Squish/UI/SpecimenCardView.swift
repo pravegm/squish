@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// The pressed-specimen card (VISUAL-TARGET §6.8, bible §5): a 3:4 paper card, the specimen render in the top
-/// 62%, a hairline, then the label block (name, two SF Mono data lines, serial, flavour line). The red ink
+/// The pressed-specimen card (VISUAL-TARGET §6.8, bible §5): a paper card, the specimen render on top
+/// (square on the detail sheet, flexible on the reveal), a hairline, then the label block (name, two SF Mono data lines, serial, flavour line). The red ink
 /// PRESSED stamp overlaps the render's lower-right corner. Golden gets a foil border and two sparkles;
 /// Perfect Squish gets a round seal. Reads as one sentence to VoiceOver.
 struct SpecimenCardView: View {
@@ -29,31 +29,18 @@ struct SpecimenCardView: View {
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous) }
 
     var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            let height = proxy.size.height
-            let renderHeight = height * 0.62
-            VStack(spacing: 0) {
-                render
-                    .frame(height: renderHeight)
-                Rectangle()
-                    .fill(Theme.paperEdge)
-                    .frame(height: 1)
-                    .padding(.horizontal, Theme.s3 + 2)
-                labelBlock
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-            .overlay(alignment: .topLeading) {
-                PressedStamp(seed: specimen.variant.seed, text: specimen.stampText, date: specimen.date,
-                             fixedAngle: specimen.kind == .unsquishable ? -4 : nil)
-                    .scaleEffect(style == .reveal ? 0.82 : 1)
-                    .scaleEffect(stampDown ? 1 : (reduceMotion ? 1 : 1.6))
-                    .opacity(stampDown ? 1 : 0)
-                    .position(x: width * (specimen.kind == .unsquishable ? 0.62 : 0.74), y: renderHeight + 6)
-            }
+        VStack(spacing: 0) {
+            renderArea
+                .zIndex(1) // the stamp (in the render's overlay) draws above the label block, never under it
+            Rectangle()
+                .fill(Theme.paperEdge)
+                .frame(height: 1)
+                .padding(.horizontal, Theme.s3 + 2)
+            labelBlock
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .aspectRatio(0.75, contentMode: .fit)
-        .background { PaperBackground().clipShape(shape) }
+        // Shadow on the paper only, never on the text (VISUAL-REVIEW-1 #5).
+        .background { PaperBackground().clipShape(shape).elevation(style == .reveal ? .e3 : .e2) }
         .overlay {
             if golden {
                 shape.strokeBorder(AngularGradient(colors: [Theme.goldSoft, Theme.gold, Theme.goldSoft, Theme.gold, Theme.goldSoft],
@@ -63,7 +50,6 @@ struct SpecimenCardView: View {
             }
         }
         .topHighlight(cornerRadius: Theme.cardRadius)
-        .elevation(style == .reveal ? .e3 : .e2)
         .cardTypeCap(style == .reveal ? .xLarge : .xxxLarge)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(specimen.accessibilitySentence)
@@ -71,6 +57,32 @@ struct SpecimenCardView: View {
     }
 
     // MARK: Parts
+
+    /// Detail: a square render, so the card's height follows its content at any width.
+    /// Reveal: the render takes whatever height the caller's frame leaves after the label block.
+    @ViewBuilder
+    private var renderArea: some View {
+        let stamped = render
+            .overlay(alignment: .bottomTrailing) { stamp }
+        switch style {
+        case .detail:
+            stamped.aspectRatio(1, contentMode: .fit)
+        case .reveal:
+            stamped.frame(maxWidth: .infinity, minHeight: 72, maxHeight: .infinity)
+        }
+    }
+
+    /// The red stamp sits on the render's lower-right corner, mostly inside it, so it clears the name and
+    /// serial below by ≥ 12 pt even at its full ±9° rotation (VISUAL-REVIEW-1 #13).
+    private var stamp: some View {
+        PressedStamp(seed: specimen.variant.seed, text: specimen.stampText, date: specimen.date,
+                     fixedAngle: specimen.kind == .unsquishable ? -4 : nil)
+            .scaleEffect(style == .reveal ? 0.8 : 1)
+            .scaleEffect(stampDown ? 1 : (reduceMotion ? 1 : 1.6))
+            .opacity(stampDown ? 1 : 0)
+            .padding(.trailing, Theme.s1)
+            .offset(y: -Theme.s2)
+    }
 
     /// The specimen render on paper with a soft drop shadow, plus seal / sparkles / surprise tag.
     private var render: some View {
@@ -85,27 +97,28 @@ struct SpecimenCardView: View {
                         .padding(Theme.s1)
                 }
             }
-            .overlay(alignment: .bottomLeading) {
+            .overlay(alignment: .topLeading) {
                 if let surprise = specimen.variant.surprise {
                     Text(surprise.title)
                         .font(Theme.micro)
                         .tracking(Theme.microTracking)
                         .foregroundStyle(Theme.ink)
+                        .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(Theme.rgb(0xDCEBFA), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                         .rotationEffect(.degrees(-3))
-                        .padding(.leading, Theme.s2)
-                        .padding(.bottom, Theme.s2)
+                        .padding(.leading, Theme.s5)
+                        .padding(.top, Theme.s5)
                 }
             }
             .overlay {
                 if golden {
                     GeometryReader { proxy in
                         Sparkle().fill(Theme.gold).frame(width: 14, height: 14)
-                            .position(x: proxy.size.width * 0.12, y: proxy.size.height * 0.14)
+                            .position(x: proxy.size.width * 0.12, y: proxy.size.height * 0.80)
                         Sparkle().fill(Theme.goldSoft).frame(width: 10, height: 10)
-                            .position(x: proxy.size.width * 0.88, y: proxy.size.height * 0.80)
+                            .position(x: proxy.size.width * 0.88, y: proxy.size.height * 0.14)
                     }
                 }
             }
@@ -143,7 +156,7 @@ struct SpecimenCardView: View {
                 .padding(.top, 2)
         }
         .padding(.horizontal, Theme.s3 + 2)
-        .padding(.top, Theme.s2 + 2)
+        .padding(.top, Theme.s4 + 2) // clearance under the stamp
         .padding(.bottom, Theme.s2)
     }
 

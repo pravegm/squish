@@ -1,0 +1,210 @@
+name: Duo fold screenshots
+
+# Expensive (iOS 27.1 runtime is ~7.85 GB and the Duo simulator is heavy), so manual only.
+# How it works, costs and limitations: docs/DUO-CI.md
+on:
+  workflow_dispatch:
+    inputs:
+      angles:
+        description: "Hinge angles to capture, flat (180) to folded, space-separated"
+        type: string
+        default: "180 150 120 100 90 75 60 45"
+      objects:
+        description: "ObjectKind raw values, space-separated"
+        type: string
+        default: "rubberDuck bubbleWrap glassBottle sodaCan"
+      driver:
+        description: "Hinge driver (auto = first that passes a probe)"
+        type: choice
+        options: [auto, hinge, duo-hinge, foldctl]
+        default: auto
+      cache_runtime:
+        description: "Cache the iOS 27.1 runtime dmg with actions/cache (~7.9 GB of the repo's cache quota)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: duo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  duo:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    env:
+      XCODE_APP: /Applications/Xcode_27.1.app          # symlink to Xcode_27.1_Release_Candidate.app (27A9275)
+      RUNTIME_ID: com.apple.CoreSimulator.SimRuntime.iOS-27-1
+      DUO_TYPE_FALLBACK: com.apple.CoreSimulator.SimDeviceType.iPhone-Duo
+      RUNTIME_DIR: /Users/runner/simruntime
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        id: xcode
+        timeout-minutes: 8
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
+          xcrun simctl list runtimes
+          df -h / | tail -1
+          sysctl -n hw.memsize hw.ncpu
+          # gtimeout wraps every long call below (no GNU timeout on macOS by default).
+          command -v gtimeout >/dev/null || brew install coreutils
+
+      - name: Check for an installed iOS 27.1 runtime
+        id: rt
+        timeout-minutes: 2
+        run: |
+          if xcrun simctl list runtimes -j | python3 -c "import json,sys,os; sys.exit(0 if any(r['identifier']==os.environ['RUNTIME_ID'] and r.get('isAvailable') for r in json.load(sys.stdin)['runtimes']) else 1)"; then
+            echo "installed=true" >> "$GITHUB_OUTPUT"; echo "iOS 27.1 runtime already installed"
+          else
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore iOS 27.1 runtime from cache
+        id: rtcache
+        if: steps.rt.outputs.installed != 'true' && inputs.cache_runtime
+        timeout-minutes: 15
+        uses: actions/cache/restore@v4
+        with:
+          path: /Users/runner/simruntime
+          key: ios-27.1-simruntime-${{ steps.xcode.outputs.build }}-v1
+
+      - name: Download iOS 27.1 runtime
+        if: steps.rt.outputs.installed != 'true' && steps.rtcache.outputs.cache-hit != 'true'
+        timeout-minutes: 30
+        run: |
+          mkdir -p "$RUNTIME_DIR"
+          # With Xcode 27.1 selected the default iOS platform is the 27.1 runtime (24A94425 on 27A9275,
+          # actions/runner-images#15000). Apple's CDN sometimes fails the first try (DVTDownloadableErrorDomain 41).
+          for attempt in 1 2 3; do
+            echo "::group::download attempt $attempt"
+            if gtimeout 1500 xcodebuild -downloadPlatform iOS -exportPath "$RUNTIME_DIR" 2>&1 | tail -40; then
+              ls "$RUNTIME_DIR"/*.dmg >/dev/null 2>&1 && { echo "::endgroup::"; break; }
+            fi
+            echo "::endgroup::"; sleep 15
+          done
+          ls -la "$RUNTIME_DIR"
+          ls "$RUNTIME_DIR"/*.dmg >/dev/null 2>&1 || { echo "::error::iOS 27.1 runtime download failed"; exit 1; }
+
+      - name: Save iOS 27.1 runtime to cache
+        if: steps.rt.outputs.installed != 'true' && steps.rtcache.outputs.cache-hit != 'true' && inputs.cache_runtime
+        continue-on-error: true
+        timeout-minutes: 20
+        uses: actions/cache/save@v4
+        with:
+          path: /Users/runner/simruntime
+          key: ios-27.1-simruntime-${{ steps.xcode.outputs.build }}-v1
+
+      - name: Install iOS 27.1 runtime
+        if: steps.rt.outputs.installed != 'true'
+        timeout-minutes: 20
+        run: |
+          dmg=$(ls "$RUNTIME_DIR"/*.dmg | head -1)
+          echo "importing $dmg ($(du -h "$dmg" | cut -f1))"
+          gtimeout 1100 xcodebuild -importPlatform "$dmg" || gtimeout 1100 xcrun simctl runtime add "$dmg"
+          rm -rf "$RUNTIME_DIR"      # free ~8 GB; the cache already has it
+          xcrun simctl list runtimes
+          df -h / | tail -1
+
+      - name: Create and boot the iPhone Duo
+        id: sim
+        timeout-minutes: 10
+        run: |
+          type=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; print(next((d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']=='iPhone Duo'), ''))")
+          type="${type:-$DUO_TYPE_FALLBACK}"
+          echo "device type: $type"
+          xcrun simctl list runtimes -j | python3 -c "import json,sys,os; [print('27.1 supports:', [d['name'] for d in r.get('supportedDeviceTypes', [])]) for r in json.load(sys.stdin)['runtimes'] if r['identifier']==os.environ['RUNTIME_ID']]"
+          udid=$(xcrun simctl create "Squish Duo" "$type" "$RUNTIME_ID")
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "UDID=$udid"
+          # Boot now so the (slow, first-ever) boot of the new runtime overlaps the build. Boot with simctl,
+          # not Device Hub: quitting Device Hub shuts down the simulators it booted.
+          xcrun simctl boot "$udid"
+
+      - name: Install hinge tools
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          gtimeout 300 brew install artemnovichkov/tap/hinge || echo "::warning::hinge install failed"
+          # Fallback A: duo-fold-control's host CLI (CoreSimulator XPC).
+          if gtimeout 60 git clone --depth 1 https://github.com/tosbaha/duo-fold-control "$HOME/duo-fold-control"; then
+            (cd "$HOME/duo-fold-control/tools" && clang -fobjc-arc -framework Foundation -o duo-hinge duo-hinge.m) \
+              || echo "::warning::duo-hinge build failed"
+          fi
+          # Fallback B: foldctl (CoreDevice). Compiles Swift during install.
+          gtimeout 400 brew install tatsuz0u/tap/foldctl || echo "::warning::foldctl install failed"
+
+      - name: Generate project
+        timeout-minutes: 5
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build for the Duo
+        timeout-minutes: 30
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          gtimeout 1700 xcodebuild build \
+            -project Squish.xcodeproj -scheme Squish \
+            -destination "id=$UDID" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|warning: .*Squish/|\*\* " || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+          # The app must be built against the 27.1 SDK or it runs letterboxed in compatibility mode.
+          otool -l build/Build/Products/Debug-iphonesimulator/Squish.app/Squish | grep -A4 LC_BUILD_VERSION || true
+
+      - name: Wait for boot and warm up the hinge helper
+        timeout-minutes: 15
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          gtimeout 840 xcrun simctl bootstatus "$UDID" -b
+          # First `hinge` call compiles its helper into ~/.cache/hinge.
+          if command -v hinge >/dev/null; then gtimeout 120 hinge -d "$UDID" get || true; gtimeout 30 hinge -d "$UDID" posture || true; fi
+          gtimeout 30 xcrun simctl io "$UDID" enumerate || true
+
+      - name: Capture Duo screenshots
+        timeout-minutes: 40
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+          OBJECTS: ${{ inputs.objects }}
+          ANGLES: ${{ inputs.angles }}
+          HINGE_DRIVER: ${{ inputs.driver }}
+          OUT: duo-screens
+        run: bash ci/duo-screenshots.sh
+
+      - name: Simulator diagnostics
+        if: failure()
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          mkdir -p duo-screens/logs
+          gtimeout 120 xcrun simctl spawn "$UDID" log show --last 10m --style compact \
+            --predicate 'process == "Squish" OR subsystem CONTAINS "hinge" OR process == "SpringBoard"' \
+            > duo-screens/logs/sim-system.txt 2>&1 || true
+          xcrun simctl list devices > duo-screens/logs/devices.txt 2>&1 || true
+
+      - name: Upload Duo screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: duo-screens
+          path: |
+            duo-screens/
+            build.log
+          if-no-files-found: ignore
+
+      - name: Shut down simulator
+        if: always()
+        timeout-minutes: 3
+        continue-on-error: true
+        run: xcrun simctl shutdown all || true

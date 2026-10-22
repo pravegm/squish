@@ -37,7 +37,7 @@ struct RootView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let bands = ScreenBands(proxy)
+            let bands = ScreenBands(proxy, hinge: director.hingeAvailable || hasHinge)
             ZStack {
                 // Behind the RealityView: the current gel wall colour, so launch and rotation flashes match (§3.4).
                 Theme.gel(for: director.currentKind, golden: director.variant.isGolden)
@@ -66,6 +66,7 @@ struct RootView: View {
                         trace: director.trace(for: outcome.specimen),
                         collecting: collecting,
                         flyTarget: flyTarget,
+                        hinge: bands.hinge,
                         onNext: { collect { director.next() } },
                         onAgain: { collect { director.again() } }
                     )
@@ -74,10 +75,12 @@ struct RootView: View {
                 }
 
                 if let tip = tips.current, showsTips {
+                    // Portrait: the 80–86% band (bottom half on a Duo). Book pose: the right half, clear of the crease.
                     TipToast(tip: tip)
-                        .frame(maxWidth: 420)
-                        .padding(.horizontal, bands.margin)
-                        .position(x: bands.isLandscape ? bands.size.width - bands.fullWidth * 0.14 - bands.margin : bands.size.width / 2,
+                        .frame(width: bands.isLandscape
+                               ? max(220, bands.fullWidth * 0.5 - ScreenBands.creaseHalf - bands.margin * 2)
+                               : min(420, bands.size.width - bands.margin * 2))
+                        .position(x: bands.isLandscape ? bands.x(0.75) : bands.size.width / 2,
                                   y: bands.isLandscape ? bands.size.height * 0.62 : bands.y(0.83))
                         .onTapGesture { tips.dismissAll() }
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
@@ -237,19 +240,23 @@ struct RootView: View {
 
     @ViewBuilder
     private func console(_ bands: ScreenBands) -> some View {
+        // Tabletop (and non-folding phones): a fixed-width console in the 86–95% band, i.e. on the bottom plate's
+        // outer edge on a Duo, far from the crease. Book pose: the right 22% column, right of the crease.
+        let width = bands.isLandscape
+            ? max(180, bands.fullWidth * 0.22)
+            : min(bands.size.width - bands.margin * 2, 440)
         let chrome = IdleConsole(director: director, landscape: bands.isLandscape, hop: shelfHop, bump: shelfBump,
                                  shelfOnly: collecting,
                                  onShelf: openShelf,
-                                 onShelfFrame: { shelfKeyFrame = $0 })
+                                 onShelfFrame: { shelfKeyFrame = $0 },
+                                 width: width)
         if bands.isLandscape {
             chrome
-                .frame(width: bands.fullWidth * 0.22, alignment: .trailing)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(.trailing, bands.margin)
                 .padding(.bottom, Theme.s4)
         } else {
             chrome
-                .padding(.horizontal, bands.margin)
                 .position(x: bands.size.width / 2, y: bands.y(0.905))
         }
     }

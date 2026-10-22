@@ -27,7 +27,7 @@ enum Theme {
     /// Every shadow, never black.
     static let shadowInk = rgb(0x3B2F25)
     static let console = rgb(0x3A3D43)
-    static let consoleLip = rgb(0x1E2023)
+    static let consoleLip = rgb(0x141518)   // darker than VT #1E2023 so the lip reads on the graphite bed (VISUAL-REVIEW-1 #14)
     static let lampGreen = rgb(0x39D98A)
     static let lampRed = rgb(0xFF3B4E)
     static let floorNear = rgb(0xF1E9DC)
@@ -178,10 +178,34 @@ struct ScreenBands {
     /// Local (safe-area) size and insets from a GeometryReader that respects the safe area.
     let size: CGSize
     let insets: EdgeInsets
+    /// True on a foldable (a hinge has reported): nothing interactive may cross the crease.
+    let hinge: Bool
 
-    init(_ proxy: GeometryProxy) {
+    init(_ proxy: GeometryProxy, hinge: Bool = false) {
         size = proxy.size
         insets = proxy.safeAreaInsets
+        self.hinge = hinge
+    }
+
+    /// Half-width of the no-go band around the fold (HIG: nothing interactive in the 40 pt crease).
+    static let creaseHalf: CGFloat = 20
+
+    /// The crease in local coordinates. Tabletop (portrait): the horizontal midline ±20 pt; book pose
+    /// (landscape): the vertical midline ±20 pt. Assumed from the display geometry; the SwiftUI
+    /// division-region API isn't used because we can't verify its iOS 27.1 shape in CI.
+    var crease: CGRect? {
+        guard hinge else { return nil }
+        if isLandscape {
+            return CGRect(x: x(0.5) - Self.creaseHalf, y: -insets.top, width: Self.creaseHalf * 2, height: fullHeight)
+        }
+        return CGRect(x: -insets.leading, y: y(0.5) - Self.creaseHalf, width: fullWidth, height: Self.creaseHalf * 2)
+    }
+
+    /// Bottom of the top band for overlays (6–44%), kept clear of the crease.
+    var topBandBottom: CGFloat {
+        let bottom = y(0.44)
+        guard let crease, !isLandscape else { return bottom }
+        return min(bottom, crease.minY - Theme.s3)
     }
 
     var fullWidth: CGFloat { size.width + insets.leading + insets.trailing }
@@ -354,29 +378,40 @@ private struct KeycapFace: View {
     var body: some View {
         let pressed = configuration.isPressed && isEnabled
         let lipHeight = isEnabled ? lip : 0
+        let travel = pressed ? lipHeight - 1 : 0
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         configuration.label
             .font(kind == .chip ? Theme.label : Theme.button)
             .tracking(kind == .chip ? Theme.labelTracking : Theme.buttonTracking)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .foregroundStyle(labelColor)
+            .foregroundStyle(isEnabled ? labelColor : Theme.inkSecondary)
             .padding(.horizontal, round ? 0 : (kind == .chip ? Theme.s3 + 2 : Theme.s4 + 2))
             .frame(width: round ? height : nil)
             .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: height)
-            .background(shape.fill(face))
-            .topHighlight(cornerRadius: radius, opacity: kind == .console ? 0.18 : 0.65)
-            .overlay {
-                if contrast == .increased {
-                    shape.strokeBorder(Theme.graphite.opacity(0.4), lineWidth: 1)
-                }
-            }
+            // The label rides with the face; the lip stays put.
+            .offset(y: travel)
             .scaleEffect(pressed ? 0.985 : 1)
-            .offset(y: pressed ? lipHeight - 1 : 0)
-            .background(shape.fill(lipColor).offset(y: lipHeight))
+            // Shadows live on the shapes only, never on the label (VISUAL-REVIEW-1 #5: no text ghost-shadow).
+            .background {
+                ZStack {
+                    shape.fill(lipColor).offset(y: lipHeight)
+                    shape.fill(isEnabled ? face : Theme.paperShade.opacity(0.7))
+                        .overlay(
+                            shape.strokeBorder(LinearGradient(colors: [highlight, .clear], startPoint: .top, endPoint: .center),
+                                               lineWidth: 1)
+                        )
+                        .overlay {
+                            if contrast == .increased {
+                                shape.strokeBorder(Theme.graphite.opacity(0.4), lineWidth: 1)
+                            }
+                        }
+                        .offset(y: travel)
+                        .scaleEffect(pressed ? 0.985 : 1)
+                }
+                .elevation(isEnabled ? .e1 : .e0, pressed: pressed)
+            }
             .padding(.bottom, lipHeight)
-            .elevation(isEnabled ? .e1 : .e0, pressed: pressed)
-            .opacity(isEnabled ? 1 : 0.45)
             .padding(.vertical, kind == .chip ? 2.5 : 0) // 36 + 3 lip + 5 = 44 pt target
             .contentShape(Rectangle())
             .animation(reduceMotion ? nil : (pressed ? Theme.keyDown : Theme.keyUp), value: pressed)
@@ -403,6 +438,10 @@ private struct KeycapFace: View {
         }
     }
     private var lip: CGFloat { kind == .chip ? 3 : 4 }
+    /// Top inner highlight: white on light keys; a 1 pt #4A4E56 line on dark console keys (VISUAL-REVIEW-1 #14).
+    private var highlight: Color {
+        kind == .console ? Theme.rgb(0x4A4E56) : Color.white.opacity(0.65)
+    }
     private var face: Color {
         switch kind {
         case .primary: Theme.yellow
@@ -503,13 +542,14 @@ struct PressedStamp: View {
         .overlay(inner.strokeBorder(Theme.stamp, lineWidth: 1))
         .padding(2 + 2.5)
         .overlay(outer.strokeBorder(Theme.stamp, lineWidth: 2.5))
+        // Ink texture: an untransformed tile, so it always covers the whole stamp. (A rotated mask left the
+        // corners uncovered and clipped the letters — "PRESSEL", VISUAL-REVIEW-1 #13.)
         .mask {
             Image(uiImage: Textures.inkMask)
                 .resizable(resizingMode: .tile)
                 .luminanceToAlpha()
-                .rotationEffect(.degrees(Double(seed % 360)))
-                .scaleEffect(1.6)
         }
+        .padding(4) // room for the outer ring so no ancestor can shave it
         .opacity(0.88)
         .rotationEffect(.degrees(angle))
         .accessibilityHidden(true)
@@ -522,7 +562,7 @@ struct PerfectSeal: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Theme.yellow)
+            Circle().fill(Theme.yellow).elevation(.e1)
             Circle().strokeBorder(Theme.yellowLip, lineWidth: 2.5)
             ForEach(Array(letters.enumerated()), id: \.offset) { index, letter in
                 Text(String(letter))
@@ -536,7 +576,6 @@ struct PerfectSeal: View {
                 .foregroundStyle(Theme.graphite)
         }
         .frame(width: 44, height: 44)
-        .elevation(.e1)
         .rotationEffect(.degrees(-12))
         .accessibilityHidden(true)
     }
@@ -647,9 +686,8 @@ struct ToastView: View {
         .padding(.vertical, Theme.s1 + 2)
         .frame(minHeight: 52)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .background { PaperBackground().clipShape(shape) }
+        .background { PaperBackground().clipShape(shape).elevation(.e3) }
         .topHighlight(cornerRadius: Theme.toastRadius)
-        .elevation(.e3)
         .accessibilityElement(children: .combine)
     }
 

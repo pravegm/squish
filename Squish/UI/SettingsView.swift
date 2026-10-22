@@ -193,9 +193,8 @@ struct SettingsView: View {
             }
             .padding(.horizontal, Theme.s4)
             .padding(.vertical, Theme.s1)
-            .background(Theme.paperWarm, in: shape)
+            .background { shape.fill(Theme.paperWarm).elevation(.e1) }
             .topHighlight(cornerRadius: Theme.sectionRadius)
-            .elevation(.e1)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared || reduceMotion ? 0 : 8)

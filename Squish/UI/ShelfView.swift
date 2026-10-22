@@ -334,9 +334,8 @@ private struct ShelfSlot: View {
                             .font(.system(.caption, weight: .semibold))
                             .foregroundStyle(Theme.graphite)
                             .frame(width: 28, height: 28)
-                            .background(Theme.paper, in: Circle())
+                            .background { Circle().fill(Theme.paper).elevation(.e1) }
                             .overlay(Circle().strokeBorder(Theme.paperEdge, lineWidth: 1))
-                            .elevation(.e1)
                             .frame(width: Theme.hit, height: Theme.hit)
                             .contentShape(Rectangle())
                     }
@@ -533,9 +532,8 @@ private struct SquishedRow: View {
                 .foregroundStyle(Theme.inkTertiary)
         }
         .padding(Theme.s4)
-        .background(Theme.paperWarm, in: shape)
+        .background { shape.fill(Theme.paperWarm).elevation(.e1) }
         .topHighlight(cornerRadius: Theme.sectionRadius)
-        .elevation(.e1)
         .accessibilityElement(children: .ignore)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared || reduceMotion ? 0 : 8)

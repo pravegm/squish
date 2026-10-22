@@ -165,9 +165,8 @@ private struct SealedInset: View {
         .padding(.horizontal, Theme.s5)
         .padding(.vertical, Theme.s4)
         .frame(minWidth: 220)
-        .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+        .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).elevation(.e2) }
         .topHighlight(cornerRadius: 16)
-        .elevation(.e2)
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { breathe = true }
@@ -201,6 +200,17 @@ struct MiniGauge: View {
                     tick(center: center, radius: radius - 4, tons: Double(step * 10), length: 6)
                         .stroke(Theme.graphite, lineWidth: 1.5)
                 }
+                // Numerals so it reads as a gauge, not a clock (VISUAL-REVIEW-1, cover sealed).
+                ForEach([0, 30, 60], id: \.self) { value in
+                    Text("\(value)")
+                        .font(.system(size: 7, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Theme.inkSecondary)
+                        .position(point(center, radius - 17, Self.angle(Double(value))))
+                }
+                Text("TONS")
+                    .font(.system(size: 6, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Theme.inkSecondary)
+                    .position(x: center.x, y: center.y + radius * 0.42)
                 GaugeNeedle(tons: shown, inset: 9)
                     .fill(Theme.stamp)
                 Circle().fill(Theme.rgb(0xC9CCD2)).frame(width: 7, height: 7).position(center)
@@ -348,9 +358,8 @@ private struct IdleCover: View {
             }
         }
         .padding(Theme.s3)
-        .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+        .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).elevation(.e2) }
         .topHighlight(cornerRadius: 16)
-        .elevation(.e2)
     }
 
     private var shelfDescription: String {

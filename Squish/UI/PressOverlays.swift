@@ -142,7 +142,10 @@ struct CaptionOverlay: View {
         GeometryReader { proxy in
             ZStack {
                 ForEach(live, id: \.id) { item in
-                    let x = proxy.size.width * (0.25 + 0.5 * Self.unit(item.id, salt: 3))
+                    // Book pose: keep captions on the moving (left) half, off the vertical crease.
+                    let landscape = proxy.size.width > proxy.size.height
+                    let x = proxy.size.width * (landscape ? 0.10 + 0.28 * Self.unit(item.id, salt: 3)
+                                                          : 0.25 + 0.5 * Self.unit(item.id, salt: 3))
                     let y = proxy.size.height * (0.27 + 0.11 * Self.unit(item.id, salt: 11)) // glyphs stay inside 22–42%
                     let room = 2 * min(x, proxy.size.width - x) - 16
                     CaptionBurst(caption: item, fill: Theme.captionFill(for: kind), maxWidth: room) {
@@ -302,19 +305,39 @@ struct IdleConsole: View {
     /// The Shelf key's global frame, for the collect flight.
     var onShelfFrame: (CGRect) -> Void = { _ in }
 
+    /// Fixed console width: two fixed slots so nothing shifts between objects (VISUAL-REVIEW-1 #14).
+    var width: CGFloat = 360
+
     var body: some View {
-        let layout = landscape ? AnyLayout(VStackLayout(alignment: .trailing, spacing: Theme.s3))
-                               : AnyLayout(HStackLayout(spacing: Theme.s3))
-        layout {
-            if !shelfOnly {
-                ObjectChipPicker(director: director)
-                    .transition(.opacity)
+        Group {
+            if landscape {
+                VStack(spacing: Theme.s3) {
+                    chip.frame(width: width)
+                    key.frame(width: width)
+                }
+            } else {
+                HStack(spacing: Theme.s3) {
+                    chip.frame(width: (width - Theme.s3) * 0.54)
+                    key.frame(width: (width - Theme.s3) * 0.46)
+                }
             }
-            ShelfKey(pressedCount: director.collection.pressedKindsCount,
-                     total: ObjectKind.allCases.count, hop: hop, bump: bump, onOpen: onShelf)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onShelfFrame($0) }
         }
+        .frame(width: width)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    /// The chip keeps its slot during a collect (just hidden), so the Shelf key never moves.
+    private var chip: some View {
+        ObjectChipPicker(director: director)
+            .opacity(shelfOnly ? 0 : 1)
+            .allowsHitTesting(!shelfOnly)
+            .accessibilityHidden(shelfOnly)
+    }
+
+    private var key: some View {
+        ShelfKey(pressedCount: director.collection.pressedKindsCount,
+                 total: ObjectKind.allCases.count, hop: hop, bump: bump, onOpen: onShelf)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onShelfFrame($0) }
     }
 }
 
@@ -355,13 +378,13 @@ struct ObjectChipPicker: View {
         } label: {
             HStack(spacing: Theme.s2) {
                 TintDot(kind: director.currentKind)
-                Text(director.currentKind.displayName.uppercased())
+                Text(director.currentKind.chipName)
                     .contentTransition(.opacity)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(.caption2, weight: .semibold))
             }
         }
-        .buttonStyle(KeycapStyle(kind: .chip))
+        .buttonStyle(KeycapStyle(kind: .chip, fullWidth: true))
         .menuStyle(.button)
         .accessibilityLabel("Object: \(director.currentKind.displayName)")
         .accessibilityHint("Choose what goes on the anvil.")
@@ -397,7 +420,7 @@ struct ShelfKey: View {
                 }
             }
         }
-        .buttonStyle(KeycapStyle(kind: .console))
+        .buttonStyle(KeycapStyle(kind: .console, fullWidth: true))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Theme.yellow, lineWidth: 2)
@@ -439,5 +462,13 @@ struct ShelfKey: View {
         .accessibilityLabel("Shelf")
         .accessibilityValue(pressedCount > 0 ? "\(pressedCount) of \(total) objects pressed" : "")
         .accessibilityHint("Opens your collection and settings.")
+    }
+}
+
+extension ObjectKind {
+    /// Short console-chip name ("UNSQUISHABLE", not "THE UNSQUISHABLE").
+    var chipName: String {
+        let name = displayName.hasPrefix("The ") ? String(displayName.dropFirst(4)) : displayName
+        return name.uppercased()
     }
 }

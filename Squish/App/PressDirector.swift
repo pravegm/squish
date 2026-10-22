@@ -38,6 +38,7 @@ final class PressDirector {
     @ObservationIgnored private var started = false
     @ObservationIgnored private var renderedFrames = 0
     @ObservationIgnored private let launchTime = CACurrentMediaTime()
+    @ObservationIgnored private var lastHingeLogTime: Double = 0
     @ObservationIgnored private var captionCounter = 0
     @ObservationIgnored private var traceSamples: [PressTrace.Sample] = []
     @ObservationIgnored private var traceStart: Double = 0
@@ -156,6 +157,11 @@ final class PressDirector {
             hingeAvailable = true
         }
         hingeClosed = closed
+        // CI (ci/duo-screenshots.sh) counts these to prove onHingeChange fired on the Duo simulator.
+        if DemoScenario.current != nil, CACurrentMediaTime() - lastHingeLogTime > 0.25 {
+            lastHingeLogTime = CACurrentMediaTime()
+            print(String(format: "SQUISH-H %.2f %.1f %d", lastHingeLogTime - launchTime, angle, closed ? 1 : 0))
+        }
 
         // The reveal card is dismissed with the hinge too: closing the phone collects it, and
         // folding ~20° from the open position collects it and lets the next press begin in one motion.
@@ -342,6 +348,11 @@ final class PressDirector {
     private func runDemo(_ demo: DemoScenario) {
         print(String(format: "SQUISH-T demo '%@' starts at %.2fs", demo.name, CACurrentMediaTime() - launchTime))
         engine.config.ignoreInputAfterActivation = 0
+        if demo.has("duo") {
+            // Real iPhone Duo simulator: the CI script moves the actual hinge; we only place the object.
+            if let kind = demo.object { load(kind) }
+            return
+        }
         hingeUnavailable()
         if let kind = demo.object { load(kind) }
         let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
