@@ -236,9 +236,9 @@ enum FoldTextures {
         }.cgImage
     }
 
-    /// The Fold Press dial (FOLD-REVIEW-1 #11, #15): 0–80 t so the sealed tonnage (up to ~70) always fits, red zone
-    /// 60–80, numerals 0 / 40 / 80 (as on the cover, FOLD-REVIEW-3 N11), "TONS" centred under the hub.
-    static let gaugeMaxTons: CGFloat = 80
+    /// The Fold Press dial (FOLD-REVIEW-1 #11, #15): 0–80 t, red zone 60–80, numerals 0 / 40 / 80 (as on the cover,
+    /// FOLD-REVIEW-3 N11), "TONS" centred under the hub. One scale with the P-48 (`PressGauge`, FOLD-REVIEW-4 F12).
+    static let gaugeMaxTons = CGFloat(PressGauge.maxTons)
 
     @MainActor
     static func gaugeFace(diameter: CGFloat) -> CGImage? {
@@ -262,7 +262,8 @@ enum FoldTextures {
             }
             cg.setStrokeColor(Palette.stampRed.cgColor)
             cg.setLineWidth(diameter * 0.055)
-            cg.addArc(center: c, radius: R * 0.84, startAngle: -angle(60), endAngle: -angle(80), clockwise: false)
+            cg.addArc(center: c, radius: R * 0.84, startAngle: -angle(CGFloat(PressGauge.redZoneTons)), endAngle: -angle(maxTons),
+                      clockwise: false)
             cg.strokePath()
             cg.setLineCap(.round)
             for t in stride(from: 0, through: Int(maxTons), by: 5) {
@@ -369,9 +370,10 @@ enum FoldTextures {
         }
     }
 
-    /// The red PRESSED stamp (§6.3 step 4), drawn upright (it never mirrors with the print).
+    /// The red PRESSED stamp (§6.3 step 4), drawn upright (it never mirrors with the print). `paperInk`: paper-white
+    /// ink over a red keyline, for prints too close to red to show red ink (FOLD-REVIEW-3 N12: jelly).
     @MainActor
-    static func pressedStamp(width: CGFloat = 150) -> CGImage? {
+    static func pressedStamp(width: CGFloat = 150, paperInk: Bool = false) -> CGImage? {
         let height = width * 0.38
         let format = UIGraphicsImageRendererFormat()
         format.scale = 3
@@ -380,21 +382,37 @@ enum FoldTextures {
         return renderer.image { context in
             let cg = context.cgContext
             let red = Palette.stampRed.withAlphaComponent(0.88)
-            cg.setStrokeColor(red.cgColor)
+            let ink = paperInk ? Palette.paper.withAlphaComponent(0.95) : red
+            let outer = CGPath(roundedRect: CGRect(x: 3, y: 3, width: width - 6, height: height - 6), cornerWidth: 7,
+                               cornerHeight: 7, transform: nil)
+            let inner = CGPath(roundedRect: CGRect(x: 8, y: 8, width: width - 16, height: height - 16), cornerWidth: 4,
+                               cornerHeight: 4, transform: nil)
+            let font = UIFont.monospacedSystemFont(ofSize: height * 0.42, weight: .heavy)
+            let text = "PRESSED" as NSString
+            let size = text.size(withAttributes: [.font: font, .kern: 3])
+            let origin = CGPoint(x: (width - size.width) / 2, y: (height - size.height) / 2)
+            if paperInk {
+                // The red keyline: the same marks, wider, under the white ink.
+                cg.setStrokeColor(red.cgColor)
+                cg.setLineWidth(5.5)
+                cg.addPath(outer)
+                cg.strokePath()
+                cg.setLineWidth(3)
+                cg.addPath(inner)
+                cg.strokePath()
+                let keyline: [NSAttributedString.Key: Any] = [
+                    .font: font, .kern: 3, .foregroundColor: red, .strokeColor: red, .strokeWidth: -14,
+                ]
+                text.draw(at: origin, withAttributes: keyline)
+            }
+            cg.setStrokeColor(ink.cgColor)
             cg.setLineWidth(3.5)
-            cg.addPath(CGPath(roundedRect: CGRect(x: 3, y: 3, width: width - 6, height: height - 6), cornerWidth: 7, cornerHeight: 7,
-                              transform: nil))
+            cg.addPath(outer)
             cg.strokePath()
             cg.setLineWidth(1.2)
-            cg.addPath(CGPath(roundedRect: CGRect(x: 8, y: 8, width: width - 16, height: height - 16), cornerWidth: 4, cornerHeight: 4,
-                              transform: nil))
+            cg.addPath(inner)
             cg.strokePath()
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.monospacedSystemFont(ofSize: height * 0.42, weight: .heavy), .foregroundColor: red, .kern: 3,
-            ]
-            let text = "PRESSED" as NSString
-            let size = text.size(withAttributes: attributes)
-            text.draw(at: CGPoint(x: (width - size.width) / 2, y: (height - size.height) / 2), withAttributes: attributes)
+            text.draw(at: origin, withAttributes: [.font: font, .foregroundColor: ink, .kern: 3])
         }.cgImage
     }
 }

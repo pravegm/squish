@@ -23,9 +23,12 @@ struct CoverView: View {
     var onQueue: ((ObjectKind) -> Void)?
     /// The one-time safety line (bible §3.2), when it's due.
     var showsSafetyLine = false
+    /// Fold Press: the platen's monoprint of this press (`FoldPlaten.printImage()`), the sealed card's teaser.
+    /// Nil (P-48, a demo cover, no contact yet) falls back to the object's silhouette.
+    var sealedPrint: UIImage?
 
     /// The outer display's safe area already excludes the clock column and the bottom inset (seen on the Duo
-    /// simulator), so the content just takes a normal margin and centres in what's left, both ways.
+    /// simulator), so the idle content just takes a normal margin and centres in what's left, both ways.
     private var sideInset: CGFloat { Theme.s5 }
     private var bottomInset: CGFloat { 0 }
 
@@ -35,38 +38,69 @@ struct CoverView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let width = max(220, min(proxy.size.width - sideInset * 2, 340))
-            ZStack {
-                MachinePanel(holdingPressure: isSealed)
-                ScrollView(.vertical) {
-                    VStack(spacing: Theme.s4) {
-                        switch content {
-                        case let .sealed(kind, tons):
-                            SealedInset(kind: kind, tons: tons)
-                        case .idle:
-                            IdleCover(recent: recent, currentKind: currentKind, thumbnail: thumbnail,
-                                      unlockedKinds: unlockedKinds, onQueue: onQueue)
-                        }
-                        if showsSafetyLine {
-                            Text("Squish is on-screen only. Never close your phone on real things.")
-                                .font(Theme.footnote)
-                                .foregroundStyle(Theme.paper.opacity(0.85))
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(width: width)
-                    .padding(.vertical, Theme.s5)
-                    .frame(minHeight: proxy.size.height - bottomInset)
-                    .frame(maxWidth: .infinity)
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .scrollIndicators(.hidden)
-                .padding(.bottom, bottomInset)
+        ZStack {
+            MachinePanel(holdingPressure: isSealed)
+            switch content {
+            case let .sealed(kind, tons):
+                sealed(kind: kind, tons: tons)
+            case .idle:
+                idle
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+    }
+
+    /// The sealed card (FOLD-REVIEW-3 N16, FOLD-REVIEW-4 F10): centred on the whole outer display, both ways, at
+    /// ~80 % of its width. Centring in the safe area left of the clock column put it 220 px left of centre with
+    /// 61 % of the panel empty. Its content is centred, so the column only ever meets the card's paper margin.
+    private func sealed(kind: ObjectKind, tons: Int) -> some View {
+        GeometryReader { proxy in
+            let width = min(max(240, proxy.size.width * 0.8), 400)
+            ScrollView(.vertical) {
+                VStack(spacing: Theme.s4) {
+                    SealedInset(kind: kind, tons: tons, inkPrint: sealedPrint)
+                    safetyLine
+                }
+                .frame(width: width)
+                .padding(.vertical, Theme.s5)
+                .frame(minHeight: proxy.size.height)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.hidden)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var idle: some View {
+        GeometryReader { proxy in
+            let width = max(220, min(proxy.size.width - sideInset * 2, 340))
+            ScrollView(.vertical) {
+                VStack(spacing: Theme.s4) {
+                    IdleCover(recent: recent, currentKind: currentKind, thumbnail: thumbnail,
+                              unlockedKinds: unlockedKinds, onQueue: onQueue)
+                    safetyLine
+                }
+                .frame(width: width)
+                .padding(.vertical, Theme.s5)
+                .frame(minHeight: proxy.size.height - bottomInset)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.hidden)
+            .padding(.bottom, bottomInset)
+        }
+    }
+
+    @ViewBuilder
+    private var safetyLine: some View {
+        if showsSafetyLine {
+            Text("Squish is on-screen only. Never close your phone on real things.")
+                .font(Theme.footnote)
+                .foregroundStyle(Theme.paper.opacity(0.85))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -180,10 +214,12 @@ private struct Screw: View {
     }
 }
 
-/// The sealed card: a paper inset with the mini gauge at the peak.
+/// The sealed card: a paper inset with the mini gauge at the peak. Fold Press: the platen's own monoprint of this
+/// press is the teaser (FOLD-REVIEW-3 N16): what the lid printed, not an intact object next to "WHAT'S LEFT?".
 private struct SealedInset: View {
     let kind: ObjectKind
     let tons: Int
+    var inkPrint: UIImage?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathe = false
 
@@ -200,38 +236,20 @@ private struct SealedInset: View {
                     .font(.system(.headline, design: .rounded, weight: .heavy))
                     .foregroundStyle(Theme.graphite)
             }
-            HStack(spacing: Theme.s4) {
-                MiniGauge(tons: tons)
-                    .frame(width: 72, height: 72)
-                // Teaser (P2-5): the object's silhouette, flattened, with a question.
-                VStack(spacing: Theme.s1) {
-                    Text("WHAT'S LEFT?")
-                        .font(Theme.micro)
-                        .tracking(Theme.microTracking)
-                        .foregroundStyle(Theme.inkSecondary)
-                    // The object's print in its own ink at 0.5 — a recognisable shape, not a squashed grey blob
-                    // (FOLD-REVIEW-2 #10). Bubble wrap shows its domes so it never reads as a plain bar.
-                    ZStack {
-                        ObjectSilhouette(kind: kind)
-                            .fill(Theme.tint(for: kind).opacity(0.5))
-                        ObjectSilhouette(kind: kind)
-                            .stroke(Theme.graphite.opacity(0.35), lineWidth: 1)
-                        if kind == .bubbleWrap {
-                            ObjectTile(kind: kind, cornerRadius: 8)
-                                .opacity(0.6)
-                        }
-                    }
-                    .frame(width: 48, height: 48)
+            if let inkPrint {
+                printTeaser(inkPrint)
+                HStack(spacing: Theme.s4) {
+                    MiniGauge(tons: tons)
+                        .frame(width: 64, height: 64)
+                    tonnage
                 }
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("\(tons)")
-                    .font(Theme.bigNumber)
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.graphite)
-                Text("TONS")
-                    .font(Theme.bigNumber)
-                    .foregroundStyle(Theme.inkSecondary)
+            } else {
+                HStack(spacing: Theme.s4) {
+                    MiniGauge(tons: tons)
+                        .frame(width: 72, height: 72)
+                    silhouetteTeaser
+                }
+                tonnage
             }
             Text("OPEN TO SEE")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -250,6 +268,64 @@ private struct SealedInset: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Press sealed. \(tons) tons. Open your iPhone to see the result.")
+    }
+
+    private var tonnage: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("\(tons)")
+                .font(Theme.bigNumber)
+                .monospacedDigit()
+                .foregroundStyle(Theme.graphite)
+            Text("TONS")
+                .font(Theme.bigNumber)
+                .foregroundStyle(Theme.inkSecondary)
+        }
+    }
+
+    private var whatsLeft: some View {
+        Text("WHAT'S LEFT?")
+            .font(Theme.micro)
+            .tracking(Theme.microTracking)
+            .foregroundStyle(Theme.inkSecondary)
+    }
+
+    /// The monoprint as it lies on the platen (steel plate, ink, splat; no bezel), full card width, ≤ 150 pt tall.
+    private func printTeaser(_ image: UIImage) -> some View {
+        VStack(spacing: Theme.s1) {
+            whatsLeft
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                // Clip and rim the image itself, then let the frame centre it in the card.
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Theme.graphite.opacity(0.18), lineWidth: 1)
+                }
+                .frame(maxWidth: .infinity, maxHeight: 150)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// No print (P-48, demo cover): the object's silhouette, flattened, with a question (P2-5).
+    private var silhouetteTeaser: some View {
+        VStack(spacing: Theme.s1) {
+            whatsLeft
+            // The object's print in its own ink at 0.5 — a recognisable shape, not a squashed grey blob
+            // (FOLD-REVIEW-2 #10). Bubble wrap shows its domes so it never reads as a plain bar.
+            ZStack {
+                ObjectSilhouette(kind: kind)
+                    .fill(Theme.tint(for: kind).opacity(0.5))
+                ObjectSilhouette(kind: kind)
+                    .stroke(Theme.graphite.opacity(0.35), lineWidth: 1)
+                if kind == .bubbleWrap {
+                    ObjectTile(kind: kind, cornerRadius: 8)
+                        .opacity(0.6)
+                }
+            }
+            .frame(width: 48, height: 48)
+        }
     }
 }
 

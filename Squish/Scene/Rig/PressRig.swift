@@ -235,7 +235,7 @@ final class PressRig {
         rod.scale = SIMD3(1, length, 1)
     }
 
-    /// Tonnage needle (0–60 t dial; > 60 pins into the red), spring response ≈ 0.18 s, damping 0.55.
+    /// Tonnage needle (0–80 t dial, `PressGauge`; past 80 it pins), spring response ≈ 0.18 s, damping 0.55.
     /// `panic`: slam warning (UX-REVIEW P0-5) — a wide, fast needle shiver, the non-text "slowly…" cue.
     func updateGauge(tons target: Float, dt: Float, tremor: Bool, buzz: Bool, panic: Bool = false, time: Float) {
         guard dt > 0 else { return }
@@ -247,10 +247,11 @@ final class PressRig {
             needleVelocity += accel * h
             needleTons += needleVelocity * h
         }
-        var shown = min(needleTons, 63)
+        let dialMax = Float(PressGauge.maxTons)
+        var shown = min(needleTons, dialMax + 3)
         if tremor { shown += 0.8 / 4.5 * sin(time * 2 * .pi * 14) }      // ±0.8° at 14 Hz
         if panic { shown += 3.5 * sin(time * 2 * .pi * 19) * sin(time * 2 * .pi * 3.1) }
-        if buzz { shown = 62 + 0.6 * sin(time * 2 * .pi * 23) }          // pinned and buzzing
+        if buzz { shown = dialMax + 2 + 0.6 * sin(time * 2 * .pi * 23) }  // pinned and buzzing
         if !tremor && !buzz && target < 0.01 { shown += 0.3 / 4.5 * sin(time * 2 * .pi * 0.4) } // idle breathing
         setNeedle(shown)
     }
@@ -261,8 +262,9 @@ final class PressRig {
     }
 
     private func setNeedle(_ tons: Float) {
-        // Dial angle θ = 225° − 270°·t/60 (CCW from +x); the needle model points to 12 o'clock (90°).
-        let theta = (225 - 270 * clamp(tons, -1, 63) / 60) * Float.pi / 180
+        // Dial angle θ = 225° − 270°·t/80 (CCW from +x, `PressGauge`); the needle model points to 12 o'clock (90°).
+        let dialMax = Float(PressGauge.maxTons)
+        let theta = (225 - 270 * clamp(tons, -1, dialMax + 3) / dialMax) * Float.pi / 180
         needlePivot.orientation = simd_quatf(angle: theta - .pi / 2, axis: [0, 0, 1])
     }
 

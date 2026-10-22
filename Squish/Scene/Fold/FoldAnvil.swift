@@ -46,9 +46,15 @@ final class FoldAnvil {
     private var builtFor: FoldLayout?
     /// The field's colour: exactly the platen's enamel (set by the controller from the same value).
     private var enamel = FoldTextures.enamel(gel: 0xF6E3D3, golden: false, lit: FoldTextures.platenLit)
+    /// The splat that escaped the fold (FOLD-REVIEW-4 F3): flat droplet decals lying on the plate and field.
+    private let sprayGroup = Entity()
+    private var sprayDrops: [(entity: Entity, base: SIMD2<Float>, diameter: Float, delay: Double)] = []
+    private var sprayAge: Double = 0
+    private var dropletMesh: MeshResource?
 
     init() {
         root.addChild(fieldGroup)
+        root.addChild(sprayGroup)
         buildPlate()
     }
 
@@ -93,6 +99,74 @@ final class FoldAnvil {
         guard !color.isEqual(enamel) else { return }
         enamel = color
         field.model?.materials = [Self.fieldMaterial(color)]
+    }
+
+    // MARK: Escaped splat (FOLD-REVIEW-4 F3)
+
+    /// At the failure: the splat's droplets that got out from between the plates, mirrored from the platen's
+    /// (`FoldStamps.anvilSpray`, print space = this frame top-down in points). Each is a flat, unlit disc of the ink with
+    /// a darker rim and a wet highlight, lying 0.03 mm over the plate (or the field, past the plate's edge), under the
+    /// object, so the 3D specimen hides the ones it covers. They pop in, staggered, and ride out with the platen
+    /// splat's spread (`updateSpray`). Contained to the strike plate + 16 pt by `anvilSpray`.
+    func spray(_ spray: FoldSpray?, reduceMotion: Bool) {
+        clearSpray()
+        guard let spray, !spray.droplets.isEmpty else { return }
+        let mesh: MeshResource
+        if let dropletMesh {
+            mesh = dropletMesh
+        } else {
+            // A unit disc (a fully rounded unit square), scaled per droplet.
+            mesh = .generatePlane(width: 1, depth: 1, cornerRadius: 0.48)
+            dropletMesh = mesh
+        }
+        let ppm = Float(FoldMetrics.pointsPerMM)
+        let rim = SceneMaterials.unlit(spray.edge)
+        let body = SceneMaterials.unlit(spray.color)
+        let wet = SceneMaterials.unlit(spray.highlight)
+        for (i, d) in spray.droplets.enumerated() {
+            let drop = Entity()
+            let edge = ModelEntity(mesh: mesh, materials: [rim])
+            let core = ModelEntity(mesh: mesh, materials: [body])
+            core.scale = [0.76, 1, 0.76]
+            core.position = [0.04, 0.01, 0.04]
+            let glint = ModelEntity(mesh: mesh, materials: [wet])
+            glint.scale = [0.24, 1, 0.24]
+            glint.position = [-0.16, 0.02, -0.16]
+            drop.addChild(edge)
+            drop.addChild(core)
+            drop.addChild(glint)
+            drop.scale = [0.0001, 1, 0.0001]
+            sprayGroup.addChild(drop)
+            sprayDrops.append((drop, SIMD2<Float>(Float(d.centre.x) / ppm, Float(d.centre.y) / ppm),
+                               2 * Float(d.radius) / ppm, reduceMotion ? 0 : Double(i) * 0.014))
+        }
+        updateSpray(spread: 0.55, dt: 0, reduceMotion: reduceMotion)
+    }
+
+    /// Per frame: `spread` is the platen splat's scale about the footprint centre (it eases 0.55 → ~1 after the
+    /// failure), capped at `FoldStamps.sprayMaxScale`, so the droplets squirt outward with it.
+    func updateSpray(spread: Double, dt: Double, reduceMotion: Bool) {
+        guard !sprayDrops.isEmpty else { return }
+        sprayAge += dt
+        let s = Float(clamp(spread, 0.5, Double(FoldStamps.sprayMaxScale)))
+        let ppm = Float(FoldMetrics.pointsPerMM)
+        let plateHalf = SIMD2<Float>(Float(FoldMetrics.plateLateral / 2) / ppm, Float(FoldMetrics.plateDepth / 2) / ppm)
+        let proud = Float(FoldMetrics.plateProudMM)
+        for drop in sprayDrops {
+            let p = drop.base * s
+            let onPlate = abs(p.x) <= plateHalf.x && abs(p.y) <= plateHalf.y
+            drop.entity.position = [p.x, onPlate ? 0.03 : 0.03 - proud, p.y]
+            let pop = reduceMotion ? 1 : Float(clamp((sprayAge - drop.delay) / 0.09, 0, 1))
+            let size = max(drop.diameter * pop, 0.0001)
+            drop.entity.scale = [size, 1, size]
+        }
+    }
+
+    /// The next object goes on: the mess is wiped with the platen's print.
+    func clearSpray() {
+        for child in Array(sprayGroup.children) { child.removeFromParent() }
+        sprayDrops = []
+        sprayAge = 0
     }
 
     /// FOLD-REVIEW-3 N3: the field is unlit, not tone-mapped, in the platen's exact colour. A lit clearcoat mirrored

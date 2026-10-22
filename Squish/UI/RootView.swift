@@ -21,6 +21,8 @@ struct RootView: View {
     @State private var uiCollected = false
     @State private var pendingCoach: String?
     @State private var demoCover: CoverView.Content?
+    /// Fold Press: the platen's monoprint, captured once as the press seals, for the cover's sealed card.
+    @State private var coverPrint: UIImage?
     @AppStorage("squish.askedForReview") private var askedForReview = false
     @AppStorage("squish.shelfDiscovered") private var shelfDiscovered = false
     /// Remembered once a hinge has ever reported, so a Duo never gets non-Duo copy (UX-REVIEW-1 P1-16).
@@ -57,7 +59,7 @@ struct RootView: View {
                     CaptionOverlay(caption: director.caption, kind: director.currentKind)
                 }
 
-                if (director.canChooseObject || collecting) && !isCoverUp {
+                if (director.canChooseObject || collecting || consoleHoldsChip) && !isCoverUp {
                     console(bands)
                         .transition(.opacity)
                 }
@@ -80,7 +82,7 @@ struct RootView: View {
 
                 if let tip = tips.current, showsTips {
                     // Portrait: the 80–86% band (bottom half on a Duo). Book pose: the right half, clear of the crease.
-                    // Fold Press: one line in the crown strip, never on either plate's stage.
+                    // Fold Press: one line in the fold toast slot (platen foot / under the print), never the crown.
                     let tipFrame = tipPlacement(bands)
                     TipToast(tip: tip, compact: director.usesFoldPress)
                         .frame(width: tipFrame.width)
@@ -99,7 +101,8 @@ struct RootView: View {
                         reservesClockColumn: director.isShowingCover,
                         unlockedKinds: ObjectKind.allCases.filter { director.collection.isUnlocked($0) },
                         onQueue: coverQueue,
-                        showsSafetyLine: tips.current?.kind == .safety
+                        showsSafetyLine: tips.current?.kind == .safety,
+                        sealedPrint: coverPrint
                     )
                     .transition(.opacity)
                 }
@@ -127,6 +130,9 @@ struct RootView: View {
         }
         .onChange(of: director.isShowingCover) { _, covered in
             if covered { sheet = nil }
+        }
+        .onChange(of: coverIsSealed, initial: true) { _, sealed in
+            coverPrint = sealed ? sealedPrintTeaser() : nil
         }
         .onChange(of: director.hingeAvailable) { _, available in
             if available { hingeArrived() }
@@ -265,13 +271,12 @@ struct RootView: View {
 
     // MARK: - Console (86–95%, or the right 22% column in landscape)
 
-    /// Where one-time tips go: the Fold Press crown strip (clear of the gauge), the 80–86% band in portrait,
-    /// or the right half in landscape (clear of the crease). Width is never below 300 pt.
+    /// Where one-time tips go: the Fold Press toast slot (the same one the reveal's toasts use, off the crown
+    /// strip's gauge and hinge readout, FOLD-REVIEW-4 F4), the 80–86% band in portrait, or the right half in
+    /// landscape (clear of the crease). Width is never below 300 pt.
     private func tipPlacement(_ bands: ScreenBands) -> CGRect {
         if director.usesFoldPress {
-            let crown = bands.local(bands.foldLayout.crownStrip)
-            let width = max(300, min(crown.width - 88, 420))
-            return CGRect(x: crown.maxX - Theme.s2 - width, y: crown.minY, width: width, height: crown.height)
+            return bands.foldToastSlot
         }
         if bands.isLandscape {
             let width = max(300, bands.fullWidth * 0.5 - ScreenBands.creaseHalf - bands.margin * 2)
@@ -294,6 +299,7 @@ struct RootView: View {
         let chrome = IdleConsole(director: director, landscape: bands.isLandscape && foldBand == nil, hop: shelfHop,
                                  bump: shelfBump,
                                  shelfOnly: collecting,
+                                 chipOnly: consoleHoldsChip && !director.canChooseObject && !collecting,
                                  onShelf: openShelf,
                                  onShelfFrame: { shelfKeyFrame = $0 },
                                  width: width)
@@ -309,6 +315,13 @@ struct RootView: View {
             chrome
                 .position(x: bands.size.width / 2, y: bands.y(0.905))
         }
+    }
+
+    /// Fold Press, mid-press (FOLD-REVIEW-3 N16): the object chip stays in the console, dimmed and inert, so the
+    /// console band isn't empty graphite and every pressing frame says what's on the anvil. Not during the reveal
+    /// (its own keys own the band) and never on the P-48, whose press keeps zero chrome.
+    private var consoleHoldsChip: Bool {
+        director.usesFoldPress && director.revealed == nil && !revealVisible
     }
 
     private func openShelf() {
@@ -487,6 +500,19 @@ struct RootView: View {
             UIFeel.tick()
             director.queue(kind)
         }
+    }
+
+    private var coverIsSealed: Bool {
+        if case .sealed = coverContent { return true }
+        return false
+    }
+
+    /// The cover's teaser (FOLD-REVIEW-3 N16): the print the platen took of this press, exactly as it lies on the
+    /// lid (`FoldPlaten.printImage()`, the same image the collection card's diptych uses). Fold Press only: the
+    /// P-48 has no platen print, and a demo cover has none yet, so both keep the silhouette teaser.
+    private func sealedPrintTeaser() -> UIImage? {
+        guard director.usesFoldPress, demoCover == nil, let image = director.fold.platen.printImage() else { return nil }
+        return UIImage(cgImage: image, scale: 2, orientation: .up)
     }
 
     private var coverContent: CoverView.Content {

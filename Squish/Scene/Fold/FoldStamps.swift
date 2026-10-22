@@ -63,6 +63,22 @@ enum FoldPrintEffect: Equatable, Sendable {
     case platenBreaks
 }
 
+/// One flicked-out drop of the failure splat, print space (points).
+struct FoldDroplet: Equatable, Sendable {
+    var centre: CGPoint
+    var radius: CGFloat
+}
+
+/// The splat that escapes the fold onto the anvil at failure (FOLD-REVIEW-4 F3): print-space droplets (print space is
+/// the anvil frame seen top-down, so these lie at the very spots the platen's droplets meet when the phone shuts) and
+/// their ink.
+struct FoldSpray: @unchecked Sendable {
+    let droplets: [FoldDroplet]
+    let color: UIColor
+    let edge: UIColor
+    let highlight: UIColor
+}
+
 /// A fixed canvas for every print-space image: the strike plate plus 40 pt (§2.3 spread clamp).
 enum FoldPrintCanvas {
     static let rect = CGRect(x: -(FoldMetrics.plateLateral / 2 + 40), y: -(FoldMetrics.plateDepth / 2 + 40),
@@ -316,18 +332,22 @@ enum FoldStamps {
             ctx.clip()
             ctx.setFillColor(stamp.ink.withAlphaComponent(stamp.inkAlpha).cgColor)
             ctx.fill(FoldPrintCanvas.rect)
-            // Pooled rim: a wide, blurred stroke of the outline, clipped inside, so the edge reads soft but clean.
-            ctx.setShadow(offset: .zero, blur: 5 * scale, color: stamp.inkEdge.withAlphaComponent(0.55).cgColor)
-            ctx.addPath(outline)
-            ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.55 : 0.30).cgColor)
-            ctx.setLineWidth(stamp.kind == .glassBottle ? 3 : 4)
-            ctx.strokePath()
-            ctx.setShadow(offset: .zero, blur: 0, color: nil)
-            // The wet rim (FOLD-REVIEW-1 #6): a crisp 1.5 pt line of pooled ink just inside the edge.
-            ctx.addPath(outline)
-            ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.7 : 0.55).cgColor)
-            ctx.setLineWidth(3)   // half of it falls outside the clip: 1.5 pt visible
-            ctx.strokePath()
+            if stamp.kind == .bubbleWrap {
+                bubbleFilm(ctx, stamp, outline: outline)
+            } else {
+                // Pooled rim: a wide, blurred stroke of the outline, clipped inside, so the edge reads soft but clean.
+                ctx.setShadow(offset: .zero, blur: 5 * scale, color: stamp.inkEdge.withAlphaComponent(0.55).cgColor)
+                ctx.addPath(outline)
+                ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.55 : 0.30).cgColor)
+                ctx.setLineWidth(stamp.kind == .glassBottle ? 3 : 4)
+                ctx.strokePath()
+                ctx.setShadow(offset: .zero, blur: 0, color: nil)
+                // The wet rim (FOLD-REVIEW-1 #6): a crisp 1.5 pt line of pooled ink just inside the edge.
+                ctx.addPath(outline)
+                ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.7 : 0.55).cgColor)
+                ctx.setLineWidth(3)   // half of it falls outside the clip: 1.5 pt visible
+                ctx.strokePath()
+            }
             // Mottle: ±8 % alpha, so the ink takes the steel's tooth instead of reading as a vector fill.
             var mottle = SplitMix64(seed: stamp.seed ^ 0x307)
             let box = outline.boundingBoxOfPath
@@ -347,14 +367,35 @@ enum FoldStamps {
                 ctx.drawRadialGradient(gradient, startCenter: stamp.apex, startRadius: 0, endCenter: stamp.apex,
                                        endRadius: stamp.fullRadius * 0.6, options: [])
             }
-            // Only bubble wrap keeps interior marks: each dome really does touch the plate as its own circle.
-            if stamp.kind == .bubbleWrap, let details = stamp.details {
-                ctx.addPath(details)
-                ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(0.30).cgColor)
-                ctx.setLineWidth(1)
-                ctx.strokePath()
-            }
             ctx.restoreGState()
+        }
+    }
+
+    /// Bubble wrap's print (FOLD-REVIEW-3 N9, FOLD-REVIEW-4 F8): not a diagram of outline circles in a stroked box. The
+    /// film's edge is a faint dashed impress, and each dome is the soft patch it flattens into against the plate,
+    /// a little darker at its rim, every one a touch different in size and weight. Drawn under the ink mottle, so the
+    /// domes take the steel's tooth like the rest of the print. Callers clip to the outline.
+    private static func bubbleFilm(_ ctx: CGContext, _ stamp: FoldStamp, outline: CGPath) {
+        ctx.saveGState()
+        ctx.addPath(outline)
+        ctx.setLineDash(phase: 0, lengths: [5, 4])
+        ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(0.34).cgColor)
+        ctx.setLineWidth(2.4)   // half falls outside the clip: a 1.2 pt dashed seam
+        ctx.strokePath()
+        ctx.restoreGState()
+        var rng = SplitMix64(seed: stamp.seed ^ 0xD03E5)
+        let space = CGColorSpaceCreateDeviceRGB()
+        for p in stamp.features {
+            let r = stamp.featureRadius * CGFloat.random(in: 0.78...0.92, using: &rng)
+            let weight = CGFloat.random(in: 0.16...0.30, using: &rng)
+            let centre = CGPoint(x: p.x + CGFloat.random(in: -0.6...0.6, using: &rng),
+                                 y: p.y + CGFloat.random(in: -0.6...0.6, using: &rng))
+            let colors = [stamp.inkEdge.withAlphaComponent(weight * 0.45).cgColor,
+                          stamp.inkEdge.withAlphaComponent(weight).cgColor,
+                          stamp.inkEdge.withAlphaComponent(0).cgColor] as CFArray
+            if let g = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.78, 1]) {
+                ctx.drawRadialGradient(g, startCenter: centre, startRadius: 0, endCenter: centre, endRadius: r, options: [])
+            }
         }
     }
 
@@ -370,16 +411,58 @@ enum FoldStamps {
     /// The approach shadow (§3.2 step 1): the outline in shadow ink, pre-blurred by `blur` points.
     static func shadowImage(_ stamp: FoldStamp, blur: CGFloat, scale: CGFloat = 1) -> CGImage? {
         let rect = FoldPrintCanvas.rect
+        let outline = shadowOutline(stamp)
         return image(rect: rect, scale: scale) { ctx in
             // Draw the shape off-canvas and keep only its shadow (CG shadow params are in device pixels).
             let shift = rect.width + 4 * blur
             ctx.setShadow(offset: CGSize(width: -shift * scale, height: 0), blur: blur * scale,
                           color: Palette.shadowInk.cgColor)
             ctx.translateBy(x: shift, y: 0)
-            ctx.addPath(stamp.silhouette)
+            ctx.addPath(outline)
             ctx.setFillColor(Palette.shadowInk.cgColor)
             ctx.fillPath()
         }
+    }
+
+    /// Sheets (bubble wrap) cast a soft-cornered shadow (FOLD-REVIEW-3 N15): the film's rectangle with corners of at
+    /// least 24 pt, so the approach shadow never reads as a box. Everything else casts its silhouette.
+    static func shadowOutline(_ stamp: FoldStamp) -> CGPath {
+        guard stamp.kind == .bubbleWrap, stamp.pointsPerMetre > 0 else { return stamp.silhouette }
+        let k = Double(stamp.pointsPerMetre)
+        let film = CGRect(x: -0.055, y: -0.045, width: 0.110, height: 0.090)
+        let corner = CGFloat(min(max(24 / k, 0.006), 0.044))
+        let path = CGMutablePath()
+        path.addRoundedRect(in: film, cornerWidth: corner, cornerHeight: corner,
+                            transform: LocalMap(k: k, yaw: stamp.yawRadians).transform)
+        return path
+    }
+
+    /// The blurs (points) the approach shadow is pre-rendered at; the platen blends between them. Sheets never sharpen
+    /// below 28 pt (FOLD-REVIEW-3 N15: at 150° the 4 / 16 pt images printed a hard block over the whole film).
+    static func shadowBlurs(_ kind: ObjectKind) -> [CGFloat] {
+        kind == .bubbleWrap ? [28, 34, 40] : [4, 16, 40]
+    }
+
+    /// Blend weights over pre-blurred shadow images at `stops` (ascending) for a target `blur`: linear between the two
+    /// stops around it, all on the nearest end outside them.
+    static func shadowWeights(blur: Double, stops: [Double]) -> [Double] {
+        var weights = [Double](repeating: 0, count: stops.count)
+        guard let first = stops.first, let last = stops.last else { return weights }
+        if blur <= first {
+            weights[0] = 1
+            return weights
+        }
+        if blur >= last {
+            weights[stops.count - 1] = 1
+            return weights
+        }
+        for i in 0..<(stops.count - 1) where blur <= stops[i + 1] {
+            let t = (blur - stops[i]) / max(stops[i + 1] - stops[i], 1e-9)
+            weights[i] = 1 - t
+            weights[i + 1] = t
+            return weights
+        }
+        return weights
     }
 
     /// A white disc with a soft edge (`feather` as a fraction of the radius), unit-agnostic: used as the growth mask.
@@ -414,7 +497,9 @@ enum FoldStamps {
     // MARK: Stamps
 
     /// Draws the stamp for one fracture into the accumulating print decal (print space) and returns any live effect.
-    static func drawFracture(index: Int, isFailure: Bool, stamp: FoldStamp, into ctx: CGContext) -> FoldPrintEffect {
+    /// `compression` is how hard the press was when it broke (it weights bubble wrap's pops).
+    static func drawFracture(index: Int, isFailure: Bool, stamp: FoldStamp, into ctx: CGContext,
+                             compression: Double = 0.5) -> FoldPrintEffect {
         var rng = SplitMix64(seed: stamp.seed &+ UInt64(index + 1) &* 0x9E37)
         let k = stamp.pointsPerMetre
         switch stamp.kind {
@@ -424,8 +509,19 @@ enum FoldStamps {
             guard cell < stamp.features.count else { return .none }
             let p = stamp.features[cell]
             let r = stamp.featureRadius
-            fillDisc(ctx, p, r * 0.95, (stamp.golden ? Palette.gold : UIColor(hex: 0x9CCBE6)).withAlphaComponent(0.55))
-            ring(ctx, p, r, 1.8, (stamp.golden ? UIColor(hex: 0xB98A1E) : UIColor(hex: 0x3E93C2)).withAlphaComponent(0.95))
+            // FOLD-REVIEW-3 N9: a pop prints by how hard it was. The burst dome spreads a little past its patch, its
+            // rim weight and ink follow the compression, and the split it let the air out of shows as a short slit.
+            let hard = CGFloat(clamp(compression, 0, 1))
+            let fill = stamp.golden ? Palette.gold : UIColor(hex: 0x9CCBE6)
+            let rim = stamp.golden ? UIColor(hex: 0xB98A1E) : UIColor(hex: 0x3E93C2)
+            let spread = r * (0.95 + 0.12 * hard + CGFloat.random(in: -0.06...0.06, using: &rng))
+            fillDisc(ctx, p, spread, fill.withAlphaComponent(0.40 + 0.25 * hard))
+            ring(ctx, p, spread, 1.0 + 1.4 * hard, rim.withAlphaComponent(0.55 + 0.40 * hard))
+            let a = CGFloat.random(in: 0...(.pi), using: &rng)
+            let half = spread * CGFloat.random(in: 0.40...0.65, using: &rng)
+            crack(ctx, from: CGPoint(x: p.x - cos(a) * half, y: p.y - sin(a) * half),
+                  to: CGPoint(x: p.x + cos(a) * half, y: p.y + sin(a) * half), segments: 3, jitter: 1.2,
+                  width: 0.9 + 0.6 * hard, color: rim.withAlphaComponent(0.75), rng: &rng)
             return .none
         case .rubberDuck:
             if isFailure {
@@ -531,108 +627,213 @@ enum FoldStamps {
 
     /// Failure splat (§3.2 step 4), drawn once into its own image so it can spread with compression afterwards.
     static func splatImage(_ stamp: FoldStamp, variant: PressVariant, scale: CGFloat = 2) -> CGImage? {
+        image(rect: FoldPrintCanvas.rect, scale: scale) { ctx in
+            _ = drawSplat(stamp, variant: variant, into: ctx)
+        }
+    }
+
+    /// Draws the failure splat (print space) and returns the droplets it flicked out, in drawing order.
+    @discardableResult
+    static func drawSplat(_ stamp: FoldStamp, variant: PressVariant, into ctx: CGContext) -> [FoldDroplet] {
         var rng = SplitMix64(seed: stamp.seed ^ 0x5B1A7)
         let k = stamp.pointsPerMetre
         let r = stamp.fullRadius
-        return image(rect: FoldPrintCanvas.rect, scale: scale) { ctx in
-            let gold = stamp.golden
-            switch stamp.kind {
-            case .bubbleWrap, .unsquishable:
-                break
-            case .rubberDuck:
-                let seam = stamp.features.count >= 3
-                    ? CGPoint(x: (stamp.features[1].x + stamp.features[2].x) / 2, y: (stamp.features[1].y + stamp.features[2].y) / 2)
-                    : stamp.apex
-                blob(ctx, seam, r * 0.42, lobes: 9, (gold ? Palette.gold : Palette.duckYellow).withAlphaComponent(0.95), rng: &rng)
-                droplets(ctx, around: seam, from: r * 0.45, to: r * 0.95, count: 10,
-                         color: (gold ? Palette.gold : Palette.duckYellow).withAlphaComponent(0.9), rng: &rng)
-            case .jelly:
-                let ink = (gold ? Palette.goldMessColor : UIColor(hex: 0xD0164F)).withAlphaComponent(0.9)
-                blob(ctx, .zero, r * 1.15, lobes: 11, ink, rng: &rng)
-                droplets(ctx, around: .zero, from: r * 1.15, to: r * 1.7, count: 12, color: ink, rng: &rng)
-                if variant.surprise == .fruitPieces || !gold {
-                    // Square fruit-cube "holes" (§3.2): steel showing through the splat.
-                    for _ in 0..<5 {
-                        let p = CGPoint(x: CGFloat.random(in: -r * 0.7...r * 0.7, using: &rng),
-                                        y: CGFloat.random(in: -r * 0.7...r * 0.7, using: &rng))
-                        let s = CGFloat.random(in: 6...10, using: &rng)
-                        ctx.saveGState()
-                        ctx.translateBy(x: p.x, y: p.y)
-                        ctx.rotate(by: CGFloat.random(in: 0...1.2, using: &rng))
-                        ctx.setFillColor(Palette.plateSteel.withAlphaComponent(0.92).cgColor)
-                        ctx.fill(CGRect(x: -s / 2, y: -s / 2, width: s, height: s))
-                        ctx.restoreGState()
-                    }
-                }
-                gloss(ctx, .zero, r * 0.9)
-            case .crayon:
-                let ink = (gold ? Palette.goldMessColor : Palette.cobalt).withAlphaComponent(0.85)
-                ctx.saveGState()
-                ctx.rotate(by: CGFloat(-stamp.yawRadians))
-                let bar = CGRect(x: -stamp.growthRadii.width * 1.05, y: -stamp.growthRadii.height * 1.6,
-                                 width: stamp.growthRadii.width * 2.1, height: stamp.growthRadii.height * 3.2)
-                ctx.addPath(CGPath(roundedRect: bar, cornerWidth: bar.height / 2, cornerHeight: bar.height / 2, transform: nil))
-                ctx.setFillColor(ink.cgColor)
-                ctx.fillPath()
-                ctx.restoreGState()
-                crumbs(ctx, around: .zero, spread: r * 1.2, count: 22, colors: [ink, UIColor(hex: 0x6F8EF2)], size: 1.5...4, rng: &rng)
-            case .egg:
-                blob(ctx, stamp.apex, r * 0.95, lobes: 10, UIColor(hex: 0xFFFDF6).withAlphaComponent(0.95), rng: &rng)
-                ring(ctx, stamp.apex, r * 0.95, 2, UIColor(hex: 0xE9E1D2).withAlphaComponent(0.9))
-                if variant.surprise == .doubleYolk {
-                    fillDisc(ctx, CGPoint(x: stamp.apex.x - 0.012 * k, y: stamp.apex.y), 0.011 * k, Palette.yolk.withAlphaComponent(0.6))
-                    fillDisc(ctx, CGPoint(x: stamp.apex.x + 0.012 * k, y: stamp.apex.y), 0.011 * k, Palette.yolk.withAlphaComponent(0.6))
-                } else {
-                    fillDisc(ctx, stamp.apex, 0.013 * k, Palette.yolk.withAlphaComponent(0.55))
-                }
-            case .cakeSlice:
-                let pink = (gold ? Palette.goldMessColor : UIColor(hex: 0xFF8FC8)).withAlphaComponent(0.9)
-                blob(ctx, stamp.apex, r * 0.75, lobes: 8, pink, rng: &rng)
-                if variant.surprise == .jamCentre {
-                    blob(ctx, stamp.apex, r * 0.35, lobes: 6, Palette.jam.withAlphaComponent(0.85), rng: &rng)
-                }
-                for _ in 0..<16 {
-                    let a = CGFloat.random(in: 0...(2 * .pi), using: &rng)
-                    let d = CGFloat.random(in: 0...(r * 0.9), using: &rng)
-                    let p = CGPoint(x: stamp.apex.x + cos(a) * d, y: stamp.apex.y + sin(a) * d)
+        var drops: [FoldDroplet] = []
+        let gold = stamp.golden
+        switch stamp.kind {
+        case .bubbleWrap, .unsquishable:
+            break
+        case .rubberDuck:
+            let seam = stamp.features.count >= 3
+                ? CGPoint(x: (stamp.features[1].x + stamp.features[2].x) / 2, y: (stamp.features[1].y + stamp.features[2].y) / 2)
+                : stamp.apex
+            blob(ctx, seam, r * 0.42, lobes: 9, (gold ? Palette.gold : Palette.duckYellow).withAlphaComponent(0.95), rng: &rng)
+            drops += droplets(ctx, around: seam, from: r * 0.45, to: r * 0.95, count: 10,
+                              color: (gold ? Palette.gold : Palette.duckYellow).withAlphaComponent(0.9), rng: &rng)
+        case .jelly:
+            let ink = (gold ? Palette.goldMessColor : UIColor(hex: 0xD0164F)).withAlphaComponent(0.9)
+            blob(ctx, .zero, r * 1.15, lobes: 11, ink, rng: &rng)
+            drops += droplets(ctx, around: .zero, from: r * 1.15, to: r * 1.7, count: 12, color: ink, rng: &rng)
+            if variant.surprise == .fruitPieces || !gold {
+                // Square fruit-cube "holes" (§3.2): steel showing through the splat.
+                for _ in 0..<5 {
+                    let p = CGPoint(x: CGFloat.random(in: -r * 0.7...r * 0.7, using: &rng),
+                                    y: CGFloat.random(in: -r * 0.7...r * 0.7, using: &rng))
+                    let s = CGFloat.random(in: 6...10, using: &rng)
                     ctx.saveGState()
                     ctx.translateBy(x: p.x, y: p.y)
-                    ctx.rotate(by: CGFloat.random(in: 0...(2 * .pi), using: &rng))
-                    ctx.setFillColor(Palette.rainbow.pick(&rng).cgColor)
-                    ctx.addPath(CGPath(roundedRect: CGRect(x: -3, y: -1, width: 6, height: 2), cornerWidth: 1, cornerHeight: 1, transform: nil))
-                    ctx.fillPath()
+                    ctx.rotate(by: CGFloat.random(in: 0...1.2, using: &rng))
+                    ctx.setFillColor(Palette.plateSteel.withAlphaComponent(0.92).cgColor)
+                    ctx.fill(CGRect(x: -s / 2, y: -s / 2, width: s, height: s))
                     ctx.restoreGState()
                 }
-                fillDisc(ctx, stamp.apex, 2.2, Palette.graphite)   // the wick
-            case .sodaCan:
-                let fizz = canFizz(variant)
-                ring(ctx, .zero, stamp.featureRadius, 2, UIColor(hex: 0x9AA0A8).withAlphaComponent(0.8))
-                blob(ctx, CGPoint(x: stamp.featureRadius * 0.6, y: stamp.featureRadius * 0.4), stamp.featureRadius * 0.7,
-                     lobes: 7, fizz.withAlphaComponent(0.6), rng: &rng)
-                droplets(ctx, around: .zero, from: stamp.featureRadius * 1.25, to: stamp.featureRadius * 2.6, count: 26,
-                         color: fizz.withAlphaComponent(0.85), rng: &rng)
-            case .gummyBear:
-                let ink = (gold ? Palette.goldMessColor : UIColor(hex: 0xFF8A7F)).withAlphaComponent(0.85)
-                for s: CGFloat in [-1, 1] {
-                    let c = CGPoint(x: stamp.apex.x + s * r * 0.35 * cos(CGFloat(-stamp.yawRadians)),
-                                    y: stamp.apex.y + s * r * 0.35 * sin(CGFloat(-stamp.yawRadians)))
-                    blob(ctx, c, r * 0.6, lobes: 7, ink, rng: &rng)
-                }
-                gloss(ctx, stamp.apex, r * 0.7)
-            case .glassBottle:
-                clipToPlate(ctx)
-                ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-                for i in 0..<9 {
-                    let a = CGFloat(i) / 9 * 2 * .pi + CGFloat.random(in: -0.2...0.2, using: &rng)
-                    frost(ctx, from: stamp.apex, heading: a, length: r * 1.05, depth: 3, rng: &rng)
-                }
-                fadeInsidePlate(ctx)
-                ctx.endTransparencyLayer()
-                if variant.surprise == .messageInABottle {
-                    crumbs(ctx, around: stamp.apex, spread: r, count: 18, colors: Palette.rainbow, size: 2...3.5, rng: &rng)
-                }
+            }
+            gloss(ctx, .zero, r * 0.9)
+        case .crayon:
+            let ink = (gold ? Palette.goldMessColor : Palette.cobalt).withAlphaComponent(0.85)
+            ctx.saveGState()
+            ctx.rotate(by: CGFloat(-stamp.yawRadians))
+            let bar = CGRect(x: -stamp.growthRadii.width * 1.05, y: -stamp.growthRadii.height * 1.6,
+                             width: stamp.growthRadii.width * 2.1, height: stamp.growthRadii.height * 3.2)
+            ctx.addPath(CGPath(roundedRect: bar, cornerWidth: bar.height / 2, cornerHeight: bar.height / 2, transform: nil))
+            ctx.setFillColor(ink.cgColor)
+            ctx.fillPath()
+            ctx.restoreGState()
+            crumbs(ctx, around: .zero, spread: r * 1.2, count: 22, colors: [ink, UIColor(hex: 0x6F8EF2)], size: 1.5...4, rng: &rng)
+        case .egg:
+            blob(ctx, stamp.apex, r * 0.95, lobes: 10, UIColor(hex: 0xFFFDF6).withAlphaComponent(0.95), rng: &rng)
+            ring(ctx, stamp.apex, r * 0.95, 2, UIColor(hex: 0xE9E1D2).withAlphaComponent(0.9))
+            if variant.surprise == .doubleYolk {
+                fillDisc(ctx, CGPoint(x: stamp.apex.x - 0.012 * k, y: stamp.apex.y), 0.011 * k, Palette.yolk.withAlphaComponent(0.6))
+                fillDisc(ctx, CGPoint(x: stamp.apex.x + 0.012 * k, y: stamp.apex.y), 0.011 * k, Palette.yolk.withAlphaComponent(0.6))
+            } else {
+                fillDisc(ctx, stamp.apex, 0.013 * k, Palette.yolk.withAlphaComponent(0.55))
+            }
+        case .cakeSlice:
+            let pink = (gold ? Palette.goldMessColor : UIColor(hex: 0xFF8FC8)).withAlphaComponent(0.9)
+            blob(ctx, stamp.apex, r * 0.75, lobes: 8, pink, rng: &rng)
+            if variant.surprise == .jamCentre {
+                blob(ctx, stamp.apex, r * 0.35, lobes: 6, Palette.jam.withAlphaComponent(0.85), rng: &rng)
+            }
+            for _ in 0..<16 {
+                let a = CGFloat.random(in: 0...(2 * .pi), using: &rng)
+                let d = CGFloat.random(in: 0...(r * 0.9), using: &rng)
+                let p = CGPoint(x: stamp.apex.x + cos(a) * d, y: stamp.apex.y + sin(a) * d)
+                ctx.saveGState()
+                ctx.translateBy(x: p.x, y: p.y)
+                ctx.rotate(by: CGFloat.random(in: 0...(2 * .pi), using: &rng))
+                ctx.setFillColor(Palette.rainbow.pick(&rng).cgColor)
+                ctx.addPath(CGPath(roundedRect: CGRect(x: -3, y: -1, width: 6, height: 2), cornerWidth: 1, cornerHeight: 1, transform: nil))
+                ctx.fillPath()
+                ctx.restoreGState()
+            }
+            fillDisc(ctx, stamp.apex, 2.2, Palette.graphite)   // the wick
+        case .sodaCan:
+            let fizz = canFizz(variant)
+            ring(ctx, .zero, stamp.featureRadius, 2, UIColor(hex: 0x9AA0A8).withAlphaComponent(0.8))
+            blob(ctx, CGPoint(x: stamp.featureRadius * 0.6, y: stamp.featureRadius * 0.4), stamp.featureRadius * 0.7,
+                 lobes: 7, fizz.withAlphaComponent(0.6), rng: &rng)
+            drops += droplets(ctx, around: .zero, from: stamp.featureRadius * 1.25, to: stamp.featureRadius * 2.6, count: 26,
+                              color: fizz.withAlphaComponent(0.85), rng: &rng)
+        case .gummyBear:
+            let ink = (gold ? Palette.goldMessColor : UIColor(hex: 0xFF8A7F)).withAlphaComponent(0.85)
+            for s: CGFloat in [-1, 1] {
+                let c = CGPoint(x: stamp.apex.x + s * r * 0.35 * cos(CGFloat(-stamp.yawRadians)),
+                                y: stamp.apex.y + s * r * 0.35 * sin(CGFloat(-stamp.yawRadians)))
+                blob(ctx, c, r * 0.6, lobes: 7, ink, rng: &rng)
+            }
+            gloss(ctx, stamp.apex, r * 0.7)
+        case .glassBottle:
+            clipToPlate(ctx)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            for i in 0..<9 {
+                let a = CGFloat(i) / 9 * 2 * .pi + CGFloat.random(in: -0.2...0.2, using: &rng)
+                frost(ctx, from: stamp.apex, heading: a, length: r * 1.05, depth: 3, rng: &rng)
+            }
+            fadeInsidePlate(ctx)
+            ctx.endTransparencyLayer()
+            if variant.surprise == .messageInABottle {
+                crumbs(ctx, around: stamp.apex, spread: r, count: 18, colors: Palette.rainbow, size: 2...3.5, rng: &rng)
             }
         }
+        return drops
+    }
+
+    // MARK: The splat that escapes the fold (FOLD-REVIEW-4 F3)
+
+    /// The platen splat's droplets, replayed from the very same seeded draws into a 1 × 1 scratch bitmap (so they can
+    /// never drift from what the platen prints). Empty for kinds whose splat flicks no droplets.
+    static func platenSplatDroplets(_ stamp: FoldStamp, variant: PressVariant) -> [FoldDroplet] {
+        var drops: [FoldDroplet] = []
+        _ = image(rect: CGRect(x: 0, y: 0, width: 1, height: 1), scale: 1) { ctx in
+            drops = drawSplat(stamp, variant: variant, into: ctx)
+        }
+        return drops
+    }
+
+    /// Escaped droplets stay on the anvil's strike plate + this (points).
+    static let sprayMargin: CGFloat = 16
+    /// The anvil spray rides out with the platen splat's spread (its scale about the footprint centre) up to this.
+    static let sprayMaxScale: CGFloat = 1
+    /// At most this many escape (FOLD-REVIEW-4 F3: 6–10 sprites).
+    static let sprayMaxCount = 8
+
+    /// The droplets that escape onto the anvil at failure, in the splat's ink. Mirrored from the platen: for the
+    /// kinds whose splat flicks droplets (duck, jelly, can) they are the platen's outermost droplets at the same
+    /// print-space spots, so the two pages' mess meets when the phone shuts; the egg, cake and gummy, whose platen
+    /// splat has none, get a seeded spray of their splat colour just outside the footprint. Every droplet stays inside
+    /// the strike plate + `sprayMargin` at `sprayMaxScale`; one that wouldn't is pulled in toward the centre (only if
+    /// fewer than 6 already fit). Nil for kinds that don't splat (bubble wrap, crayon, glass, the Unsquishable).
+    static func anvilSpray(_ stamp: FoldStamp, variant: PressVariant) -> FoldSpray? {
+        guard let color = sprayColor(stamp, variant: variant) else { return nil }
+        let r = stamp.fullRadius
+        var drops: [FoldDroplet]
+        switch stamp.kind {
+        case .rubberDuck, .jelly, .sodaCan:
+            drops = platenSplatDroplets(stamp, variant: variant)
+        case .egg, .cakeSlice, .gummyBear:
+            let band: (CGFloat, CGFloat) = stamp.kind == .cakeSlice ? (0.8, 1.3) : (1.0, 1.4)
+            var rng = SplitMix64(seed: stamp.seed ^ 0xA5B1D)
+            drops = droplets(nil, around: stamp.apex, from: r * band.0, to: r * band.1, count: 9, color: color, rng: &rng)
+        case .bubbleWrap, .crayon, .glassBottle, .unsquishable:
+            return nil
+        }
+        // Outermost first: those are the ones that got out from between the plates.
+        drops.sort { sprayReach($0) > sprayReach($1) }
+        var kept = drops.filter { sprayContained($0, scale: sprayMaxScale) }
+        if kept.count < 6 {
+            for d in drops where !sprayContained(d, scale: sprayMaxScale) && kept.count < 6 {
+                var pulled = d
+                for _ in 0..<40 where !sprayContained(pulled, scale: sprayMaxScale) {
+                    pulled.centre = CGPoint(x: pulled.centre.x * 0.95, y: pulled.centre.y * 0.95)
+                }
+                if sprayContained(pulled, scale: sprayMaxScale) { kept.append(pulled) }
+            }
+        }
+        kept = Array(kept.prefix(sprayMaxCount))
+        guard !kept.isEmpty else { return nil }
+        return FoldSpray(droplets: kept, color: color, edge: darken(color, 0.28), highlight: mix(color, .white, 0.65))
+    }
+
+    /// How far a droplet's far edge lies from the footprint centre (points).
+    static func sprayReach(_ d: FoldDroplet) -> CGFloat {
+        (d.centre.x * d.centre.x + d.centre.y * d.centre.y).squareRoot() + d.radius
+    }
+
+    /// The anvil spray's ink: the splat's own colour (opaque; the droplets are unlit discs on the anvil).
+    static func sprayColor(_ stamp: FoldStamp, variant: PressVariant) -> UIColor? {
+        let gold = stamp.golden
+        switch stamp.kind {
+        case .rubberDuck: return gold ? Palette.gold : Palette.duckYellow
+        case .jelly: return gold ? Palette.goldMessColor : UIColor(hex: 0xD0164F)
+        case .sodaCan: return canFizz(variant)
+        case .egg: return UIColor(hex: 0xFFFDF6)
+        case .cakeSlice: return gold ? Palette.goldMessColor : UIColor(hex: 0xFF8FC8)
+        case .gummyBear: return gold ? Palette.goldMessColor : UIColor(hex: 0xFF8A7F)
+        case .bubbleWrap, .crayon, .glassBottle, .unsquishable: return nil
+        }
+    }
+
+    /// Whether a droplet, scaled about the footprint centre by `scale`, lies inside the strike plate + `sprayMargin`
+    /// (a rounded rectangle, print space).
+    static func sprayContained(_ d: FoldDroplet, scale: CGFloat) -> Bool {
+        let hx = CGFloat(FoldMetrics.plateLateral / 2) + sprayMargin
+        let hy = CGFloat(FoldMetrics.plateDepth / 2) + sprayMargin
+        let p = CGPoint(x: abs(d.centre.x * scale), y: abs(d.centre.y * scale))
+        guard p.x + d.radius <= hx, p.y + d.radius <= hy else { return false }
+        let corner = CGFloat(FoldMetrics.plateRadius) + sprayMargin
+        let cx = hx - corner, cy = hy - corner
+        guard p.x > cx, p.y > cy else { return true }
+        let dx = p.x - cx, dy = p.y - cy
+        return (dx * dx + dy * dy).squareRoot() + d.radius <= corner
+    }
+
+    static func mix(_ a: UIColor, _ b: UIColor, _ t: CGFloat) -> UIColor {
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        a.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        b.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        return UIColor(red: r1 + (r2 - r1) * t, green: g1 + (g2 - g1) * t, blue: b1 + (b2 - b1) * t, alpha: 1)
     }
 
     // MARK: Drawing helpers
@@ -687,13 +888,21 @@ enum FoldStamps {
         ctx.fillPath()
     }
 
-    static func droplets(_ ctx: CGContext, around c: CGPoint, from r0: CGFloat, to r1: CGFloat, count: Int, color: UIColor,
-                         rng: inout SplitMix64) {
+    /// Scatters `count` droplets in the ring r0…r1 around `c` and returns them; draws them too when `ctx` is given (the
+    /// seeded draws are the same either way).
+    @discardableResult
+    static func droplets(_ ctx: CGContext?, around c: CGPoint, from r0: CGFloat, to r1: CGFloat, count: Int, color: UIColor,
+                         rng: inout SplitMix64) -> [FoldDroplet] {
+        var drops: [FoldDroplet] = []
         for _ in 0..<count {
             let a = CGFloat.random(in: 0...(2 * .pi), using: &rng)
             let d = CGFloat.random(in: r0...max(r0 + 1, r1), using: &rng)
-            fillDisc(ctx, CGPoint(x: c.x + cos(a) * d, y: c.y + sin(a) * d), CGFloat.random(in: 1.5...4.5, using: &rng), color)
+            let drop = FoldDroplet(centre: CGPoint(x: c.x + cos(a) * d, y: c.y + sin(a) * d),
+                                   radius: CGFloat.random(in: 1.5...4.5, using: &rng))
+            if let ctx { fillDisc(ctx, drop.centre, drop.radius, color) }
+            drops.append(drop)
         }
+        return drops
     }
 
     static func crumbs(_ ctx: CGContext, around c: CGPoint, spread: CGFloat, count: Int, colors: [UIColor],

@@ -603,6 +603,94 @@ enum MeshKit {
         return mesh.translated(SIMD3(0, -size.y / 2, 0))
     }
 
+    // MARK: - Flat polygon slab (glass shards, paper scraps)
+
+    /// A thin flat slab of a convex polygon in (x, z), centred on y = 0 and `thickness` tall.
+    /// Slot 0: the top face inside a `rimInset` band, and the bottom face. Slot `rimMaterial`: the top rim band and
+    /// the side walls (the bright edge of a glass shard, FOLD-REVIEW-4 F5). `rimInset` ≤ 0 draws no band and puts the
+    /// walls in slot 0 (one slot).
+    static func polygonSlab(_ polygon: [SIMD2<Float>], thickness: Float, rimInset: Float = 0,
+                            rimMaterial: UInt8 = 1) -> MeshData {
+        var mesh = MeshData()
+        let count = polygon.count
+        guard count >= 3 else { return mesh }
+        let centre = polygon.reduce(SIMD2<Float>.zero, +) / Float(count)
+        let top = thickness / 2
+        let bottom = -thickness / 2
+        let up = SIMD3<Float>(0, 1, 0)
+        let down = SIMD3<Float>(0, -1, 0)
+        let hasRim = rimInset > 0
+        let edgeSlot: UInt8 = hasRim ? rimMaterial : 0
+        let inner: [SIMD2<Float>] = polygon.map { p in
+            let toCentre = centre - p
+            let d = simd_length(toCentre)
+            guard hasRim, d > 1e-6 else { return p }
+            return p + toCentre / d * min(rimInset, d * 0.45)
+        }
+        // Top face: a fan over the inner outline.
+        let topCentre = mesh.addVertex(SIMD3(centre.x, top, centre.y), up)
+        let topRing = inner.map { mesh.addVertex(SIMD3($0.x, top, $0.y), up) }
+        for i in 0..<count {
+            mesh.addTriangle(topCentre, topRing[i], topRing[(i + 1) % count])
+        }
+        // Top rim band (own vertices, so the slot split stays clean).
+        if hasRim {
+            let outerRing = polygon.map { mesh.addVertex(SIMD3($0.x, top, $0.y), up) }
+            let innerRing = inner.map { mesh.addVertex(SIMD3($0.x, top, $0.y), up) }
+            for i in 0..<count {
+                let j = (i + 1) % count
+                mesh.addTriangle(innerRing[i], outerRing[i], outerRing[j], material: edgeSlot)
+                mesh.addTriangle(innerRing[i], outerRing[j], innerRing[j], material: edgeSlot)
+            }
+        }
+        // Bottom face.
+        let bottomCentre = mesh.addVertex(SIMD3(centre.x, bottom, centre.y), down)
+        let bottomRing = polygon.map { mesh.addVertex(SIMD3($0.x, bottom, $0.y), down) }
+        for i in 0..<count {
+            mesh.addTriangle(bottomCentre, bottomRing[(i + 1) % count], bottomRing[i])
+        }
+        // Side walls, flat shaded, facing away from the centre.
+        for i in 0..<count {
+            let a = polygon[i]
+            let b = polygon[(i + 1) % count]
+            let edge = b - a
+            guard simd_length(edge) > 1e-7 else { continue }
+            var n2 = SIMD2<Float>(edge.y, -edge.x)
+            if simd_dot(n2, (a + b) / 2 - centre) < 0 { n2 = -n2 }
+            let normal = simd_normalize(SIMD3<Float>(n2.x, 0, n2.y))
+            let v0 = mesh.addVertex(SIMD3(a.x, bottom, a.y), normal)
+            let v1 = mesh.addVertex(SIMD3(b.x, bottom, b.y), normal)
+            let v2 = mesh.addVertex(SIMD3(b.x, top, b.y), normal)
+            let v3 = mesh.addVertex(SIMD3(a.x, top, a.y), normal)
+            mesh.addTriangle(v0, v1, v2, material: edgeSlot)
+            mesh.addTriangle(v0, v2, v3, material: edgeSlot)
+        }
+        mesh.orientToNormals()
+        return mesh
+    }
+
+    /// Convex hull of 2D points (Andrew's monotone chain), counter-clockwise, collinear points dropped.
+    static func convexHull(_ points: [SIMD2<Float>]) -> [SIMD2<Float>] {
+        let sorted = points.sorted { $0.x != $1.x ? $0.x < $1.x : $0.y < $1.y }
+        guard sorted.count >= 3 else { return sorted }
+        func turn(_ o: SIMD2<Float>, _ a: SIMD2<Float>, _ b: SIMD2<Float>) -> Float {
+            (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+        }
+        var lower: [SIMD2<Float>] = []
+        for p in sorted {
+            while lower.count >= 2 && turn(lower[lower.count - 2], lower[lower.count - 1], p) <= 0 { lower.removeLast() }
+            lower.append(p)
+        }
+        var upper: [SIMD2<Float>] = []
+        for p in sorted.reversed() {
+            while upper.count >= 2 && turn(upper[upper.count - 2], upper[upper.count - 1], p) <= 0 { upper.removeLast() }
+            upper.append(p)
+        }
+        lower.removeLast()
+        upper.removeLast()
+        return lower + upper
+    }
+
     // MARK: - Spread disc
 
     /// A low puddle/spread disc with a soft bevelled edge and a seeded noisy rim (jam, yolk, fizz, jelly overflow).

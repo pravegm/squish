@@ -2,6 +2,34 @@ import CoreGraphics
 import Foundation
 import UIKit
 
+/// One tonnage scale for both machines (FOLD-REVIEW-4 F12). The P-48 dial, the Fold Press crown dial and the cover's
+/// mini gauge all read 0 / 40 / 80 t on the same 270° sweep (0 t at 225°, 80 t at −45°, CCW from +x) with the red
+/// zone in the top quarter, and every needle comes to rest on the tonnage the specimen record prints
+/// (`SpecimenRecord.tons`, which this mirrors exactly; FoldPressTests checks the two never drift apart).
+enum PressGauge {
+    /// Full scale of every tonnage dial.
+    static let maxTons: Double = 80
+    /// The red zone runs from here to full scale. Real objects top out at 59 t, so only The Unsquishable reaches it.
+    static let redZoneTons: Double = 60
+
+    /// The record's tonnage (`SpecimenRecord.tons`): 10 + 44·c_max + seed % 6, clamped to the dial; the Unsquishable
+    /// reads 400-odd and pins every needle.
+    static func recordTons(kind: ObjectKind, maxCompression: Double, seed: UInt64) -> Int {
+        if kind == .unsquishable { return 400 + Int(seed % 97) }
+        return min(Int(maxTons), 10 + Int(maxCompression * 44) + Int(seed % 6))
+    }
+
+    /// The live needle target after contact for compression `c`: the seed's 10–15 t base comes in over the first
+    /// quarter of the crush, then 44 t·c, so the needle arrives on `recordTons` (to within its integer truncation).
+    static func liveTons(compression c: Double, seed: UInt64) -> Double {
+        let base = 10 + Double(seed % 6)
+        return base * min(1, max(c, 0) * 4) + 44 * clamp(c, 0, 1)
+    }
+
+    /// Dial angle in degrees (CCW from +x, y up) for a tonnage.
+    static func dialDegrees(tons: Double) -> Double { 225 - 270 * tons / maxTons }
+}
+
 /// CoreGraphics-drawn textures for the press (VISUAL-TARGET §4.3–4.4). Drawn once at launch (a few ms each).
 @MainActor
 enum RigTextures {
@@ -13,12 +41,13 @@ enum RigTextures {
         return base
     }
 
-    /// Gauge angle (radians, CCW from +x, y up) for a tonnage on the 0–60 t dial.
+    /// Gauge angle (radians, CCW from +x, y up) for a tonnage on the 0–80 t dial (`PressGauge`).
     nonisolated static func gaugeAngle(tons: CGFloat) -> CGFloat {
-        (225 - 270 * tons / 60) * .pi / 180
+        CGFloat(PressGauge.dialDegrees(tons: Double(tons))) * .pi / 180
     }
 
-    /// The dial face: paper, graphite ring, 270° sweep, ticks, red zone 48–60 t, numerals, "TONS", "SQUISH".
+    /// The dial face: paper, graphite ring, 270° sweep, ticks, red zone 60–80 t, numerals 0 / 40 / 80 (the Fold
+    /// crown's and the cover's scale, FOLD-REVIEW-4 F12), "TONS", "SQUISH".
     static func gaugeFace(size: CGFloat = 512) -> CGImage? {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -44,31 +73,37 @@ enum RigTextures {
             cg.setStrokeColor(Palette.graphite.cgColor)
             cg.setLineWidth(6)
             cg.strokeEllipse(in: CGRect(x: 3, y: 3, width: size - 6, height: size - 6))
-            // Red zone 48–60 t.
+            // Red zone: the top quarter, 60–80 t.
+            let maxTons = CGFloat(PressGauge.maxTons)
             cg.setStrokeColor(Palette.stampRed.cgColor)
             cg.setLineWidth(14)
-            cg.addArc(center: c, radius: R * 0.86, startAngle: -gaugeAngle(tons: 48), endAngle: -gaugeAngle(tons: 60),
-                      clockwise: false)
+            cg.addArc(center: c, radius: R * 0.86, startAngle: -gaugeAngle(tons: CGFloat(PressGauge.redZoneTons)),
+                      endAngle: -gaugeAngle(tons: maxTons), clockwise: false)
             cg.strokePath()
-            // Ticks.
+            // Ticks every 2.5 t: bold every 20 t (the numerals and the two between), medium every 10 t.
             cg.setLineCap(.round)
-            for t in stride(from: 0, through: 60, by: 2) {
-                let major = t % 10 == 0
-                cg.setStrokeColor(major ? Palette.graphite.cgColor : Palette.inkSecondary.cgColor)
-                cg.setLineWidth(major ? 5 : 2)
+            let tickCount = Int((maxTons / 2.5).rounded())
+            for i in 0...tickCount {
+                let t = CGFloat(i) * 2.5
+                let major = i % 8 == 0
+                let medium = !major && i % 4 == 0
+                cg.setStrokeColor(major || medium ? Palette.graphite.cgColor : Palette.inkSecondary.cgColor)
+                cg.setLineWidth(major ? 5 : (medium ? 3.5 : 2))
                 let outer = R * 0.92
-                let inner = outer - (major ? 18 : 9) * size / 512
-                cg.move(to: point(CGFloat(t), inner))
-                cg.addLine(to: point(CGFloat(t), outer))
+                let inner = outer - (major ? 18 : (medium ? 13 : 9)) * size / 512
+                cg.move(to: point(t, inner))
+                cg.addLine(to: point(t, outer))
                 cg.strokePath()
             }
-            // Numerals.
+            // Numerals 0 / 40 / 80 only. As on the Fold crown, the end numerals sit 5.5 t inside their ticks, so the
+            // resting needle doesn't cover the "0".
             let numeralFont = roundedFont(40 * size / 512, .heavy)
-            for t in stride(from: 0, through: 60, by: 10) {
-                let text = "\(t)" as NSString
+            for t in [CGFloat(0), maxTons / 2, maxTons] {
+                let text = "\(Int(t))" as NSString
                 let attributes: [NSAttributedString.Key: Any] = [.font: numeralFont, .foregroundColor: Palette.graphite]
                 let textSize = text.size(withAttributes: attributes)
-                let p = point(CGFloat(t), R * 0.70)
+                let nudge: CGFloat = t == 0 ? 5.5 : (t == maxTons ? -5.5 : 0)
+                let p = point(t + nudge, R * 0.70)
                 text.draw(at: CGPoint(x: p.x - textSize.width / 2, y: p.y - textSize.height / 2), withAttributes: attributes)
             }
             let tons = "TONS" as NSString

@@ -50,6 +50,8 @@ final class PressDirector {
     @ObservationIgnored private var traceStart: Double = 0
     @ObservationIgnored private var revealPeakAngle: Double = 0
     @ObservationIgnored private var consecutiveSlams = 0
+    /// Demo store shots (CI only, see `writeStoreShot`): the halves of each angle shot, kept for the before/after frame.
+    @ObservationIgnored private var storeShotHalves: [String: FoldStoreShot.Halves] = [:]
     private static let lastObjectKey = "squish.lastObject"
     private static let slamHintsKey = "squish.slamHintsShown"
 
@@ -377,6 +379,9 @@ final class PressDirector {
     private func runDemo(_ demo: DemoScenario) {
         print(String(format: "SQUISH-T demo '%@' starts at %.2fs", demo.name, CACurrentMediaTime() - launchTime))
         engine.config.ignoreInputAfterActivation = 0
+        #if DEBUG
+        if demo.has("orient") { holdInterfaceOrientation(demo) }
+        #endif
         if demo.has("duo") {
             // Real iPhone Duo simulator: the CI script moves the actual hinge; we only place the object.
             if let kind = demo.object { load(kind) }
@@ -392,6 +397,10 @@ final class PressDirector {
             let targets = raw.split(separator: ",").compactMap { Double($0) }
             hingeUpdate(angle: 180, closed: false)
             Task { @MainActor in
+                #if DEBUG
+                let failuresAtStart = self.failureFlashCount
+                var heroShot = false
+                #endif
                 while renderedFrames < 30 { try? await Task.sleep(for: .milliseconds(50)) }
                 var angle = 180.0
                 for target in targets {
@@ -405,11 +414,24 @@ final class PressDirector {
                         try? await Task.sleep(for: .milliseconds(16))
                     }
                     #if DEBUG
-                    // `storeshot` alone: a store shot at every target; `storeshot=120,75`: only at those.
+                    // `storeshot` alone: a store shot at every target; `storeshot=120,75`: only at those;
+                    // `fail` in the list: the hero at the first held target after the object failed (and at or below
+                    // `storeshotfailangle`, default 62°), then the before/after pair.
                     if demo.has("storeshot") {
-                        let wanted = demo.doubles("storeshot")
-                        if wanted.isEmpty || wanted.contains(where: { abs($0 - target) < 0.5 }) {
-                            await self.writeStoreShot(demo, label: Int(target.rounded()), angle: target)
+                        let tokens = demo.tokens("storeshot")
+                        let wanted = tokens.compactMap { Double($0) }
+                        let wantsHero = tokens.contains("fail")
+                        if (wanted.isEmpty && !wantsHero) || wanted.contains(where: { abs($0 - target) < 0.5 }) {
+                            await self.writeStoreShot(demo, label: PressDirector.storeLabel(target), angle: target)
+                        }
+                        let failHold = demo.double("storeshotfailangle") ?? 62
+                        if wantsHero, !heroShot, self.failureFlashCount > failuresAtStart, target <= failHold + 3 {
+                            heroShot = true
+                            print(String(format: "SQUISH-T storeshot failure seen at %.2fs hinge=%.1f",
+                                         CACurrentMediaTime() - self.launchTime, target))
+                            if let after = await self.writeStoreShot(demo, label: "hero", angle: target, hero: true) {
+                                self.writeStorePair(demo, after: after)
+                            }
                         }
                     }
                     #endif
@@ -482,19 +504,46 @@ final class PressDirector {
         }
     }
 
+    /// The hero's caption (FOLD-REVIEW-4 #2: the failure freeze) and the before/after frame's (§3.3 C frame 2), from
+    /// docs/appstore/screenshots.md; " / " starts the sub-line. Override with `storeshotcaption=` / `paircaption=`.
+    private static let heroCaption = "It creaks. Then it *doesn't*. / Squish turns the fold into a hydraulic press."
+    private static let pairCaption = "Close your phone. Feel it *give*."
+
+    private static func storeLabel(_ angle: Double) -> String { String(Int(angle.rounded())) }
+
+    private static func splitCaption(_ raw: String) -> (headline: String, subline: String?) {
+        let parts = raw.components(separatedBy: " / ")
+        let subline = parts.count > 1 ? parts.dropFirst().joined(separator: " / ") : nil
+        return (headline: parts[0], subline: subline)
+    }
+
     #if DEBUG
-    /// CI hook (`duo;storeshot=120,75`, real Duo): the CI script moves the real hinge and holds it at each angle, so
-    /// shoot once the raw hinge has been still (±1.5°) for 0.8 s within 3° of a wanted angle. Each angle once.
+    /// CI hook (`duo;storeshot=112,fail`, real Duo): the CI script moves the real hinge and holds it at each angle, so
+    /// shoot once the raw hinge has been still (±1.5°) for 0.8 s within 3° of a wanted angle, each angle once. `fail`
+    /// shoots the hero (FOLD-REVIEW-4 #2) at the first such hold after the object failed and at or below
+    /// `storeshotfailangle` (default 62°, so a glass bottle failing at 81° still waits for the 62° hold), then the
+    /// before/after pair with the angle shot nearest `storepair` (default 112°).
     private func watchStoreShots(_ demo: DemoScenario) {
         Task { @MainActor [weak self] in
-            var pending = demo.doubles("storeshot")
-            if pending.isEmpty { pending = [115] }
+            let tokens = demo.tokens("storeshot")
+            var pending = tokens.compactMap { Double($0) }
+            var wantsHero = tokens.contains("fail")
+            if pending.isEmpty && !wantsHero { pending = [115] }
+            let failHold = demo.double("storeshotfailangle") ?? 62
+            let failuresAtStart = self?.failureFlashCount ?? 0
+            var failureLogged = false
             var anchor = -1.0
             var since = CACurrentMediaTime()
             let deadline = CACurrentMediaTime() + 1200
-            while !pending.isEmpty && CACurrentMediaTime() < deadline {
+            while (!pending.isEmpty || wantsHero) && CACurrentMediaTime() < deadline {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let self else { return }
+                let failed = self.failureFlashCount > failuresAtStart
+                if wantsHero, failed, !failureLogged {
+                    failureLogged = true
+                    print(String(format: "SQUISH-T storeshot failure seen at %.2fs hinge=%.1f",
+                                 CACurrentMediaTime() - self.launchTime, self.hingeLog.samples.last?.angle ?? -1))
+                }
                 guard let angle = self.hingeLog.samples.last?.angle else { continue }
                 let now = CACurrentMediaTime()
                 if abs(angle - anchor) > 1.5 {
@@ -502,66 +551,269 @@ final class PressDirector {
                     since = now
                     continue
                 }
-                guard now - since >= 0.8, let index = pending.firstIndex(where: { abs($0 - angle) <= 3 }) else { continue }
+                guard now - since >= 0.8 else { continue }
+                if wantsHero, failed, angle <= failHold + 3 {
+                    wantsHero = false
+                    if let after = await self.writeStoreShot(demo, label: "hero", angle: angle, hero: true) {
+                        self.writeStorePair(demo, after: after)
+                    }
+                    since = CACurrentMediaTime()
+                    continue
+                }
+                guard let index = pending.firstIndex(where: { abs($0 - angle) <= 3 }) else { continue }
                 let target = pending.remove(at: index)
-                await self.writeStoreShot(demo, label: Int(target.rounded()), angle: angle)
+                await self.writeStoreShot(demo, label: PressDirector.storeLabel(target), angle: angle)
                 since = CACurrentMediaTime()
             }
             guard let self else { return }
+            var missing = pending.map { PressDirector.storeLabel($0) }
+            if wantsHero { missing.append("hero") }
             print(String(format: "SQUISH-T storeshot done at %.2fs missing=%@", CACurrentMediaTime() - self.launchTime,
-                         pending.map { String(Int($0.rounded())) }.joined(separator: ",")))
+                         missing.joined(separator: ",")))
         }
     }
 
-    /// CI hook (`storeshot`): snapshot the live Fold Press stage and write the folded-device store shot
-    /// (FoldStoreShot.swift, FOLD-REVIEW-3 N1) to Documents for ci/screenshots.sh and ci/duo-screenshots.sh to collect:
-    ///  • storeshot-<label>.png       1320 × 2868, 3/4 eye (the App Store frame)
-    ///  • storeshot-<label>-land.png  2868 × 1320, with `storeshotsize=landscape|both`
-    ///  • storeshot-<label>-eye.png   1320 × 2868 from the exact design eye, no sheen (the §12 E1/E2 composite)
-    /// The device is modelled at the captured hinge angle (`storeshotfold=<deg>` overrides it, e.g. 115 for art).
-    private func writeStoreShot(_ demo: DemoScenario, label: Int, angle: Double) async {
-        let started = CACurrentMediaTime()
-        guard usesFoldPress, let halves = await FoldStoreShot.capture(scene: scene, fold: fold) else {
-            print(String(format: "SQUISH-T storeshot %ld failed: no Fold Press stage on screen", label))
+    /// CI hook (`orient=portrait`, iPhone Duo): the Duo simulator runs in book pose (landscape inner display,
+    /// vertical fold) and `simctl` cannot rotate a device, so ask the window scene for portrait instead. The inner
+    /// canvas becomes 669 × 951 with a horizontal fold, the tabletop layout the store shot needs (FOLD-REVIEW-4 F1).
+    /// The system may rotate back when the simulated device reports its own orientation again (a hinge move can), so
+    /// the request is repeated (at most every 2 s) whenever the interface leaves the wanted orientation. Logs
+    /// `SQUISH-T orient <value> ok|failed|lost` for ci/duo-screenshots.sh. `orient=landscape` asks for book pose.
+    private func holdInterfaceOrientation(_ demo: DemoScenario) {
+        let raw = demo.string("orient") ?? ""
+        let mask: UIInterfaceOrientationMask
+        switch raw {
+        case "portrait", "tabletop":
+            mask = .portrait
+        case "landscape", "book":
+            mask = .landscapeRight
+        default:
+            print("SQUISH-T orient \(raw) failed: unknown value (portrait|landscape)")
             return
         }
-        var base = FoldStoreShot.Options()
-        base.hingeAngle = clamp(demo.double("storeshotfold") ?? angle, 45, 180)
-        base.eyeModel = fold.eye
-        let sizes = demo.string("storeshotsize") ?? "portrait"
-        var variants: [(file: String, options: FoldStoreShot.Options)] = []
-        if sizes != "landscape" {
-            variants.append((file: "storeshot-\(label).png", options: base))
+        let wantsPortrait = mask == .portrait
+        Task { @MainActor [weak self] in
+            let started = CACurrentMediaTime()
+            var reported = false
+            var failedLogged = false
+            var lostLogged = false
+            var requests = 0
+            var lastRequest = -10.0
+            var matchedSince: Double?
+            while CACurrentMediaTime() - started < 1500 {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self else { return }
+                let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                guard let windowScene = scenes.first else { continue }
+                let now = CACurrentMediaTime()
+                let current = windowScene.effectiveGeometry.interfaceOrientation
+                let matches = wantsPortrait ? current.isPortrait : current.isLandscape
+                if !matches {
+                    matchedSince = nil
+                    if reported && !lostLogged {
+                        lostLogged = true
+                        print(String(format: "SQUISH-T orient %@ lost at %.2fs interface=%ld; re-requesting", raw,
+                                     now - self.launchTime, current.rawValue))
+                    }
+                    if now - lastRequest >= 2 {
+                        lastRequest = now
+                        requests += 1
+                        windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
+                            print("SQUISH-T orient request error: \(error.localizedDescription)")
+                        }
+                    }
+                } else if !reported {
+                    let since = matchedSince ?? now
+                    matchedSince = since
+                    // Done when the Fold Press canvas has followed (or, with no Fold Press stage, after 5 s matched).
+                    if let layout = self.fold.layout {
+                        if layout.isBook != wantsPortrait {
+                            reported = true
+                            print(String(format: "SQUISH-T orient %@ ok at %.2fs canvas=%.0fx%.0f layout=%@ requests=%ld",
+                                         raw, now - self.launchTime, Double(layout.canvas.width),
+                                         Double(layout.canvas.height), layout.isBook ? "book" : "tabletop", requests))
+                        }
+                    } else if now - since > 5 {
+                        reported = true
+                        print(String(format: "SQUISH-T orient %@ ok at %.2fs layout=none requests=%ld", raw,
+                                     now - self.launchTime, requests))
+                    }
+                }
+                if !reported, !failedLogged, now - started > 20 {
+                    failedLogged = true
+                    print(String(format: "SQUISH-T orient %@ failed after 20s: interface=%ld layout=%@ requests=%ld", raw,
+                                 current.rawValue, self.fold.layout.map { $0.isBook ? "book" : "tabletop" } ?? "none",
+                                 requests))
+                }
+            }
         }
-        if sizes == "landscape" || sizes == "both" {
+    }
+
+    /// Which store-shot sizes `storeshotsize` asks for: a comma list of portrait | landscape | both | all | 69
+    /// (default portrait). Portrait and landscape are the Duo inner display (2007 × 2853 / 2853 × 2007) on a Duo and
+    /// the 6.9" sizes (1320 × 2868 / 2868 × 1320) elsewhere; `69` (or `all`) adds a 1320 × 2868 copy of a Duo shot.
+    private func storeShotSizes(_ demo: DemoScenario) -> (portrait: Bool, landscape: Bool, sixNine: Bool) {
+        let tokens = demo.tokens("storeshotsize")
+        func asks(_ names: [String]) -> Bool { names.contains { tokens.contains($0) } }
+        let portrait = asks(["portrait", "both", "all"]) || !asks(["landscape", "69"])
+        let landscape = asks(["landscape", "both", "all"])
+        let sixNine = demo.has("duo") && asks(["69", "all"])
+        return (portrait: portrait, landscape: landscape, sixNine: sixNine)
+    }
+
+    /// The shared store-shot options: Duo inner size on a Duo, tabletop model, the live eye model, the device at the
+    /// captured hinge angle (`storeshotfold=<deg>` overrides it), `storeshotbackdrop=sweep`, `storeshotmodel=asLaid`.
+    private func storeShotOptions(_ demo: DemoScenario, angle: Double) -> FoldStoreShot.Options {
+        var options = FoldStoreShot.Options()
+        options.size = demo.has("duo") ? FoldStoreShot.duoInner : FoldStoreShot.portrait
+        options.hingeAngle = clamp(demo.double("storeshotfold") ?? angle, 45, 180)
+        options.eyeModel = fold.eye
+        if demo.string("storeshotbackdrop") == "sweep" { options.backdrop = .duoSweep }
+        if let model = demo.string("storeshotmodel").flatMap(FoldStoreShot.Model.init(rawValue:)) {
+            options.model = model
+        }
+        return options
+    }
+
+    /// The store-shot-only 2D splat overlay (FOLD-REVIEW-4 F3), opt-in with `storeshotsplat=overlay`. Off by default:
+    /// FoldAnvil now sprays the escaping droplets on the device itself (3D decals at the failure fracture), so the
+    /// capture already has them and the overlay would draw them twice.
+    private func escapedSplat(_ demo: DemoScenario) -> FoldStoreShot.EscapedSplat? {
+        guard demo.string("storeshotsplat") == "overlay", failureFlashCount > 0, let stamp = fold.platen.stack?.stamp,
+              FoldStoreShot.EscapedSplat.supports(stamp.kind) else { return nil }
+        return FoldStoreShot.EscapedSplat(stamp: stamp)
+    }
+
+    /// CI hook (`storeshot`): snapshot the live Fold Press stage and write the folded-device store shots
+    /// (FoldStoreShot.swift, FOLD-REVIEW-4 #1/#2) to Documents for ci/screenshots.sh and ci/duo-screenshots.sh:
+    ///  • storeshot-<label>.png       Duo inner 2007 × 2853 (1320 × 2868 off-Duo), tabletop model, 3/4 eye at 14°/34°
+    ///  • storeshot-<label>-land.png  2853 × 2007 (2868 × 1320), with `storeshotsize=landscape|both|all`
+    ///  • storeshot-<label>-69.png    1320 × 2868 copy of a Duo shot, with `storeshotsize=69|all`
+    ///  • storeshot-<label>-eye.png   the exact design eye in the layout's own pose, no sheen, caption or splat (the
+    ///                                §12 E1/E2 composite; a book capture stands like a book here)
+    /// `hero` (label "hero"): the failure freeze with the caption (`storeshotcaption=`); the escaped splat is FoldAnvil's
+    /// live spray in the capture (the 2D overlay only with `storeshotsplat=overlay`). Angle
+    /// shots keep their halves for the before/after frame. Returns the halves, nil when nothing was captured.
+    @discardableResult
+    private func writeStoreShot(_ demo: DemoScenario, label: String, angle: Double,
+                                hero: Bool = false) async -> FoldStoreShot.Halves? {
+        let started = CACurrentMediaTime()
+        guard usesFoldPress, var halves = await FoldStoreShot.capture(scene: scene, fold: fold) else {
+            print("SQUISH-T storeshot \(label) failed: no Fold Press stage on screen")
+            return nil
+        }
+        halves.hingeAngle = angle
+        var base = storeShotOptions(demo, angle: angle)
+        if hero {
+            let caption = PressDirector.splitCaption(demo.string("storeshotcaption") ?? PressDirector.heroCaption)
+            base.caption = caption.headline
+            base.subcaption = caption.subline
+            base.escapedSplat = escapedSplat(demo)
+        }
+        let sizes = storeShotSizes(demo)
+        let stem = "storeshot-\(label)"
+        var variants: [(file: String, options: FoldStoreShot.Options)] = []
+        if sizes.portrait {
+            variants.append((file: "\(stem).png", options: base))
+        }
+        if sizes.landscape {
             var landscape = base
-            landscape.size = FoldStoreShot.landscape
-            variants.append((file: "storeshot-\(label)-land.png", options: landscape))
+            landscape.size = demo.has("duo") ? FoldStoreShot.duoInnerLandscape : FoldStoreShot.landscape
+            variants.append((file: "\(stem)-land.png", options: landscape))
+        }
+        if sizes.sixNine {
+            var sixNine = base
+            sixNine.size = FoldStoreShot.portrait
+            variants.append((file: "\(stem)-69.png", options: sixNine))
         }
         var eyeView = base
         eyeView.eye = .design
+        eyeView.model = .asLaid
         eyeView.glassSheen = false
-        variants.append((file: "storeshot-\(label)-eye.png", options: eyeView))
+        eyeView.caption = nil
+        eyeView.subcaption = nil
+        eyeView.escapedSplat = nil
+        eyeView.fit = .contain
+        eyeView.targetFill = nil
+        eyeView.anchor = .centre
+        eyeView.heroBox = CGRect(x: 0.04, y: 0.08, width: 0.92, height: 0.84)
+        variants.append((file: "\(stem)-eye.png", options: eyeView))
 
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         var written: [String] = []
         for variant in variants {
-            guard let image = FoldStoreShot.render(halves, options: variant.options), let png = image.pngData() else {
-                print("SQUISH-T storeshot \(label) render failed: \(variant.file)")
-                continue
-            }
-            do {
-                try png.write(to: documents.appendingPathComponent(variant.file), options: .atomic)
+            if writePNG(label: label, file: variant.file, image: FoldStoreShot.render(halves, options: variant.options)) {
                 written.append(variant.file)
-            } catch {
-                print("SQUISH-T storeshot \(label) write failed: \(variant.file) \(error.localizedDescription)")
             }
         }
+        if !hero { storeShotHalves[label] = halves }
         let status = written.isEmpty ? "failed:" : "ok"
-        print(String(format: "SQUISH-T storeshot %ld %@ at %.2fs hinge=%.1f model=%.1f %@ anvil=%@ phase=%@ c=%.3f files=%@ ms=%.0f",
+        print(String(format: "SQUISH-T storeshot %@ %@ at %.2fs hinge=%.1f model=%.1f content=%@ pose=%@ anvil=%@ phase=%@ c=%.3f splat=%ld files=%@ ms=%.0f",
                      label, status, CACurrentMediaTime() - launchTime, angle, base.hingeAngle,
-                     halves.layout.isBook ? "book" : "tabletop", halves.source, engine.phase.rawValue,
-                     engine.measuredCompression, written.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
+                     halves.layout.isBook ? "book" : "tabletop", base.model.rawValue, halves.source,
+                     engine.phase.rawValue, engine.measuredCompression, base.escapedSplat == nil ? 0 : 1,
+                     written.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
+        return written.isEmpty ? nil : halves
+    }
+
+    /// CI hook: the before/after frame (FOLD-REVIEW-4 §3.3 C frame 2), storeshot-pair[-land].png, from the angle shot
+    /// nearest `storepair` (default 112°) and the hero's halves, captioned `paircaption=` (default "Close your phone.
+    /// Feel it *give*.").
+    private func writeStorePair(_ demo: DemoScenario, after: FoldStoreShot.Halves) {
+        let started = CACurrentMediaTime()
+        let wanted = demo.double("storepair") ?? 112
+        guard let before = storeShotHalves.values.min(by: {
+            abs(($0.hingeAngle ?? 0) - wanted) < abs(($1.hingeAngle ?? 0) - wanted)
+        }) else {
+            print("SQUISH-T storeshot pair failed: no angle shot to pair with (storeshot=\(Int(wanted)),fail)")
+            return
+        }
+        var options = FoldStoreShot.PairOptions()
+        options.before = storeShotOptions(demo, angle: before.hingeAngle ?? wanted)
+        options.after = storeShotOptions(demo, angle: after.hingeAngle ?? 62)
+        options.after.escapedSplat = escapedSplat(demo)
+        options.backdrop = options.after.backdrop
+        let caption = PressDirector.splitCaption(demo.string("paircaption") ?? PressDirector.pairCaption)
+        options.caption = caption.headline
+        options.subcaption = caption.subline
+        let sizes = storeShotSizes(demo)
+        var variants: [(file: String, options: FoldStoreShot.PairOptions)] = []
+        if sizes.portrait {
+            var portrait = options
+            portrait.size = demo.has("duo") ? FoldStoreShot.duoInner : FoldStoreShot.portrait
+            variants.append((file: "storeshot-pair.png", options: portrait))
+        }
+        if sizes.landscape {
+            var landscape = options
+            landscape.size = demo.has("duo") ? FoldStoreShot.duoInnerLandscape : FoldStoreShot.landscape
+            variants.append((file: "storeshot-pair-land.png", options: landscape))
+        }
+        var written: [String] = []
+        for variant in variants {
+            let image = FoldStoreShot.renderPair(before: before, after: after, options: variant.options)
+            if writePNG(label: "pair", file: variant.file, image: image) {
+                written.append(variant.file)
+            }
+        }
+        print(String(format: "SQUISH-T storeshot pair %@ at %.2fs before=%.1f after=%.1f files=%@ ms=%.0f",
+                     written.isEmpty ? "failed:" : "ok", CACurrentMediaTime() - launchTime,
+                     options.before.hingeAngle, options.after.hingeAngle, written.joined(separator: ","),
+                     (CACurrentMediaTime() - started) * 1000))
+    }
+
+    /// Write one rendered store shot to Documents; false (and a log line) when it didn't render or write.
+    private func writePNG(label: String, file: String, image: UIImage?) -> Bool {
+        guard let image, let png = image.pngData() else {
+            print("SQUISH-T storeshot \(label) render failed: \(file)")
+            return false
+        }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        do {
+            try png.write(to: documents.appendingPathComponent(file), options: .atomic)
+            return true
+        } catch {
+            print("SQUISH-T storeshot \(label) write failed: \(file) \(error.localizedDescription)")
+            return false
+        }
     }
     #endif
 }

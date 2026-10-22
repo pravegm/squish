@@ -41,6 +41,8 @@ struct RevealCardView: View {
     }
 
     private var toasts: [Toast] {
+        // `-squishDemo …;notoasts` (store capture, FOLD-REVIEW-4 F4): the reveal stays clean.
+        if RevealToastDemo.hidesToasts { return [] }
         var list: [Toast] = []
         // The first Perfect Squish ever explains itself (P1-13).
         if outcome.specimen.isPerfect && collection.stats.perfectCount == 1 {
@@ -122,14 +124,14 @@ struct RevealCardView: View {
 
     /// Fold Press reveal (FOLD-PRESS §6.3, FOLD-REVIEW-1 #4–5). The scene keeps the monoprint on the platen
     /// (with its PRESSED stamp) and the flattened specimen on the anvil; the UI adds only a paper label under the
-    /// platen plate, one single-line toast in the crown strip, and Again · Share · Next in the console band.
+    /// platen plate, one single-line toast in the fold toast slot (never the crown strip: its gauge, lamps and
+    /// hinge readout go green and freeze at the reveal, FOLD-REVIEW-4 F4), and Again · Share · Next in the console.
     private func diptych(_ bands: ScreenBands, origin: CGPoint) -> some View {
         let layout = bands.foldLayout
         let plate = bands.local(layout.strikePlate(platen: true))
-        let crown = bands.local(layout.crownStrip)
         let console = bands.local(layout.consoleBand)
-        // Leave the gauge (outer end of the crown) and the pilot lamp (far end of the console) uncovered.
-        let toastWidth = max(300, min(crown.width - 88, 420))
+        let toastFrame = bands.foldToastSlot
+        // Leave the pilot lamp (far end of the console) uncovered.
         let actionsWidth = min(console.width - Theme.s3 * 2 - 36, 455)
         let cardWidth = min(plate.width, 250)
         let cardHeight = min(plate.height + 60, cardWidth * 1.2)
@@ -149,15 +151,15 @@ struct RevealCardView: View {
                 .opacity(cardIn && !collecting ? 1 : 0)
                 .position(x: plate.maxX - 36, y: plate.minY + 4)
             toastSlot(compact: true)
-                .frame(width: toastWidth)
-                .position(x: crown.maxX - Theme.s2 - toastWidth / 2, y: crown.midY)
+                .frame(width: toastFrame.width)
+                .position(x: toastFrame.midX, y: toastFrame.midY)
             foldActions
                 .frame(width: actionsWidth)
                 .position(x: console.minX + Theme.s3 + actionsWidth / 2, y: console.midY)
         }
     }
 
-    /// "RUBBER DUCK · 1 HONK · 1 SEAM POP · 63°" in Mono 12 on a paper tag. Never truncates: it wraps to a
+    /// "RUBBER DUCK · 1 HONK · 1 SEAM POP · AT 63°" in Mono 12 on a paper tag. Never truncates: it wraps to a
     /// second line before it would shrink below legibility.
     private var printLabel: some View {
         Text(foldLabelText)
@@ -182,7 +184,8 @@ struct RevealCardView: View {
 
     private var foldLabelText: String {
         var parts = [specimen.kind.displayName.uppercased(), specimen.kind.breaksLine(fractureCount: specimen.fractureCount)]
-        if specimen.kind != .unsquishable, let angle = specimen.failureAngle { parts.append("\(Int(angle.rounded()))°") }
+        // "AT 66°", not a bare "66°": the number is the hinge angle it gave at (FOLD-REVIEW-4 F13).
+        if specimen.kind != .unsquishable, let angle = specimen.failureAngle { parts.append("AT \(Int(angle.rounded()))°") }
         return parts.joined(separator: " · ")
     }
 
@@ -356,6 +359,10 @@ struct RevealCardView: View {
     /// Toasts are held this long after the reveal has settled, so the first thing the player sees is their
     /// specimen, not a banner over the lamps and nameplate (FOLD-REVIEW-3 N8).
     private static let toastHoldMilliseconds = 1_500
+    /// Each toast is up this long, the last one included, then leaves (FOLD-REVIEW-4 F4: none stays for good).
+    private static let toastVisibleMilliseconds = 3_000
+    /// The pause between one toast leaving and the next arriving, so the exit transition can play.
+    private static let toastGapMilliseconds = 300
 
     private func choreograph() {
         Task { @MainActor in
@@ -373,14 +380,18 @@ struct RevealCardView: View {
                 withAnimation(Theme.settle(reduceMotion)) { actionsIn = true }
                 try? await Task.sleep(for: .milliseconds(Self.cardSettledMilliseconds - 600))
             }
-            // Toasts wait for the settled reveal, then come one at a time; the last one stays.
-            try? await Task.sleep(for: .milliseconds(Self.toastHoldMilliseconds))
+            // Toasts wait for the settled reveal, then come one at a time, 3 s each; the last one leaves too.
             let count = toasts.count
+            guard count > 0 else { return }
+            try? await Task.sleep(for: .milliseconds(Self.toastHoldMilliseconds))
             for index in 0..<count {
-                if index > 0 { try? await Task.sleep(for: .milliseconds(1_800)) }
+                if index > 0 { try? await Task.sleep(for: .milliseconds(Self.toastGapMilliseconds)) }
                 guard !Task.isCancelled, !collecting else { return }
                 withAnimation(Theme.pop(reduceMotion)) { toastIndex = index }
                 if index == 0 { UIFeel.success() }
+                try? await Task.sleep(for: .milliseconds(Self.toastVisibleMilliseconds))
+                guard !Task.isCancelled else { return }
+                withAnimation(Theme.fade) { toastIndex = -1 }
             }
         }
         if UIAccessibility.isVoiceOverRunning {
@@ -395,4 +406,20 @@ struct RevealCardView: View {
             }
         }
     }
+}
+
+/// `-squishDemo …;notoasts` (FOLD-REVIEW-4 F4, N8 "seed CI"): no reveal toasts (perfect, unlock, achievement), so
+/// store shots and CI reveals show the lamps and the hinge readout. Read here, from the same launch argument
+/// `DemoScenario` parses (`key=value;key`), so DemoMode.swift doesn't change. DEBUG only: always false in Release.
+enum RevealToastDemo {
+    static let hidesToasts: Bool = {
+        #if DEBUG
+        guard let raw = UserDefaults.standard.string(forKey: "squishDemo") else { return false }
+        return raw.split(separator: ";").contains { part in
+            part.split(separator: "=", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces) } == "notoasts"
+        }
+        #else
+        return false
+        #endif
+    }()
 }

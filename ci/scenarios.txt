@@ -73,11 +73,15 @@
 97-fold-can-60|object=sodaCan;foldsim=60|24
 98-fold-ball-60|object=unsquishable;foldsim=60|24
 99-fold-jelly-reveal|object=jelly;foldsim=45,170|24
-# Store shots (FOLD-REVIEW-3 N1): the live Fold Press halves mapped onto a folded Duo-shaped device, 3/4 eye, written by
-# the app to Documents and copied to ci-screens/<name>-storeshot-<angle>[-land|-eye].png (-eye = exact design eye, for
-# the §12 E checks). Tabletop layout here (an 18 Pro canvas); the real book-pose Duo shots come from duo.yml.
-9A-store-duck-110|object=rubberDuck;foldsim=110;storeshot|30
-9B-store-duck-120|object=rubberDuck;foldsim=120;storeshot;storeshotsize=both|30
-9C-store-duck-sweep|object=rubberDuck;foldsim=120,90,60;storeshot|60
+# Store shots (FOLD-REVIEW-3 N1, FOLD-REVIEW-4 #1/#2): the live Fold Press halves mapped onto a folded Duo-shaped device
+# in tabletop pose, 3/4 eye, written by the app to Documents and copied to
+# ci-screens/<name>-storeshot-<label>[-land|-eye].png (-eye = exact design eye, for the §12 E checks). Tabletop layout
+# here (an 18 Pro canvas, 1320 × 2868): iteration only, never for any App Store set (the 18 Pro doesn't fold). The
+# Duo hero/112/pair set comes from duo.yml. `fail` adds storeshot-hero (failure freeze, caption, escaped splat) and
+# storeshot-pair (the 112° shot beside the hero). `notoasts` hides achievement toasts.
+9A-store-duck-110|object=rubberDuck;foldsim=110;storeshot;notoasts|30
+9B-store-duck-120|object=rubberDuck;foldsim=120;storeshot;storeshotsize=both;notoasts|30
+9C-store-duck-sweep|object=rubberDuck;foldsim=120,90,60;storeshot;notoasts|60
+9D-store-duck-hero|object=rubberDuck;foldsim=112,90,62;storeshot=112,fail;notoasts|90
 # App Store icon art (AppIconArt), cropped to ci-screens/AppIcon-1024.png by ci/screenshots.sh
 85-icon|icon|8

@@ -25,10 +25,12 @@ final class SodaCanView: PressObjectView {
     private let can: DeformableMesh
     private let puddle: ModelEntity
     private var tab = ModelEntity()
-    /// Dark radial crease marks on the lid, one per buckle, so top-down it reads "crushed can" (FOLD-REVIEW-2 #9,
-    /// FOLD-REVIEW-3 N10). They ride the lid as it drops, dents, ovalises and shoves sideways.
-    private let lidMarks = Entity()
-    private var creases: [(model: ModelEntity, angle: Float, radius: Float)] = []
+    /// Crumpled grey chevron folds on the shoulder, two per buckle ("5 BUCKLES" = 10 marks), so top-down it reads
+    /// "crushed can" (FOLD-REVIEW-4 F7: the old straight black bars on the lid read as clock hands round the tab).
+    /// They ride the shoulder as it drops, flattens, ovalises and shoves sideways.
+    private let shoulderMarks = Entity()
+    private var creases: [(mark: Entity, angle: Float)] = []
+    private var creaseMaterial: PhysicallyBasedMaterial?
     private var fired = 0
     private var phases: [Float] = []
     private var thresholds: [Float] = []
@@ -136,7 +138,7 @@ final class SodaCanView: PressObjectView {
         // Ring-pull tab on the lid.
         tab = Part.add(cached: "can.tab", { MeshKit.roundedBox([0.022, 0.001, 0.012], radius: 0.004, bevel: 0.0004) },
                        aluminium, at: [0.008 * ObjectMeshes.canR, 0.1462 * ObjectMeshes.canY, 0], to: entity)
-        entity.addChild(lidMarks)
+        entity.addChild(shoulderMarks)
         entity.orientation = Part.yaw(-15)
         if !look.golden && cachedLabel == nil {
             Task { @MainActor [weak self] in
@@ -301,16 +303,21 @@ final class SodaCanView: PressObjectView {
         let topShift = shoveDir * (shove * folded / capacity)
         spread = max(spread, min(maxBulge + simd_length(topShift) / footprint, 1.45))
 
-        // The tab and the crease marks ride the lid: dropped, dented (tilted with the dent), ovalised and shoved.
+        // The tab rides the lid: dropped, dented (tilted with the dent), ovalised and shoved.
         let lidTop = (lidY - folded) * elasticScale
         let slope = atan(dent * elasticScale / lidR)
         let tilt = simd_quatf(angle: slope, axis: [0, 0, 1])
-        lidMarks.position = SIMD3(topShift.x, lidTop, topShift.y)
+        // The chevrons ride the shoulder exactly as its vertices do: everything above the bands drops by `folded`,
+        // scales by `elasticScale` (which also flattens the shoulder's slope), ovalises and shoves with the top.
+        let shoulder = CanCrush.shoulder(radius: CanCrush.chevronRadius)
+        let pitch = atan(tan(shoulder.slope) * elasticScale)
+        shoulderMarks.position = SIMD3(topShift.x, 0, topShift.y)
         for crease in creases {
-            let rc = crease.radius * (1 + oval * cos(2 * (crease.angle - ovalAngle)))
-            let sink = dent * max(1 - rc / lidR, 0) * elasticScale
-            crease.model.position = SIMD3(cos(crease.angle) * rc, 0.0005 - sink, sin(crease.angle) * rc)
-            crease.model.orientation = simd_quatf(angle: -crease.angle, axis: [0, 1, 0]) * tilt
+            let rc = CanCrush.chevronRadius * (1 + oval * cos(2 * (crease.angle - ovalAngle)))
+            let y = (shoulder.y - folded) * elasticScale
+            crease.mark.position = SIMD3(cos(crease.angle) * rc, y, sin(crease.angle) * rc)
+            // Local +X runs down the slope (outward), local +Y is the shoulder's normal.
+            crease.mark.orientation = simd_quatf(angle: -crease.angle, axis: [0, 1, 0]) * simd_quatf(angle: -pitch, axis: [0, 0, 1])
         }
         let tabR = Self.tabRadius * (1 + oval * cos(2 * ovalAngle))
         let tabSink = dent * max(1 - Self.tabRadius / lidR, 0) * elasticScale
@@ -318,17 +325,50 @@ final class SodaCanView: PressObjectView {
         tab.orientation = tilt
     }
 
+    /// One crumpled chevron fold: two short dark-grey (#5A5E66 at 0.6, not black) arms meeting in a shallow V, lengths
+    /// and angles seeded. Local frame: +X down the shoulder's slope, +Z round the can, +Y the shoulder's normal.
+    private func chevron() -> Entity {
+        let material: PhysicallyBasedMaterial
+        if let creaseMaterial {
+            material = creaseMaterial
+        } else {
+            let made = SceneMaterials.pbr(UIColor(hex: 0x5A5E66), roughness: 0.5, metallic: 0.4, opacity: 0.6)
+            creaseMaterial = made
+            material = made
+        }
+        let arm = CanCrush.chevronArm
+        let barMesh = MeshCache.resource("can.chevron.bar") { MeshKit.roundedBox([arm, 0.0008, 0.0016], radius: 0.0005, bevel: 0.0002) }
+            ?? MeshResource.generateBox(size: 0.001)
+        let mark = Entity()
+        let apex = SIMD3<Float>(-arm * sin(CanCrush.chevronAngle) / 2, 0.0005, 0)
+        for side: Float in [-1, 1] {
+            let length = arm * Float.random(in: 0.85...1.1, using: &rng)
+            let angle = CanCrush.chevronAngle + Float.random(in: -0.12...0.12, using: &rng)
+            // The arm leaves the apex outward (down the slope) and sideways (round the can).
+            let dir = SIMD3<Float>(sin(angle), 0, side * cos(angle))
+            let bar = ModelEntity(mesh: barMesh, materials: [material])
+            bar.scale = SIMD3(length / arm, 1, 1)
+            bar.orientation = simd_quatf(angle: atan2(-dir.z, dir.x), axis: [0, 1, 0])
+            bar.position = apex + dir * (length / 2)
+            mark.addChild(bar)
+        }
+        return mark
+    }
+
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
         fired = max(fired, index + 1)
-        let creaseAngle = phases[index % phases.count] + Float(index) * 1.3
-        // A dark radial crease on the lid, longer and darker than round 2's (it read as nothing from above); placed on the
-        // dented lid by the next `deform`.
-        let crease = MeshKit.model(MeshKit.roundedBox([0.016, 0.0009, 0.0022], radius: 0.0005, bevel: 0.0002),
-                                   material: SceneMaterials.pbr(UIColor(hex: 0x3A3C42), roughness: 0.55, metallic: 0.4))
-        crease.position = [cos(creaseAngle) * CanCrush.creaseRadius, 0.0005, sin(creaseAngle) * CanCrush.creaseRadius]
-        crease.orientation = simd_quatf(angle: -creaseAngle, axis: [0, 1, 0])
-        lidMarks.addChild(crease)
-        creases.append((model: crease, angle: creaseAngle, radius: CanCrush.creaseRadius))
+        // Two crumpled chevron folds per buckle on the shoulder, roughly opposite each other; placed on the flattened
+        // shoulder by the next `deform`.
+        let first = phases[index % phases.count] + Float(index) * 1.3
+        for k in 0..<CanCrush.chevronsPerBuckle {
+            let angle = first + Float(k) * (2 * .pi / Float(CanCrush.chevronsPerBuckle)) + Float.random(in: -0.35...0.35, using: &rng)
+            let mark = chevron()
+            let rest = CanCrush.shoulder(radius: CanCrush.chevronRadius)
+            mark.position = [cos(angle) * CanCrush.chevronRadius, rest.y, sin(angle) * CanCrush.chevronRadius]
+            mark.orientation = simd_quatf(angle: -angle, axis: [0, 1, 0]) * simd_quatf(angle: -rest.slope, axis: [0, 0, 1])
+            shoulderMarks.addChild(mark)
+            creases.append((mark: mark, angle: angle))
+        }
         lastShort = -1
         // A glint where the fold creases.
         let foldY = Self.bodyTop - Self.foldWidth * (Float(index) + 0.5)
@@ -357,8 +397,31 @@ enum CanCrush {
     static let shovePerBand: Float = 0.0022
     /// Depth of the next band's pre-buckle lobes as it reaches its threshold.
     static let preBuckleDepth: Float = 0.0022
-    /// Where the lid creases sit (centre radius; the lid is r 0.041).
-    static let creaseRadius: Float = 0.026
+    /// The chevron folds sit on the sloped shoulder (between the rim bead at r ≈ 0.045 and the body at r 0.055), clear
+    /// of the lid (r 0.041) and the tab, so they can't read as clock hands (FOLD-REVIEW-4 F7).
+    static let chevronRadius: Float = 0.050
+    static let chevronsPerBuckle = 2
+    /// Each chevron is two ~6 mm arms meeting at ±35° to the can's circumference.
+    static let chevronArm: Float = 0.006
+    static let chevronAngle: Float = 35 * .pi / 180
+
+    /// Height and slope (radians from horizontal) of the rest shoulder at `radius`, from the can's lathe profile
+    /// (the segment between the body top and the rim bead).
+    static func shoulder(radius r: Float) -> (y: Float, slope: Float) {
+        let profile = ObjectMeshes.canProfile()
+        let top = ObjectMeshes.canBodyTop
+        for i in 0..<(profile.count - 1) where profile[i].y >= top - 1e-5 {
+            let a = profile[i]
+            let b = profile[i + 1]
+            // Past the shoulder: the rim bead turns back outward.
+            guard b.x < a.x else { break }
+            if r <= a.x && r >= b.x {
+                let t = (a.x - r) / max(a.x - b.x, 1e-6)
+                return (a.y + (b.y - a.y) * t, atan2(b.y - a.y, a.x - b.x))
+            }
+        }
+        return (top, 0)
+    }
 
     /// The rim ovalises and the lid dents from first contact: 0 at c ≤ 0.04, 1 at c 0.30 (about the first buckle).
     static func topStrain(compression c: Float) -> Float {

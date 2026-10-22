@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import simd
 import Testing
+import UIKit
 @testable import Squish
 
 /// Fold Press geometry (design/FOLD-PRESS.md §2.2–2.3, §4.3, §5, §9.2–9.3, §12 R2/R3).
@@ -214,28 +215,163 @@ struct FoldPressTests {
         #expect(FoldLean.pivotShift(lean: 0, baseRadius: r) == .zero)
     }
 
-    // MARK: Reveal stamp (FOLD-REVIEW-3 N12)
+    // MARK: Reveal stamp (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F9)
 
-    @Test func pressedStampIsSeededAndStaysOnThePlate() {
+    @Test func pressedStampOverlapsThePrintsLowerEdgeAndStaysOnThePlate() {
         for book in [false, true] {
             let layout = FoldLayout(canvas: book ? CGSize(width: 951, height: 669) : CGSize(width: 669, height: 951))
             let plate = layout.strikePlate(platen: true)
-            var poses: Set<String> = []
-            for seed in UInt64(1)...40 {
-                let a = FoldPlaten.pressedPose(seed: seed, book: book)
-                let b = FoldPlaten.pressedPose(seed: seed, book: book)
-                #expect(a.offset == b.offset && a.angle == b.angle)
-                let degrees = Double(a.angle) * 180 / .pi
-                #expect(degrees >= -14.1 && degrees <= -1.9)
-                // The landed stamp (150 × 57 at 85 %), rotated, stays on the strike plate.
-                let scale = FoldPlaten.pressedScale
-                let stamp = CGRect(x: -75, y: -28.5, width: 150, height: 57)
-                    .applying(CGAffineTransform(rotationAngle: a.angle).scaledBy(x: scale, y: scale))
-                    .offsetBy(dx: layout.printCentre.x + a.offset.x, dy: layout.printCentre.y + a.offset.y)
-                #expect(plate.contains(stamp), "book \(book) seed \(seed): \(stamp) outside \(plate)")
-                poses.insert(String(format: "%.1f %.1f %.3f", Double(a.offset.x), Double(a.offset.y), Double(a.angle)))
+            let centre = layout.printCentre
+            let plateOffsets = plate.offsetBy(dx: -centre.x, dy: -centre.y)
+            var bases: Set<String> = []
+            for kind in ObjectKind.allCases {
+                var poses: Set<String> = []
+                for seed in UInt64(1)...30 {
+                    let variant = PressVariant(kind: kind, seed: seed)
+                    let stamp = FoldStamps.stamp(for: kind, variant: variant, foldScale: 0.8,
+                                                 extraYaw: book ? FoldPressController.bookYaw(kind) : 0)
+                    let print = FoldPlaten.printBounds(stamp, layout: layout)
+                    let a = FoldPlaten.pressedPose(seed: seed, print: print, plate: plateOffsets)
+                    let b = FoldPlaten.pressedPose(seed: seed, print: print, plate: plateOffsets)
+                    #expect(a.offset == b.offset && a.angle == b.angle)
+                    let degrees = Double(a.angle) * 180 / .pi
+                    #expect(degrees >= -18.1 && degrees <= 2.1)
+                    // The landed stamp (150 × 57 at 85 %), rotated, stays on the strike plate.
+                    let scale = FoldPlaten.pressedScale
+                    let size = FoldPlaten.pressedSize
+                    let landed = CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height)
+                        .applying(CGAffineTransform(rotationAngle: a.angle).scaledBy(x: scale, y: scale))
+                        .offsetBy(dx: centre.x + a.offset.x, dy: centre.y + a.offset.y)
+                    #expect(plate.contains(landed), "\(kind) book \(book) seed \(seed): \(landed) outside \(plate)")
+                    // It sits on the print's lower edge: its top is on the print, and it hangs below the edge unless the
+                    // plate's own edge stopped it.
+                    let printRect = print.offsetBy(dx: centre.x, dy: centre.y)
+                    #expect(landed.minY < printRect.maxY, "\(kind) book \(book) seed \(seed)")
+                    #expect(landed.maxY > printRect.maxY || landed.maxY >= plate.maxY - 4.5, "\(kind) book \(book) seed \(seed)")
+                    poses.insert(String(format: "%.1f %.1f %.3f", Double(a.offset.x), Double(a.offset.y), Double(a.angle)))
+                }
+                #expect(poses.count > 25, "\(kind) book \(book): \(poses.count) distinct poses")
+                // Each object's base follows its own print.
+                let seedOne = FoldStamps.stamp(for: kind, variant: PressVariant(kind: kind, seed: 1), foldScale: 0.8,
+                                               extraYaw: book ? FoldPressController.bookYaw(kind) : 0)
+                let box = FoldPlaten.printBounds(seedOne, layout: layout)
+                bases.insert(String(format: "%.0f %.0f", Double(box.midX), Double(box.maxY)))
             }
-            #expect(poses.count > 30)
+            #expect(bases.count > 5, "book \(book): print bases \(bases)")
+        }
+    }
+
+    @Test func pressedStampTurnsPaperWhiteOnRedPrints() {
+        #expect(FoldPlaten.pressedOnPaper(Palette.raspberry))
+        #expect(FoldPlaten.pressedOnPaper(UIColor(hex: 0xD0164F)))
+        #expect(!FoldPlaten.pressedOnPaper(Palette.duckYellow))
+        #expect(!FoldPlaten.pressedOnPaper(Palette.cobalt))
+        #expect(!FoldPlaten.pressedOnPaper(UIColor(white: 1, alpha: 1)))
+        #expect(!FoldPlaten.pressedOnPaper(UIColor(hex: 0xCFE8F5)))
+    }
+
+    // MARK: Splat that escapes the fold (FOLD-REVIEW-4 F3)
+
+    @Test func anvilSprayMirrorsThePlatenSplatAndStaysOnThePlate() {
+        let splatters: Set<ObjectKind> = [.rubberDuck, .jelly, .sodaCan, .egg, .cakeSlice, .gummyBear]
+        let mirrored: Set<ObjectKind> = [.rubberDuck, .jelly, .sodaCan]
+        for kind in ObjectKind.allCases {
+            for seed in UInt64(1)...24 {
+                let variant = PressVariant(kind: kind, seed: seed)
+                for foldScale in [0.6, 0.8, 1.0] {
+                    let stamp = FoldStamps.stamp(for: kind, variant: variant, foldScale: foldScale)
+                    let a = FoldStamps.anvilSpray(stamp, variant: variant)
+                    let b = FoldStamps.anvilSpray(stamp, variant: variant)
+                    #expect(a?.droplets == b?.droplets, "\(kind) seed \(seed): not deterministic")
+                    guard let spray = a else {
+                        #expect(!splatters.contains(kind), "\(kind) seed \(seed) fs \(foldScale): no spray")
+                        continue
+                    }
+                    #expect(splatters.contains(kind))
+                    #expect(spray.droplets.count >= 1 && spray.droplets.count <= FoldStamps.sprayMaxCount)
+                    for d in spray.droplets {
+                        #expect(FoldStamps.sprayContained(d, scale: FoldStamps.sprayMaxScale),
+                                "\(kind) seed \(seed) fs \(foldScale): \(d) past the plate + 16")
+                    }
+                    guard mirrored.contains(kind) else { continue }
+                    // Every escaped droplet is one of the platen's, at its very spot, or that one pulled straight in.
+                    let platen = FoldStamps.platenSplatDroplets(stamp, variant: variant)
+                    for d in spray.droplets {
+                        let match = platen.contains { p in
+                            guard p.radius == d.radius else { return false }
+                            let cross = p.centre.x * d.centre.y - p.centre.y * d.centre.x
+                            let along = p.centre.x * d.centre.x + p.centre.y * d.centre.y
+                            let pulledIn = FoldStamps.sprayReach(d) <= FoldStamps.sprayReach(p) + 1e-6
+                            return abs(cross) < 1e-3 * max(1, along) && along >= 0 && pulledIn
+                        }
+                        #expect(match, "\(kind) seed \(seed) fs \(foldScale): \(d) is not a platen droplet")
+                    }
+                }
+            }
+        }
+        // The replay is the platen's own draw: same count as the splat flicks.
+        let duck = FoldStamps.stamp(for: .rubberDuck, variant: PressVariant(kind: .rubberDuck, seed: 3), foldScale: 0.8)
+        #expect(FoldStamps.platenSplatDroplets(duck, variant: PressVariant(kind: .rubberDuck, seed: 3)).count == 10)
+        let can = FoldStamps.stamp(for: .sodaCan, variant: PressVariant(kind: .sodaCan, seed: 3), foldScale: 0.8)
+        #expect(FoldStamps.platenSplatDroplets(can, variant: PressVariant(kind: .sodaCan, seed: 3)).count == 26)
+    }
+
+    // MARK: Bubble wrap shadow (FOLD-REVIEW-3 N15)
+
+    @Test func shadowWeightsBlendTheTwoNearestBlurs() {
+        let stops: [Double] = [4, 16, 40]
+        #expect(FoldStamps.shadowWeights(blur: 2, stops: stops) == [1, 0, 0])
+        #expect(FoldStamps.shadowWeights(blur: 10, stops: stops) == [0.5, 0.5, 0])
+        #expect(FoldStamps.shadowWeights(blur: 28, stops: stops) == [0, 0.5, 0.5])
+        #expect(FoldStamps.shadowWeights(blur: 50, stops: stops) == [0, 0, 1])
+        for blur in stride(from: 0.0, through: 48, by: 0.5) {
+            let w = FoldStamps.shadowWeights(blur: blur, stops: stops)
+            #expect(near(w.reduce(0, +), 1, 1e-9))
+        }
+        // Sheets never sharpen below 28 pt, and their shadow outline has soft (≥ 24 pt) corners.
+        #expect(FoldStamps.shadowBlurs(.bubbleWrap).min() ?? 0 >= 28)
+        #expect(FoldStamps.shadowBlurs(.rubberDuck) == [4, 16, 40])
+        let wrap = FoldStamps.stamp(for: .bubbleWrap, variant: PressVariant(kind: .bubbleWrap, seed: 2), foldScale: 1)
+        let outline = FoldStamps.shadowOutline(wrap)
+        let box = wrap.silhouette.boundingBoxOfPath
+        #expect(FoldPrintCanvas.rect.contains(outline.boundingBoxOfPath))
+        // Rounder corners pull the rotated film's bounding box in a little.
+        #expect(outline.boundingBoxOfPath.width < box.width - 1)
+    }
+
+    // MARK: One gauge on both machines (FOLD-REVIEW-4 F12)
+
+    @Test func oneTonnageScaleOnBothMachines() {
+        #expect(PressGauge.maxTons == 80)
+        #expect(Double(FoldTextures.gaugeMaxTons) == PressGauge.maxTons)
+        // The same sweep on the P-48 face and the Fold crown: 0 t at 225°, 40 t straight up, 80 t at −45°.
+        #expect(near(Double(RigTextures.gaugeAngle(tons: 0)), 225 * .pi / 180, 1e-9))
+        #expect(near(Double(RigTextures.gaugeAngle(tons: 40)), .pi / 2, 1e-9))
+        #expect(near(Double(RigTextures.gaugeAngle(tons: 80)), -45 * .pi / 180, 1e-9))
+        #expect(near(Double(FoldTextures.needleRotation(tons: 0)), -135 * .pi / 180, 1e-9))
+        #expect(near(Double(FoldTextures.needleRotation(tons: 40)), 0, 1e-9))
+        #expect(near(Double(FoldTextures.needleRotation(tons: 80)), 135 * .pi / 180, 1e-9))
+        // Every needle seals on the record's tonnage, which stays on the dial and out of the red for real objects.
+        for kind in ObjectKind.allCases {
+            for seed in UInt64(0)..<24 {
+                for step in 0...20 {
+                    let c = Double(step) / 20
+                    let record = SpecimenRecord(id: UUID(), number: 1, kind: kind, date: Date(),
+                                                variant: PressVariant(kind: kind, seed: seed), fractureCount: 1,
+                                                maxCompression: c, failureAngle: nil, duration: 1, isPerfect: false,
+                                                wasSlammed: false)
+                    #expect(PressGauge.recordTons(kind: kind, maxCompression: c, seed: seed) == record.tons)
+                    guard kind != .unsquishable else {
+                        #expect(Double(record.tons) > PressGauge.maxTons)
+                        continue
+                    }
+                    #expect(record.tons >= 0 && Double(record.tons) < PressGauge.redZoneTons)
+                    // The live needle arrives on it once past the seed's ramp (to within the integer truncation).
+                    if step >= 5 {
+                        #expect(abs(PressGauge.liveTons(compression: c, seed: seed) - Double(record.tons)) < 1.0001)
+                    }
+                }
+            }
         }
     }
 

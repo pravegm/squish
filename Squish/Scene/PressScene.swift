@@ -629,8 +629,9 @@ final class PressScene {
     /// Touch presses never see the cover display, so give them a sealed beat: a paper tag swings from the crown.
     private func updateSealTag(engine: PressEngine, context: FeedbackContext, dt: Float) {
         if engine.phase == .sealed && lastPhase != .sealed && engine.usesVirtualHinge {
+            // Exactly the tonnage the card will print (FOLD-REVIEW-4 F12: one scale, one mapping).
             let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
-            let tons = kind == .unsquishable ? 400 + Int(variant.seed % 97) : 12 + Int(maxC * 50) + Int(variant.seed % 9)
+            let tons = PressGauge.recordTons(kind: kind, maxCompression: Double(maxC), seed: variant.seed)
             rig.showSealTag(tons: tons)
         } else if engine.phase == .revealing || engine.phase == .idle {
             rig.hideSealTag()
@@ -727,31 +728,35 @@ final class PressScene {
     }
 
     private func updateInstruments(engine: PressEngine, context: FeedbackContext, dt: Float, renderC: Float, approach: Float) {
-        // Tonnage: approach twitch, then 4 → 56 t across the crush; the Unsquishable pins it past 60.
+        // Tonnage (FOLD-REVIEW-4 F12, the Fold crown's mapping on the same 0–80 t dial): approach twitch, then the
+        // seed's base plus 44 t·c across the crush, sealing on exactly the record's tonnage; the Unsquishable pins it.
+        let dialMax = Float(PressGauge.maxTons)
         var tons: Float = 0
         switch engine.phase {
         case .armed, .pressing:
             if engine.renderDepth < engine.mapping.contactT {
                 tons = 0.6 * approach + min(abs(Float(engine.closingSpeed)) / 200, 1) * 0.25
             } else if kind == .unsquishable {
-                tons = 8 + 60 * renderC
+                tons = 10 + (dialMax - 10) * min(1, renderC * 1.6)
             } else {
-                tons = 4 + 52 * renderC
+                tons = Float(PressGauge.liveTons(compression: Double(renderC), seed: variant.seed))
             }
             peakTons = max(peakTons, tons)
         case .sealed:
-            tons = max(peakTons, kind == .unsquishable ? 64 : 50)
+            let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
+            tons = kind == .unsquishable ? dialMax + 3
+                : Float(PressGauge.recordTons(kind: kind, maxCompression: Double(maxC), seed: variant.seed))
         case .idle, .revealing:
             tons = 0
         }
         // Teaching: the needle twitches with the platen pulse (VISUAL-TARGET §6.1).
         tons += 1.5 * teachWave
-        // Power-on beat (P2-1): the needle sweeps 0 → 60 → 0 while the lamps flick on.
-        if let t = powerOn, !context.reduceMotion { tons = t < 0.3 ? 60 : 0 }
+        // Power-on beat (P2-1): the needle sweeps to full scale and back while the lamps flick on.
+        if let t = powerOn, !context.reduceMotion { tons = t < 0.3 ? dialMax : 0 }
         // Slam warning (P0-5): a panicky needle and a red lamp while the press is slammed under load.
         let slamming = engine.isLoaded && engine.closingSpeed > engine.config.slamSpeed
         if slamming { rig.flashRed() }
-        let buzz = kind == .unsquishable && engine.phase != .revealing && engine.phase != .idle && tons >= 60
+        let buzz = kind == .unsquishable && engine.phase != .revealing && engine.phase != .idle && tons >= dialMax
         rig.updateGauge(tons: tons, dt: dt, tremor: tell && !context.reduceMotion, buzz: buzz && !context.reduceMotion,
                         panic: slamming && !context.reduceMotion, time: clock)
         let loaded = engine.isLoaded || engine.phase == .sealed

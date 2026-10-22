@@ -124,9 +124,10 @@ struct SpecimenRecord: Codable, Identifiable, Equatable, Sendable {
 
     /// Fun, deterministic "tonnage" for the label.
     var tons: Int {
-        // The P-48 gauge reads 0–60 t, so real objects stay on the dial; only The Unsquishable pins it.
+        // Every gauge (P-48, Fold crown, cover) reads 0–80 t (`PressGauge`, FOLD-REVIEW-4 F12), and every needle seals on
+        // this number, so real objects stay on the dial (≤ 59 t, under the 60 t red zone); only The Unsquishable pins it.
         if kind == .unsquishable { return 400 + Int(variant.seed % 97) }
-        return min(60, 10 + Int(maxCompression * 44) + Int(variant.seed % 6))
+        return min(80, 10 + Int(maxCompression * 44) + Int(variant.seed % 6))
     }
 
     var flavourLine: String {

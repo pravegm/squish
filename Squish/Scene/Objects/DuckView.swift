@@ -8,6 +8,9 @@ import UIKit
 /// Squashes into a cartoon pancake (spreading faster than volume-preserving, so it reads from above), honks (beak
 /// pops), the seam "bloops" (a 6% deflate and an air puff), and springs back a little with overshoot when the ram lifts
 /// (elastic 35% plasticity in Core; height rebound capped at 15%, footprint latched at its widest).
+/// Top-down tells (FOLD-REVIEW-4 F6): the head squashes on its own (CPU-deformed body blob) into an ellipse that
+/// merges with the body, the beak and eyes ride it, the vinyl's highlight widens and dulls, and a darker wet ring
+/// creeps out on the steel round the pancake.
 @MainActor
 final class DuckView: PressObjectView {
     let entity = Entity()
@@ -18,7 +21,21 @@ final class DuckView: PressObjectView {
     private let minHeightRatio: Float = 0.18
 
     private let squash = Entity()
+    /// The body blob, CPU-deformed so the head flattens on its own (FOLD-REVIEW-4 F6): without it the whole duck
+    /// scaled uniformly in XZ and, top-down, the head stayed a perfect ball on the pancake.
+    private let body: DeformableMesh
     private let beak: ModelEntity
+    private var eyes: [(model: ModelEntity, rest: SIMD3<Float>)] = []
+    private var seamRest: [(model: ModelEntity, rest: SIMD3<Float>)] = []
+    /// Latched head squash progress (0 rest … 1 fully pressed) and the last value the mesh was deformed for.
+    private var headC: Float = 0
+    private var shapedC: Float = -1
+    /// Highlight dulling level (quantised so the material is rebuilt a handful of times per press, never per frame).
+    private var dullLevel = 0
+    private let golden: Bool
+    /// A darker wet ring on the steel just outside the pancake's edge (FOLD-REVIEW-4 F6), latched.
+    private let wetRing: ModelEntity
+    private var ringT: Float = 0
     private let fx: SceneFX
     private let look: Look
     private var rng = SplitMix64(seed: 0)
@@ -45,24 +62,27 @@ final class DuckView: PressObjectView {
         let look = Look(variant)
         self.look = look
         rng = SplitMix64(seed: variant.seed ^ 0xD0C)
-        var body = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(Palette.duckYellow, roughness: 0.28, clearcoat: 0.8, clearcoatRoughness: 0.10)
-        if !look.golden {
-            body.emissiveColor = .init(color: UIColor(hex: 0xFFB000))
-            body.emissiveIntensity = 0.04
-        }
+        golden = look.golden
+        let bodyMaterial = Self.bodyMaterial(golden: look.golden, dull: 0)
         let beakMaterial = SceneMaterials.enamel(Palette.beakOrange, roughness: 0.30, clearcoat: 0.8, clearcoatRoughness: 0.1)
         let eyeMaterial = SceneMaterials.enamel(UIColor(hex: 0x1E1B24), roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02)
 
-        let bodyResource = MeshCache.resource("duck.body") { ObjectMeshes.duckBody() }
+        body = DeformableMesh(MeshCache.mesh("duck.body") { ObjectMeshes.duckBody() }, materials: [bodyMaterial], maxSpread: 1.6)
         let beakResource = MeshCache.resource("duck.beak") { ObjectMeshes.duckBeak() }
         beak = ModelEntity(mesh: beakResource ?? .generateSphere(radius: 0.01), materials: [beakMaterial])
-        let bodyModel = ModelEntity(mesh: bodyResource ?? .generateSphere(radius: 0.03), materials: [body])
-        squash.addChild(bodyModel)
+        let wetMaterial = look.golden ? SceneMaterials.goldMess
+            : SceneMaterials.enamel(UIColor(hex: 0xC99A00), roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05, opacity: 0.35)
+        wetRing = ModelEntity(mesh: MeshCache.resource("duck.skirt") { MeshKit.spreadDisc(seed: 0xD5C, height: 1, segments: 48, wobble: 0.08) }
+                              ?? .generateSphere(radius: 0.01), materials: [wetMaterial])
+        wetRing.position = [0, 0.00005, 0]
+        wetRing.isEnabled = false
+        squash.addChild(body.entity)
         squash.addChild(beak)
         for side: Float in [-1, 1] {
-            Part.add(cached: "duck.eye", { MeshKit.sphere(radius: 0.0034, segments: 24, rings: 12) }, eyeMaterial,
-                     at: [0.035, 0.068, 0.012 * side], to: squash)
+            let rest = SIMD3<Float>(0.035, 0.068, 0.012 * side)
+            let eye = Part.add(cached: "duck.eye", { MeshKit.sphere(radius: 0.0034, segments: 24, rings: 12) }, eyeMaterial,
+                               at: rest, to: squash)
+            eyes.append((eye, rest))
         }
         // Seam: short dark segments following the top of the back, hidden until the seam pops.
         let seamMaterial = SceneMaterials.pbr(UIColor(hex: 0x9A7414), roughness: 0.5)
@@ -79,14 +99,16 @@ final class DuckView: PressObjectView {
                 segment.position = (point + previous) / 2
                 segment.orientation = simd_quatf(from: [1, 0, 0], to: d / max(length, 1e-6))
                 seam.addChild(segment)
+                seamRest.append((segment, segment.position))
             }
             previous = point
         }
         seam.isEnabled = false
         squash.addChild(seam)
         skirt = ModelEntity(mesh: MeshCache.resource("duck.skirt") { MeshKit.spreadDisc(seed: 0xD5C, height: 1, segments: 48, wobble: 0.08) }
-                            ?? .generateSphere(radius: 0.01), materials: [body])
+                            ?? .generateSphere(radius: 0.01), materials: [bodyMaterial])
         skirt.isEnabled = false
+        entity.addChild(wetRing)
         entity.addChild(skirt)
         entity.addChild(squash)
         // 3/4 view, beak toward camera-right (+X forward, yaw −30°).
@@ -141,16 +163,68 @@ final class DuckView: PressObjectView {
         widest = max(widest, DuckSquash.spread(heightRatio: s, cap: fx.isFoldPress ? DuckSquash.foldCap : DuckSquash.machineCap))
         spread = widest * deflate
         squash.scale = SIMD3(spread, s * deflate, spread)
+        // The head flattens on its own into an ellipse that merges with the body (FOLD-REVIEW-4 F6), latched like the
+        // footprint so the reveal never shows a re-inflated ball.
+        headC = max(headC, DuckSquash.headProgress(heightRatio: s, minRatio: minHeightRatio))
+        if headC > shapedC + 0.004 {
+            shapedC = headC
+            let c = headC
+            body.update { DuckSquash.headDeform($0, c: c) }
+            for eye in eyes {
+                eye.model.position = DuckSquash.eyePosition(rest: eye.rest, c: c)
+                eye.model.scale = SIMD3(1, DuckSquash.eyeFlatten(c), 1)
+            }
+            for segment in seamRest {
+                segment.model.position = DuckSquash.headDeform(segment.rest, c: c)
+            }
+            // Clearcoat 0.10 → 0.30 and base roughness 0.28 → 0.40: the highlight widens and dulls as it flattens.
+            let level = DuckSquash.dullLevel(c)
+            if level > dullLevel && !golden {
+                dullLevel = level
+                let material = Self.bodyMaterial(golden: golden, dull: Float(level) / Float(DuckSquash.dullSteps))
+                body.setMaterial(material, forSlot: 0)
+                skirt.model?.materials = [material]
+            }
+        }
+        // The beak rides the head: its centre follows the deformed head, it flattens to an ellipse (Y × 0.5 at full
+        // press), and the honk still pops it forward.
         let pop = 1 + max(beakPop.value, -0.3)
-        beak.scale = SIMD3(pop, 1, pop)
+        let beakCentre = DuckSquash.beakCentre
+        let beakScale = SIMD3<Float>(pop, DuckSquash.beakFlatten(headC), pop)
+        beak.scale = beakScale
+        beak.position = DuckSquash.headDeform(beakCentre, c: headC) - beakScale * beakCentre
+            + SIMD3(beakCentre.x * (pop - 1), 0, 0)
+        // The wet ring emerges from under the pancake's edge with the squash (local units, ×heroScale), latched.
+        ringT = max(ringT, clamp((state.compression - 0.05) / 0.4, 0, 1))
+        if ringT > 0 {
+            wetRing.isEnabled = true
+            let ring = DuckSquash.wetRingRadius(spread: spread, t: ringT)
+            wetRing.scale = SIMD3(ring, 0.0004, ring * 0.8)
+        }
         if seamPopped {
             // The skirt squeezes out from under the pancake with compression past the pop (local units, ×heroScale);
             // latched, so it never shrinks back when the phone reopens.
             skirtT = max(skirtT, clamp((state.compression - popC) / max(1 - popC, 0.05), 0, 1))
             let radius = DuckSquash.skirtRadius(spread: spread, t: skirtT)
             skirt.scale = SIMD3(radius, 0.003, radius * 0.8)
+            // The wet ring stays just outside the skirt.
+            let ring = max(DuckSquash.wetRingRadius(spread: spread, t: ringT), radius * 1.08)
+            wetRing.isEnabled = true
+            wetRing.scale = SIMD3(ring, 0.0004, ring * 0.8)
             spread = max(spread, radius / 0.040 * 0.9)
         }
+    }
+
+    /// The vinyl: glossy yellow at rest; `dull` 0…1 widens and dulls the highlight (clearcoat roughness 0.10 → 0.30,
+    /// base roughness 0.28 → 0.40) as the duck is pressed flat.
+    private static func bodyMaterial(golden: Bool, dull: Float) -> PhysicallyBasedMaterial {
+        if golden { return SceneMaterials.gold }
+        let d = clamp(dull, 0, 1)
+        var material = SceneMaterials.enamel(Palette.duckYellow, roughness: 0.28 + 0.12 * d, clearcoat: 0.8,
+                                             clearcoatRoughness: 0.10 + 0.20 * d)
+        material.emissiveColor = .init(color: UIColor(hex: 0xFFB000))
+        material.emissiveIntensity = 0.04
+        return material
     }
 
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
@@ -196,5 +270,79 @@ enum DuckSquash {
     /// The vinyl skirt's radius (duck-local metres) for the body's `spread` and the post-pop progress `t`.
     static func skirtRadius(spread: Float, t: Float) -> Float {
         0.040 * spread * (1.05 + 0.25 * clamp(t, 0, 1))
+    }
+
+    /// The darker wet ring on the steel (duck-local metres): hidden under the body's edge at `t` 0, ~6 mm proud at 1.
+    static func wetRingRadius(spread: Float, t: Float) -> Float {
+        0.040 * spread * (0.95 + 0.15 * clamp(t, 0, 1))
+    }
+
+    // MARK: Head squash (FOLD-REVIEW-4 F6), duck-local authoring units (before the ×1.25 hero scale)
+
+    /// The head sphere of the body blob, and the neck height it flattens down onto.
+    static let headCentre = SIMD3<Float>(0.020, 0.062, 0)
+    static let neckY: Float = 0.045
+    /// The head stretches about a point near its front (where the beak sits), so it spreads back over the body and
+    /// the beak barely moves: the duck stays on its plate (+40 pt).
+    static let stretchAnchorX: Float = 0.034
+    static let headSlide: Float = 0.0015
+    /// Full weight inside the head, fading to 0 over 26 mm (wide enough that the stretch never folds the mesh).
+    static let weightInner: Float = 0.024
+    static let weightOuter: Float = 0.050
+    static let dullSteps = 5
+    /// The beak blob's centre (`ObjectMeshes.duckBeak`).
+    static let beakCentre = SIMD3<Float>(0.043, 0.0555, 0)
+
+    /// 0 at rest … 1 at the minimum height ratio.
+    static func headProgress(heightRatio s: Float, minRatio: Float) -> Float {
+        clamp((1 - s) / max(1 - minRatio, 0.05), 0, 1)
+    }
+
+    /// Head scale at progress `c`: X (along the body) × (1 + 0.35c), Y × (1 − 0.75c), Z × (1 + 0.10c), so top-down it
+    /// is an ellipse elongated along the body, never a round ball.
+    static func headScale(_ c: Float) -> SIMD3<Float> {
+        let c = clamp(c, 0, 1)
+        return SIMD3(1 + 0.35 * c, 1 - 0.75 * c, 1 + 0.10 * c)
+    }
+
+    static func headWeight(_ p: SIMD3<Float>) -> Float {
+        let d = simd_length(p - headCentre)
+        let t = clamp((d - weightInner) / (weightOuter - weightInner), 0, 1)
+        return 1 - t * t * (3 - 2 * t)
+    }
+
+    /// Moves a rest point of the body (or anything riding the head) for head progress `c`: the head flattens down
+    /// onto the neck (a C¹ ramp, so no crease at the neck line), stretches into an ellipse and slides forward a little.
+    static func headDeform(_ p: SIMD3<Float>, c: Float) -> SIMD3<Float> {
+        let c = clamp(c, 0, 1)
+        guard c > 0 else { return p }
+        let w = headWeight(p)
+        guard w > 0 else { return p }
+        let k = headScale(c)
+        let e: Float = 0.004
+        let q = p.y - neckY
+        let ramp: Float = q <= -e ? 0 : (q >= e ? q : (q + e) * (q + e) / (4 * e))
+        let x = p.x + w * ((p.x - stretchAnchorX) * (k.x - 1) + headSlide * c)
+        let y = p.y - w * (1 - k.y) * ramp
+        let z = p.z + w * p.z * (k.z - 1)
+        return SIMD3(x, y, z)
+    }
+
+    /// An eye's centre: pushed out from the head by up to 1.5 mm before the deform, so it stays proud of the
+    /// flattened head instead of sinking into it.
+    static func eyePosition(rest: SIMD3<Float>, c: Float) -> SIMD3<Float> {
+        let out = rest - headCentre
+        let length = simd_length(out)
+        let push = length > 1e-6 ? out / length * (0.0015 * clamp(c, 0, 1)) : .zero
+        return headDeform(rest + push, c: c)
+    }
+
+    static func eyeFlatten(_ c: Float) -> Float { 1 - 0.3 * clamp(c, 0, 1) }
+    /// The beak flattens to an ellipse: Y × 0.5 at full press.
+    static func beakFlatten(_ c: Float) -> Float { 1 - 0.5 * clamp(c, 0, 1) }
+
+    /// Highlight dulling level 0…`dullSteps` for head progress `c`.
+    static func dullLevel(_ c: Float) -> Int {
+        Int((clamp(c, 0, 1) * Float(dullSteps)).rounded(.down))
     }
 }

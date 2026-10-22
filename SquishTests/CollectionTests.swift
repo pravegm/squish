@@ -400,4 +400,28 @@ struct CollectionTests {
             #expect(!achievement.title.isEmpty && !achievement.detail.isEmpty)
         }
     }
+
+    // MARK: Fold Press toast slot (FOLD-REVIEW-4 F4)
+
+    /// Duo book (951 × 669), Duo tabletop (669 × 951), and the simulated tabletop fold on an iPhone 18 Pro and Pro Max.
+    @Test(arguments: [CGSize(width: 951, height: 669), CGSize(width: 669, height: 951),
+                      CGSize(width: 402, height: 874), CGSize(width: 440, height: 956)])
+    func toastSlotStaysOffTheCrownPlatesAndCrease(canvas: CGSize) {
+        let layout = FoldLayout(canvas: canvas)
+        let slot = layout.toastSlot
+        #expect(CGRect(origin: .zero, size: canvas).contains(slot))
+        #expect(slot.width >= 300)
+        #expect(slot.height >= FoldLayout.toastHeight)
+        // The crown strip holds the gauge, the lamps and the hinge-angle readout.
+        #expect(!slot.intersects(layout.crownStrip))
+        #expect(!slot.intersects(layout.strikePlate(platen: true)))
+        #expect(!slot.intersects(layout.strikePlate(platen: false)))
+        #expect(!slot.intersects(layout.creaseRect))
+        #expect(!slot.intersects(layout.consoleBand))
+        // Clear of the reveal's print label (centred 24 pt under the platen plate, up to two lines ≈ 46 pt).
+        let plate = layout.strikePlate(platen: true)
+        let field = layout.platenField
+        let label = CGRect(x: field.minX + 24, y: plate.maxY + 24 - 23, width: field.width - 48, height: 46)
+        #expect(!slot.intersects(label))
+    }
 }

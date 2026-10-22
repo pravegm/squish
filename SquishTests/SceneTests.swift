@@ -188,6 +188,160 @@ struct SceneTests {
         #expect(DuckSquash.skirtRadius(spread: 1.7, t: 1) > DuckSquash.skirtRadius(spread: 1.7, t: 0))
     }
 
+    @Test func polygonSlabsAndHullsAreValid() {
+        // The hull drops interior and collinear points and winds counter-clockwise.
+        let points: [SIMD2<Float>] = [[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5], [0.5, 0]]
+        let hull = MeshKit.convexHull(points)
+        #expect(hull.count == 4)
+        var area: Float = 0
+        for i in hull.indices {
+            let a = hull[i], b = hull[(i + 1) % hull.count]
+            area += a.x * b.y - b.x * a.y
+        }
+        #expect(area > 0)
+        let pentagon: [SIMD2<Float>] = (0..<5).map { k in SIMD2(cos(Float(k) * 2 * .pi / 5), sin(Float(k) * 2 * .pi / 5)) * 0.004 }
+        let edged = MeshKit.polygonSlab(pentagon, thickness: 0.001, rimInset: 0.0004)
+        expectValid(edged, "rimmed slab")
+        #expect(edged.materialSlots == 2)
+        let plain = MeshKit.polygonSlab(pentagon, thickness: 0.001)
+        expectValid(plain, "plain slab")
+        #expect(plain.materialSlots == 1)
+        let bounds = plain.bounds()
+        #expect(abs(bounds.min.y + 0.0005) < 1e-6 && abs(bounds.max.y - 0.0005) < 1e-6)
+    }
+
+    @Test func glassPileIsIrregularConvexShardsThatFillTheDisc() {
+        // FOLD-REVIEW-4 F5: random convex 4–6-gons, deterministic from the seed.
+        for seed in UInt64(1)...40 {
+            var a = SplitMix64(seed: seed), b = SplitMix64(seed: seed)
+            let sides = 4 + Int(seed % 3)
+            let p = GlassDebris.shardPolygon(sides: sides, radii: [0.2, 0.4], rng: &a)
+            let again = GlassDebris.shardPolygon(sides: sides, radii: [0.2, 0.4], rng: &b)
+            #expect(p == again)
+            #expect((4...6).contains(p.count))
+            for i in p.indices {
+                let o = p[i], q = p[(i + 1) % p.count], r = p[(i + 2) % p.count]
+                #expect((q.x - o.x) * (r.y - o.y) - (q.y - o.y) * (r.x - o.x) > 0, "shard polygon must be convex")
+            }
+        }
+        for v in 0..<GlassDebris.fragmentVariants {
+            let pair = GlassDebris.fragmentPair(seed: GlassDebris.fragmentSeed(v))
+            expectValid(pair, "fragment pair \(v)")
+            let box = pair.bounds()
+            #expect(box.min.x >= -0.5 && box.max.x <= 0.5 && box.min.z >= -0.5 && box.max.z <= 0.5)
+            #expect(GlassDebris.fragmentSlot(pair, slot: 0).isValid && GlassDebris.fragmentSlot(pair, slot: 1).isValid)
+        }
+        for v in 0..<GlassDebris.scrapVariants {
+            expectValid(GlassDebris.scrap(seed: GlassDebris.scrapSeed(v)), "scrap \(v)")
+        }
+        // Each piece is 3–9 mm on the plate (×0.76 hero scale), whatever the patch.
+        for width in stride(from: Float(0.004), through: 0.2, by: 0.004) {
+            for height in [Float(0.006), 0.025, 0.03] {
+                let piece = GlassDebris.pieceSize(GlassDebris.fragmentSize(width: width, height: height)) * Float(0.76)
+                #expect(piece.x >= 0.003 && piece.x <= 0.009 && piece.y >= 0.003 && piece.y <= 0.009)
+            }
+        }
+        // The drop points fill the middle (≈ 1/π of them land in the central half-size box; a ring would put none
+        // there) and stay inside the containment box.
+        let footprint: Float = 0.068 * 0.76
+        let box = SIMD2<Float>(0.079, 0.056)
+        let centre = GlassDebris.pilePoint(angle: 1, u: 0, footprint: footprint, containment: box)
+        #expect(simd_length(centre) < 1e-7)
+        var rng = SplitMix64(seed: 7)
+        var inner = 0
+        let n = 400
+        let full = GlassDebris.pilePoint(angle: 0, u: 1, footprint: footprint, containment: box).x
+        for _ in 0..<n {
+            let p = GlassDebris.pilePoint(angle: Float.random(in: 0...(2 * .pi), using: &rng), u: Float.random(in: 0...1, using: &rng),
+                                          footprint: footprint, containment: box)
+            #expect(abs(p.x) <= box.x * GlassDebris.pileRoom + 1e-6 && abs(p.y) <= box.y * GlassDebris.pileRoom + 1e-6)
+            if abs(p.x) < full * 0.5 && abs(p.y) < box.y * GlassDebris.pileRoom * 0.5 { inner += 1 }
+        }
+        #expect(inner > n / 6)
+        #expect(GlassDebris.sparkleCount == 4)
+        #expect((8...10).contains(GlassDebris.labelScraps.pink + GlassDebris.labelScraps.cream))
+        #expect(GlassDebris.labelScraps.pink == 6 && GlassDebris.labelScraps.cream == 4)
+    }
+
+    @Test func duckHeadFlattensIntoAnEllipseWithTheBody() {
+        // FOLD-REVIEW-4 F6: no change at rest; the head (not the tail, wings or base) flattens and stretches.
+        let top = SIMD3<Float>(0.020, 0.085, 0)
+        #expect(DuckSquash.headDeform(top, c: 0) == top)
+        let pressed = DuckSquash.headDeform(top, c: 1)
+        #expect(pressed.y - DuckSquash.neckY <= 0.3 * (top.y - DuckSquash.neckY))
+        for p in [SIMD3<Float>(-0.045, 0.05, 0), SIMD3<Float>(0.03, 0, 0), SIMD3<Float>(0, 0.005, 0.025)] {
+            #expect(DuckSquash.headDeform(p, c: 1) == p)
+        }
+        // Top-down the head's equator is an ellipse along the body (≥ 1.15 : 1), never a round ball.
+        var xs: [Float] = [], zs: [Float] = []
+        for k in 0..<72 {
+            let a = Float(k) / 72 * 2 * .pi
+            let q = DuckSquash.headDeform(DuckSquash.headCentre + SIMD3(cos(a), 0, sin(a)) * 0.023, c: 1)
+            xs.append(q.x)
+            zs.append(q.z)
+        }
+        #expect((xs.max()! - xs.min()!) / (zs.max()! - zs.min()!) >= 1.15)
+        // The beak barely moves forward (the duck stays on its plate) and flattens to half height.
+        #expect(DuckSquash.headDeform(DuckSquash.beakCentre, c: 1).x - DuckSquash.beakCentre.x <= 0.006)
+        #expect(DuckSquash.beakFlatten(1) == 0.5 && DuckSquash.beakFlatten(0) == 1)
+        // The deform never folds the mesh: along lines through the head and neck, order is preserved on every axis.
+        for y in [Float(0.03), 0.045, 0.05, 0.06, 0.075] {
+            var previous = -Float.infinity
+            for i in -80...80 {
+                let x = DuckSquash.headDeform(SIMD3(Float(i) * 0.001, y, 0.01), c: 1).x
+                #expect(x > previous)
+                previous = x
+            }
+        }
+        for x in [Float(-0.02), 0, 0.02, 0.04] {
+            var previous = -Float.infinity
+            for i in 0...100 {
+                let y = DuckSquash.headDeform(SIMD3(x, Float(i) * 0.001, 0.005), c: 1).y
+                #expect(y > previous)
+                previous = y
+            }
+        }
+        // Latching and the dull steps.
+        #expect(DuckSquash.headProgress(heightRatio: 1.05, minRatio: 0.18) == 0)
+        #expect(DuckSquash.headProgress(heightRatio: 0.18, minRatio: 0.18) == 1)
+        #expect(DuckSquash.dullLevel(0) == 0 && DuckSquash.dullLevel(1) == DuckSquash.dullSteps)
+        #expect(DuckSquash.wetRingRadius(spread: 1.7, t: 1) > DuckSquash.wetRingRadius(spread: 1.7, t: 0))
+    }
+
+    @Test func canChevronsSitOnTheShoulderNotTheLid() {
+        // FOLD-REVIEW-4 F7: off the lid (r 0.041) and the tab, on the sloped shoulder, two per buckle.
+        let lidRadius: Float = 0.0335 * ObjectMeshes.canR
+        let lidY: Float = 0.1455 * ObjectMeshes.canY
+        #expect(CanCrush.chevronRadius > lidRadius + 0.004)
+        #expect(CanCrush.chevronRadius < 0.045 * ObjectMeshes.canR)
+        let shoulder = CanCrush.shoulder(radius: CanCrush.chevronRadius)
+        #expect(shoulder.y > ObjectMeshes.canBodyTop && shoulder.y < lidY)
+        #expect(shoulder.slope > 0.6 && shoulder.slope < 1.2)
+        #expect(CanCrush.chevronsPerBuckle * 5 == 10)
+    }
+
+    @Test func jellyStaysOnItsPlateAndBubbleCratersAreRimmed() {
+        let half = SIMD2<Float>(0.092, 0.074)
+        // Inside the knee nothing moves; far points are squeezed inside the edge, monotonically along a ray.
+        let near = SIMD3<Float>(0.03, 0.01, 0.02)
+        #expect(JellySpread.contain(near, half: half) == near)
+        var previous: Float = 0
+        for k in 1...40 {
+            let p = JellySpread.contain(SIMD3(0, 0.005, Float(k) * 0.003), half: half)
+            #expect(JellySpread.norm(SIMD2(p.x, p.z), half: half) < 1)
+            #expect(p.z > previous && p.y == 0.005)
+            previous = p.z
+        }
+        #expect(JellySpread.maxDiscRadius(half: half) * JellySpread.discRimReach <= half.x)
+        #expect(JellySpread.maxDiscRadius(half: half) * JellySpread.discAspect * JellySpread.discRimReach <= half.y + 1e-6)
+        #expect(abs(JellySpread.maxReach(direction: [0, 1], half: half) - half.y) < 1e-6)
+        #expect(JellySpread.mattLevel(heightRatio: 1, splat: false) == 0)
+        #expect(JellySpread.mattLevel(heightRatio: 0.13, splat: false) < JellySpread.mattSteps)
+        #expect(JellySpread.mattLevel(heightRatio: 0.6, splat: true) == JellySpread.mattSteps)
+        // Popped bubble: the rim sits inside the 1.25× crinkle, the pinhole glint is tiny.
+        #expect(BubbleCrater.rimRadius < 1.25 && BubbleCrater.pinholeRadius <= 0.15)
+    }
+
     @Test func canStrainStartsAtContactAndStaysBounded() {
         #expect(CanCrush.topStrain(compression: 0.04) == 0)
         #expect(CanCrush.topStrain(compression: 0.17) > 0.4)

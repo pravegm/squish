@@ -209,6 +209,9 @@ struct ScreenBands {
         canvasRect.offsetBy(dx: -insets.leading, dy: -insets.top)
     }
 
+    /// Fold Press: the one slot for single-line toasts and tips, in local coordinates (see `FoldLayout.toastSlot`).
+    var foldToastSlot: CGRect { local(foldLayout.toastSlot) }
+
     /// Bottom of the top band for overlays (6–44%), kept clear of the crease.
     var topBandBottom: CGFloat {
         let bottom = y(0.44)
@@ -226,6 +229,31 @@ struct ScreenBands {
     /// Local x for a fraction of the full screen width.
     func x(_ fraction: CGFloat) -> CGFloat { fullWidth * fraction - insets.leading }
     func height(_ from: CGFloat, _ to: CGFloat) -> CGFloat { fullHeight * (to - from) }
+}
+
+extension FoldLayout {
+    /// The compact toast's height (`ToastView(compact: true)`).
+    static let toastHeight: CGFloat = 48
+
+    /// Fold Press: the one slot (canvas coordinates) for single-line toasts and tips, off the crown strip (gauge,
+    /// lamps, hinge readout) and off both strike plates (FOLD-REVIEW-4 F4). Never narrower than 300 pt.
+    /// - Book (Duo): the empty graphite foot band of the platen page (`platenFoot`), the console's mirror.
+    /// - Tabletop (Duo portrait, and the simulated fold on other iPhones): the platen field between the reveal's
+    ///   print label (centred 24 pt under the plate, at most ~46 pt tall) and the crease band.
+    var toastSlot: CGRect {
+        let height = Self.toastHeight
+        if let foot = platenFoot {
+            let width = min(max(300, foot.width - Theme.s2 * 2), 420)
+            return CGRect(x: foot.midX - width / 2, y: foot.midY - height / 2, width: width, height: height)
+        }
+        let plate = strikePlate(platen: true)
+        let field = platenField
+        let top = plate.maxY + 24 + 23 + Theme.s1
+        let bottom = creaseRect.minY - Theme.s1
+        let centreY = bottom - top >= height ? (top + bottom) / 2 : bottom - height / 2
+        let width = min(max(300, field.width - Theme.s2 * 2), 420)
+        return CGRect(x: field.midX - width / 2, y: centreY - height / 2, width: width, height: height)
+    }
 }
 
 // MARK: - UI feel (light taps on controls, respecting the Haptics setting)
@@ -671,7 +699,7 @@ struct ToastView: View {
     let detail: String
     let glyph: Glyph
     var accent: Color = Theme.yellow
-    /// One line each for title and detail, ≤ 52 pt tall (the Fold Press crown strip).
+    /// One line each for title and detail, ≤ 52 pt tall (the Fold Press toast slot, `FoldLayout.toastSlot`).
     var compact = false
 
     var body: some View {

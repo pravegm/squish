@@ -19,13 +19,30 @@ on:
         options: [auto, hinge, duo-hinge, foldctl]
         default: auto
       storeshot_objects:
-        description: "Objects that also get folded-device store shots (FoldStoreShot); empty = none"
+        description: "Objects that get the tabletop store-shot pass (hero, 112, pair); empty = none"
+        type: string
+        default: "rubberDuck glassBottle sodaCan"
+      storeshot_shots:
+        description: "Tabletop store shots: angles (must be in tabletop_angles) and/or fail (hero + before/after pair)"
+        type: string
+        default: "112,fail"
+      tabletop_angles:
+        description: "Tabletop pass hinge sweep, integers, flat to folded (the hero waits for the hold at 62)"
+        type: string
+        default: "150 112 90 75 62 45"
+      book_storeshot_objects:
+        description: "Objects that also get book-pose store shots in the first pass (E-check artefacts); empty = none"
         type: string
         default: "rubberDuck"
       storeshot_angles:
-        description: "Hinge angles for store shots (must also be in angles)"
+        description: "Book-pose store-shot angles (must also be in angles)"
         type: string
         default: "120 75"
+      orient_fallback:
+        description: "If the app can't rotate itself to portrait: none, or applescript (Simulator.app ⌘←, needs Accessibility)"
+        type: choice
+        options: [none, applescript]
+        default: none
 
 concurrency:
   group: duo-${{ github.ref }}
@@ -34,7 +51,7 @@ concurrency:
 jobs:
   duo:
     runs-on: xcode-27
-    timeout-minutes: 90
+    timeout-minutes: 110
     env:
       XCODE_APP: /Applications/Xcode_27.1.app          # symlink to Xcode_27.1_Release_Candidate.app (27A9275)
       RUNTIME_ID: com.apple.CoreSimulator.SimRuntime.iOS-27-1
@@ -149,14 +166,20 @@ jobs:
           gtimeout 30 xcrun simctl io "$UDID" enumerate || true
 
       - name: Capture Duo screenshots
-        timeout-minutes: 40
+        timeout-minutes: 60
         env:
           UDID: ${{ steps.sim.outputs.udid }}
           OBJECTS: ${{ inputs.objects }}
           ANGLES: ${{ inputs.angles }}
           HINGE_DRIVER: ${{ inputs.driver }}
-          # Written by the app and copied to duo-screens/<object>-storeshot-<angle>[-eye].png (uploaded below).
+          # Pass 2 (tabletop, portrait): written by the app and copied to duo-screens/<object>-storeshot-hero.png
+          # (failure freeze + caption), -112.png and -pair.png (the before/after frame), each with an -eye E-check twin.
           STORESHOT_OBJECTS: ${{ inputs.storeshot_objects }}
+          STORESHOT_SHOTS: ${{ inputs.storeshot_shots }}
+          TABLETOP_ANGLES: ${{ inputs.tabletop_angles }}
+          ORIENT_FALLBACK: ${{ inputs.orient_fallback }}
+          # Pass 1 (book pose): duo-screens/<object>-book-storeshot-<angle>[-eye].png, E-check artefacts only.
+          BOOK_STORESHOT_OBJECTS: ${{ inputs.book_storeshot_objects }}
           STORESHOT_ANGLES: ${{ inputs.storeshot_angles }}
           OUT: duo-screens
         run: bash ci/duo-screenshots.sh

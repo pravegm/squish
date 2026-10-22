@@ -43,16 +43,36 @@
 # Never run `simctl io ... screenConfig` on the Duo: it crash-loops SpringBoard (needs shutdown + boot).
 # ---------------------------------------------------------------------------------------------------------
 #
-# STORE SHOTS (FOLD-REVIEW-3 N1): for objects in STORESHOT_OBJECTS the app is launched with
-# `storeshot=<STORESHOT_ANGLES, comma-separated>`. Once the real hinge has been still near one of those angles, the app
-# snapshots the live Fold Press stage and writes Documents/storeshot-<angle>.png (folded-device mock-up, 3/4 eye) and
-# storeshot-<angle>-eye.png (exact design eye), logging `SQUISH-T storeshot <angle> ok|failed`. The script waits for
-# that line before moving the hinge on, then copies the files to <object>-storeshot-<angle>[-eye].png. Store-shot
-# angles must also be in ANGLES (the hinge has to stop there).
+# PASS 1, BOOK POSE (the Duo simulator's own orientation: landscape inner display, vertical fold): every object in
+# OBJECTS at every angle in ANGLES, launched with `object=<kind>;duo;notoasts`. These are the raw-frame review set.
+# For objects in BOOK_STORESHOT_OBJECTS the app also writes book-pose store shots at STORESHOT_ANGLES (FOLD-REVIEW-3
+# N1); they are copied as <object>-book-storeshot-<angle>[-eye].png and are CI E-check artefacts only, never marketing
+# (FOLD-REVIEW-4 F1: a book page in a third-person view is a wall, and its UI text lies sideways on a tabletop model).
+#
+# PASS 2, TABLETOP STORE SHOTS (FOLD-REVIEW-4 #1/#2): for each object in STORESHOT_OBJECTS the app is launched with
+# `object=<kind>;duo;notoasts;orient=portrait;storeshot=<STORESHOT_SHOTS>;storeshotfailangle=<FAIL_HOLD>`.
+#  - Orientation: `simctl` has no rotate (`simctl io` only screenshots/records/enumerates, and `io … screenConfig`
+#    crash-loops SpringBoard on the Duo). So the app itself asks its window scene for portrait
+#    (UIWindowScene.requestGeometryUpdate, DEBUG demo key `orient`), which gives the 669 × 951 tabletop canvas with a
+#    horizontal fold, and logs `SQUISH-T orient portrait ok`. The script waits for that line (ORIENT_WAIT). If it never
+#    comes and ORIENT_FALLBACK=applescript, it opens the simulator app (SIM_APP, default Simulator) and sends Rotate Left
+#    (⌘←) through System Events. That needs a GUI session and Accessibility (TCC) for osascript, so it is opt-in and
+#    untested. If the interface stays book, the shots still render (book content laid down as a laptop, UI text
+#    sideways) and the run logs a WARN.
+#  - The hinge sweeps TABLETOP_ANGLES (raw inner frames <object>-tabletop-<angle>.png). At each numeric angle in
+#    STORESHOT_SHOTS the app writes storeshot-<angle>.png once the hinge is still; `fail` makes it write the hero
+#    (storeshot-hero.png: failure freeze, caption, escaped splat) at the first hold at or below FAIL_HOLD after the
+#    object failed, then the before/after frame (storeshot-pair.png, the 112° shot beside the hero). The script waits
+#    for each `SQUISH-T storeshot <label> ok|failed` line, then copies Documents/storeshot-*.png to
+#    <object>-storeshot-*.png: rubberDuck-storeshot-hero.png, rubberDuck-storeshot-112.png, rubberDuck-storeshot-pair.png
+#    (+ -eye E-check composites; -land / -69 with STORESHOT_SIZE=both|all).
 #
 # Env: UDID (required), OBJECTS, ANGLES, HINGE_DRIVER, SWEEP_SECS_PER_30 (1.5), SWEEP_STEP (10),
 #      SETTLE (2.5), OUT (duo-screens), APP, BUNDLE, DUO_HINGE (path to the duo-hinge binary),
-#      STORESHOT_OBJECTS (rubberDuck; empty = none), STORESHOT_ANGLES (120 75), STORESHOT_WAIT (45 s per shot).
+#      BOOK_STORESHOT_OBJECTS (rubberDuck; empty = none), STORESHOT_ANGLES (120 75; book pass),
+#      STORESHOT_OBJECTS (rubberDuck glassBottle sodaCan; empty = no tabletop pass), STORESHOT_SHOTS (112,fail),
+#      TABLETOP_ANGLES (150 112 90 75 62 45), FAIL_HOLD (62), STORESHOT_SIZE (portrait), STORESHOT_WAIT (60 s per shot),
+#      ORIENT (portrait), ORIENT_WAIT (40 s), ORIENT_FALLBACK (none|applescript), SIM_APP (Simulator).
 set -uo pipefail
 
 UDID="${UDID:?set UDID to the iPhone Duo simulator}"
@@ -66,9 +86,18 @@ OUT="${OUT:-duo-screens}"
 APP="${APP:-build/Build/Products/Debug-iphonesimulator/Squish.app}"
 BUNDLE="${BUNDLE:-com.pravegm.squish}"
 DUO_HINGE="${DUO_HINGE:-$HOME/duo-fold-control/tools/duo-hinge}"
-STORESHOT_OBJECTS="${STORESHOT_OBJECTS-rubberDuck}"
+BOOK_STORESHOT_OBJECTS="${BOOK_STORESHOT_OBJECTS-rubberDuck}"
 STORESHOT_ANGLES="${STORESHOT_ANGLES-120 75}"
-STORESHOT_WAIT="${STORESHOT_WAIT:-45}"
+STORESHOT_OBJECTS="${STORESHOT_OBJECTS-rubberDuck glassBottle sodaCan}"
+STORESHOT_SHOTS="${STORESHOT_SHOTS-112,fail}"
+TABLETOP_ANGLES="${TABLETOP_ANGLES:-150 112 90 75 62 45}"
+FAIL_HOLD="${FAIL_HOLD:-62}"
+STORESHOT_SIZE="${STORESHOT_SIZE-portrait}"
+STORESHOT_WAIT="${STORESHOT_WAIT:-60}"
+ORIENT="${ORIENT:-portrait}"
+ORIENT_WAIT="${ORIENT_WAIT:-40}"
+ORIENT_FALLBACK="${ORIENT_FALLBACK:-none}"
+SIM_APP="${SIM_APP:-Simulator}"
 
 mkdir -p "$OUT/logs" "$OUT/raw"
 OUT_ABS="$(cd "$OUT" && pwd)"
@@ -214,7 +243,7 @@ wait_first_render() {
   log "WARN no 'frame 120' line after ${max}s; continuing"; return 1
 }
 
-# Wait for the app's "SQUISH-T storeshot <angle> ok|failed" line, at most $3 seconds.
+# Wait for the app's "SQUISH-T storeshot <label> ok|failed" line, at most $3 seconds (label: an angle, hero or pair).
 wait_storeshot() {
   local logf="$1" a="$2" max="$3" t=0
   while (( t < max )); do
@@ -226,7 +255,110 @@ wait_storeshot() {
   log "WARN no 'SQUISH-T storeshot $a' line after ${max}s"; FAILURES=$((FAILURES+1)); return 1
 }
 
+# Wait for the app's "SQUISH-T orient <value> ok" line (DEBUG demo key `orient`), at most $2 seconds.
+wait_orient() {
+  local logf="$1" max="$2" t=0
+  while (( t < max )); do
+    if grep -qE "SQUISH-T orient [a-z]+ ok" "$logf" 2>/dev/null; then
+      log "orient: $(grep -E 'SQUISH-T orient [a-z]+ ok' "$logf" | tail -1)"; return 0
+    fi
+    sleep 1; t=$((t + 1))
+  done
+  log "WARN orient: no 'ok' after ${max}s; last: $(grep 'SQUISH-T orient' "$logf" 2>/dev/null | tail -2 | tr '\n' ' ')"
+  return 1
+}
+
+# Opt-in fallback (ORIENT_FALLBACK=applescript): rotate the device in the simulator app's window (⌘← = Rotate Left,
+# landscapeRight → portrait). Needs a GUI login session and Accessibility permission for osascript; untested on the
+# hosted runner. The simulator stays booted: the app only attaches a window to it.
+rotate_with_sim_app() {
+  log "orient fallback: open $SIM_APP and send Rotate Left"
+  to 30 open -a "$SIM_APP" --args -CurrentDeviceUDID "$UDID" >>"$RUNLOG" 2>&1 || { log "WARN could not open $SIM_APP"; return 1; }
+  fsleep 6
+  to 20 osascript -e "tell application \"$SIM_APP\" to activate" -e 'delay 1' \
+    -e 'tell application "System Events" to key code 123 using command down' >>"$RUNLOG" 2>&1 \
+    || { log "WARN osascript rotate failed (Accessibility not granted?)"; return 1; }
+  return 0
+}
+
 app_data() { to 30 xcrun simctl get_app_container "$UDID" "$BUNDLE" data 2>/dev/null || true; }
+
+# Copy Documents/storeshot-*.png to $OUT/<prefix><file>; prints the count.
+copy_store_shots() {
+  local prefix="$1" data n=0 f
+  data="$(app_data)"
+  if [[ -n "$data" ]]; then
+    for f in "$data"/Documents/storeshot-*.png; do
+      [[ -e "$f" ]] || continue
+      cp "$f" "$OUT_ABS/$prefix$(basename "$f")"; n=$((n + 1))
+    done
+  fi
+  echo "$n"
+}
+
+clear_store_shots() {
+  local data
+  data="$(app_data)"
+  [[ -n "$data" ]] && rm -f "$data"/Documents/storeshot-*.png
+  return 0
+}
+
+# Pass 2 for one object: tabletop (portrait) launch, sweep TABLETOP_ANGLES, wait for the angle shots, the hero and the
+# pair, copy them out.
+tabletop_pass() {
+  local obj="$1" applog scen a n hero=0 wants_hero=0 nums
+  applog="$OUT_ABS/logs/$obj-tabletop.txt"; : >"$applog"
+  log "=== $obj tabletop store shots (storeshot=$STORESHOT_SHOTS, angles [$TABLETOP_ANGLES])"
+  drv_set "$DRIVER" 180 >>"$RUNLOG" 2>&1; CUR=180; fsleep "$SETTLE"
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  clear_store_shots
+  scen="object=$obj;duo;notoasts;orient=$ORIENT;storeshot=$STORESHOT_SHOTS;storeshotfailangle=$FAIL_HOLD"
+  [[ -n "$STORESHOT_SIZE" ]] && scen="$scen;storeshotsize=$STORESHOT_SIZE"
+  to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
+    "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 \
+    || { log "launch failed: $obj (tabletop)"; FAILURES=$((FAILURES+1)); return; }
+  wait_first_render "$applog" 45
+  if ! wait_orient "$applog" "$ORIENT_WAIT"; then
+    if [[ "$ORIENT_FALLBACK" == applescript ]] && rotate_with_sim_app && wait_orient "$applog" 20; then
+      log "$obj: tabletop via $SIM_APP rotation"
+    else
+      log "WARN $obj: interface still book; store shots will show book content on the tabletop model (UI text sideways)"
+      FAILURES=$((FAILURES+1))
+    fi
+  fi
+  fsleep 1.5
+
+  nums=" $(echo "$STORESHOT_SHOTS" | tr ',' ' ') "
+  [[ "$nums" == *" fail "* ]] && wants_hero=1
+  for a in $(echo "$STORESHOT_SHOTS" | tr ',' ' '); do
+    [[ "$a" == fail ]] && continue
+    [[ " $TABLETOP_ANGLES " == *" $a "* ]] || log "WARN storeshot angle $a is not in TABLETOP_ANGLES; the hinge never stops there"
+  done
+  for a in $TABLETOP_ANGLES; do
+    hinge_to "$a"
+    fsleep "$SETTLE"
+    shoot "$obj-tabletop-$a" inner
+    # Hold the hinge until the app has written its store shot for this angle (it shoots ~0.8 s after the hinge stops).
+    if [[ "$nums" == *" $a "* ]]; then wait_storeshot "$applog" "$a" "$STORESHOT_WAIT"; fi
+    # The hero: only at holds at or below FAIL_HOLD, and only once the app has seen the failure.
+    if (( wants_hero == 1 && hero == 0 && a <= FAIL_HOLD + 3 )) && grep -q "SQUISH-T storeshot failure seen" "$applog" 2>/dev/null; then
+      wait_storeshot "$applog" hero "$STORESHOT_WAIT" && hero=1
+    fi
+  done
+  if (( wants_hero == 1 )); then
+    if (( hero == 0 )); then
+      wait_storeshot "$applog" hero 15 && hero=1 \
+        || log "WARN $obj: no failure-moment store shot ($(grep -c 'SQUISH-T storeshot failure seen' "$applog" 2>/dev/null) failure lines; did it fail by ${a}°?)"
+    fi
+    (( hero == 1 )) && wait_storeshot "$applog" pair "$STORESHOT_WAIT"
+  fi
+  for _ in $(seq 1 10); do grep -q "SQUISH-T storeshot done" "$applog" 2>/dev/null && break; sleep 1; done
+  log "$obj: $(grep -E 'SQUISH-T storeshot done' "$applog" 2>/dev/null | tail -1)"
+  n=$(copy_store_shots "$obj-")
+  log "$obj: copied $n tabletop store shot file(s)"
+  (( n > 0 )) || FAILURES=$((FAILURES+1))
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+}
 
 # ---- main -------------------------------------------------------------------------------------------
 log "UDID=$UDID driver=$DRIVER objects=[$OBJECTS] angles=[$ANGLES] timeout=${TIMEOUT_BIN:-perl-alarm}"
@@ -242,22 +374,22 @@ fi
 log "hinge driver: $DRIVER"
 probe_displays
 
+# ---- pass 1: book pose ------------------------------------------------------------------------------
 for obj in $OBJECTS; do
   log "=== $obj"
   [[ "$DRIVER" != none ]] && { drv_set "$DRIVER" 180 >>"$RUNLOG" 2>&1; CUR=180; fsleep "$SETTLE"; }
   applog="$OUT_ABS/logs/$obj.txt"; : >"$applog"
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
   store=""
-  if [[ "$DRIVER" != none && -n "$STORESHOT_ANGLES" && " $STORESHOT_OBJECTS " == *" $obj "* ]]; then
+  if [[ "$DRIVER" != none && -n "$STORESHOT_ANGLES" && " $BOOK_STORESHOT_OBJECTS " == *" $obj "* ]]; then
     store=";storeshot=$(echo $STORESHOT_ANGLES | tr ' ' ',')"
-    DATA="$(app_data)"
-    [[ -n "$DATA" ]] && rm -f "$DATA"/Documents/storeshot-*.png
+    clear_store_shots
     for a in $STORESHOT_ANGLES; do
       [[ " $ANGLES " == *" $a "* ]] || log "WARN storeshot angle $a is not in ANGLES; the hinge never stops there"
     done
   fi
   to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
-    "$UDID" "$BUNDLE" -squishDemo "object=$obj;duo$store" >>"$RUNLOG" 2>&1 || { log "launch failed: $obj"; FAILURES=$((FAILURES+1)); continue; }
+    "$UDID" "$BUNDLE" -squishDemo "object=$obj;duo;notoasts$store" >>"$RUNLOG" 2>&1 || { log "launch failed: $obj"; FAILURES=$((FAILURES+1)); continue; }
   wait_first_render "$applog" 45
   fsleep 1.5
 
@@ -271,14 +403,8 @@ for obj in $OBJECTS; do
     if [[ -n "$store" && " $STORESHOT_ANGLES " == *" $a "* ]]; then wait_storeshot "$applog" "$a" "$STORESHOT_WAIT"; fi
   done
   if [[ -n "$store" ]]; then
-    DATA="$(app_data)"; n=0
-    if [[ -n "$DATA" ]]; then
-      for f in "$DATA"/Documents/storeshot-*.png; do
-        [[ -e "$f" ]] || continue
-        cp "$f" "$OUT_ABS/$obj-$(basename "$f")"; n=$((n + 1))
-      done
-    fi
-    log "$obj: copied $n store shot file(s)"
+    n=$(copy_store_shots "$obj-book-")
+    log "$obj: copied $n book-pose store shot file(s) (E-check artefacts)"
     (( n > 0 )) || FAILURES=$((FAILURES+1))
   fi
   hinge_to 0;   fsleep "$SETTLE"; fsleep 1; shoot "$obj-closed" cover
@@ -287,6 +413,15 @@ for obj in $OBJECTS; do
     && log "$obj: $(grep -c SQUISH-H "$applog") hinge lines in app log" \
     || log "NOTE $obj: no SQUISH-H lines in app log (app does not print hinge samples, or onHingeChange never fired)"
 done
+
+# ---- pass 2: tabletop store shots -------------------------------------------------------------------
+if [[ -n "$STORESHOT_OBJECTS" && -n "$STORESHOT_SHOTS" ]]; then
+  if [[ "$DRIVER" == none ]]; then
+    log "skip tabletop store shots: no hinge driver"
+  else
+    for obj in $STORESHOT_OBJECTS; do tabletop_pass "$obj"; done
+  fi
+fi
 
 to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 ls -1 "$OUT_ABS" | tee -a "$RUNLOG"

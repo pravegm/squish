@@ -302,6 +302,9 @@ struct IdleConsole: View {
     /// Increment when a card lands in the Shelf key.
     let bump: Int
     var shelfOnly = false
+    /// Fold Press mid-press (FOLD-REVIEW-3 N16): only the chip shows, at 40 % and inert, so the console says what's
+    /// being pressed; the Shelf key keeps its slot, hidden.
+    var chipOnly = false
     let onShelf: () -> Void
     /// The Shelf key's global frame, for the collect flight.
     var onShelfFrame: (CGRect) -> Void = { _ in }
@@ -330,15 +333,18 @@ struct IdleConsole: View {
     /// The chip keeps its slot during a collect (just hidden), so the Shelf key never moves.
     private var chip: some View {
         ObjectChipPicker(director: director)
-            .opacity(shelfOnly ? 0 : 1)
-            .allowsHitTesting(!shelfOnly)
-            .accessibilityHidden(shelfOnly)
+            .opacity(shelfOnly ? 0 : (chipOnly ? 0.4 : 1))
+            .allowsHitTesting(!shelfOnly && !chipOnly)
+            .accessibilityHidden(shelfOnly || chipOnly)
     }
 
     private var key: some View {
         ShelfKey(pressedCount: director.collection.pressedKindsCount,
                  total: ObjectKind.allCases.count, hop: hop, bump: bump, onOpen: onShelf)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onShelfFrame($0) }
+            .opacity(chipOnly ? 0 : 1)
+            .allowsHitTesting(!chipOnly)
+            .accessibilityHidden(chipOnly)
     }
 }
 

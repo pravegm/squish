@@ -4,47 +4,143 @@ import RealityKit
 import simd
 import UIKit
 
-/// The store shot (FOLD-REVIEW-3 N1, FOLD-PRESS §9.6 "eye-view composite"): the live Fold Press stage mapped onto a
-/// folded, Duo-shaped device and seen from a 3/4 eye, because raw inner-display frames are anamorphic and read as two
-/// flat trays.
+/// The store shot (FOLD-REVIEW-3 N1, FOLD-REVIEW-4 #1/#2, FOLD-PRESS §9.6 "eye-view composite"): the live Fold Press
+/// stage mapped onto a folded, Duo-shaped device and seen from a 3/4 eye, because raw inner-display frames are
+/// anamorphic and read as two flat trays.
 ///
-///     capture(scene:fold:)   live stage → platen page, crease band, anvil page (canvas orientation, @screen scale)
-///     render(_:options:)     → a 1320 × 2868 (or 2868 × 1320) opaque PNG-ready image
+///     capture(scene:fold:)              live stage → platen page, crease band, anvil page (canvas orientation, @screen scale)
+///     render(_:options:)                → one device, framed for the App Store (Duo inner 2007 × 2853 by default)
+///     renderPair(before:after:options:) → the before/after frame: a small open device (112°) above a large one at the squish
 ///
 /// The model: the inner display is one panel bent round a thin hinge cylinder (the 40 pt crease band becomes the bend),
 /// each page a rounded slab with a black glass bezel, on a warm studio sweep with a cast and a contact shadow.
-/// Tabletop layouts (horizontal fold) stand like a laptop, the anvil on the table and the platen as the lid; book
-/// layouts (vertical fold) stand on their lower edge like an open book. Geometry is in millimetres in the anvil frame
-/// of FoldGeometry.swift (tabletop) or a book frame with the wedge bisector toward the viewer.
 ///
-/// Rendering is 2D and deterministic: each screen is drawn flat (content, bezel, rounded free corners, glass sheen),
-/// then warped onto its 4 projected corners with `CIPerspectiveTransform` (a plane under a pinhole camera is exactly
-/// a homography); the bend is 10 warped strips; bodies are lambert-shaded polygons drawn back to front.
-/// `layer.render(in:)` is never used for anything with a 3D transform.
+/// Pose (FOLD-REVIEW-4 F1): store shots model the device in **tabletop / laptop pose** whatever the layout, the anvil
+/// page on the table and the platen page as the lid, because an anamorphic object only reads as standing when its page
+/// is the floor. A tabletop capture (portrait inner display, horizontal fold) is correct in every respect. A book capture
+/// (landscape, vertical fold) laid on the table is the page turned 90° clockwise: the anvil's 3D content was rendered
+/// for the book eye, which in the anvil frame sits above the page's top edge (azimuth ≈ +17° at 62°, +39° at 112°,
+/// toward the viewer's right), so the 3/4 eye is kept on that direction and the object still stands, but the book
+/// chrome (crown readout, gauge numerals, nameplate, console) reads rotated 90° clockwise. No rotation of the halves
+/// fixes that: both pages are hinged along their long edge and the text runs along it. So book content is a fallback
+/// (logged `content=book`); the real hero needs the portrait pass in ci/duo-screenshots.sh. `Model.asLaid` keeps the
+/// old book stand (pages upright like an open book) for the §12 E-check composites.
+///
+/// Geometry is in millimetres in the anvil frame of FoldGeometry.swift (tabletop) or a book frame with the wedge
+/// bisector toward the viewer (standing book). Rendering is 2D and deterministic: each screen is drawn flat (content,
+/// bezel, rounded free corners, glass sheen), then warped onto its 4 projected corners with `CIPerspectiveTransform`
+/// (a plane under a pinhole camera is exactly a homography); the bend is 10 warped strips; bodies are lambert-shaded
+/// polygons drawn back to front. `layer.render(in:)` is never used for anything with a 3D transform.
 @MainActor
 enum FoldStoreShot {
-    /// App Store 6.9" portrait (1320 × 2868) and the landscape option.
+    /// iPhone Duo inner display (docs/appstore/screenshots.md §A, the hero set) and its landscape option.
+    nonisolated static let duoInner = CGSize(width: 2007, height: 2853)
+    nonisolated static let duoInnerLandscape = CGSize(width: 2853, height: 2007)
+    /// iPhone Duo outer display (cover frames).
+    nonisolated static let duoOuter = CGSize(width: 1398, height: 2034)
+    /// App Store 6.9" portrait (1320 × 2868) and landscape. A folded device never goes in the 6.9" set (Guideline 2.3,
+    /// FOLD-REVIEW-4 §3.3): these are for non-Duo CI runs and comparison only.
     nonisolated static let portrait = CGSize(width: 1320, height: 2868)
     nonisolated static let landscape = CGSize(width: 2868, height: 1320)
 
     enum Eye: String, Sendable {
-        /// The design eye (§9.4) turned ~25° about the vertical: the marketing view.
+        /// The marketing view: the content's design eye turned about the vertical (see `Options.azimuthDegrees`).
         case threeQuarter
         /// Exactly the design eye the anvil was rendered for (tabletop 40°/380 mm, book bisector): for CI E1/E2 checks.
         case design
     }
 
+    enum Model: String, Sendable {
+        /// Laptop pose whatever the layout: anvil page on the table, platen page as the lid.
+        case tabletop
+        /// The layout's own pose: tabletop layouts as a laptop, book layouts standing on their edge (E-check artefacts).
+        case asLaid
+    }
+
+    enum Fit: Equatable, Sendable {
+        /// The whole device inside the hero box.
+        case contain
+        /// The device's projected width fills the box; it may grow up to `bleed` (fraction) wider to reach
+        /// `Options.targetFill`, never taller than the box.
+        case width(bleed: Double)
+    }
+
+    enum Anchor: Equatable, Sendable {
+        case centre
+        /// The device's lowest projected point sits this fraction of the box height above the box bottom.
+        case bottom(Double)
+    }
+
+    enum Backdrop: String, Sendable {
+        /// Warm studio sweep (#EDE5D8 → #F3EEE6 → #F1E9DC), matching the caption ground of screenshots.md.
+        case studio
+        /// A cooler sweep (#E9E6E1 → #D9D5CE) that separates the cream enamel from the backdrop (FOLD-REVIEW-4 §3.3 B).
+        case duoSweep
+    }
+
+    /// The failure splat escaping the fold (FOLD-REVIEW-4 F3): droplets on the anvil field just outside the strike
+    /// plate, seeded from the platen print's splat seed, in the print's ink. A 2D overlay on the anvil page of the store
+    /// shot only, and off by default (`Options.escapedSplat` nil; the demo key is `storeshotsplat=overlay`): FoldAnvil
+    /// now sprays the real droplets on the device, so they are already in the captured anvil half. Kept for
+    /// comparison and for captures made before the live spray.
+    struct EscapedSplat {
+        var stamp: FoldStamp
+        var count = 10
+
+        /// Only objects whose platen splat throws droplets (FoldStamps.splatImage): the duck, jelly and the can.
+        static func supports(_ kind: ObjectKind) -> Bool {
+            kind == .rubberDuck || kind == .jelly || kind == .sodaCan
+        }
+    }
+
     struct Options {
-        var size = CGSize(width: 1320, height: 2868)
-        /// Fold angle of the device model (180 = flat). Store art uses 110–120°; CI passes the captured hinge angle.
-        var hingeAngle: Double = 115
+        var size = CGSize(width: 2007, height: 2853)
+        /// Fold angle of the device model (180 = flat). The hero is the failure freeze (~62°); CI passes the captured
+        /// hinge angle.
+        var hingeAngle: Double = 62
         var eye: Eye = .threeQuarter
-        /// Turn of the 3/4 eye about the vertical through the device, degrees (+ = toward world +x). Nil = pose default
-        /// (tabletop +26°, book −22°, i.e. toward the platen so the anvil page is seen face on).
+        var model: Model = .tabletop
+        /// Turn of the 3/4 eye about the vertical through the device, degrees (+ = toward world +x), relative to the
+        /// content's design eye. Nil = 14° for tabletop content (FOLD-REVIEW-4 §3.3 B: ≤ 15° keeps the anamorphic
+        /// object upright), 0° for book content on the tabletop model (its design eye is already +17–39° round),
+        /// −22° for a standing book.
         var azimuthDegrees: Double?
+        /// Elevation of the 3/4 eye above the anvil page (degrees, from the footprint centre). Nil = 34° for tabletop
+        /// content (design 40°), the book design eye clamped to 34–60° for book content on the tabletop model, and the
+        /// design eye's own for a standing book.
+        var elevationDegrees: Double?
         var eyeModel: FoldEyeModel = .standard
+        var fit: Fit = .width(bleed: 0.05)
+        /// Wanted device height as a fraction of the frame height (FOLD-REVIEW-4: ≈ 58 %); only ever grows the width
+        /// fit by up to its bleed.
+        var targetFill: Double? = 0.58
+        /// The box the device is fitted into, in unit coordinates of the frame. Nil = (0.04, 0.21, 0.92, 0.76) portrait
+        /// (the top 21 % is the caption band), (0.06, 0.22, 0.88, 0.75) landscape with a caption, (0.10, 0.07, 0.80,
+        /// 0.88) landscape without.
+        var heroBox: CGRect?
+        var anchor: Anchor = .bottom(0.03)
+        /// Headline in the top 21 % (SF Pro Rounded Heavy, graphite, the one `*word*` in hydraulic yellow), as in
+        /// docs/appstore/screenshots.md. Nil = no caption band drawn.
+        var caption: String?
+        /// Optional small second line (SF Mono, 40 % of the headline size).
+        var subcaption: String?
         /// A faint diagonal reflection on both screens. Off for measurement shots.
         var glassSheen = true
+        var backdrop: Backdrop = .studio
+        var escapedSplat: EscapedSplat?
+    }
+
+    /// The before/after frame (FOLD-REVIEW-4 §3.3 C, frame 2): `before` small at the top left, `after` large at the
+    /// bottom right, a hand-drawn arrow and the two angles between them. Per-device `size`, `heroBox`, `fit`,
+    /// `anchor` and captions are ignored; the frame's own come from here.
+    struct PairOptions {
+        var size = CGSize(width: 2007, height: 2853)
+        var before = Options()
+        var after = Options()
+        var caption: String?
+        var subcaption: String?
+        var angleLabels = true
+        var backdrop: Backdrop = .studio
     }
 
     /// The live stage split at the crease, each image in canvas orientation covering exactly
@@ -56,6 +152,8 @@ enum FoldStoreShot {
         var layout: FoldLayout
         /// How the anvil pixels were obtained ("drawHierarchy" or "arView.snapshot"), for CI logs.
         var source: String
+        /// The hinge angle the halves were captured at (book content's design eye depends on it). Nil = the model's.
+        var hingeAngle: Double? = nil
     }
 
     // MARK: - Capture
@@ -199,10 +297,70 @@ enum FoldStoreShot {
                       options: options)
     }
 
+    /// One device, framed: width fit with bleed into the hero box, bottom-anchored, caption in the top band.
     static func render(_ halves: Halves, options: Options = Options()) -> UIImage? {
         let size = options.size
         guard size.width >= 64, size.height >= 64 else { return nil }
-        let rig = StoreRig(layout: halves.layout, angleDegrees: options.hingeAngle)
+        let context = CIContext(options: [.cacheIntermediates: false])
+        let unit = options.heroBox ?? defaultHeroBox(size, captioned: options.caption != nil)
+        guard let shot = deviceDraws(halves, options: options, box: frameRect(unit, in: size), canvas: size,
+                                     context: context) else { return nil }
+        return flatten(size: size, backdrop: options.backdrop, devices: [shot], caption: options.caption,
+                       subcaption: options.subcaption, marks: nil)
+    }
+
+    /// The before/after frame: `before` (e.g. 112°) small, `after` (the squish, ~62°) large, an arrow between them.
+    static func renderPair(before: Halves, after: Halves, options: PairOptions = PairOptions()) -> UIImage? {
+        let size = options.size
+        guard size.width >= 64, size.height >= 64 else { return nil }
+        let context = CIContext(options: [.cacheIntermediates: false])
+        let portrait = size.height >= size.width
+        let beforeUnit = portrait ? CGRect(x: 0.04, y: 0.215, width: 0.46, height: 0.27)
+                                  : CGRect(x: 0.04, y: 0.30, width: 0.38, height: 0.50)
+        let afterUnit = portrait ? CGRect(x: 0.20, y: 0.47, width: 0.76, height: 0.50)
+                                 : CGRect(x: 0.45, y: 0.22, width: 0.51, height: 0.75)
+        var small = options.before
+        small.size = size
+        small.fit = .contain
+        small.targetFill = nil
+        small.anchor = .bottom(0)
+        small.caption = nil
+        small.subcaption = nil
+        var large = options.after
+        large.size = size
+        large.fit = .width(bleed: 0)
+        large.targetFill = nil
+        large.anchor = .bottom(0.03)
+        large.caption = nil
+        large.subcaption = nil
+        guard let first = deviceDraws(before, options: small, box: frameRect(beforeUnit, in: size), canvas: size,
+                                      context: context),
+              let second = deviceDraws(after, options: large, box: frameRect(afterUnit, in: size), canvas: size,
+                                       context: context) else { return nil }
+        let marks = PairMarks(before: first.frame, after: second.frame,
+                              beforeLabel: "\(Int(small.hingeAngle.rounded()))°",
+                              afterLabel: "\(Int(large.hingeAngle.rounded()))°",
+                              labels: options.angleLabels)
+        return flatten(size: size, backdrop: options.backdrop, devices: [first, second], caption: options.caption,
+                       subcaption: options.subcaption, marks: marks)
+    }
+
+    private static func defaultHeroBox(_ size: CGSize, captioned: Bool) -> CGRect {
+        if size.height >= size.width { return CGRect(x: 0.04, y: 0.21, width: 0.92, height: 0.76) }
+        return captioned ? CGRect(x: 0.06, y: 0.22, width: 0.88, height: 0.75)
+                         : CGRect(x: 0.10, y: 0.07, width: 0.80, height: 0.88)
+    }
+
+    private static func frameRect(_ unit: CGRect, in size: CGSize) -> CGRect {
+        CGRect(x: unit.minX * size.width, y: unit.minY * size.height,
+               width: unit.width * size.width, height: unit.height * size.height)
+    }
+
+    /// The device's draw list in output pixels: floor shadows, hinge, then both pages back to front.
+    private static func deviceDraws(_ halves: Halves, options: Options, box: CGRect, canvas size: CGSize,
+                                    context: CIContext) -> StoreDevice? {
+        let tabletop = options.model == .tabletop || !halves.layout.isBook
+        let rig = StoreRig(layout: halves.layout, angleDegrees: options.hingeAngle, tabletop: tabletop)
         let platenSlab = rig.slab(.platen)
         let anvilSlab = rig.slab(.anvil)
         let hinge = rig.hinge()
@@ -215,15 +373,13 @@ enum FoldStoreShot {
             hi = simd_max(hi, p)
         }
         let target = (lo + hi) / 2
-        let eye = rig.eye(model: options.eyeModel, threeQuarter: options.eye == .threeQuarter,
-                          azimuthDegrees: options.azimuthDegrees, target: target)
+        let eye = rig.eye(model: options.eyeModel, contentAngle: halves.hingeAngle ?? options.hingeAngle,
+                          threeQuarter: options.eye == .threeQuarter, azimuthDegrees: options.azimuthDegrees,
+                          elevationDegrees: options.elevationDegrees, target: target)
         let camera = StoreCamera(eye: eye, target: target)
 
-        // Fit the projected device into the hero box: portrait leaves the top ~30% for the caption band
-        // (docs/appstore/screenshots.md), landscape centres it.
-        let box: CGRect = size.height >= size.width
-            ? CGRect(x: size.width * 0.07, y: size.height * 0.32, width: size.width * 0.86, height: size.height * 0.56)
-            : CGRect(x: size.width * 0.17, y: size.height * 0.10, width: size.width * 0.66, height: size.height * 0.80)
+        // Fit the projected device into the hero box (FOLD-REVIEW-4 F2): width fit with bleed toward the target fill,
+        // never taller than the box; sit it on the box floor so the empty space goes to the caption band.
         var qlo = SIMD2<Double>(repeating: .infinity)
         var qhi = SIMD2<Double>(repeating: -.infinity)
         for p in devicePoints {
@@ -232,12 +388,31 @@ enum FoldStoreShot {
             qhi = simd_max(qhi, q)
         }
         let span = simd_max(qhi - qlo, SIMD2<Double>(repeating: 1e-6))
-        let scale = min(Double(box.width) / span.x, Double(box.height) / span.y)
-        let fit = StoreFit(scale: scale, centre: (qlo + qhi) / 2, box: box)
+        let widthScale = Double(box.width) / span.x
+        let heightScale = Double(box.height) / span.y
+        var scale: Double
+        switch options.fit {
+        case .contain:
+            scale = min(widthScale, heightScale)
+        case let .width(bleed):
+            scale = widthScale
+            if let fill = options.targetFill, fill > 0 {
+                let wanted = fill * Double(size.height) / span.y
+                scale = max(scale, min(wanted, widthScale * (1 + max(bleed, 0))))
+            }
+            scale = min(scale, heightScale)
+        }
+        let fit: StoreFit
+        switch options.anchor {
+        case .centre:
+            fit = StoreFit(scale: scale, reference: (qlo + qhi) / 2, pixel: CGPoint(x: box.midX, y: box.midY))
+        case let .bottom(lift):
+            fit = StoreFit(scale: scale, reference: SIMD2<Double>((qlo.x + qhi.x) / 2, qlo.y),
+                           pixel: CGPoint(x: box.midX, y: box.maxY - CGFloat(lift) * box.height))
+        }
         func px(_ p: SIMD3<Double>) -> CGPoint { fit.point(camera.project(p)) }
         let devicePixels = span.x * scale
 
-        let context = CIContext(options: [.cacheIntermediates: false])
         let light = simd_normalize(SIMD3<Double>(-0.35, 0.85, 0.40))
         func visible(_ face: StoreRig.Face) -> Bool { simd_dot(face.normal, eye - face.centroid) > 0 }
         var draws: [StoreDraw] = []
@@ -307,44 +482,187 @@ enum FoldStoreShot {
                 draws.append(StoreDraw.fill(face.points.map { px($0) }, colour, true))
             }
             let normal = rig.normal(page.panel)
+            let splat = page.panel == .anvil ? options.escapedSplat : nil
             guard simd_dot(normal, eye - page.slab.frontCentroid) > 0,
                   case let (texture, textureRect)? = pageTexture(page.panel, image: page.image, rig: rig,
-                                                                 sheen: options.glassSheen) else { continue }
+                                                                 sheen: options.glassSheen, splat: splat) else { continue }
             let quad = corners(of: textureRect).map { px(rig.world(canvas: $0, on: page.panel)) }
             if case let (image, rect)? = warp(texture, corners: quad, canvas: size, context: context) {
                 draws.append(StoreDraw.image(image, rect))
             }
         }
 
-        // 4. Flatten onto the studio sweep. Opaque, sRGB, 8-bit: App Store screenshots must have no alpha.
+        let a = fit.point(qlo), b = fit.point(qhi)
+        let frame = CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
+        return StoreDevice(draws: draws, pool: px(SIMD3(target.x, ground, target.z)), frame: frame)
+    }
+
+    /// Flatten onto the sweep. Opaque, sRGB, 8-bit: App Store screenshots must have no alpha.
+    private static func flatten(size: CGSize, backdrop: Backdrop, devices: [StoreDevice], caption: String?,
+                                subcaption: String?, marks: PairMarks?) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
         format.preferredRange = .standard
-        let pool = px(SIMD3(target.x, ground, target.z))
+        let pool = devices.last?.pool ?? CGPoint(x: size.width / 2, y: size.height * 0.7)
         return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
             let cg = renderer.cgContext
-            drawBackdrop(cg, size: size, pool: pool)
+            drawBackdrop(cg, size: size, pool: pool, style: backdrop)
             cg.setLineJoin(.round)
-            for draw in draws {
-                switch draw {
-                case let .fill(points, color, seal):
-                    guard points.count >= 3 else { continue }
-                    let shape = path(points, closed: true)
-                    cg.addPath(shape)
-                    cg.setFillColor(color.cgColor)
-                    cg.fillPath()
-                    if seal {   // hides antialiasing seams between adjacent body polygons
-                        cg.addPath(shape)
-                        cg.setStrokeColor(color.cgColor)
-                        cg.setLineWidth(0.8)
-                        cg.strokePath()
-                    }
-                case let .image(image, rect):
-                    UIImage(cgImage: image).draw(in: rect)
+            for device in devices {
+                for draw in device.draws {
+                    paint(draw, in: cg)
                 }
             }
+            if let marks { drawPairMarks(cg, marks, size: size) }
+            if let caption, !caption.isEmpty { drawCaption(caption, subline: subcaption, size: size) }
         }
+    }
+
+    private static func paint(_ draw: StoreDraw, in cg: CGContext) {
+        switch draw {
+        case let .fill(points, color, seal):
+            guard points.count >= 3 else { return }
+            let shape = path(points, closed: true)
+            cg.addPath(shape)
+            cg.setFillColor(color.cgColor)
+            cg.fillPath()
+            if seal {   // hides antialiasing seams between adjacent body polygons
+                cg.addPath(shape)
+                cg.setStrokeColor(color.cgColor)
+                cg.setLineWidth(0.8)
+                cg.strokePath()
+            }
+        case let .image(image, rect):
+            UIImage(cgImage: image).draw(in: rect)
+        }
+    }
+
+    // MARK: - Captions (docs/appstore/screenshots.md "Visual system for captions")
+
+    private static let captionInk = UIColor(hex: 0x2B2D31)
+    private static let captionHighlight = UIColor(hex: 0xFFB81C)
+
+    /// The headline centred in the top 21 % of the frame (never over the hero box), cap height ≥ 4 % of the frame
+    /// height; it breaks after its first sentence when it doesn't fit on one line.
+    private static func drawCaption(_ text: String, subline: String?, size: CGSize) {
+        let band = CGRect(x: size.width * 0.06, y: size.height * 0.03,
+                          width: size.width * 0.88, height: size.height * 0.165)
+        let minimum = size.height * 0.058   // SF Rounded cap height ≈ 0.70 em → 4.06 %
+        var fontSize = size.height * 0.064
+        let breakSentences = captionString(text, size: fontSize, breakSentences: false).size().width > band.width
+        func measure(_ string: NSAttributedString) -> CGSize {
+            let r = string.boundingRect(with: CGSize(width: band.width, height: .greatestFiniteMagnitude),
+                                        options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            return CGSize(width: ceil(r.width), height: ceil(r.height))
+        }
+        var headline = captionString(text, size: fontSize, breakSentences: breakSentences)
+        var sub = subline.map { sublineString($0, size: fontSize) }
+        while fontSize > minimum {
+            let height = measure(headline).height + (sub.map { measure($0).height + fontSize * 0.30 } ?? 0)
+            if height <= band.height { break }
+            fontSize = max(minimum, fontSize * 0.95)
+            headline = captionString(text, size: fontSize, breakSentences: breakSentences)
+            sub = subline.map { sublineString($0, size: fontSize) }
+        }
+        let headSize = measure(headline)
+        let subSize = sub.map { measure($0) } ?? .zero
+        let gap = sub == nil ? 0 : fontSize * 0.30
+        var y = band.midY - (headSize.height + gap + subSize.height) / 2
+        headline.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: headSize.height + 2),
+                      options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        y += headSize.height + gap
+        sub?.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: subSize.height + 2),
+                  options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+    }
+
+    /// `*word*` marks the highlighted word, as in screenshots.md.
+    private static func captionString(_ text: String, size: CGFloat, breakSentences: Bool) -> NSAttributedString {
+        var source = text
+        if breakSentences, let range = source.range(of: ". ") {
+            source.replaceSubrange(range, with: ".\n")
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineHeightMultiple = 0.92
+        let font = roundedFont(size, weight: .heavy)
+        let result = NSMutableAttributedString()
+        for (index, piece) in source.components(separatedBy: "*").enumerated() where !piece.isEmpty {
+            let color = index % 2 == 1 ? captionHighlight : captionInk
+            result.append(NSAttributedString(string: piece, attributes: [
+                .font: font, .foregroundColor: color, .paragraphStyle: paragraph,
+            ]))
+        }
+        return result
+    }
+
+    private static func sublineString(_ text: String, size: CGFloat) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        return NSAttributedString(string: text.replacingOccurrences(of: "*", with: ""), attributes: [
+            .font: UIFont.monospacedSystemFont(ofSize: size * 0.40, weight: .semibold),
+            .foregroundColor: captionInk.withAlphaComponent(0.72),
+            .paragraphStyle: paragraph,
+        ])
+    }
+
+    private static func roundedFont(_ size: CGFloat, weight: UIFont.Weight) -> UIFont {
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+        return UIFont(descriptor: descriptor, size: size)
+    }
+
+    // MARK: - Pair marks
+
+    /// A hand-drawn graphite arrow from the small device toward the large one, and the two hinge angles.
+    private static func drawPairMarks(_ cg: CGContext, _ marks: PairMarks, size: CGSize) {
+        let unit = min(size.width, size.height)
+        let start: CGPoint, end: CGPoint, control: CGPoint
+        if size.height >= size.width {
+            start = CGPoint(x: marks.before.maxX + unit * 0.03, y: marks.before.midY)
+            end = CGPoint(x: marks.after.midX + marks.after.width * 0.05, y: marks.after.minY - unit * 0.03)
+            control = CGPoint(x: end.x + unit * 0.02, y: start.y)
+        } else {
+            start = CGPoint(x: marks.before.maxX + unit * 0.02, y: marks.before.minY + marks.before.height * 0.35)
+            end = CGPoint(x: marks.after.minX - unit * 0.01, y: marks.after.minY + marks.after.height * 0.30)
+            control = CGPoint(x: (start.x + end.x) / 2, y: min(start.y, end.y) - unit * 0.06)
+        }
+        let ink = captionInk.withAlphaComponent(0.85)
+        cg.saveGState()
+        cg.setStrokeColor(ink.cgColor)
+        cg.setLineCap(.round)
+        cg.setLineJoin(.round)
+        cg.setLineWidth(unit * 0.010)
+        // Two passes a hair apart read as a marker stroke rather than a vector line.
+        for offset in [CGFloat(0), unit * 0.0015] {
+            cg.move(to: CGPoint(x: start.x, y: start.y + offset))
+            cg.addQuadCurve(to: CGPoint(x: end.x + offset, y: end.y),
+                            control: CGPoint(x: control.x + offset, y: control.y - offset))
+            cg.strokePath()
+        }
+        let dx = end.x - control.x, dy = end.y - control.y
+        let length = max(hypot(dx, dy), 1e-3)
+        let back = CGPoint(x: -dx / length, y: -dy / length)
+        let head = unit * 0.038
+        for turn in [CGFloat(0.50), CGFloat(-0.50)] {
+            let c = cos(turn), s = sin(turn)
+            let dir = CGPoint(x: back.x * c - back.y * s, y: back.x * s + back.y * c)
+            cg.move(to: end)
+            cg.addLine(to: CGPoint(x: end.x + dir.x * head, y: end.y + dir.y * head))
+            cg.strokePath()
+        }
+        cg.restoreGState()
+        guard marks.labels else { return }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: roundedFont(unit * 0.045, weight: .heavy),
+            .foregroundColor: captionInk.withAlphaComponent(0.80),
+        ]
+        let first = NSAttributedString(string: marks.beforeLabel, attributes: attributes)
+        let second = NSAttributedString(string: marks.afterLabel, attributes: attributes)
+        first.draw(at: CGPoint(x: start.x, y: start.y - unit * 0.075))
+        second.draw(at: CGPoint(x: end.x + unit * 0.05, y: end.y - unit * 0.065))
     }
 
     // MARK: - Textures
@@ -354,10 +672,10 @@ enum FoldStoreShot {
     private static let creaseGraphite = UIColor(hex: 0x2B2D31)
 
     /// One page drawn flat in canvas points: black glass bezel with rounded free corners, the screen content clipped
-    /// to its rounded corners, a faint sheen and the rim. The rect includes a transparent margin so warped edges
-    /// stay antialiased.
-    private static func pageTexture(_ panel: StoreRig.Panel, image: CGImage, rig: StoreRig,
-                                    sheen: Bool) -> (CGImage, CGRect)? {
+    /// to its rounded corners (plus the escaped splat on the anvil), a faint sheen and the rim. The rect includes a
+    /// transparent margin so warped edges stay antialiased.
+    private static func pageTexture(_ panel: StoreRig.Panel, image: CGImage, rig: StoreRig, sheen: Bool,
+                                    splat: EscapedSplat?) -> (CGImage, CGRect)? {
         let layout = rig.layout
         let b = StoreRig.bezelPt, m = StoreRig.marginPt, c = rig.c
         let reach = rig.reach(panel)
@@ -383,10 +701,11 @@ enum FoldStoreShot {
             cg.addPath(path(screenOutline, closed: true))
             cg.clip()
             UIImage(cgImage: image).draw(in: half)
+            if let splat { drawEscapedSplat(cg, splat, layout: layout) }
             if sheen, let gradient = CGGradient(
                 colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
                 colors: [UIColor(red: 1, green: 1, blue: 1, alpha: 0).cgColor,
-                         UIColor(red: 1, green: 1, blue: 1, alpha: 0.07).cgColor,
+                         UIColor(red: 1, green: 1, blue: 1, alpha: 0.04).cgColor,
                          UIColor(red: 1, green: 1, blue: 1, alpha: 0).cgColor] as CFArray,
                 locations: [0.30, 0.46, 0.62]) {
                 cg.drawLinearGradient(gradient, start: CGPoint(x: half.minX, y: half.minY),
@@ -401,6 +720,70 @@ enum FoldStoreShot {
         }
         guard let pixels = texture.cgImage else { return nil }
         return (pixels, rect)
+    }
+
+    /// The splat that got out (FOLD-REVIEW-4 F3): droplets run out from under the strike plate onto the anvil field,
+    /// each a short smear from the plate edge, a wet drop and sometimes a satellite. Print space (origin footprint
+    /// centre, x = anvil x, y = anvil z, points) is the anvil frame seen top-down, so these sit exactly where the
+    /// platen's splat meets the field when the phone shuts. Drawn in canvas points onto the anvil page, clipped to the
+    /// anvil field.
+    private static func drawEscapedSplat(_ cg: CGContext, _ splat: EscapedSplat, layout: FoldLayout) {
+        let stamp = splat.stamp
+        guard EscapedSplat.supports(stamp.kind), splat.count > 0 else { return }
+        // The splat's centre, as FoldStamps.splatImage places it: the duck's seam, the footprint centre otherwise.
+        let centre: CGPoint
+        if stamp.kind == .rubberDuck, stamp.features.count >= 3 {
+            centre = CGPoint(x: (stamp.features[1].x + stamp.features[2].x) / 2,
+                             y: (stamp.features[1].y + stamp.features[2].y) / 2)
+        } else {
+            centre = .zero
+        }
+        let ink = stamp.ink
+        let edge = FoldStamps.darken(ink, 0.25)
+        var rng = SplitMix64(seed: stamp.seed ^ 0x5B1A7 ^ 0xE5CA9E)
+        let hx = FoldMetrics.plateLateral / 2, hy = FoldMetrics.plateDepth / 2
+        let ppm = FoldMetrics.pointsPerMM
+        let field = layout.anvilField.insetBy(dx: 8, dy: 8)
+        func canvas(_ x: Double, _ y: Double) -> CGPoint { layout.canvasPoint(anvilMM: SIMD2<Double>(x / ppm, y / ppm)) }
+        let cx = Double(centre.x), cy = Double(centre.y)
+        cg.saveGState()
+        cg.clip(to: layout.anvilField)
+        cg.setLineCap(.round)
+        for i in 0..<splat.count {
+            let angle = Double.random(in: 0..<(2 * Double.pi), using: &rng)
+            let dx = cos(angle), dy = sin(angle)
+            // Distance from the splat centre to the strike plate's edge along this direction.
+            var exit = Double.infinity
+            if abs(dx) > 1e-6 { exit = min(exit, ((dx > 0 ? hx : -hx) - cx) / dx) }
+            if abs(dy) > 1e-6 { exit = min(exit, ((dy > 0 ? hy : -hy) - cy) / dy) }
+            let run = (exit.isFinite ? max(exit, 0) : 0) + Double.random(in: 10...52, using: &rng)
+            let radius = Double.random(in: 2.4...5.6, using: &rng) * (i < 3 ? 1.35 : 1)
+            let satellite = Double.random(in: 0...1, using: &rng) < 0.5
+            let satelliteGap = Double.random(in: 2...8, using: &rng)
+            let drop = canvas(cx + dx * run, cy + dy * run)
+            guard field.contains(drop) else { continue }
+            let tail = canvas(cx + dx * (run - radius * 3.2), cy + dy * (run - radius * 3.2))
+            cg.setStrokeColor(ink.withAlphaComponent(0.55).cgColor)
+            cg.setLineWidth(CGFloat(radius * 1.1))
+            cg.move(to: tail)
+            cg.addLine(to: drop)
+            cg.strokePath()
+            let r = CGFloat(radius)
+            cg.setFillColor(edge.withAlphaComponent(0.9).cgColor)
+            cg.fillEllipse(in: CGRect(x: drop.x - r, y: drop.y - r, width: 2 * r, height: 2 * r))
+            cg.setFillColor(ink.withAlphaComponent(0.95).cgColor)
+            cg.fillEllipse(in: CGRect(x: drop.x - r * 0.82, y: drop.y - r * 0.82, width: 1.64 * r, height: 1.64 * r))
+            cg.setFillColor(UIColor(white: 1, alpha: 0.45).cgColor)
+            cg.fillEllipse(in: CGRect(x: drop.x - r * 0.55, y: drop.y - r * 0.55, width: 0.6 * r, height: 0.6 * r))
+            if satellite {
+                let far = run + radius * 2.6 + satelliteGap
+                let p = canvas(cx + dx * far, cy + dy * far)
+                let s = r * 0.45
+                cg.setFillColor(ink.withAlphaComponent(0.9).cgColor)
+                cg.fillEllipse(in: CGRect(x: p.x - s, y: p.y - s, width: 2 * s, height: 2 * s))
+            }
+        }
+        cg.restoreGState()
     }
 
     /// The crease band (or plain graphite) with bezel black past both lateral ends, in canvas points.
@@ -457,38 +840,62 @@ enum FoldStoreShot {
         return (pixels, CGRect(x: extent.minX, y: canvas.height - extent.maxY, width: extent.width, height: extent.height))
     }
 
-    /// A filled polygon, Gaussian-blurred, as a full-canvas layer.
+    /// A filled polygon, Gaussian-blurred, as a layer covering only the polygon's bounds plus 3σ (not the whole frame:
+    /// a 2007 × 2853 RGBA layer is 23 MB, and a pair frame has six).
     private static func blurred(_ points: [CGPoint], color: UIColor, sigma: Double, size: CGSize,
                                 context: CIContext) -> StoreDraw? {
         guard points.count >= 3 else { return nil }
+        let sigma = max(sigma, 0.5)
+        var minX = CGFloat.infinity, minY = CGFloat.infinity, maxX = -CGFloat.infinity, maxY = -CGFloat.infinity
+        for p in points {
+            minX = min(minX, p.x)
+            minY = min(minY, p.y)
+            maxX = max(maxX, p.x)
+            maxY = max(maxY, p.y)
+        }
+        guard minX.isFinite, minY.isFinite, maxX.isFinite, maxY.isFinite else { return nil }
+        let pad = CGFloat(3 * sigma + 2)
+        let region = CGRect(x: minX - pad, y: minY - pad, width: maxX - minX + 2 * pad, height: maxY - minY + 2 * pad)
+            .intersection(CGRect(origin: .zero, size: size)).integral
+        guard !region.isNull, region.width >= 1, region.height >= 1 else { return nil }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
         format.preferredRange = .standard
-        let layer = UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+        let layer = UIGraphicsImageRenderer(size: region.size, format: format).image { renderer in
+            renderer.cgContext.translateBy(x: -region.minX, y: -region.minY)
             renderer.cgContext.addPath(path(points, closed: true))
             renderer.cgContext.setFillColor(color.cgColor)
             renderer.cgContext.fillPath()
         }
         guard let pixels = layer.cgImage else { return nil }
-        let bounds = CGRect(origin: .zero, size: size)
+        let local = CGRect(origin: .zero, size: region.size)
         let soft = CIImage(cgImage: pixels).clampedToExtent()
-            .applyingGaussianBlur(sigma: max(sigma, 0.5))
-            .cropped(to: bounds)
-        guard let out = context.createCGImage(soft, from: bounds, format: .RGBA8,
+            .applyingGaussianBlur(sigma: sigma)
+            .cropped(to: local)
+        guard let out = context.createCGImage(soft, from: local, format: .RGBA8,
                                               colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
-        return .image(out, bounds)
+        return .image(out, region)
     }
 
-    /// Warm studio sweep (Theme wallBase → backdrop → floorNear), a light pool under the device and a soft vignette.
-    private static func drawBackdrop(_ cg: CGContext, size: CGSize, pool: CGPoint) {
+    /// Studio sweep (Theme wallBase → backdrop → floorNear, or the cooler Duo sweep), a light pool under the device and
+    /// a soft vignette.
+    private static func drawBackdrop(_ cg: CGContext, size: CGSize, pool: CGPoint, style: Backdrop) {
         let space = CGColorSpace(name: CGColorSpace.sRGB)
-        let sweep = [UIColor(hex: 0xEDE5D8), UIColor(hex: 0xF3EEE6), UIColor(hex: 0xF1E9DC)].map(\.cgColor)
+        let sweep: [CGColor]
+        let poolColors: [CGColor]
+        switch style {
+        case .studio:
+            sweep = [UIColor(hex: 0xEDE5D8), UIColor(hex: 0xF3EEE6), UIColor(hex: 0xF1E9DC)].map(\.cgColor)
+            poolColors = [UIColor(hex: 0xFBF8F1), UIColor(hex: 0xF8F3EA, alpha: 0)].map(\.cgColor)
+        case .duoSweep:
+            sweep = [UIColor(hex: 0xE9E6E1), UIColor(hex: 0xE2DED8), UIColor(hex: 0xD9D5CE)].map(\.cgColor)
+            poolColors = [UIColor(hex: 0xF2EFEA), UIColor(hex: 0xEEEBE6, alpha: 0)].map(\.cgColor)
+        }
         if let gradient = CGGradient(colorsSpace: space, colors: sweep as CFArray, locations: [0, 0.55, 1]) {
             cg.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
         }
-        let light = [UIColor(hex: 0xFBF8F1), UIColor(hex: 0xF8F3EA, alpha: 0)].map(\.cgColor)
-        if let gradient = CGGradient(colorsSpace: space, colors: light as CFArray, locations: [0, 1]) {
+        if let gradient = CGGradient(colorsSpace: space, colors: poolColors as CFArray, locations: [0, 1]) {
             cg.drawRadialGradient(gradient, startCenter: pool, startRadius: 0, endCenter: pool,
                                   endRadius: max(size.width, size.height) * 0.5, options: [])
         }
@@ -552,6 +959,21 @@ private enum StoreDraw {
     case image(CGImage, CGRect)
 }
 
+/// One device's draw list, the floor point under its centre (for the backdrop's light pool) and its projected bounds.
+private struct StoreDevice {
+    let draws: [StoreDraw]
+    let pool: CGPoint
+    let frame: CGRect
+}
+
+private struct PairMarks {
+    let before: CGRect
+    let after: CGRect
+    let beforeLabel: String
+    let afterLabel: String
+    let labels: Bool
+}
+
 private struct StorePage {
     let panel: StoreRig.Panel
     let slab: StoreRig.PageSlab
@@ -595,6 +1017,8 @@ private struct StoreRig {
     static let bendSegments = 10
 
     let layout: FoldLayout
+    /// Laptop pose (the world is the anvil frame). False only for a book layout modelled as a standing book.
+    let tabletop: Bool
     let theta: Double
     let origin: SIMD3<Double>
     let u: SIMD3<Double>
@@ -609,25 +1033,28 @@ private struct StoreRig {
     var ppm: Double { FoldMetrics.pointsPerMM }
     var c: Double { FoldMetrics.creaseHalf }
 
-    init(layout: FoldLayout, angleDegrees: Double) {
+    init(layout: FoldLayout, angleDegrees: Double, tabletop: Bool) {
         self.layout = layout
+        self.tabletop = tabletop
         let angle = clamp(angleDegrees, 30, 180) * Double.pi / 180
         theta = angle
         let creaseZ = FoldMetrics.creaseHalf / FoldMetrics.pointsPerMM - FoldMetrics.footprintFromAxisMM
         anvilCreaseZ = creaseZ
-        if layout.isBook {
+        if tabletop {
+            // The world IS the anvil frame (anvil on the table, platen as the lid behind it). For a book layout this
+            // lays the page down turned 90° clockwise: canvas +x (away from the crease) → world +z (toward the viewer),
+            // canvas +y → world −x, so the page's top edge points to the viewer's right.
+            u = SIMD3(0, 0, 1)
+            v = SIMD3(0, 1, 0)
+            lateral = SIMD3(1, 0, 0)
+            origin = SIMD3(0, 0, creaseZ)
+        } else {
             // Standing on its lower edge, the wedge bisector toward the viewer (+z), anvil page on the right.
             let rho = Double.pi / 2 - angle / 2
             u = SIMD3(cos(rho), 0, sin(rho))
             v = SIMD3(-sin(rho), 0, cos(rho))
             lateral = SIMD3(0, 1, 0)
             origin = SIMD3(0, 0, 0)
-        } else {
-            // Tabletop: the world IS the anvil frame (anvil on the table, platen as the lid behind it).
-            u = SIMD3(0, 0, 1)
-            v = SIMD3(0, 1, 0)
-            lateral = SIMD3(1, 0, 0)
-            origin = SIMD3(0, 0, creaseZ)
         }
         let n = StoreRig.bendSegments
         let length = 2 * FoldMetrics.creaseHalf / FoldMetrics.pointsPerMM
@@ -797,15 +1224,39 @@ private struct StoreRig {
 
     // MARK: Eye
 
-    /// The design eye (§9.4) for this pose and angle, moved into the world; for the 3/4 view turned about the
-    /// vertical through the device.
-    func eye(model: FoldEyeModel, threeQuarter: Bool, azimuthDegrees: Double?,
-             target: SIMD3<Double>) -> SIMD3<Double> {
-        let degrees = theta * 180 / Double.pi
-        let pose: FoldPose = layout.isBook ? .book(hinge: degrees) : .tabletop
-        let design = anvilFrameToWorld(model.designEye(pose))
+    /// The content's design eye (§9.4) moved into the world; for the 3/4 view re-aimed (elevation above the anvil page,
+    /// from the footprint centre) and then turned about the vertical through the device.
+    ///
+    /// The anvil's 3D content was rendered for the design eye of the *layout's* pose, at the *captured* angle
+    /// (`contentAngle`), so that is where the object stands up: tabletop 40° straight in front; book on the wedge
+    /// bisector tilted toward the page top, i.e. (anvil frame) azimuth ≈ +17° / elevation 31° at 62°, +39° / 53° at 112°.
+    func eye(model: FoldEyeModel, contentAngle: Double, threeQuarter: Bool, azimuthDegrees: Double?,
+             elevationDegrees: Double?, target: SIMD3<Double>) -> SIMD3<Double> {
+        let pose: FoldPose = layout.isBook ? .book(hinge: clamp(contentAngle, 20, 180)) : .tabletop
+        var eyeModel = model
+        if threeQuarter, !layout.isBook {
+            eyeModel.elevationDegrees = elevationDegrees ?? 34   // FOLD-REVIEW-4 §3.3 B: design 40°, store 34°
+        }
+        var anvilEye = eyeModel.designEye(pose)
+        if threeQuarter, layout.isBook {
+            let distance = max(simd_length(anvilEye), 1)
+            let designElevation = asin(clamp(anvilEye.y / distance, -1, 1)) * 180 / Double.pi
+            let wanted = elevationDegrees ?? (tabletop ? clamp(designElevation, 34, 60) : designElevation)
+            let e = clamp(wanted, 5, 85) * Double.pi / 180
+            let a = atan2(anvilEye.x, anvilEye.z)
+            anvilEye = distance * SIMD3(cos(e) * sin(a), sin(e), cos(e) * cos(a))
+        }
+        let design = anvilFrameToWorld(anvilEye)
         guard threeQuarter else { return design }
-        let azimuth = (azimuthDegrees ?? (layout.isBook ? -22 : 26)) * Double.pi / 180
+        let turn: Double
+        if !layout.isBook {
+            turn = azimuthDegrees ?? 14
+        } else if tabletop {
+            turn = azimuthDegrees ?? 0
+        } else {
+            turn = azimuthDegrees ?? -22
+        }
+        let azimuth = turn * Double.pi / 180
         let rel = design - target
         return target + SIMD3(rel.x * cos(azimuth) + rel.z * sin(azimuth), rel.y,
                               -rel.x * sin(azimuth) + rel.z * cos(azimuth))
@@ -838,13 +1289,13 @@ private struct StoreCamera {
     }
 }
 
-/// Image plane → output pixels (top-left origin), fitted into the hero box.
+/// Image plane → output pixels (top-left origin): the image-plane point `reference` lands on `pixel`.
 private struct StoreFit {
     let scale: Double
-    let centre: SIMD2<Double>
-    let box: CGRect
+    let reference: SIMD2<Double>
+    let pixel: CGPoint
 
     func point(_ q: SIMD2<Double>) -> CGPoint {
-        CGPoint(x: Double(box.midX) + (q.x - centre.x) * scale, y: Double(box.midY) - (q.y - centre.y) * scale)
+        CGPoint(x: Double(pixel.x) + (q.x - reference.x) * scale, y: Double(pixel.y) - (q.y - reference.y) * scale)
     }
 }

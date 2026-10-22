@@ -3,7 +3,7 @@ import UIKit
 
 /// Instruments state for one frame (logic mirrors the P-48's gauge and lamps, VISUAL-TARGET §4.4–4.5).
 struct FoldInstruments {
-    /// Displayed needle tonnage (0–60 dial, > 60 pins into the red).
+    /// Displayed needle tonnage (0–80 t dial shared with the P-48, `PressGauge`; past 80 it pins).
     var needle: Double
     /// 0 off, 1 green / amber, 2 red.
     var ready: Int
@@ -243,7 +243,7 @@ final class FoldBezel {
     // MARK: Per frame
 
     func update(_ instruments: FoldInstruments, frame f: FoldFrame) {
-        // Dial angle α = 225° − 270°·t/60 (CCW from +x); the needle is drawn at 12 o'clock (90°), and
+        // Dial angle α = 225° − 270°·t/80 (CCW from +x); the needle is drawn at 12 o'clock (90°), and
         // UIKit rotations are clockwise-positive on screen.
         let tons = min(max(instruments.needle, -1), Double(FoldTextures.gaugeMaxTons) + 3)
         needle.setAffineTransform(CGAffineTransform(rotationAngle: FoldTextures.needleRotation(tons: tons)))

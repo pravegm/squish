@@ -48,7 +48,11 @@ final class FoldPrintStack {
     private let wipeMask = CAGradientLayer()
     private let squeegee = CALayer()
     private var decalContext: CGContext?
-    private var splatScale: Double = 0
+    /// The failure splat's scale about the footprint centre (it spreads with compression after the failure); the
+    /// anvil's escaped droplets ride out with it.
+    private(set) var splatScale: Double = 0
+    /// The blurs the approach-shadow images were rendered at (`FoldStamps.shadowBlurs`).
+    private let shadowStops: [Double]
     private var kissLevel: Double = 0
     private var pulse: Double = 0
     private var ripples: [(centre: CGPoint, radius: CGFloat, age: Double, layer: CAShapeLayer)] = []
@@ -59,6 +63,7 @@ final class FoldPrintStack {
     init(stamp: FoldStamp, variant: PressVariant, softDisc: CGImage?, rings ringImage: CGImage?) {
         self.stamp = stamp
         self.variant = variant
+        shadowStops = FoldStamps.shadowBlurs(stamp.kind).map { Double($0) }
         let canvas = FoldPrintCanvas.rect
         root.bounds = canvas
         for layer in shadows + [ink, ringsHolder, splat, decal] {
@@ -143,7 +148,8 @@ final class FoldPrintStack {
     func fracture(index: Int, isFailure: Bool, compression: Double, reduceMotion: Bool) -> FoldPrintEffect {
         var effect = FoldPrintEffect.none
         if let ctx = decalContext {
-            effect = FoldStamps.drawFracture(index: index, isFailure: isFailure, stamp: stamp, into: ctx)
+            effect = FoldStamps.drawFracture(index: index, isFailure: isFailure, stamp: stamp, into: ctx,
+                                             compression: compression)
             decalCG = ctx.makeImage()
             decal.contents = decalCG
         }
@@ -189,22 +195,22 @@ final class FoldPrintStack {
         // 1. Approach shadow (§3.2 step 1, §4.4): sharpens and darkens as the virtual gap closes.
         let gap = f.contacted ? 0 : 1 - f.approach
         let shadow = FoldCurve.shadow(gap: gap)
-        let weights: [Double]
+        let sheet = stamp.kind == .bubbleWrap
         // Small objects vanish under a 40 pt blur (FOLD-REVIEW-2 #4: no shadow for duck/can at 180°): cap it at 28.
-        let blur = min(shadow.blur, 28)
-        if blur <= 16 {
-            let t = (blur - 4) / 12
-            weights = [1 - t, t, 0]
-        } else {
-            let t = (blur - 16) / 24
-            weights = [0, 1 - t, t]
-        }
+        // Sheets are the opposite (FOLD-REVIEW-3 N15): a film-sized shadow sharper than 28 pt reads as a box.
+        let blur = sheet ? clamp(shadow.blur, 28, 40) : min(shadow.blur, 28)
+        let weights = FoldStamps.shadowWeights(blur: blur, stops: shadowStops)
         let presence = f.objectPresent ? 1.0 : 0
         let under = f.contacted ? 0.22 : 1
+        // Flat (gap 1) the spec's 0.08 is invisible on steel under a small object: start those at 0.14 so the plates
+        // belong together at 180°. A sheet's shadow is as big as the film, so it starts at 0.08 and only reaches 0.20
+        // (it was a 0.35 block at 150°), and it barely grows with the gap (at 1.25× it washed past the whole plate at
+        // 180° and read as no shadow at all).
+        let alpha = sheet ? 0.08 + 0.12 * clamp(1 - gap, 0, 1) : max(shadow.alpha, 0.14)
+        let scale = CGFloat(sheet ? 1 + 0.06 * clamp(gap, 0, 1) : shadow.scale)
         for (layer, w) in zip(shadows, weights) {
-            // Flat (gap 1) the spec's 0.08 is invisible on steel: start at 0.14 so the plates belong together at 180°.
-            layer.opacity = Float(max(shadow.alpha, 0.14) * w * presence * under)
-            layer.setAffineTransform(CGAffineTransform(scaleX: CGFloat(shadow.scale), y: CGFloat(shadow.scale)))
+            layer.opacity = Float(alpha * w * presence * under)
+            layer.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
         }
 
         // 2–3. Kiss → print (§3.2): r = R·min(1, 1.1√c), soft edge, saturation with c; the edge trembles in the tell.
@@ -391,6 +397,9 @@ final class FoldPlaten {
     /// The specimen's seed: the PRESSED stamp's offset and tilt follow it (FOLD-REVIEW-3 N12).
     private var pressedSeed: UInt64 = 0
     private var pressedAngle: CGFloat = -0.14
+    /// The stamp in red ink, and in paper-white ink with a red keyline for prints too close to red to show it.
+    private var pressedRed: CGImage?
+    private var pressedPaper: CGImage?
     private var poppedBolt: (layer: CALayer, age: Double, start: CGPoint)?
     private let softDisc = FoldStamps.softDisc()
     private let ringImage = FoldStamps.newtonRings()
@@ -521,8 +530,11 @@ final class FoldPlaten {
         printHolder.frame = half
         printHolder.bounds = half
         for s in [stack].compactMap({ $0 }) + outgoing { position(s) }
-        pressed.contents = FoldTextures.pressedStamp()
-        pressed.bounds = CGRect(x: 0, y: 0, width: 150, height: 57)
+        if pressedRed == nil {
+            pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width)
+            pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true)
+        }
+        pressed.bounds = CGRect(origin: .zero, size: Self.pressedSize)
         placePressed()
         crack.path = nil
         crackLight.path = nil
@@ -559,16 +571,16 @@ final class FoldPlaten {
     func setStamp(_ stamp: FoldStamp, variant: PressVariant) {
         if stack != nil { wipe() }
         pressedSeed = variant.seed
-        placePressed()
         let s = FoldPrintStack(stamp: stamp, variant: variant, softDisc: softDisc, rings: ringImage)
         position(s)
         printHolder.addSublayer(s.root)
         stack = s
+        placePressed()   // from this print's bounding box
         let box = FoldStampBox(stamp: stamp)
         Task { @MainActor [weak self, weak s] in
             let images = await Task.detached(priority: .userInitiated) { () -> FoldPrintImages in
                 FoldPrintImages(ink: FoldStamps.inkImage(box.stamp), mask: FoldStamps.maskImage(box.stamp),
-                                shadows: [4, 16, 40].map { FoldStamps.shadowImage(box.stamp, blur: $0) })
+                                shadows: FoldStamps.shadowBlurs(box.stamp.kind).map { FoldStamps.shadowImage(box.stamp, blur: $0) })
             }.value
             guard self != nil, let s else { return }
             CATransaction.begin()
@@ -592,26 +604,66 @@ final class FoldPlaten {
         placePressed()
     }
 
-    /// The PRESSED stamp's pose for one specimen (FOLD-REVIEW-3 N12): deterministic per seed, ±20 pt and −8° ± 6°
-    /// about a base on the plate's lower half (book: toward the far edge), so reveals stop being carbon copies.
-    /// `offset` is from the print centre in canvas points; it keeps the 85 % stamp inside the strike plate.
-    static func pressedPose(seed: UInt64, book: Bool) -> (offset: CGPoint, angle: CGFloat) {
+    /// The PRESSED stamp's pose for one specimen (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F9). Placed from the print's own
+    /// bounding box, not one fixed base: centred under it, with the top ~30 % of the landed stamp over the print's lower
+    /// edge, so each object's stamp sits where its own print ends. Then a seeded ±30 pt along that edge, ±5 pt across it
+    /// and −8° ± 10°, so no two specimens match, and finally kept inside the strike plate (4 pt in; a print that
+    /// reaches the plate's lower edge pushes the stamp up onto itself). `print` and `plate` are canvas offsets from
+    /// the print centre (`printBounds`); so is the returned `offset`.
+    static func pressedPose(seed: UInt64, print: CGRect, plate: CGRect) -> (offset: CGPoint, angle: CGFloat) {
         var rng = SplitMix64(seed: seed ^ 0x9E55ED)
-        let base = book ? CGPoint(x: -22, y: 72) : CGPoint(x: 60, y: 24)
-        let dx = CGFloat.random(in: -20...20, using: &rng)
-        let dy = CGFloat.random(in: -20...20, using: &rng)
-        let tilt = CGFloat.random(in: -6...6, using: &rng) * .pi / 180
-        return (CGPoint(x: base.x + dx, y: base.y + dy), -0.14 + tilt)
+        let dx = CGFloat.random(in: -30...30, using: &rng)
+        let dy = CGFloat.random(in: -5...5, using: &rng)
+        let angle = (-8 + CGFloat.random(in: -10...10, using: &rng)) * .pi / 180
+        // The landed stamp's footprint, rotated: its half extents on screen.
+        let w = pressedSize.width * pressedScale, h = pressedSize.height * pressedScale
+        let c = abs(cos(angle)), s = abs(sin(angle))
+        let hx = (w * c + h * s) / 2, hy = (w * s + h * c) / 2
+        let box = print.isNull || print.isEmpty || !print.width.isFinite ? CGRect(x: -60, y: -60, width: 120, height: 120) : print
+        // Top edge at maxY − 30 % of the stamp's height: centre = maxY + (1 − 2 · 0.3) · hy.
+        let x = box.midX + dx
+        let y = box.maxY + (1 - 2 * pressedOverlap) * hy + dy
+        func fit(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo <= hi ? min(max(v, lo), hi) : (lo + hi) / 2 }
+        let inset: CGFloat = 4
+        return (CGPoint(x: fit(x, plate.minX + inset + hx, plate.maxX - inset - hx),
+                        y: fit(y, plate.minY + inset + hy, plate.maxY - inset - hy)), angle)
     }
 
-    /// The stamp is 85 % of its drawn size once it has landed (it covered the print's lower third at 100 %).
+    /// The print's ink outline (its full-coverage silhouette) as the platen shows it: a canvas-space bounding box,
+    /// offset from the print centre.
+    static func printBounds(_ stamp: FoldStamp, layout: FoldLayout) -> CGRect {
+        stamp.silhouette.boundingBoxOfPath.applying(layout.platenPrintTransform)
+    }
+
+    /// The stamp as drawn (`FoldTextures.pressedStamp`), and its size once landed: 85 % (it covered the print's
+    /// lower third at 100 %).
+    static let pressedSize = CGSize(width: 150, height: 57)
     static let pressedScale: CGFloat = 0.85
+    /// How much of the landed stamp's height lies over the print (FOLD-REVIEW-4: about 30 %).
+    static let pressedOverlap: CGFloat = 0.30
+
+    /// Prints whose ink is within 30° of the stamp's red (jelly, the cherry can, the gummy bear) take the stamp in
+    /// paper-white ink with a red keyline (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F14): red-on-magenta disappeared.
+    static func pressedOnPaper(_ ink: UIColor) -> Bool {
+        var h1: CGFloat = 0, s1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var h2: CGFloat = 0, s2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        guard ink.getHue(&h1, saturation: &s1, brightness: &b1, alpha: &a1),
+              Palette.stampRed.getHue(&h2, saturation: &s2, brightness: &b2, alpha: &a2) else { return false }
+        guard s1 >= 0.3 else { return false }   // pale or white prints (bubble, glass, egg) keep the red ink
+        let d = abs(h1 - h2)
+        return min(d, 1 - d) * 360 <= 30
+    }
 
     private func placePressed() {
         guard let layout else { return }
-        let pose = Self.pressedPose(seed: pressedSeed, book: layout.isBook)
-        pressed.position = CGPoint(x: layout.printCentre.x + pose.offset.x, y: layout.printCentre.y + pose.offset.y)
+        let centre = layout.printCentre
+        let plate = layout.strikePlate(platen: true).offsetBy(dx: -centre.x, dy: -centre.y)
+        let printBox = stack.map { Self.printBounds($0.stamp, layout: layout) } ?? .null
+        let pose = Self.pressedPose(seed: pressedSeed, print: printBox, plate: plate)
+        pressed.position = CGPoint(x: centre.x + pose.offset.x, y: centre.y + pose.offset.y)
         pressedAngle = pose.angle
+        let paper = stack.map { Self.pressedOnPaper($0.stamp.ink) } ?? false
+        pressed.contents = paper ? pressedPaper : pressedRed
     }
 
     /// The current monoprint (no bezel), for the collection card's diptych.

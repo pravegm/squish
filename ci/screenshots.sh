@@ -4,7 +4,8 @@
 # DemoMode (DEBUG builds only). Set SCENARIO_FILTER to a regex to run a subset (matched against the name).
 # Each run's app stdout/stderr goes to ci-screens/logs/<name>.txt; a scenario with `exportclip` also
 # copies the rendered share clip to ci-screens/<name>.mp4, and one with `storeshot` copies the folded-device store
-# shots the app wrote (Documents/storeshot-*.png, FoldStoreShot.swift) to ci-screens/<name>-storeshot-*.png.
+# shots the app wrote (Documents/storeshot-*.png, FoldStoreShot.swift) to ci-screens/<name>-storeshot-*.png, after the
+# app's "SQUISH-T storeshot done" line (`storeshot=112,fail` adds storeshot-hero.png and storeshot-pair.png).
 set -euo pipefail
 
 DEVICE="${DEVICE:-iPhone 18 Pro}"

@@ -158,8 +158,10 @@ final class FoldPressController {
         redTimer = 0
         blink = 0
         revealAge = nil
-        // The last print wipes off with a squeegee while the next object drops (§6.3 step 6).
+        // The last print wipes off with a squeegee while the next object drops (§6.3 step 6), and the escaped splat
+        // goes with it.
         platen.wipe()
+        anvil.clearSpray()
         bezel.repair()
         CATransaction.setDisableActions(false)
         applyColours()   // implicit 0.25 s crossfade of the enamel
@@ -203,6 +205,7 @@ final class FoldPressController {
                               sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil,
                               failureAngle: failureAngle)
         platen.update(frame)
+        anvil.updateSpray(spread: platen.stack?.splatScale ?? 1, dt: dt, reduceMotion: context.reduceMotion)
         bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: dt),
                      frame: frame)
         updateCamera(layout: layout, angle: angle, dt: dt)
@@ -230,6 +233,10 @@ final class FoldPressController {
                 if failureAngle == nil { failureAngle = lastAngle }
                 redTimer = 0.6
                 needleVelocity += 5 * 18
+                // The mess escapes the fold (FOLD-REVIEW-4 F3): the platen splat's droplets also land on the anvil.
+                if let stamp = platen.stack?.stamp {
+                    anvil.spray(FoldStamps.anvilSpray(stamp, variant: variant), reduceMotion: context.reduceMotion)
+                }
             }
             if kind == .unsquishable {
                 damage = isFailure ? 3 : max(damage, min(index + 1, 2))
@@ -316,10 +323,10 @@ final class FoldPressController {
     // MARK: - Gauge and lamps (2D on the crown strip, §5)
 
     private func instruments(engine: PressEngine, approach: Double, reduceMotion: Bool, dt: Double) -> FoldInstruments {
-        // One source of truth (FOLD-REVIEW-1 #11): the needle climbs to exactly the tonnage the specimen record (and
-        // so the cover and the card) will print, 12 + 50·c_max + seed % 9, on a 0–80 t dial. The ball pins past 80.
-        let base = 12 + Double(variant.seed % 9)
-        let dialMax = Double(FoldTextures.gaugeMaxTons)
+        // One source of truth (FOLD-REVIEW-1 #11, FOLD-REVIEW-4 F12): the needle climbs to exactly the tonnage the
+        // specimen record (and so the cover and the card) will print, `PressGauge.recordTons`, on the 0–80 t dial the
+        // P-48 shares. The ball pins past 80.
+        let dialMax = PressGauge.maxTons
         var tons = 0.0
         switch engine.phase {
         case .armed, .pressing:
@@ -328,12 +335,13 @@ final class FoldPressController {
             } else if kind == .unsquishable {
                 tons = 10 + (dialMax - 10) * min(1, renderCompression * 1.6)
             } else {
-                tons = base * min(1, renderCompression * 4) + 50 * renderCompression
+                tons = PressGauge.liveTons(compression: renderCompression, seed: variant.seed)
             }
             peakTons = max(peakTons, tons)
         case .sealed:
             let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
-            tons = kind == .unsquishable ? dialMax + 3 : base + Double(Int(maxC * 50))
+            tons = kind == .unsquishable ? dialMax + 3
+                : Double(PressGauge.recordTons(kind: kind, maxCompression: maxC, seed: variant.seed))
         case .idle, .revealing:
             tons = 0
         }

@@ -8,6 +8,8 @@ import UIKit
 /// Fracture 0 (skin split, ~0.30): droplets squirt from a side and a small overflow spreads.
 /// Fracture 1 (failure splat, ~0.55): the body splorts — a glossy spread disc grows to Ø 0.15 with 6–10 blobs out
 /// at the sides, droplets land and stay. Surprise `fruitPieces`: candy cubes between core and shell; some pop out.
+/// On the Duo the shell's bulge, the disc and the splorts stay inside the strike plate + 24 pt, and the gloss mattes in
+/// steps as it flattens (FOLD-REVIEW-4 F14).
 @MainActor
 final class JellyView: PressObjectView {
     let entity = Entity()
@@ -32,6 +34,13 @@ final class JellyView: PressObjectView {
     private var lastKey = SIMD4<Float>(repeating: -1)
     private var spread: Float = 1
     private let dropColors: [UIColor]
+    /// The Duo strike plate + 24 pt (fx metres): on the Fold Press the shell, the splat disc and the splorts are
+    /// softly contained inside it (FOLD-REVIEW-4 F14: the splat overran the plate by ~60 px on both sides).
+    private let containment: SIMD2<Float>
+    /// Gloss level 0…`JellySpread.mattSteps`: the flattened top and the splat lose their mirror finish as the jelly
+    /// spreads, so a hard studio-light edge can't read as a straight "shading seam" across the blob (F14).
+    private var mattLevel = 0
+    private let golden: Bool
 
     var shadowSpread: Float { spread }
 
@@ -58,19 +67,16 @@ final class JellyView: PressObjectView {
         let look = Look(variant)
         self.look = look
         rng = SplitMix64(seed: variant.seed ^ 0x7E11)
-        var shellMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(Palette.raspberry, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.03, opacity: 0.86)
-        if !look.golden {
-            shellMaterial.emissiveColor = .init(color: UIColor(hex: 0xFF5A8A))
-            shellMaterial.emissiveIntensity = 0.22
-        }
+        golden = look.golden
+        containment = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1),
+                                              padding: JellySpread.platePadding)
+        let shellMaterial = Self.shellMaterial(golden: look.golden, matt: 0)
         let coreMaterial = SceneMaterials.pbr(UIColor(hex: 0xB81E52), roughness: 0.3)
         dropColors = look.golden ? [Palette.goldMessColor] : [Palette.raspberry, UIColor(hex: 0xF0487A)]
         shell = DeformableMesh(MeshCache.mesh("jelly.mould") { ObjectMeshes.jellyMould(scale: 1) }, materials: [shellMaterial], maxSpread: 2.2)
         core = ModelEntity(mesh: MeshCache.resource("jelly.core") { ObjectMeshes.jellyMould(scale: 0.8) } ?? .generateSphere(radius: 0.03),
                            materials: [look.golden ? SceneMaterials.gold : coreMaterial])
-        let discMaterial = look.golden ? SceneMaterials.goldMess
-            : SceneMaterials.enamel(Palette.raspberry, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.03, opacity: 0.92)
+        let discMaterial = Self.messMaterial(golden: look.golden, matt: 0)
         spreadDisc = ModelEntity(mesh: MeshKit.spreadDisc(seed: variant.seed, height: 1, segments: 64, wobble: 0.12).resource()
                                  ?? .generateSphere(radius: 0.01), materials: [discMaterial])
         spreadDisc.isEnabled = false
@@ -125,11 +131,26 @@ final class JellyView: PressObjectView {
         let bulge: Float = splat ? 0.55 : (split ? 0.42 : 0.32)
         let maxSpread: Float = splat ? 1.75 : 1.55
         let key = SIMD4<Float>(s, lean.x, lean.y, bulge)
+        // On the Duo the barrel bulge (up to ~0.11 m at full press) is softly held inside the strike plate + 24 pt.
+        let cap: SIMD2<Float>? = fx.isFoldPress ? containment : nil
         if simd_length(key - lastKey) > 0.0004 {
             lastKey = key
+            let rest = restHeight
             shell.update { p in
-                Deform.squash(p, s: s, restHeight: self.restHeight, bulge: bulge, maxSpread: maxSpread, shear: lean)
+                let q = Deform.squash(p, s: s, restHeight: rest, bulge: bulge, maxSpread: maxSpread, shear: lean)
+                guard let cap else { return q }
+                return JellySpread.contain(q, half: cap)
             }
+        }
+        // Matt the gloss in steps as it flattens (and once more at the splat).
+        let level = JellySpread.mattLevel(heightRatio: s, splat: splat)
+        if level > mattLevel && !golden {
+            mattLevel = level
+            let matt = Float(level) / Float(JellySpread.mattSteps)
+            shell.setMaterial(Self.shellMaterial(golden: golden, matt: matt), forSlot: 0)
+            let mess = Self.messMaterial(golden: golden, matt: matt)
+            spreadDisc.model?.materials = [mess]
+            for blob in splorts { blob.entity.model?.materials = [mess] }
         }
         spread = min(1 / s.squareRoot(), maxSpread) * (1 + bulge * (1 - s) * 0.5)
         let coreSpread = min(1 / s.squareRoot(), maxSpread) * 0.97
@@ -145,18 +166,43 @@ final class JellyView: PressObjectView {
         // Spread (overflow → splat) grows with compression past the split, up to Ø 0.15.
         if split {
             let t = clamp((state.compression - splatC) / max(1 - splatC, 0.05), 0, 1)
-            let radius: Float = splat ? 0.05 + 0.015 * t : 0.045 // capped near plate + 40 pt (FOLD-REVIEW-2 #7)
+            var radius: Float = splat ? 0.05 + 0.015 * t : 0.045 // capped near plate + 40 pt (FOLD-REVIEW-2 #7)
+            if let cap { radius = min(radius, JellySpread.maxDiscRadius(half: cap)) }
             let thickness: Float = 0.004 * (splat ? 1 : 0.6)
             spreadDisc.isEnabled = true
-            spreadDisc.scale = SIMD3(radius, thickness, radius * 0.92)
+            spreadDisc.scale = SIMD3(radius, thickness, radius * JellySpread.discAspect)
             for blob in splorts {
-                let d = 0.045 + 0.02 * t
+                let grow = 1 + t * 0.6
+                let blobRadius = grow * blob.size * 0.5
+                var d = 0.045 + 0.02 * t
+                if let cap { d = max(min(d, JellySpread.maxReach(direction: blob.direction, half: cap) - blobRadius), 0.02) }
                 let flat = max(0.3, min(1, h / 0.02)) * 0.4
                 blob.entity.position = SIMD3(blob.direction.x * d, blob.size * 0.5 * flat, blob.direction.y * d)
-                blob.entity.scale = SIMD3(1 + t * 0.6, flat, 1 + t * 0.6) * (blob.size * 0.5)
+                blob.entity.scale = SIMD3(grow, flat, grow) * (blob.size * 0.5)
             }
             spread = max(spread, radius / footprint)
         }
+        if let cap { spread = min(spread, cap.x / footprint) }
+    }
+
+    /// The translucent raspberry shell; `matt` 0…1 takes it from a mirror (roughness 0.08, clearcoat 0.03) to a
+    /// soft gloss (0.20, 0.14) as it flattens.
+    private static func shellMaterial(golden: Bool, matt: Float) -> PhysicallyBasedMaterial {
+        if golden { return SceneMaterials.gold }
+        let m = clamp(matt, 0, 1)
+        var material = SceneMaterials.enamel(Palette.raspberry, roughness: 0.08 + 0.12 * m, clearcoat: 1,
+                                             clearcoatRoughness: 0.03 + 0.11 * m, opacity: 0.86)
+        material.emissiveColor = .init(color: UIColor(hex: 0xFF5A8A))
+        material.emissiveIntensity = 0.22
+        return material
+    }
+
+    /// The splat disc and splorts: flat, so they get matted harder than the shell (roughness up to 0.24).
+    private static func messMaterial(golden: Bool, matt: Float) -> PhysicallyBasedMaterial {
+        if golden { return SceneMaterials.goldMess }
+        let m = clamp(matt, 0, 1)
+        return SceneMaterials.enamel(Palette.raspberry, roughness: 0.08 + 0.16 * m, clearcoat: 1,
+                                     clearcoatRoughness: 0.03 + 0.15 * m, opacity: 0.92)
     }
 
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
@@ -181,8 +227,7 @@ final class JellyView: PressObjectView {
             wobbleX.kick(4)
             wobbleZ.kick(-3)
             bounce.kick(-6)
-            let blobMaterial = look.golden ? SceneMaterials.goldMess
-                : SceneMaterials.enamel(Palette.raspberry, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.03, opacity: 0.92)
+            let blobMaterial = Self.messMaterial(golden: look.golden, matt: Float(mattLevel) / Float(JellySpread.mattSteps))
             let count = 6 + Int(rng.next() % 5)
             for k in 0..<count {
                 let a = Float(k) / Float(count) * 2 * .pi + Float.random(in: -0.25...0.25, using: &rng)
@@ -213,5 +258,53 @@ final class JellyView: PressObjectView {
         case .released: wobbleX.kick(1.5); bounce.kick(2)
         default: break
         }
+    }
+}
+
+/// The jelly's plate containment and gloss steps (FOLD-REVIEW-4 F14), pure so SquishTests can pin them.
+enum JellySpread {
+    /// How far past the Duo strike plate the jelly may reach, in canvas points (round 3's rule: mess inside plate + 40).
+    static let platePadding: Double = 24
+    /// Inside this share of the containment ellipse nothing moves; beyond it the reach is squeezed (tanh) so it
+    /// approaches the edge but never crosses it.
+    static let knee: Float = 0.78
+    /// The splat disc is drawn 0.92× as deep as it is wide, and its seeded rim reaches ~1.2× its radius.
+    static let discAspect: Float = 0.92
+    static let discRimReach: Float = 1.2
+    static let mattSteps = 4
+
+    /// Elliptical norm of a horizontal point against the half extents `half` (1 = on the edge).
+    static func norm(_ xz: SIMD2<Float>, half: SIMD2<Float>) -> Float {
+        let u = xz / simd_max(half, SIMD2<Float>(repeating: 1e-4))
+        return (u.x * u.x + u.y * u.y).squareRoot()
+    }
+
+    /// Softly pulls a deformed point inside the ellipse of half extents `half` (height untouched). Monotonic and
+    /// continuous, so the surface stays smooth; points inside `knee` are unchanged.
+    static func contain(_ p: SIMD3<Float>, half: SIMD2<Float>) -> SIMD3<Float> {
+        let e = norm(SIMD2(p.x, p.z), half: half)
+        guard e > knee else { return p }
+        let span = 1 - knee
+        let squeezed = knee + span * tanh((e - knee) / span)
+        let k = squeezed / e
+        return SIMD3(p.x * k, p.y, p.z * k)
+    }
+
+    /// The largest splat disc radius whose wobbly rim stays inside `half`.
+    static func maxDiscRadius(half: SIMD2<Float>) -> Float {
+        min(half.x, half.y / discAspect) / discRimReach
+    }
+
+    /// Distance from the centre to the ellipse edge along the unit `direction` (x, z).
+    static func maxReach(direction: SIMD2<Float>, half: SIMD2<Float>) -> Float {
+        let n = norm(direction, half: half)
+        return n > 1e-6 ? 1 / n : 0
+    }
+
+    /// Gloss step for height ratio `s`: 0 at rest … `mattSteps − 1` fully squashed, `mattSteps` once it has splatted.
+    static func mattLevel(heightRatio s: Float, splat: Bool) -> Int {
+        if splat { return mattSteps }
+        let flat = clamp((1 - s) / 0.87, 0, 1)
+        return min(Int((flat * Float(mattSteps - 1)).rounded(.down)), mattSteps - 1)
     }
 }

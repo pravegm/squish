@@ -33,6 +33,10 @@ final class BubbleWrapView: PressObjectView {
     private var megaStrain = 0
     private var crinkles: [MeshResource] = []
     private let poppedMaterial: PhysicallyBasedMaterial
+    /// Crater tells (FOLD-REVIEW-3 N9 / FOLD-REVIEW-4 F8): a 1 pt blue rim at 0.6 round each pop and a tiny bright
+    /// pinhole, so popped cells read as craters on grey steel instead of grey on grey.
+    private let craterRimMaterial: PhysicallyBasedMaterial
+    private let pinholeMaterial: UnlitMaterial
     private var lowest: Float = .infinity
 
     private final class Cell {
@@ -55,9 +59,14 @@ final class BubbleWrapView: PressObjectView {
         let hasMega = variant.surprise == .megaBubble
         restHeight = Self.film + Self.domeHeight * (hasMega ? Self.megaScale : 1)
         popOrder = Array(0..<BubbleWrapLayout.count).shuffled(using: &rng)
+        // Popped: stress-whitened, the crater centre a further ~15 L down (#C6DCE7 → #B8CDD7, FOLD-REVIEW-3 N9) so pops
+        // read against the film.
         poppedMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xC6DCE7), roughness: 0.22, clearcoat: 0.6, clearcoatRoughness: 0.12,
-                                    specular: 0.6, opacity: 0.80) // popped: stress-whitened but ~15 L darker so pops read (FOLD-REVIEW-1 #10)
+            : SceneMaterials.enamel(UIColor(hex: 0xB8CDD7), roughness: 0.24, clearcoat: 0.6, clearcoatRoughness: 0.12,
+                                    specular: 0.6, opacity: 0.82)
+        craterRimMaterial = look.golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(UIColor(hex: 0x6FAED0), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.15, opacity: 0.6)
+        pinholeMaterial = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF), opacity: 0.9)
         self.rng = rng
         build(variant: variant, hasMega: hasMega)
     }
@@ -71,8 +80,9 @@ final class BubbleWrapView: PressObjectView {
         entity.orientation = Part.yaw(12)
         // Lifted 0.6 mm so the 0.8 mm film never z-fights the strike plate (FOLD-REVIEW-2 #8).
         entity.position = [0, 0.0006, 0]
+        // Film base 6 % darker (#DDEFF8 → #D0E1E9, FOLD-REVIEW-4 F8): it was the brightest thing on the anvil at 180°.
         let filmMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xDDEFF8), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
+            : SceneMaterials.enamel(UIColor(hex: 0xD0E1E9), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
                                     specular: 0.6, opacity: 0.55)
         let domeMaterial = look.golden ? SceneMaterials.gold
             : SceneMaterials.enamel(UIColor(hex: 0xB9DCEE), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
@@ -184,6 +194,23 @@ final class BubbleWrapView: PressObjectView {
         cell.model.scale = SIMD3(r * 1.25, 0.0006, r * 1.25)
         cell.model.orientation = cell.tilt
         cell.model.position.y = Self.film + 0.0002
+        // The crater rim (a thin #6FAED0 ring at 0.6, ≈ 1 pt on the Duo) and a pinhole glint, tilted with the crinkle.
+        if let rimMesh = MeshCache.resource("bubble.crater.rim", { MeshKit.torus(major: 1, minor: 0.03, segments: 40, sides: 6) }) {
+            let rim = ModelEntity(mesh: rimMesh, materials: [craterRimMaterial])
+            let ring = r * BubbleCrater.rimRadius
+            rim.scale = SIMD3(ring, 0.0006, ring)
+            rim.orientation = cell.tilt
+            rim.position = cell.model.position + SIMD3(0, 0.0007, 0)
+            entity.addChild(rim)
+        }
+        if let glintMesh = MeshCache.resource("bubble.crater.pinhole", { MeshKit.ellipsoid(radii: [1, 0.3, 1], segments: 12, rings: 6) }) {
+            let glint = ModelEntity(mesh: glintMesh, materials: [pinholeMaterial])
+            glint.scale = SIMD3(repeating: r * BubbleCrater.pinholeRadius)
+            glint.orientation = cell.tilt
+            // A little off-centre toward the key light (−X, −Z), so it reads as a highlight, not a hole.
+            glint.position = cell.model.position + cell.tilt.act(SIMD3(-0.25 * r, 0.0008, -0.2 * r))
+            entity.addChild(glint)
+        }
         let puffAt = entity.convert(position: cell.model.position + SIMD3(0, 0.003, 0), to: fx.root)
         fx.particles.burst(.dust, count: big ? 8 : 2, at: puffAt, speed: big ? 0.12 : 0.05,
                            colors: [look.tint(UIColor(hex: 0xF4FBFE))], size: big ? 0.005...0.009 : 0.003...0.005,
@@ -193,4 +220,12 @@ final class BubbleWrapView: PressObjectView {
                                size: 0.003...0.004, upBias: 0.4, rng: &rng)
         }
     }
+}
+
+/// Popped-crater sizes as multiples of the dome radius (FOLD-REVIEW-3 N9), pure so SquishTests can pin them.
+enum BubbleCrater {
+    /// The blue rim ring sits just inside the crinkle's ragged edge (the crinkle is 1.25× the dome).
+    static let rimRadius: Float = 1.2
+    /// The pinhole glint: ≈ 0.75 mm on a normal cell.
+    static let pinholeRadius: Float = 0.1
 }
