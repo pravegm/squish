@@ -28,6 +28,8 @@ final class PressDirector {
     private(set) var caption: CaptionEvent?
     /// Hinge (or touch) samples of the last finished press, for the share-clip renderer.
     private(set) var lastTrace: PressTrace?
+    /// A gentle one-line coaching hint ("Slowly… it's more satisfying."), shown as a toast by the UI.
+    private(set) var coachHint: CaptionEvent?
     /// Set by the UI from the environment.
     var reduceMotion = false
 
@@ -38,6 +40,10 @@ final class PressDirector {
     @ObservationIgnored private var captionCounter = 0
     @ObservationIgnored private var traceSamples: [PressTrace.Sample] = []
     @ObservationIgnored private var traceStart: Double = 0
+    @ObservationIgnored private var revealPeakAngle: Double = 0
+    @ObservationIgnored private var consecutiveSlams = 0
+    private static let lastObjectKey = "squish.lastObject"
+    private static let slamHintsKey = "squish.slamHintsShown"
 
     init() {
         engine = PressEngine(config: .loadSaved())
@@ -80,6 +86,8 @@ final class PressDirector {
         haptics.start()
         GameCenter.shared.authenticate()
         engine.activate(at: CACurrentMediaTime())
+        // Until a hinge reports in, assume the touch press (so the teaching cue can show on any iPhone).
+        engine.usesVirtualHinge = true
         load(firstObject())
         if let demo = DemoScenario.current {
             runDemo(demo)
@@ -88,7 +96,8 @@ final class PressDirector {
 
     func sceneBecameActive() {
         guard started else { return }
-        engine.activate(at: CACurrentMediaTime())
+        // Don't restart the input-ignore window here: on Duo, folding can toggle scene activity,
+        // and ignoring the reopen would swallow the reveal. It only guards stale events at launch.
         haptics.resume()
         audio.resume()
     }
@@ -143,6 +152,19 @@ final class PressDirector {
             hingeAvailable = true
         }
         hingeClosed = closed
+
+        // The reveal card is dismissed with the hinge too: closing the phone collects it, and
+        // folding ~20° from the open position collects it and lets the next press begin in one motion.
+        if revealed != nil && !settings.pressWithoutFolding {
+            revealPeakAngle = max(revealPeakAngle, angle)
+            if closed || angle < revealPeakAngle - 20 {
+                revealPeakAngle = 0
+                next()
+            }
+        } else {
+            revealPeakAngle = 0
+        }
+
         let now = CACurrentMediaTime()
         hingeLog.record(time: now, angle: angle, closed: closed)
         engine.usesVirtualHinge = settings.pressWithoutFolding
@@ -191,8 +213,12 @@ final class PressDirector {
 
     // MARK: - Internals
 
+    /// Bubble Wrap teaches the gesture on the very first launch; afterwards we pick up where you left off.
     private func firstObject() -> ObjectKind {
-        .bubbleWrap
+        guard collection.totalPresses > 0,
+              let raw = UserDefaults.standard.string(forKey: Self.lastObjectKey),
+              let kind = ObjectKind(rawValue: raw), collection.isUnlocked(kind) else { return .bubbleWrap }
+        return kind
     }
 
     private func nextUnlocked(after kind: ObjectKind) -> ObjectKind {
@@ -207,6 +233,9 @@ final class PressDirector {
 
     private func load(_ kind: ObjectKind) {
         currentKind = kind
+        if DemoScenario.current == nil {
+            UserDefaults.standard.set(kind.rawValue, forKey: Self.lastObjectKey)
+        }
         var seed = UInt64.random(in: 1...UInt64.max)
         if let demo = DemoScenario.current, let forced = demo.string("seed").flatMap(UInt64.init) {
             seed = forced
@@ -263,6 +292,7 @@ final class PressDirector {
                                usesVirtualHinge: engine.usesVirtualHinge, config: engine.config)
         let outcome = collection.record(result, variant: variant)
         revealed = outcome
+        coachIfSlamming(result)
         lastSpecimenID = outcome.specimen.id
         if let lastTrace {
             traceStore.save(lastTrace, for: outcome.specimen.id)
@@ -277,6 +307,22 @@ final class PressDirector {
             try? await Task.sleep(for: .milliseconds(900))
             guard let self, let image = await self.scene.snapshot(), let png = image.pngData() else { return }
             self.collection.attachThumbnail(png, to: specimenID)
+        }
+    }
+
+    /// After two slams in a row, one gentle hint (at most three times ever). Slams are never rewarded;
+    /// slow presses are richer. Also keeps us clear of App Review 2.4.2 (bible §2).
+    private func coachIfSlamming(_ result: PressResult) {
+        consecutiveSlams = result.wasSlammed ? consecutiveSlams + 1 : 0
+        let shown = UserDefaults.standard.integer(forKey: Self.slamHintsKey)
+        guard consecutiveSlams >= 2, shown < 3 else { return }
+        consecutiveSlams = 0
+        UserDefaults.standard.set(shown + 1, forKey: Self.slamHintsKey)
+        captionCounter += 1
+        let line = usesTouchPress ? "Slowly… it's more satisfying." : "Close it slowly… it's more satisfying."
+        coachHint = CaptionEvent(id: captionCounter, text: line, announce: true)
+        if UIAccessibility.isVoiceOverRunning {
+            UIAccessibility.post(notification: .announcement, argument: line)
         }
     }
 

@@ -89,6 +89,7 @@ final class PressEngine {
     @ObservationIgnored private var activationTime = -Double.infinity
     @ObservationIgnored private var lastSampleTime = -Double.infinity
     @ObservationIgnored private var sealHoldStart: Double?
+    @ObservationIgnored private var sealedRestStart: Double?
     @ObservationIgnored private var pendingFailure: (index: Int, time: Double)?
     @ObservationIgnored private var nextGrainAngle: Double?
     @ObservationIgnored private var autoRevealTime: Double?
@@ -135,6 +136,7 @@ final class PressEngine {
         renderDepth = 0
         spring = CriticalSpring()
         sealHoldStart = nil
+        sealedRestStart = nil
         pendingFailure = nil
         nextGrainAngle = nil
         autoRevealTime = nil
@@ -203,7 +205,9 @@ final class PressEngine {
                 nextGrainAngle = nil
             }
         case .sealed:
-            if !closed && filtered >= config.revealAngle {
+            // Reveal as soon as the phone is opened (the system switches displays at that moment),
+            // or once it's clearly open again.
+            if !closed && (wasClosed || filtered >= config.revealAngle) {
                 beginReveal()
             }
         case .revealing:
@@ -245,6 +249,23 @@ final class PressEngine {
         if let revealTime = autoRevealTime, now >= revealTime {
             autoRevealTime = nil
             beginReveal()
+        }
+
+        // Arm without waiting for an input sample: a Duo lying still sends none, and the
+        // first-press teaching cues only appear once the press is armed.
+        if phase == .idle {
+            tryArm(at: now)
+        }
+
+        // Sealed on the inner display and then left alone (e.g. stopped at 58°): reveal after a beat.
+        if phase == .sealed && !isClosed && now - lastSampleTime > 0.25 {
+            if let start = sealedRestStart {
+                if now - start >= config.sealedRestReveal { beginReveal() }
+            } else {
+                sealedRestStart = now
+            }
+        } else {
+            sealedRestStart = nil
         }
 
         if virtualReleasing {

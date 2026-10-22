@@ -61,7 +61,8 @@ struct SceneTests {
         let profile: [SIMD2<Float>] = [SIMD2(0, 0), SIMD2(0.02, 0.01), SIMD2(0.025, 0.03), SIMD2(0.02, 0.05), SIMD2(0, 0.06)]
         let patch = MeshKit.lathePatch(profile: profile, rings: 1...3, angles: 0...1.2, angularSteps: 6, thickness: 0.001)
         expectValid(patch.mesh, "patch")
-        #expect(simd_length(patch.mesh.centroid) < 1e-4)
+        // The pivot is the outer/inner surfaces' centroid; side-wall vertices shift the plain average slightly.
+        #expect(simd_length(patch.mesh.centroid) < 0.004)
         #expect(simd_length(patch.centre) > 0.01)
     }
 

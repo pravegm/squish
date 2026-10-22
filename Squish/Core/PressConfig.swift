@@ -15,6 +15,8 @@ struct PressConfig: Codable, Equatable, Sendable {
     var sealDepth: Double = 0.98
     var sealHold: Double = 0.15
     var revealAngle: Double = 120
+    /// Sealed but never closed: reveal after the hinge has been still this long (seconds).
+    var sealedRestReveal: Double = 1.5
     var ignoreInputAfterActivation: Double = 1.5
     var failureHushDelay: Double = 0.045
 
