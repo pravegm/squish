@@ -114,6 +114,31 @@ enum RigTextures {
         return image.cgImage
     }
 
+    /// The paper tag for touch presses: "SEALED · 48 T" in SF Mono on paper with a punched hole.
+    static func sealTag(tons: Int, width: CGFloat = 416, height: CGFloat = 176) -> CGImage? {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
+        let image = renderer.image { context in
+            let cg = context.cgContext
+            cg.setFillColor(Palette.paper.cgColor)
+            cg.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            cg.setStrokeColor(Palette.stampRed.cgColor)
+            cg.setLineWidth(6)
+            cg.stroke(CGRect(x: 12, y: 12, width: width - 24, height: height - 24))
+            cg.setFillColor(UIColor(hex: 0xE5DCCB).cgColor)
+            cg.fillEllipse(in: CGRect(x: width / 2 - 9, y: 22, width: 18, height: 18))
+            let text = "SEALED · \(tons) T" as NSString
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedSystemFont(ofSize: 48, weight: .bold), .foregroundColor: Palette.graphite, .kern: 2,
+            ]
+            let size = text.size(withAttributes: attributes)
+            text.draw(at: CGPoint(x: (width - size.width) / 2, y: (height - size.height) / 2 + 14), withAttributes: attributes)
+        }
+        return image.cgImage
+    }
+
     /// Brushed-steel nameplate with an engraved-look "P-48".
     static func nameplate(width: CGFloat = 384, height: CGFloat = 96) -> CGImage? {
         let format = UIGraphicsImageRendererFormat()

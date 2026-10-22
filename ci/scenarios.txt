@@ -59,3 +59,5 @@
 70-glass-d50|object=glassBottle;depth=0.50
 71-glass-d95|object=glassBottle;depth=0.95
 72-ball-calib|object=unsquishable;calib
+# Share clip export (uploads the MP4 too)
+80-clip-duck|object=rubberDuck;reveal;exportclip|80

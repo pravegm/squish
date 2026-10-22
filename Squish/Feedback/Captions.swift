@@ -84,6 +84,7 @@ enum Captions {
         if context.kind == .unsquishable { return "PRESS 0 – BALL 1" }
         if context.variant.isGolden { return "GOLDEN!" }
         if let surprise = context.variant.surprise { return "\(surprise.title)!" }
-        return "TA-DA!"
+        // Only ever heard (VoiceOver); the reveal card itself carries the visuals.
+        return "Done. Here's what's left."
     }
 }

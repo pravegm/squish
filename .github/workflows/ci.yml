@@ -15,6 +15,10 @@ on:
         description: "Capture simulator screenshots"
         type: boolean
         default: true
+      filter:
+        description: "Regex of scenario names to capture"
+        type: string
+        default: "."
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,7 +27,7 @@ concurrency:
 jobs:
   build-test:
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       DEVICE: "iPhone 18 Pro"
     steps:
@@ -59,6 +63,9 @@ jobs:
 
       - name: Capture screenshots
         if: success() && (github.event_name == 'push' || inputs.screenshots)
+        env:
+          # Pushes capture a representative subset; run the workflow manually with filter "." for all of them.
+          SCENARIO_FILTER: ${{ inputs.filter || '^(01|03|05|20|23|25|27|31|34|52|55|58|80)-' }}
         run: bash ci/screenshots.sh
 
       - name: Upload logs

@@ -97,11 +97,11 @@ enum ObjectKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .rubberDuck: ["He'll be fine. Probably.", "Bath time is cancelled.", "Quack, but flatter."]
         case .jelly: ["Set for four hours. Lasted four seconds.", "Wobble: terminated.", "It's in the grout now."]
         case .crayon: ["Colouring outside the lines, permanently.", "Now a very short crayon.", "Wax on. Wax everywhere."]
-        case .egg: ["Sunny side down.", "Some eggs-ceptional pressure.", "Breakfast is ruined. Worth it."]
+        case .egg: ["Sunny side down.", "Over hard. Very hard.", "Breakfast is ruined. Worth it."]
         case .cakeSlice: ["It wasn't your birthday anyway.", "Make a wish. Too late.", "The cake was a lie. Now it's a pancake."]
-        case .sodaCan: ["Freshly flattened. Do not recycle twice.", "Shaken, not stirred. Mostly crushed.", "Fizz has left the building."]
-        case .gummyBear: ["Gummy bear, ex-bear.", "Unbearably flat.", "Chewed by four hundred tonnes."]
-        case .glassBottle: ["Seven years' bad luck, minimum.", "Message received. Bottle not.", "Handle with care. Too late."]
+        case .sodaCan: ["Finally fits in the recycling.", "Shaken, not stirred. Mostly crushed.", "Fizz has left the building."]
+        case .gummyBear: ["Gummy bear, ex-bear.", "Unbearably flat.", "Now a gummy rug."]
+        case .glassBottle: ["It was half empty anyway.", "Message received. Bottle not.", "Handle with care. Too late."]
         case .unsquishable: ["Press 0 – Ball 1.", "Some things don't break. Your press did.", "The ball sends its regards."]
         }
     }
@@ -112,7 +112,7 @@ enum ObjectKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .open: ""
         case .squishDifferentKinds(let n): "Squish \(n) different things"
         case .totalPresses(let n): "Squish \(n) times"
-        case .perfectSquish: "Earn a Perfect Squish"
+        case .perfectSquish: "Press slowly. Never ease off."
         case .allOthers: "Some things refuse to be squished…"
         }
     }

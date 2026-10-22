@@ -19,11 +19,15 @@ final class GameCenter {
     private(set) var isUnavailable = false
 
     @ObservationIgnored private var didStart = false
+    @ObservationIgnored private var installed = false
     private let pendingKey = "squish.gameCenter.pending"
+    private let firstRunKey = "squish.gameCenter.firstRunDone"
     private let log = Logger(subsystem: "com.pravegm.squish", category: "gamecenter")
 
     private init() {}
 
+    /// Silent, and deferred (UX-REVIEW-1 P1-7): never during the zero-text first run or the first reveal.
+    /// Later launches authenticate 3 s in; the first run waits for `firstRunFinished()`.
     func authenticate() {
         guard !didStart else { return }
         didStart = true
@@ -31,6 +35,30 @@ final class GameCenter {
         // CI screenshot runs must never show Game Center banners.
         if DemoScenario.current != nil { isUnavailable = true; return }
         #endif
+        guard UserDefaults.standard.bool(forKey: firstRunKey) else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            GameCenter.shared.install()
+        }
+    }
+
+    /// Called by the UI once the first specimen has been collected.
+    func firstRunFinished() {
+        guard !UserDefaults.standard.bool(forKey: firstRunKey) else { return }
+        UserDefaults.standard.set(true, forKey: firstRunKey)
+        #if DEBUG
+        if DemoScenario.current != nil { return }
+        #endif
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            GameCenter.shared.install()
+        }
+    }
+
+    private func install() {
+        guard !installed else { return }
+        installed = true
+        GKAccessPoint.shared.isActive = false
         GKLocalPlayer.local.authenticateHandler = { viewController, error in
             Task { @MainActor in
                 GameCenter.shared.handleAuthentication(viewController: viewController, error: error)
@@ -85,7 +113,7 @@ final class GameCenter {
             guard let achievement = Achievement(rawValue: raw) else { return nil }
             let gk = GKAchievement(identifier: achievement.gameCenterID)
             gk.percentComplete = 100
-            gk.showsCompletionBanner = true
+            gk.showsCompletionBanner = false // our own toasts announce achievements; no system banner over the reveal
             return gk
         }
         GKAchievement.report(achievements) { error in

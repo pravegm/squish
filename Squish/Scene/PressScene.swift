@@ -56,7 +56,21 @@ final class PressScene {
     private var peakTons: Float = 0
     private var steamTimer: Float = 0
 
-    // Placement drop
+    // Placement, rest beat and power-on
+    /// Holds the previous object while it slides off the anvil (the mess moves with `fx.root`).
+    private let outgoing = Entity()
+    private var outgoingActive = false
+    private var sinceSet: Float = 0
+    private var dropAt: Float = 0
+    private var powerOn: Float?
+    private var landedAt: Float = .infinity
+    private var lastPhase: PressPhase = .idle
+    private var teachWave: Float = 0
+    private var fovScale: Float = 1
+    private var fovTarget: Float = 1
+    private var baseFieldOfView: Float = 49.6
+    /// True while the camera is rolled for book (vice) pose — UI can move its edge cues to the moving half.
+    private(set) var isBookPose = false
     private var dropHeight: Float = 0
     private var dropVelocity: Float = 0
     private var landingSquash = JiggleSpring(value: 0, velocity: 0, omega: 2 * .pi / 0.35, zeta: 0.45)
@@ -72,6 +86,7 @@ final class PressScene {
         root.addChild(rig.root)
         root.addChild(objectSlot)
         root.addChild(fx.root)
+        root.addChild(outgoing)
         fx.debris.setBounds(min: -PressRig.anvilHalf, max: PressRig.anvilHalf)
         fx.particles.minXZ = -PressRig.anvilHalf
         fx.particles.maxXZ = PressRig.anvilHalf
@@ -89,12 +104,29 @@ final class PressScene {
     func setObject(_ kind: ObjectKind, variant: PressVariant) {
         self.kind = kind
         self.variant = variant
-        objectView?.entity.removeFromParent()
-        fx.clear()
-        rig.repair()
+        finishOutgoing()
+        let firstObject = objectView == nil
+        if let old = objectView?.entity {
+            // Rest beat (bible §3.1 beat 12, UX-REVIEW P1-3): the crushed specimen and its mess stay a moment,
+            // then slide back off the anvil and drop behind it; the press resets; then the next object drops.
+            old.setParent(outgoing, preservingWorldTransform: true)
+            outgoingActive = true
+        } else {
+            fx.clear()
+            rig.repair()
+        }
         let view = PressObjectFactory.make(kind, variant: variant, fx: fx)
         objectSlot.addChild(view.entity)
+        ShadowCasting.offForTranslucent(in: view.entity)
         objectView = view
+        sinceSet = 0
+        // First launch: the power-on beat, then the drop at 0.8 s (P2-1). Next objects: after the rest beat.
+        powerOn = firstObject ? 0 : nil
+        dropAt = firstObject ? 0.8 : (fx.reduceMotion ? 0.5 : 1.1)
+        view.entity.isEnabled = false
+        fovScale = 1
+        fovTarget = 1
+        rig.hideSealTag()
         ramFace = PressRig.homeFace
         ramVelocity = 0
         hitStop = 0
@@ -103,9 +135,9 @@ final class PressScene {
         kick = 0
         tell = false
         peakTons = 0
-        // Squash-and-stretch landing (bible §3.1 beat 0; §6.12). Reduce Motion: appears at rest.
-        dropHeight = fx.reduceMotion ? 0 : style.dropHeight
+        dropHeight = 0
         dropVelocity = 0
+        landedAt = .infinity
         landingSquash = JiggleSpring(value: 0, velocity: 0, omega: 2 * .pi / 0.35, zeta: 0.45)
         let state = makeState(compression: 0, ramCompression: 0, approach: 0, dt: 0, loaded: false,
                               closingSpeed: 0, reduceMotion: fx.reduceMotion, phase: .idle)
@@ -118,8 +150,13 @@ final class PressScene {
         guard let view = objectView else { return }
         let dt = min(max(dt, 0), 1.0 / 20.0)
         clock += dt
+        sinceSet += dt
         fx.reduceMotion = context.reduceMotion
         updateFraming(engine: engine)
+        updateRestBeat(engine: engine, context: context, dt: dt)
+        updateSealTag(engine: engine, context: context, dt: dt)
+        fovScale = Deform.approach(fovScale, fovTarget, halfLife: 0.15, dt: dt)
+        camera.camera.fieldOfViewInDegrees = baseFieldOfView * fovScale
 
         let contactT = Float(engine.config.contactT)
         let renderDepth = Float(engine.renderDepth)
@@ -197,9 +234,21 @@ final class PressScene {
             view.handle(event, state: state)
         case .reveal:
             isFirstPress = false
+            // A 4% push-in as the ram lifts (VISUAL-TARGET §3.2) and a glint over the specimen. The bible's 2 s slow-mo
+            // replay isn't done live: the pieces are already settled and flattened, so a replay needs a second
+            // deterministic re-simulation from the trace — that belongs to the offline clip renderer (Share).
+            if !context.reduceMotion {
+                fovTarget = 0.96
+                var rng = SplitMix64(seed: variant.seed &+ 0x2E7)
+                fx.particles.burst(.glint, count: 3, at: [0, 0.012, 0.01], speed: 0.06, colors: [UIColor(hex: 0xFFFFFF)],
+                                   size: 0.003...0.005, spread: 0.03, upBias: 0.7, life: 0.4, rng: &rng)
+            }
             view.handle(event, state: state)
         case let .fracture(index, isFailure):
             view.fracture(index: index, isFailure: isFailure, state: state)
+            // New spreads / lines may be translucent: keep them out of the shadow pass.
+            ShadowCasting.offForTranslucent(in: view.entity)
+            ShadowCasting.offForTranslucent(in: fx.root)
             if isFailure {
                 tell = false
                 hitStop = max(hitStop, style.failureHitStop)
@@ -283,7 +332,9 @@ final class PressScene {
             let half = preset.fieldOfView * .pi / 360
             fov = 2 * atan(tan(half) / aspect) * 180 / .pi
         }
-        camera.camera.fieldOfViewInDegrees = fov
+        baseFieldOfView = fov
+        isBookPose = rolled
+        camera.camera.fieldOfViewInDegrees = fov * fovScale
         camera.camera.near = style.nearPlane
         camera.camera.far = style.farPlane
         let forward = SIMD3<Float>(0, -sin(pitch), -cos(pitch))
@@ -291,6 +342,59 @@ final class PressScene {
         if rolled {
             camera.orientation = camera.orientation * simd_quatf(angle: style.bookRoll * .pi / 180, axis: [0, 0, 1])
         }
+    }
+
+    // MARK: - Rest beat, power-on, sealed tag
+
+    /// Outgoing specimen + mess: hold, slide back off the anvil and drop behind it (ease-in 0.35 s), reset the press,
+    /// then drop the next object. Starting a press skips straight to the new object at rest.
+    private func updateRestBeat(engine: PressEngine, context: FeedbackContext, dt: Float) {
+        let pressing = engine.phase == .pressing || engine.measuredDepth > 0.01
+        if outgoingActive {
+            let hold: Float = context.reduceMotion ? 0.3 : 0.4
+            let t = (sinceSet - hold) / 0.35
+            if pressing || t >= 1 || (context.reduceMotion && sinceSet >= hold) {
+                finishOutgoing()
+            } else if t > 0 {
+                let e = t * t
+                let drop = max(e - 0.5, 0) / 0.5
+                let offset = SIMD3<Float>(0, -0.3 * drop * drop, -0.2 * e)
+                outgoing.position = offset
+                fx.root.position = offset
+            }
+        }
+        if let view = objectView, !view.entity.isEnabled, sinceSet >= dropAt || pressing {
+            view.entity.isEnabled = true
+            dropHeight = (context.reduceMotion || pressing) ? 0 : style.dropHeight
+            dropVelocity = 0
+            if dropHeight == 0 { landedAt = clock }
+        }
+        if let t = powerOn {
+            powerOn = t + dt > 0.8 ? nil : t + dt
+        }
+    }
+
+    private func finishOutgoing() {
+        guard outgoingActive else { return }
+        for child in Array(outgoing.children) { child.removeFromParent() }
+        outgoing.position = .zero
+        fx.root.position = .zero
+        fx.clear()
+        rig.repair()
+        outgoingActive = false
+    }
+
+    /// Touch presses never see the cover display, so give them a sealed beat: a paper tag swings from the crown.
+    private func updateSealTag(engine: PressEngine, context: FeedbackContext, dt: Float) {
+        if engine.phase == .sealed && lastPhase != .sealed && engine.usesVirtualHinge {
+            let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
+            let tons = kind == .unsquishable ? 400 + Int(variant.seed % 97) : 12 + Int(maxC * 50) + Int(variant.seed % 9)
+            rig.showSealTag(tons: tons)
+        } else if engine.phase == .revealing || engine.phase == .idle {
+            rig.hideSealTag()
+        }
+        rig.updateSealTag(dt: dt, reduceMotion: context.reduceMotion)
+        lastPhase = engine.phase
     }
 
     // MARK: - Juice
@@ -312,6 +416,7 @@ final class PressScene {
                 landingSquash.value = -0.15
                 landingSquash.velocity = 0
                 dropVelocity = 0
+                landedAt = clock
             }
         }
         landingSquash.step(toward: 0, dt: dt)
@@ -356,14 +461,18 @@ final class PressScene {
     /// Reduce Motion: glow only. Returns the downward offset of the ram face.
     private func teachingPulse(engine: PressEngine, context: FeedbackContext) -> Float {
         if engine.phase == .pressing || engine.measuredDepth > 0.01 { taught = true }
+        // Touch press only (usesVirtualHinge — true until a hinge reports; Duo owners get the UI's ghost arc),
+        // starting 1.2 s after the object has landed (bible §3.2 step 3), until the first drag.
         let teaching = isFirstPress && !taught && engine.phase == .armed && engine.usesVirtualHinge
-            && engine.measuredDepth < 0.01 && dropHeight == 0
+            && engine.measuredDepth < 0.01 && dropHeight == 0 && !outgoingActive && clock - landedAt > 1.2
         guard teaching else {
             rig.setTeachGlow(0)
+            teachWave = 0
             return 0
         }
-        let phase = clock.truncatingRemainder(dividingBy: 1.6) / 1.6
+        let phase = (clock - landedAt - 1.2).truncatingRemainder(dividingBy: 1.6) / 1.6
         let wave = 0.5 - 0.5 * cos(phase * 2 * .pi)
+        teachWave = wave
         rig.setTeachGlow(0.12 + 0.3 * wave)
         return context.reduceMotion ? 0 : 0.004 * wave
     }
@@ -393,11 +502,19 @@ final class PressScene {
         case .idle, .revealing:
             tons = 0
         }
+        // Teaching: the needle twitches with the platen pulse (VISUAL-TARGET §6.1).
+        tons += 1.5 * teachWave
+        // Power-on beat (P2-1): the needle sweeps 0 → 60 → 0 while the lamps flick on.
+        if let t = powerOn, !context.reduceMotion { tons = t < 0.3 ? 60 : 0 }
+        // Slam warning (P0-5): a panicky needle and a red lamp while the press is slammed under load.
+        let slamming = engine.isLoaded && engine.closingSpeed > engine.config.slamSpeed
+        if slamming { rig.flashRed() }
         let buzz = kind == .unsquishable && engine.phase != .revealing && engine.phase != .idle && tons >= 60
-        rig.updateGauge(tons: tons, dt: dt, tremor: tell && !context.reduceMotion, buzz: buzz && !context.reduceMotion, time: clock)
+        rig.updateGauge(tons: tons, dt: dt, tremor: tell && !context.reduceMotion, buzz: buzz && !context.reduceMotion,
+                        panic: slamming && !context.reduceMotion, time: clock)
         let loaded = engine.isLoaded || engine.phase == .sealed
         let broken = kind == .unsquishable && rig.damage >= 3 && engine.phase != .revealing && engine.phase != .idle
-        rig.updateLamps(dt: dt, loaded: loaded, broken: broken)
+        rig.updateLamps(dt: dt, loaded: loaded, broken: broken, powerOn: powerOn)
 
         // The Unsquishable: steam leaks from the barrel lip while the press strains.
         if kind == .unsquishable && engine.isLoaded && !context.reduceMotion {
@@ -482,8 +599,10 @@ final class PressScene {
         let footprint = view.footprint * 2 * view.shadowSpread
         aoDecal?.size([footprint * 1.15, footprint * 1.15 * 0.9])
         softDecal?.size([footprint * 1.8, footprint * 1.8 * 0.85])
-        aoDecal?.setAlpha(style.aoAlpha)
-        softDecal?.setAlpha(style.softShadowAlpha + (style.softShadowCoveredAlpha - style.softShadowAlpha) * approach)
+        // Fade the object's grounding in with its drop (nothing on the anvil until it lands).
+        let present: Float = view.entity.isEnabled ? clamp(1 - dropHeight / max(style.dropHeight, 0.001), 0, 1) : 0
+        aoDecal?.setAlpha(style.aoAlpha * present)
+        softDecal?.setAlpha((style.softShadowAlpha + (style.softShadowCoveredAlpha - style.softShadowAlpha) * approach) * present)
         ramDecal?.setAlpha(style.ramOcclusionMax * approach * approach)
     }
 

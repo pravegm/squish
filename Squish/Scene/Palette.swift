@@ -197,4 +197,26 @@ enum ShadowCasting {
     static func off(_ entity: Entity) {
         entity.components.set(DynamicLightShadowComponent(castsShadow: false))
     }
+
+    /// Translucent materials must not cast: the shadow-caster pipeline can't compile programmable blending
+    /// ("meshShadowCasterProgrammableBlending … reading from a rendertarget is not supported").
+    /// Walks the hierarchy and opts out every model with a transparent material.
+    static func offForTranslucent(in entity: Entity) {
+        if let model = entity as? ModelEntity, let materials = model.model?.materials, materials.contains(where: { isTranslucent($0) }) {
+            off(model)
+        }
+        for child in entity.children {
+            offForTranslucent(in: child)
+        }
+    }
+
+    static func isTranslucent(_ material: any Material) -> Bool {
+        if let pbr = material as? PhysicallyBasedMaterial {
+            if case .transparent = pbr.blending { return true }
+        }
+        if let unlit = material as? UnlitMaterial {
+            if case .transparent = unlit.blending { return true }
+        }
+        return false
+    }
 }

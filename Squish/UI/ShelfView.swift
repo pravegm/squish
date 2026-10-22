@@ -18,19 +18,22 @@ struct ShelfView: View {
     }
 
     let director: PressDirector
-    let onSettings: () -> Void
     /// Demo only: open this specimen's card once the sheet has settled.
     var demoDetail: UUID?
+    /// Demo only: open Settings on top of the Shelf.
+    var demoSettings = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var tab: Tab
     @State private var detail: DetailRef?
+    @State private var showSettings = false
 
-    init(director: PressDirector, initialTab: Tab = .objects, demoDetail: UUID? = nil, onSettings: @escaping () -> Void) {
+    init(director: PressDirector, initialTab: Tab = .objects, demoDetail: UUID? = nil, demoSettings: Bool = false) {
         self.director = director
-        self.onSettings = onSettings
         self.demoDetail = demoDetail
+        self.demoSettings = demoSettings
         _tab = State(initialValue: initialTab)
     }
 
@@ -50,7 +53,7 @@ struct ShelfView: View {
                 ScrollView {
                     Group {
                         switch tab {
-                        case .objects: objectsGrid(columns: wide ? 5 : 2)
+                        case .objects: objectsGrid(columns: dynamicTypeSize.isAccessibilitySize ? 1 : (wide ? 5 : 2))
                         case .squished: squishedList
                         }
                     }
@@ -62,7 +65,19 @@ struct ShelfView: View {
             }
         }
         .sheet(item: $detail) { ref in
-            CardDetailView(director: director, specimenID: ref.id)
+            CardDetailView(director: director, specimenID: ref.id, onPressAnother: { kind in
+                detail = nil
+                choose(kind)
+            })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.sheetRadius)
+                .presentationBackground { AlbumPage(dots: false) }
+                .sheetTypeCap()
+        }
+        // Settings stacks on the Shelf, so closing it comes back here (P2-11).
+        .sheet(isPresented: $showSettings) {
+            SettingsView(director: director)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(Theme.sheetRadius)
@@ -70,9 +85,9 @@ struct ShelfView: View {
                 .sheetTypeCap()
         }
         .task {
-            guard let demoDetail else { return }
+            guard demoDetail != nil || demoSettings else { return }
             try? await Task.sleep(for: .milliseconds(700))
-            detail = DetailRef(id: demoDetail)
+            if let demoDetail { detail = DetailRef(id: demoDetail) } else { showSettings = true }
         }
     }
 
@@ -95,7 +110,9 @@ struct ShelfView: View {
                     .accessibilityHidden(true)
             }
             Spacer()
-            Button(action: onSettings) {
+            Button {
+                showSettings = true
+            } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(.subheadline, weight: .semibold))
             }
@@ -139,6 +156,7 @@ struct ShelfView: View {
                     kind: kind,
                     index: index,
                     unlocked: collection.isUnlocked(kind),
+                    hint: collection.progressHint(for: kind),
                     best: best,
                     thumbnail: best.flatMap { collection.thumbnail(for: $0) },
                     isOnAnvil: kind == director.currentKind,
@@ -164,10 +182,10 @@ struct ShelfView: View {
             VStack(spacing: Theme.s3) {
                 EmbossedSilhouette(kind: .bubbleWrap)
                     .frame(width: 72, height: 72)
-                Text("Nothing pressed yet")
+                Text("Nothing flat yet")
                     .font(Theme.headline)
                     .foregroundStyle(Theme.ink)
-                Text("Every press you finish lands here as a specimen card.")
+                Text("Every press you finish lands here, numbered and stamped.")
                     .font(Theme.body)
                     .foregroundStyle(Theme.inkSecondary)
                     .multilineTextAlignment(.center)
@@ -237,6 +255,8 @@ private struct ShelfSlot: View {
     let kind: ObjectKind
     let index: Int
     let unlocked: Bool
+    /// Unlock hint with live progress ("SQUISH 3 DIFFERENT THINGS · 1/3").
+    let hint: String
     let best: SpecimenRecord?
     let thumbnail: UIImage?
     let isOnAnvil: Bool
@@ -245,8 +265,11 @@ private struct ShelfSlot: View {
     let onOpenCard: (SpecimenRecord) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var appeared = false
     @State private var peeling = false
+    @State private var wiggle = 0.0
+    @State private var hintLit = false
 
     var body: some View {
         ZStack {
@@ -330,10 +353,29 @@ private struct ShelfSlot: View {
                 }
             }
         } else {
+            // Locked slots answer back: a small wiggle and the hint lights up (P1-13).
             EmbossedSilhouette(kind: kind)
                 .padding(Theme.s3)
+                .rotationEffect(.degrees(wiggle))
+                .contentShape(Rectangle())
+                .onTapGesture(perform: nudgeLocked)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(accessibilityLabel)
+        }
+    }
+
+    private func nudgeLocked() {
+        UIFeel.tick()
+        Task { @MainActor in
+            if !reduceMotion {
+                for angle in [3.0, -3.0, 3.0, -3.0, 0.0] {
+                    withAnimation(.easeInOut(duration: 0.06)) { wiggle = angle }
+                    try? await Task.sleep(for: .milliseconds(60))
+                }
+            }
+            withAnimation(Theme.fade) { hintLit = true }
+            try? await Task.sleep(for: .milliseconds(600))
+            withAnimation(Theme.fade) { hintLit = false }
         }
     }
 
@@ -342,11 +384,12 @@ private struct ShelfSlot: View {
             Text(unlocked || !kind.isSecret ? kind.displayName : "???")
                 .font(.system(.headline, design: .rounded, weight: .heavy))
                 .foregroundStyle(unlocked ? Theme.ink : Theme.inkSecondary)
-                .lineLimit(1)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                 .minimumScaleFactor(0.7)
             Group {
                 if !unlocked {
-                    Text(kind.unlockHint.uppercased())
+                    Text(hint.uppercased())
+                        .foregroundStyle(hintLit ? Theme.ink : Theme.inkSecondary)
                 } else if let best {
                     Text(Self.bestLine(best))
                 } else {
@@ -390,7 +433,7 @@ private struct ShelfSlot: View {
 
     private var accessibilityLabel: String {
         guard unlocked else {
-            return kind.isSecret ? "Secret object, locked. \(kind.unlockHint)" : "\(kind.displayName), locked. \(kind.unlockHint)."
+            return kind.isSecret ? "Secret object, locked. \(hint)" : "\(kind.displayName), locked. \(hint)."
         }
         var text = kind.displayName
         if let best {

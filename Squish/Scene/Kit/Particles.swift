@@ -104,12 +104,14 @@ final class ParticleSystem {
         for _ in 0..<Self.sphereCap {
             let e = ModelEntity(mesh: sphereMesh, materials: [placeholder])
             e.isEnabled = false
+            ShadowCasting.off(e)
             root.addChild(e)
             spheres.append(e)
         }
         for _ in 0..<Self.boxCap {
             let e = ModelEntity(mesh: boxMesh, materials: [placeholder])
             e.isEnabled = false
+            ShadowCasting.off(e)
             root.addChild(e)
             boxes.append(e)
         }

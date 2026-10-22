@@ -20,16 +20,16 @@ extension Achievement {
 
     var detail: String {
         switch self {
-        case .firstSquish: "Your first pressed specimen."
-        case .perfectionist: "A Perfect Squish on 5 different objects."
-        case .midas: "Found a golden variant."
-        case .whatsInside: "Found 2 different surprises inside."
-        case .patience: "One press that took over 30 seconds."
-        case .collector: "Squished all 10 objects."
-        case .theSecret: "Met The Unsquishable."
-        case .popStar: "Popped 500 bubbles."
-        case .steadyHands: "10 Perfect Squishes."
-        case .pumped: "Pumped the press: opened and pushed again mid-press."
+        case .firstSquish: "Specimen №0001. The first of many."
+        case .perfectionist: "Perfect Squishes on 5 different things."
+        case .midas: "Pressed a golden one. 1 in 50."
+        case .whatsInside: "Found two different surprises."
+        case .patience: "One press, over 30 seconds. Very zen."
+        case .collector: "All 10 pressed. Shelf complete."
+        case .theSecret: "Met The Unsquishable. It won."
+        case .popStar: "500 bubbles popped. Lifetime."
+        case .steadyHands: "Ten Perfect Squishes. Steady."
+        case .pumped: "Eased off and pressed again. Twice."
         }
     }
 
@@ -110,4 +110,33 @@ extension SpecimenRecord {
 
 fileprivate extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+/// Unlock hints with live progress (UX-REVIEW-1 P1-13): "SQUISH 3 DIFFERENT THINGS · 1/3".
+extension CollectionStore {
+    func progressHint(for kind: ObjectKind) -> String {
+        switch kind.unlockRule {
+        case .open:
+            return ""
+        case .squishDifferentKinds(let count):
+            return "Squish \(count) different things · \(min(stats.squishedKinds.count, count))/\(count)"
+        case .totalPresses(let count):
+            return "Squish \(count) times · \(min(totalPresses, count))/\(count)"
+        case .perfectSquish:
+            return "Press slowly. Never ease off."
+        case .allOthers:
+            return kind.unlockHint
+        }
+    }
+
+    /// Short lower-case form for the object chip menu's locked rows (P2-7).
+    func menuHint(for kind: ObjectKind) -> String {
+        switch kind.unlockRule {
+        case .open: ""
+        case .squishDifferentKinds(let count): "squish \(count) different things"
+        case .totalPresses(let count): "squish \(count) times"
+        case .perfectSquish: "press slowly, never ease off"
+        case .allOthers: "some things refuse to be squished"
+        }
+    }
 }

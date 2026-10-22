@@ -6,20 +6,22 @@ import SwiftUI
 //   45–80% STAGE: nothing, ever
 //   80–86% toasts, one at a time
 //   86–95% console: object chip, Shelf key, reveal actions
-// Landscape: console in the right 22% column, reveal card in the left 30% column.
+// Landscape (book pose): the camera rolls so the ram comes from the left; the console is in the right 22% column.
+// Assumption shared with Scene: in book pose the moving (ram) half is the LEFT half.
 
 // MARK: - First-run teaching (§6.1: through the machine, never text on the stage)
 
-/// Duo only: a dotted ghost arc hugging the crease from above (kept above the 45% line) and soft glows on
-/// both outer edges of the top half, suggesting a two-hand grip. Pinch Press teaches through the platen pulse
-/// in the scene, so nothing is drawn here for it.
+/// Duo only: a dotted "side-view hinge" arc — from the outer edge of the moving half, curving down to the
+/// crease, arrowhead at the crease, dashes marching toward it — plus soft glows on the moving half's outer
+/// edges (two-hand grip). Retired for good after the first contact (UX-REVIEW-1 P2-2, P2-17, P1-14).
 struct PressHints: View {
     let director: PressDirector
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("squish.arcRetired") private var retired = false
     @State private var pulse = false
 
     private var visible: Bool {
-        director.completedPresses == 0 && !director.usesTouchPress && director.engine.phase == .armed
+        !retired && director.completedPresses == 0 && !director.usesTouchPress && director.engine.phase == .armed
             && director.engine.measuredDepth < 0.01 && !director.isShowingCover && director.revealed == nil
     }
 
@@ -29,13 +31,14 @@ struct PressHints: View {
             let landscape = size.width > size.height
             ZStack {
                 if visible {
-                    if !landscape {
-                        GhostArc()
-                            .stroke(Theme.graphite.opacity(pulse ? 0.5 : 0.16),
-                                    style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [2, 9]))
+                    TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+                        let phase = reduceMotion ? 0 : CGFloat(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.6) / 0.6) * -11
+                        GhostArc(landscape: landscape)
+                            .stroke(Theme.graphite.opacity(pulse ? 0.55 : 0.25),
+                                    style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round, dash: [2, 9], dashPhase: phase))
                             .shadow(color: .white.opacity(0.8), radius: 2)
-                            .frame(width: size.width, height: size.height)
                     }
+                    .frame(width: size.width, height: size.height)
                     EdgeGlow(pulse: pulse, landscape: landscape)
                 }
             }
@@ -45,6 +48,9 @@ struct PressHints: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .animation(Theme.fade, value: visible)
+        .onChange(of: director.engine.phase) { _, phase in
+            if phase == .pressing { retired = true }
+        }
         .onAppear {
             guard !reduceMotion else { pulse = true; return }
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
@@ -52,38 +58,65 @@ struct PressHints: View {
     }
 }
 
-/// A dotted arc above the crease (34–44% height) with an arrowhead: "fold the top down".
+/// The lid's path seen from the side: a quarter-curve from the moving half's outer edge down to the crease,
+/// with an arrowhead along the tangent. Portrait stays above the 45% line.
 struct GhostArc: Shape {
+    var landscape: Bool
+
     func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        let start, end, c1, c2: CGPoint
+        if landscape {
+            // Moving half = left; crease = vertical centre line.
+            start = CGPoint(x: w * 0.06, y: h * 0.22)
+            c1 = CGPoint(x: w * 0.30, y: h * 0.22)
+            c2 = CGPoint(x: w * 0.44, y: h * 0.32)
+            end = CGPoint(x: w * 0.47, y: h * 0.50)
+        } else {
+            start = CGPoint(x: w * 0.30, y: h * 0.10)
+            c1 = CGPoint(x: w * 0.30 + w * 0.34, y: h * 0.10)
+            c2 = CGPoint(x: w * 0.72, y: h * 0.26)
+            end = CGPoint(x: w * 0.72, y: h * 0.42)
+        }
         var path = Path()
-        let y = rect.height * 0.44
-        let start = CGPoint(x: rect.width * 0.16, y: y)
-        let end = CGPoint(x: rect.width * 0.84, y: y)
         path.move(to: start)
-        path.addQuadCurve(to: end, control: CGPoint(x: rect.midX, y: rect.height * 0.30))
-        path.move(to: CGPoint(x: end.x - 14, y: end.y - 9))
+        path.addCurve(to: end, control1: c1, control2: c2)
+        // Arrowhead along the end tangent.
+        let dx = end.x - c2.x, dy = end.y - c2.y
+        let length = max(sqrt(dx * dx + dy * dy), 0.001)
+        let ux = dx / length, uy = dy / length
+        let back = CGPoint(x: end.x - ux * 14, y: end.y - uy * 14)
+        path.move(to: CGPoint(x: back.x - uy * 8, y: back.y + ux * 8))
         path.addLine(to: end)
-        path.addLine(to: CGPoint(x: end.x - 3, y: end.y - 16))
+        path.addLine(to: CGPoint(x: back.x + uy * 8, y: back.y - ux * 8))
         return path
     }
 }
 
-/// Soft yellow glow on both outer edges of the top half.
+/// Soft yellow glow on the moving half's two outer edges.
 private struct EdgeGlow: View {
     let pulse: Bool
     let landscape: Bool
 
     var body: some View {
         GeometryReader { proxy in
-            let height = proxy.size.height * 0.44
-            HStack(spacing: 0) {
-                glowBar(startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 30, height: height)
-                Spacer(minLength: 0)
-                glowBar(startPoint: .trailing, endPoint: .leading)
-                    .frame(width: 30, height: height)
+            let w = proxy.size.width, h = proxy.size.height
+            if landscape {
+                // Left half: glow its top and bottom edges.
+                VStack(spacing: 0) {
+                    glowBar(startPoint: .top, endPoint: .bottom).frame(width: w * 0.44, height: 30)
+                    Spacer(minLength: 0)
+                    glowBar(startPoint: .bottom, endPoint: .top).frame(width: w * 0.44, height: 30)
+                }
+                .frame(width: w, height: h, alignment: .leading)
+            } else {
+                HStack(spacing: 0) {
+                    glowBar(startPoint: .leading, endPoint: .trailing).frame(width: 30, height: h * 0.44)
+                    Spacer(minLength: 0)
+                    glowBar(startPoint: .trailing, endPoint: .leading).frame(width: 30, height: h * 0.44)
+                }
+                .frame(width: w, height: h, alignment: .top)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
         }
     }
 
@@ -199,8 +232,8 @@ private struct CaptionBurst: View {
 
 // MARK: - Failure flash
 
-/// The top half flashes white for 2–3 frames at a big failure (bible §3.1 beat 7), under 3 Hz.
-/// Reduce Motion: 35% white for 150 ms (§6.12).
+/// The moving half flashes white for 2–3 frames at a big failure (bible §3.1 beat 7), under 3 Hz:
+/// the top half in portrait, the left half in book pose. Reduce Motion: 35% white for 150 ms (§6.12).
 struct FailureFlash: View {
     let count: Int
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -209,9 +242,11 @@ struct FailureFlash: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let landscape = proxy.size.width > proxy.size.height
             Color.white
                 .opacity(opacity)
-                .frame(width: proxy.size.width, height: proxy.size.height / 2)
+                .frame(width: landscape ? proxy.size.width / 2 : proxy.size.width,
+                       height: landscape ? proxy.size.height : proxy.size.height / 2)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -227,9 +262,9 @@ struct FailureFlash: View {
                     withAnimation(.easeOut(duration: 0.1)) { opacity = 0 }
                 }
             } else {
+                opacity = 0.85
                 // Hold the white for ~2 frames before fading; setting and animating back in the same
                 // transaction would coalesce to "no change" and never show the flash.
-                opacity = 0.85
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(34))
                     withAnimation(.easeOut(duration: 0.05)) { opacity = 0 }
@@ -239,56 +274,81 @@ struct FailureFlash: View {
     }
 }
 
-// MARK: - Safety line (bible §3.2: the only first-run text), shown once in the toast band
+// MARK: - Tip toast (80–86%)
 
-struct SafetyHint: View {
+struct TipToast: View {
+    let tip: SquishTip
+
     var body: some View {
-        ToastView(title: "ON-SCREEN ONLY",
-                  detail: "Never close your phone on real things.",
-                  glyph: .symbol("hand.raised.fill"),
-                  accent: Theme.stamp)
+        ToastView(title: tip.title, detail: tip.detail, glyph: .symbol(tip.symbol), accent: tip.accent)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Squish is on-screen only. Never close your phone on real things.")
+            .accessibilityLabel("\(tip.title.capitalized). \(tip.detail)")
     }
 }
 
 // MARK: - Console (86–95%)
 
-/// Idle console: the object chip (a quick picker of unlocked objects) and the Shelf key.
+/// Idle console: the object chip (a quick picker) and the Shelf key. During a collect, only the Shelf key shows,
+/// so the card has somewhere real to land.
 struct IdleConsole: View {
     let director: PressDirector
     let landscape: Bool
     /// Increment to make the Shelf key hop once (first discovery).
     let hop: Int
+    /// Increment when a card lands in the Shelf key.
+    let bump: Int
+    var shelfOnly = false
     let onShelf: () -> Void
+    /// The Shelf key's global frame, for the collect flight.
+    var onShelfFrame: (CGRect) -> Void = { _ in }
 
     var body: some View {
         let layout = landscape ? AnyLayout(VStackLayout(alignment: .trailing, spacing: Theme.s3))
                                : AnyLayout(HStackLayout(spacing: Theme.s3))
         layout {
-            ObjectChipPicker(director: director)
+            if !shelfOnly {
+                ObjectChipPicker(director: director)
+                    .transition(.opacity)
+            }
             ShelfKey(pressedCount: director.collection.pressedKindsCount,
-                     total: ObjectKind.allCases.count, hop: hop, onOpen: onShelf)
+                     total: ObjectKind.allCases.count, hop: hop, bump: bump, onOpen: onShelf)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onShelfFrame($0) }
         }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }
 
-/// The object chip: tint dot + name (Mono 12) on a paper chip keycap; opens a menu of unlocked objects.
+/// The object chip: tint dot + name (Mono 12) on a paper chip keycap; opens a menu of objects
+/// (unlocked ones selectable, locked ones listed with their hint as a teaser).
 struct ObjectChipPicker: View {
     let director: PressDirector
 
     var body: some View {
         let collection = director.collection
+        let unlocked = ObjectKind.allCases.filter { collection.isUnlocked($0) }
+        let locked = ObjectKind.allCases.filter { !collection.isUnlocked($0) }
         Menu {
-            ForEach(ObjectKind.allCases.filter { collection.isUnlocked($0) }) { kind in
-                Button {
-                    UIFeel.tick()
-                    director.choose(kind)
-                } label: {
-                    if kind == director.currentKind {
-                        Label(kind.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(kind.displayName)
+            Section {
+                ForEach(unlocked) { kind in
+                    Button {
+                        UIFeel.tick()
+                        director.choose(kind)
+                    } label: {
+                        if kind == director.currentKind {
+                            Label(kind.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(kind.displayName)
+                        }
+                    }
+                }
+            }
+            if !locked.isEmpty {
+                Section("Locked") {
+                    ForEach(locked) { kind in
+                        Button {} label: {
+                            Text("\(kind.isSecret ? "???" : kind.displayName) · \(collection.menuHint(for: kind))")
+                        }
+                        .disabled(true)
                     }
                 }
             }
@@ -296,6 +356,7 @@ struct ObjectChipPicker: View {
             HStack(spacing: Theme.s2) {
                 TintDot(kind: director.currentKind)
                 Text(director.currentKind.displayName.uppercased())
+                    .contentTransition(.opacity)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(.caption2, weight: .semibold))
             }
@@ -307,14 +368,19 @@ struct ObjectChipPicker: View {
     }
 }
 
-/// The Shelf key on the console: dark keycap with the quiet count. Swipe up also opens the Shelf.
+/// The Shelf key on the console: dark keycap with the quiet count (hidden until the first card, P2-3).
+/// Swipe up also opens the Shelf. Hops once on discovery (a yellow glow under Reduce Motion), and sinks in
+/// when a collected card lands.
 struct ShelfKey: View {
     let pressedCount: Int
     let total: Int
     let hop: Int
+    let bump: Int
     let onOpen: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lifted = false
+    @State private var sunk = false
+    @State private var glow = false
 
     var body: some View {
         Button(action: onOpen) {
@@ -322,28 +388,56 @@ struct ShelfKey: View {
                 Image(systemName: "square.grid.2x2.fill")
                     .font(.system(.subheadline, design: .rounded, weight: .semibold))
                 Text("Shelf")
-                Text("\(pressedCount)/\(total)")
-                    .font(Theme.label)
-                    .foregroundStyle(Theme.paper.opacity(0.75))
+                if pressedCount > 0 {
+                    Text("\(pressedCount)/\(total)")
+                        .font(Theme.label)
+                        .foregroundStyle(Theme.paper.opacity(0.75))
+                        .contentTransition(.numericText())
+                        .animation(Theme.pop(reduceMotion), value: pressedCount)
+                }
             }
         }
         .buttonStyle(KeycapStyle(kind: .console))
-        .offset(y: lifted ? -10 : 0)
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Theme.yellow, lineWidth: 2)
+                .padding(.bottom, 4)
+                .opacity(glow ? 0.8 : 0)
+                .allowsHitTesting(false)
+        }
+        .scaleEffect(sunk ? 0.94 : 1)
+        .offset(y: (lifted ? -10 : 0) + (sunk ? 3 : 0))
         .simultaneousGesture(
             DragGesture(minimumDistance: 12).onEnded { value in
                 if value.translation.height < -24 { onOpen() }
             }
         )
         .onChange(of: hop) { _, _ in
-            guard !reduceMotion else { return }
-            withAnimation(Theme.hop) { lifted = true }
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(240))
-                withAnimation(Theme.hop) { lifted = false }
+                if reduceMotion {
+                    for _ in 0..<2 {
+                        withAnimation(.easeInOut(duration: 0.5)) { glow = true }
+                        try? await Task.sleep(for: .milliseconds(500))
+                        withAnimation(.easeInOut(duration: 0.5)) { glow = false }
+                        try? await Task.sleep(for: .milliseconds(500))
+                    }
+                } else {
+                    withAnimation(Theme.hop) { lifted = true }
+                    try? await Task.sleep(for: .milliseconds(240))
+                    withAnimation(Theme.hop) { lifted = false }
+                }
+            }
+        }
+        .onChange(of: bump) { _, _ in
+            Task { @MainActor in
+                withAnimation(Theme.keyDown) { sunk = true }
+                UIFeel.success()
+                try? await Task.sleep(for: .milliseconds(120))
+                withAnimation(Theme.keyUp) { sunk = false }
             }
         }
         .accessibilityLabel("Shelf")
-        .accessibilityValue("\(pressedCount) of \(total) objects pressed")
+        .accessibilityValue(pressedCount > 0 ? "\(pressedCount) of \(total) objects pressed" : "")
         .accessibilityHint("Opens your collection and settings.")
     }
 }

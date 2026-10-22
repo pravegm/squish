@@ -5,32 +5,34 @@ import UIKit
 /// The Press screen (bible §5 screen 1) and the host for every other screen.
 /// Layout (VISUAL-TARGET §6.1): the 45–80% stage band is sacred. Idle chrome is only the console
 /// (object chip + Shelf key) in the 86–95% band, shown while an object can be chosen; Settings lives in the Shelf.
-/// During a press: zero UI except captions and the failure flash.
+/// During a press: zero UI except captions and the failure flash. One-time tips use the 80–86% toast band.
 struct RootView: View {
     @State private var director = PressDirector()
+    @State private var tips = TipCenter()
     @State private var sheet: RootSheet?
     @State private var revealVisible = false
     @State private var collecting = false
-    @State private var showSafetyHint = false
+    @State private var flyTarget: CGPoint?
+    @State private var shelfKeyFrame: CGRect = .zero
     @State private var shelfHop = 0
-    @State private var accessiblePress = 0.0
+    @State private var shelfBump = 0
+    @State private var accessibleStep = 0
+    @State private var touchedOnce = false
+    @State private var uiCollected = false
+    @State private var pendingCoach: String?
     @State private var demoCover: CoverView.Content?
     @AppStorage("squish.askedForReview") private var askedForReview = false
     @AppStorage("squish.shelfDiscovered") private var shelfDiscovered = false
+    /// Remembered once a hinge has ever reported, so a Duo never gets non-Duo copy (UX-REVIEW-1 P1-16).
+    @AppStorage("squish.hasHinge") private var hasHinge = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.requestReview) private var requestReview
 
     enum RootSheet: Identifiable, Equatable {
-        case shelf(ShelfView.Tab, demoDetail: UUID?)
-        case settings
+        case shelf(ShelfView.Tab, demoDetail: UUID?, demoSettings: Bool)
 
-        var id: String {
-            switch self {
-            case .shelf: "shelf"
-            case .settings: "settings"
-            }
-        }
+        var id: String { "shelf" }
     }
 
     var body: some View {
@@ -52,7 +54,7 @@ struct RootView: View {
                     CaptionOverlay(caption: director.caption, kind: director.currentKind)
                 }
 
-                if director.canChooseObject && !isCoverUp {
+                if (director.canChooseObject || collecting) && !isCoverUp {
                     console(bands)
                         .transition(.opacity)
                 }
@@ -63,6 +65,7 @@ struct RootView: View {
                         collection: director.collection,
                         trace: director.trace(for: outcome.specimen),
                         collecting: collecting,
+                        flyTarget: flyTarget,
                         onNext: { collect { director.next() } },
                         onAgain: { collect { director.again() } }
                     )
@@ -70,14 +73,15 @@ struct RootView: View {
                     .transition(.opacity)
                 }
 
-                if showSafetyHint && !isCoverUp {
-                    SafetyHint()
+                if let tip = tips.current, showsTips {
+                    TipToast(tip: tip)
                         .frame(maxWidth: 420)
                         .padding(.horizontal, bands.margin)
-                        .position(x: bands.size.width / 2, y: bands.y(0.83))
-                        .onTapGesture { showSafetyHint = false }
-                        .transition(reduceMotion ? AnyTransition.opacity
-                                                 : AnyTransition.move(edge: .bottom).combined(with: .opacity))
+                        .position(x: bands.isLandscape ? bands.size.width - bands.fullWidth * 0.14 - bands.margin : bands.size.width / 2,
+                                  y: bands.isLandscape ? bands.size.height * 0.62 : bands.y(0.83))
+                        .onTapGesture { tips.dismissAll() }
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                        .id(tip.id)
                 }
 
                 if isCoverUp {
@@ -88,18 +92,15 @@ struct RootView: View {
                         thumbnail: { director.collection.thumbnail(for: $0) },
                         reservesClockColumn: director.isShowingCover,
                         unlockedKinds: ObjectKind.allCases.filter { director.collection.isUnlocked($0) },
-                        onQueue: { kind in
-                            UIFeel.tick()
-                            director.queue(kind)
-                        },
-                        showsSafetyLine: showSafetyHint
+                        onQueue: coverQueue,
+                        showsSafetyLine: tips.current?.kind == .safety
                     )
                     .transition(.opacity)
                 }
             }
             .animation(Theme.fade, value: director.canChooseObject)
             .animation(Theme.fade, value: isCoverUp)
-            .animation(Theme.pop(reduceMotion), value: showSafetyHint)
+            .animation(Theme.pop(reduceMotion), value: tips.current)
         }
         .modifier(HingeReader(
             onUpdate: { angle, closed in director.hingeUpdate(angle: angle, closed: closed) },
@@ -111,12 +112,35 @@ struct RootView: View {
         }
         .onChange(of: reduceMotion) { _, value in director.reduceMotion = value }
         .onChange(of: director.settings.hapticsLevel) { _, level in UIFeel.enabled = level != .off }
+        .onChange(of: pressedPastContact) { _, pressed in
+            // Sheets close only once the ram really touches the object, not on a 4° wobble (P2-10).
+            if pressed { sheet = nil }
+        }
         .onChange(of: director.engine.phase) { _, phase in
-            // Sheets never stay open during a press.
-            if phase == .pressing || phase == .sealed { sheet = nil }
+            if phase == .pressing { pressStarted() }
         }
         .onChange(of: director.isShowingCover) { _, covered in
             if covered { sheet = nil }
+        }
+        .onChange(of: director.hingeAvailable) { _, available in
+            if available { hingeArrived() }
+        }
+        .onChange(of: needsOpening) { _, needed in
+            if needed { scheduleOpenUp() } else { tips.dismiss(.openUp) }
+        }
+        .onChange(of: director.coachHint) { _, hint in
+            guard let hint else { return }
+            pendingCoach = hint.text
+            showPendingTips()
+        }
+        .onChange(of: director.canChooseObject) { _, canChoose in
+            if canChoose { showPendingTips() }
+        }
+        .onChange(of: director.revealed?.specimen.id) { old, new in
+            // Collected by the hinge (fold or close) rather than a keycap.
+            if old != nil && new == nil {
+                if uiCollected { uiCollected = false } else { didCollect() }
+            }
         }
         .task(id: director.revealed?.specimen.id) {
             await stageReveal()
@@ -138,52 +162,85 @@ struct RootView: View {
             .gesture(touchPress(height: height), including: director.usesTouchPress ? .all : .none)
             .accessibilityElement()
             .accessibilityLabel("Press. \(director.currentKind.displayName) on the anvil.")
-            .accessibilityValue(director.usesTouchPress ? "\(Int((accessiblePress * 100).rounded())) percent pressed" : "")
+            .accessibilityValue(pressValue)
             .accessibilityHint(director.usesTouchPress
                                ? "Swipe up to press down, swipe down to ease off."
-                               : "Fold your iPhone slowly to press.")
+                               : "Fold your iPhone closed, slowly, to press. Open it again to see what's left.")
             .accessibilityAdjustableAction { direction in
                 guard director.usesTouchPress, director.revealed == nil else { return }
                 switch direction {
-                case .increment: adjustAccessiblePress(by: 0.1)
-                case .decrement: adjustAccessiblePress(by: -0.1)
+                case .increment: adjustAccessiblePress(by: 1)
+                case .decrement: adjustAccessiblePress(by: -1)
                 @unknown default: break
                 }
             }
     }
 
-    /// Pinch Press fallback: drag down anywhere to lower the ram.
+    /// Pinch Press (UX-REVIEW-1 P0-2): the drag is scaled to the room left below the finger, so a press can
+    /// always finish wherever it starts — including on the object itself. The end of the room is just past seal.
     private func touchPress(height: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                director.virtualPress(max(0, value.translation.height) / max(height * 0.5, 1))
+                if !touchedOnce {
+                    touchedOnce = true
+                    tips.dismiss(.dragDown)
+                }
+                let room = min(max(height * 0.93 - value.startLocation.y, 160), height * 0.5)
+                let sealFraction = (180 - director.engine.config.endAngle) / 180 + 0.04
+                director.virtualPress(max(0, value.translation.height) / room * sealFraction)
             }
             .onEnded { _ in
                 director.virtualRelease()
             }
     }
 
-    /// VoiceOver press: each swipe moves the ram 10%; reaching the bottom seals, and the press springs open after.
-    private func adjustAccessiblePress(by delta: Double) {
-        accessiblePress = min(max(accessiblePress + delta, 0), 1)
-        director.virtualPress(accessiblePress)
-        if accessiblePress >= 1 {
+    /// VoiceOver value from the real press depth (P1-11).
+    private var pressValue: String {
+        let engine = director.engine
+        switch engine.phase {
+        case .sealed, .revealing: return "Sealed"
+        case .idle, .armed, .pressing: break
+        }
+        if engine.measuredDepth < engine.config.contactT {
+            return engine.measuredDepth > 0.01 ? "Approaching" : "Ready"
+        }
+        let compression = engine.measuredCompression
+        return compression < 0.02 ? "Touching" : "\(Int((compression * 100).rounded())) percent squished"
+    }
+
+    /// VoiceOver press: step 1 is contact, then each swipe adds 12.5% compression; step 9 seals.
+    private func adjustAccessiblePress(by delta: Int) {
+        let config = director.engine.config
+        accessibleStep = min(max(accessibleStep + delta, 0), 9)
+        guard accessibleStep > 0 else {
+            director.virtualRelease()
+            return
+        }
+        let compression = Double(accessibleStep - 1) / 8
+        let depth = min(1, config.contactT + (1 - config.contactT) * compression)
+        let angle = PressMapping.angle(forDepth: depth, start: config.armAngleMax, config: config)
+        director.virtualPress((180 - angle) / 180 + (accessibleStep == 9 ? 0.04 : 0))
+        if accessibleStep >= 9 {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
                 director.virtualRelease()
-                accessiblePress = 0
+                accessibleStep = 0
             }
-        } else if accessiblePress <= 0 {
-            director.virtualRelease()
         }
+    }
+
+    private var pressedPastContact: Bool {
+        director.engine.measuredDepth >= director.engine.config.contactT || director.engine.phase == .sealed
     }
 
     // MARK: - Console (86–95%, or the right 22% column in landscape)
 
     @ViewBuilder
     private func console(_ bands: ScreenBands) -> some View {
-        let chrome = IdleConsole(director: director, landscape: bands.isLandscape, hop: shelfHop,
-                                 onShelf: { sheet = .shelf(.objects, demoDetail: nil) })
+        let chrome = IdleConsole(director: director, landscape: bands.isLandscape, hop: shelfHop, bump: shelfBump,
+                                 shelfOnly: collecting,
+                                 onShelf: openShelf,
+                                 onShelfFrame: { shelfKeyFrame = $0 })
         if bands.isLandscape {
             chrome
                 .frame(width: bands.fullWidth * 0.22, alignment: .trailing)
@@ -197,42 +254,50 @@ struct RootView: View {
         }
     }
 
+    private func openShelf() {
+        shelfDiscovered = true
+        sheet = .shelf(.objects, demoDetail: nil, demoSettings: false)
+    }
+
     // MARK: - Sheets (§6.7)
 
     @ViewBuilder
     private func sheetContent(_ item: RootSheet) -> some View {
         switch item {
-        case let .shelf(tab, demoDetail):
-            ShelfView(director: director, initialTab: tab, demoDetail: demoDetail, onSettings: { sheet = .settings })
-                .presentationDetents([.medium, .large])
+        case let .shelf(tab, demoDetail, demoSettings):
+            ShelfView(director: director, initialTab: tab, demoDetail: demoDetail, demoSettings: demoSettings)
+                // On a Duo the medium detent's top edge would sit in the crease (P1-19).
+                .presentationDetents([hasHinge ? .fraction(0.45) : .medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(Theme.sheetRadius)
                 .presentationBackground { AlbumPage() }
                 .presentationContentInteraction(.scrolls)
-                .sheetTypeCap()
-        case .settings:
-            SettingsView(director: director)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(Theme.sheetRadius)
-                .presentationBackground { AlbumPage(dots: false) }
                 .sheetTypeCap()
         }
     }
 
     // MARK: - Reveal
 
-    /// The card waits ~0.8 s so the ram lifts first (bible §3.1 beat 11).
+    /// The card waits ~0.8 s so the ram lifts first (0.3 s under Reduce Motion), and for the specimen photo,
+    /// so the peak moment never swaps a placeholder for the real thing (P1-1).
     private func stageReveal() async {
-        guard director.revealed != nil else {
+        guard let outcome = director.revealed else {
             revealVisible = false
             collecting = false
+            flyTarget = nil
             return
         }
-        try? await Task.sleep(for: .milliseconds(800))
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 300 : 800))
+        var waited = 0
+        while director.collection.specimen(withID: outcome.specimen.id)?.thumbnailFile == nil && waited < 700 {
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            waited += 50
+        }
         guard !Task.isCancelled, director.revealed != nil else { return }
+        tips.dismissAll()
         revealVisible = true
-        accessiblePress = 0
+        accessibleStep = 0
         await askForReviewIfDue()
     }
 
@@ -245,27 +310,126 @@ struct RootView: View {
         requestReview()
     }
 
-    /// The card shrinks into the Shelf key over 0.45 s (§6.8), then the next object is placed.
+    /// Collect (P1-2): the reveal actions fade, the Shelf key appears on the console, the card flies into it,
+    /// the key sinks in and its count rolls, then the next object is placed.
     private func collect(_ action: @escaping () -> Void) {
         guard !collecting else { return }
-        withAnimation(reduceMotion ? Theme.fade : .easeInOut(duration: 0.45)) { collecting = true }
+        withAnimation(.easeOut(duration: 0.15)) { collecting = true }
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 250 : 450))
+            try? await Task.sleep(for: .milliseconds(90)) // let the Shelf key lay out
+            let target = CGPoint(x: shelfKeyFrame.midX, y: shelfKeyFrame.midY)
+            withAnimation(reduceMotion ? Theme.fade : .spring(response: 0.38, dampingFraction: 0.72)) { flyTarget = target }
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 230 : 400))
+            uiCollected = true
             revealVisible = false
-            collecting = false
+            flyTarget = nil
             action()
-            // After the second press the Shelf key hops once so people discover the collection (bible §3.2 step 8).
-            if !shelfDiscovered && director.completedPresses >= 2 {
-                shelfDiscovered = true
+            collecting = false
+            didCollect()
+        }
+    }
+
+    /// After any collect (keycap or hinge): land the card in the Shelf, then queue gentle one-time tips.
+    private func didCollect() {
+        shelfBump += 1
+        GameCenter.shared.firstRunFinished()
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
+        // After the second press the Shelf key hops once so people discover the collection (bible §3.2 step 8).
+        if !shelfDiscovered && director.completedPresses >= 2 {
+            shelfDiscovered = true
+            Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(700))
                 shelfHop += 1
             }
+        }
+        showPendingTips()
+    }
+
+    // MARK: - Tips (UX-REVIEW-1 §6.3)
+
+    private var isDemo: Bool { DemoScenario.current != nil }
+
+    private var showsTips: Bool {
+        !isCoverUp && !revealVisible && director.revealed == nil && director.engine.phase != .pressing
+            && director.engine.phase != .sealed
+    }
+
+    /// Hinge present, idle because it's folded below the arming angle (P1-15).
+    private var needsOpening: Bool {
+        director.hingeAvailable && !director.usesTouchPress && !director.isShowingCover && director.revealed == nil
+            && director.engine.phase == .idle && director.engine.angle < director.engine.config.armAngleMin
+    }
+
+    private func scheduleOpenUp() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            if needsOpening { tips.show(tips.openUp()) }
+        }
+    }
+
+    private func hingeArrived() {
+        hasHinge = true
+        tips.dismiss(.dragDown)
+        guard !isDemo, !director.settings.hasSeenSafetyHint else { return }
+        // Duo only (P1-5): shown until the first press starts; marked seen once it has been up 3 s.
+        let tip = tips.safety()
+        tips.show(tip)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            if tips.current?.id == tip.id { markSafetySeen() }
+        }
+    }
+
+    private func markSafetySeen() {
+        guard !director.settings.hasSeenSafetyHint else { return }
+        director.settings.hasSeenSafetyHint = true
+        director.settings.save()
+    }
+
+    private func pressStarted() {
+        if tips.current?.kind == .safety { markSafetySeen() }
+        tips.dismissAll()
+    }
+
+    /// Coaching and the one-time sound tip wait for a calm, idle moment (never during a press or the reveal).
+    private func showPendingTips() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard director.canChooseObject, !revealVisible, tips.current == nil else { return }
+            if let line = pendingCoach {
+                pendingCoach = nil
+                tips.show(tips.coach(line))
+            } else if !isDemo, director.completedPresses >= 1, !TipCenter.hasShown(.sound) {
+                TipCenter.markShown(.sound)
+                tips.show(tips.sound(soundOff: !director.settings.soundEnabled))
+            }
+        }
+    }
+
+    /// Touch press, first run: if nothing has been touched after 8 s, one "DRAG DOWN" tip until the first touch.
+    private func scheduleDragHint(after delay: Duration) {
+        Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            guard director.usesTouchPress, !hasHinge, !touchedOnce, director.completedPresses == 0,
+                  director.revealed == nil, tips.current == nil else { return }
+            if !isDemo { TipCenter.markShown(.dragDown) }
+            tips.show(tips.dragDown())
         }
     }
 
     // MARK: - Cover
 
     private var isCoverUp: Bool { director.isShowingCover || demoCover != nil }
+
+    /// Cover chips queue the next object; hidden while a reveal is still pending (no dead chips, P0-4).
+    private var coverQueue: ((ObjectKind) -> Void)? {
+        guard director.revealed == nil else { return nil }
+        let director = director
+        return { kind in
+            UIFeel.tick()
+            director.queue(kind)
+        }
+    }
 
     private var coverContent: CoverView.Content {
         if let demoCover { return demoCover }
@@ -294,25 +458,13 @@ struct RootView: View {
             runDemo(demo)
             return
         }
-        if !director.settings.hasSeenSafetyHint {
-            director.settings.hasSeenSafetyHint = true
-            director.settings.save()
-            presentSafetyHint()
-        }
-    }
-
-    private func presentSafetyHint() {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(600))
-            showSafetyHint = true
-            try? await Task.sleep(for: .seconds(6))
-            showSafetyHint = false
-        }
+        if director.hingeAvailable { hingeArrived() }
+        if !TipCenter.hasShown(.dragDown) { scheduleDragHint(after: .seconds(8)) }
     }
 
     /// UI demo keys for CI screenshots (see ci/scenarios.txt): `shelf[=squished]`, `detail`, `settings`, `cover[=sealed]`.
     private func runDemo(_ demo: DemoScenario) {
-        if demo.name == "launch" { presentSafetyHint() }
+        if demo.name == "launch" { scheduleDragHint(after: .seconds(1.5)) }
         if demo.has("cover") {
             demoCover = demo.string("cover") == "sealed" ? .sealed(kind: demo.object ?? .rubberDuck, tons: 48) : .idle
             return
@@ -320,13 +472,13 @@ struct RootView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(1200))
             if demo.has("settings") {
-                sheet = .settings
+                sheet = .shelf(.objects, demoDetail: nil, demoSettings: true)
             } else if demo.has("detail") {
                 let best = ObjectKind.allCases.compactMap { director.collection.best(for: $0) }
                     .first { $0.variant.isGolden } ?? director.collection.specimens.first
-                sheet = .shelf(.objects, demoDetail: best?.id)
+                sheet = .shelf(.objects, demoDetail: best?.id, demoSettings: false)
             } else if demo.has("shelf") {
-                sheet = .shelf(demo.string("shelf") == "squished" ? .squished : .objects, demoDetail: nil)
+                sheet = .shelf(demo.string("shelf") == "squished" ? .squished : .objects, demoDetail: nil, demoSettings: false)
             }
         }
     }

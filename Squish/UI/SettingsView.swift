@@ -10,6 +10,8 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showTuning = false
     @State private var appeared = false
+    /// A hinge has reported at some point (RootView sets it), so a Duo never gets non-Duo copy.
+    @AppStorage("squish.hasHinge") private var hasHinge = false
 
     private var gameCenter: GameCenter { GameCenter.shared }
 
@@ -60,7 +62,7 @@ struct SettingsView: View {
                             ChipChoice(selection: $settings.soundStyle, options: SoundStyle.allCases) { $0.title }
                                 .disabled(!settings.soundEnabled)
                             Text(settings.soundStyle == .soft
-                                 ? "Soft is gentler: no crunchy or wet sounds, softer highs."
+                                 ? "Soft is gentler: rounder highs, fewer crunches, nothing wet."
                                  : "Workshop is the full mix: every crack, crunch and fizz.")
                                 .font(Theme.footnote)
                                 .foregroundStyle(Theme.inkSecondary)
@@ -79,11 +81,13 @@ struct SettingsView: View {
                         ToggleRow(title: "Captions", isOn: $settings.showCaptions,
                                   footnote: "Big comic words like POP! and CRACK! for each moment.")
                         divider
-                        ToggleRow(title: "Press without folding", isOn: $settings.pressWithoutFolding,
-                                  footnote: director.hingeAvailable
-                                      ? "Drag down on the screen instead of folding your iPhone Duo. Handy one-handed, or when folding isn't comfortable."
-                                      : "This iPhone has no hinge, so you always press by dragging down. On iPhone Duo this lets you press without folding.")
-                            .disabled(!director.hingeAvailable)
+                        if director.hingeAvailable || hasHinge {
+                            ToggleRow(title: "Press without folding", isOn: $settings.pressWithoutFolding,
+                                      footnote: "Drag down on the screen instead of folding. Handy one-handed, or when folding isn't comfortable.")
+                        } else {
+                            InfoRow(title: "Press by dragging", value: "ALWAYS ON",
+                                    footnote: "On iPhone Duo you can choose between folding and dragging.")
+                        }
                         divider
                         InfoRow(title: "Reduce Motion", value: reduceMotion ? "ON" : "OFF",
                                 footnote: "Follows your iPhone setting (Settings › Accessibility › Motion).")

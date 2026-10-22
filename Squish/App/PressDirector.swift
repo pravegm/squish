@@ -37,6 +37,7 @@ final class PressDirector {
     @ObservationIgnored private var lastSpecimenID: UUID?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var renderedFrames = 0
+    @ObservationIgnored private let launchTime = CACurrentMediaTime()
     @ObservationIgnored private var captionCounter = 0
     @ObservationIgnored private var traceSamples: [PressTrace.Sample] = []
     @ObservationIgnored private var traceStart: Double = 0
@@ -86,6 +87,9 @@ final class PressDirector {
         haptics.start()
         GameCenter.shared.authenticate()
         engine.activate(at: CACurrentMediaTime())
+        if DemoScenario.current != nil {
+            setvbuf(stdout, nil, _IOLBF, 0) // CI captures stdout to a file; flush line by line.
+        }
         // Until a hinge reports in, assume the touch press (so the teaching cue can show on any iPhone).
         engine.usesVirtualHinge = true
         load(firstObject())
@@ -191,6 +195,8 @@ final class PressDirector {
 
     func virtualRelease() {
         guard usesTouchPress else { return }
+        // Touch traces never close, so `closed` marks the finger lifting: the clip replay springs the press open too.
+        recordTrace(angle: engine.angle, closed: true, at: CACurrentMediaTime())
         engine.releaseVirtual()
     }
 
@@ -198,6 +204,10 @@ final class PressDirector {
 
     func frame(dt: TimeInterval) {
         renderedFrames &+= 1
+        if DemoScenario.current != nil, [1, 30, 120, 600].contains(renderedFrames) {
+            print(String(format: "SQUISH-T frame %ld at %.2fs phase=%@ depth=%.3f", renderedFrames,
+                         CACurrentMediaTime() - launchTime, engine.phase.rawValue, engine.measuredDepth))
+        }
         haptics.level = settings.hapticsLevel
         audio.enabled = settings.soundEnabled
         audio.style = settings.soundStyle
@@ -304,7 +314,7 @@ final class PressDirector {
         // Capture the specimen thumbnail once the ram has lifted clear of the flattened object.
         let specimenID = outcome.specimen.id
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(900))
+            try? await Task.sleep(for: .milliseconds(500))
             guard let self, let image = await self.scene.snapshot(), let png = image.pngData() else { return }
             self.collection.attachThumbnail(png, to: specimenID)
         }
@@ -330,6 +340,7 @@ final class PressDirector {
 
     /// Drives the touch press to a scripted state (see DemoMode.swift).
     private func runDemo(_ demo: DemoScenario) {
+        print(String(format: "SQUISH-T demo '%@' starts at %.2fs", demo.name, CACurrentMediaTime() - launchTime))
         engine.config.ignoreInputAfterActivation = 0
         hingeUnavailable()
         if let kind = demo.object { load(kind) }
@@ -341,6 +352,8 @@ final class PressDirector {
             while renderedFrames < 30 {
                 try? await Task.sleep(for: .milliseconds(50))
             }
+            print(String(format: "SQUISH-T demo press begins at %.2fs phase=%@ touch=%d", CACurrentMediaTime() - launchTime,
+                         engine.phase.rawValue, usesTouchPress ? 1 : 0))
             virtualPress(0)
             try? await Task.sleep(for: .milliseconds(300))
             let steps = 90
@@ -353,6 +366,35 @@ final class PressDirector {
                 virtualPress((180 - targetAngle) / 180)
                 try? await Task.sleep(for: .milliseconds(16))
             }
+            print(String(format: "SQUISH-T demo press done at %.2fs phase=%@ depth=%.3f", CACurrentMediaTime() - launchTime,
+                         engine.phase.rawValue, engine.measuredDepth))
+            if demo.has("exportclip") {
+                await exportDemoClip()
+            }
+        }
+    }
+
+    /// CI hook: render the share clip of the demo press into Documents/clip.mp4 so CI can upload it.
+    private func exportDemoClip() async {
+        for _ in 0..<200 where revealed == nil {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        guard let outcome = revealed, let trace = lastTrace else {
+            print("SQUISH-CLIP failed: no reveal")
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(800))
+        let started = CACurrentMediaTime()
+        do {
+            let url = try await ClipExporter().export(trace: trace, specimen: outcome.specimen) { _ in }
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let destination = documents.appendingPathComponent("clip.mp4")
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: url, to: destination)
+            let bytes = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int) ?? 0
+            print(String(format: "SQUISH-CLIP ok bytes=%ld seconds=%.1f", bytes, CACurrentMediaTime() - started))
+        } catch {
+            print("SQUISH-CLIP failed: \(error.localizedDescription)")
         }
     }
 }

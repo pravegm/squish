@@ -49,6 +49,40 @@ struct CoverView: View {
             .padding(.horizontal, Theme.s5)
             .padding(.trailing, reservesClockColumn ? 84 : 0)
         }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+    }
+}
+
+/// A side-view phone opening on a loop (P2-6): the top slab swings 0 → 160° over 1.4 s, holds, closes.
+/// Static (open) under Reduce Motion.
+private struct FoldGlyph: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+            let angle = reduceMotion ? 120 : Self.angle(at: context.date.timeIntervalSinceReferenceDate)
+            ZStack(alignment: .bottomLeading) {
+                Capsule().fill(Theme.paper.opacity(0.85)).frame(width: 30, height: 4)
+                Capsule()
+                    .fill(Theme.yellow)
+                    .frame(width: 30, height: 4)
+                    .rotationEffect(.degrees(-angle), anchor: .leading)
+                    .offset(y: -4)
+            }
+            .frame(width: 34, height: 26, alignment: .bottomLeading)
+        }
+    }
+
+    /// 1.4 s open (ease-in-out), 0.6 s hold, 1.0 s close, 0.4 s rest.
+    nonisolated private static func angle(at time: Double) -> Double {
+        let t = time.truncatingRemainder(dividingBy: 3.4)
+        func ease(_ x: Double) -> Double { x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2 }
+        switch t {
+        case ..<1.4: return 160 * ease(t / 1.4)
+        case ..<2.0: return 160
+        case ..<3.0: return 160 * (1 - ease((t - 2.0) / 1.0))
+        default: return 0
+        }
     }
 }
 
@@ -98,8 +132,21 @@ private struct SealedInset: View {
             Text("PRESS SEALED")
                 .font(.system(.headline, design: .rounded, weight: .heavy))
                 .foregroundStyle(Theme.graphite)
-            MiniGauge(tons: tons)
-                .frame(width: 72, height: 72)
+            HStack(spacing: Theme.s4) {
+                MiniGauge(tons: tons)
+                    .frame(width: 72, height: 72)
+                // Teaser (P2-5): the object's silhouette, flattened, with a question.
+                VStack(spacing: Theme.s1) {
+                    Text("WHAT'S LEFT?")
+                        .font(Theme.micro)
+                        .tracking(Theme.microTracking)
+                        .foregroundStyle(Theme.inkSecondary)
+                    EmbossedSilhouette(kind: kind)
+                        .frame(width: 56, height: 56)
+                        .scaleEffect(x: 1.3, y: 0.35)
+                        .frame(height: 24)
+                }
+            }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("\(tons)")
                     .font(Theme.bigNumber)
@@ -273,10 +320,14 @@ private struct IdleCover: View {
                 }
                 .scrollIndicators(.hidden)
             }
-            Text("Open to press")
-                .font(.system(.subheadline, design: .rounded, weight: .heavy))
-                .foregroundStyle(Theme.yellow)
-                .accessibilityHidden(true)
+            HStack(spacing: Theme.s2) {
+                FoldGlyph()
+                    .frame(width: 34, height: 26)
+                Text("Open to press")
+                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(Theme.yellow)
+            }
+            .accessibilityHidden(true)
         }
     }
 

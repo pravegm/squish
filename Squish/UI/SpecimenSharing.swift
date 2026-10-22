@@ -26,7 +26,7 @@ final class SpecimenShareModel {
     func shareImage(specimen: SpecimenRecord, thumbnail: UIImage?) {
         UIFeel.tick()
         guard let url = ShareImageRenderer.renderFile(specimen: specimen, thumbnail: thumbnail) else {
-            fail("Couldn't draw the share image. Please try again.")
+            fail("The image smudged. Try again?")
             return
         }
         item = ShareItem(url: url)
@@ -91,6 +91,10 @@ struct SpecimenSharingChrome: ViewModifier {
                 }
             }
             .animation(Theme.fade, value: model.isExporting)
+            .onDisappear {
+                // A sheet closing under an export cancels it rather than leaving a dangling task (P2-10).
+                if model.isExporting { model.cancelClip() }
+            }
             .sheet(item: $model.item) { item in
                 ActivityView(items: [item.url])
                     .presentationDetents([.medium, .large])

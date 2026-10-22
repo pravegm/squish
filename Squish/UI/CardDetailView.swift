@@ -6,6 +6,8 @@ import UIKit
 struct CardDetailView: View {
     let director: PressDirector
     let specimenID: UUID
+    /// Puts this object on the anvil and closes the Shelf (P2-13).
+    var onPressAnother: ((ObjectKind) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var share = SpecimenShareModel()
@@ -107,9 +109,19 @@ struct CardDetailView: View {
             Button {
                 share.shareImage(specimen: specimen, thumbnail: collection.thumbnail(for: specimen))
             } label: {
-                KeyLabel(title: "Share Image", systemImage: "photo.on.rectangle")
+                KeyLabel(title: "Share Still", systemImage: "photo.on.rectangle")
             }
             .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
+
+            if let onPressAnother, director.canChooseObject, collection.isUnlocked(specimen.kind) {
+                Button {
+                    onPressAnother(specimen.kind)
+                } label: {
+                    KeyLabel(title: "Press Another", systemImage: "arrow.down.to.line")
+                }
+                .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
+                .accessibilityHint("Puts a fresh \(specimen.kind.displayName) on the anvil.")
+            }
 
             Button(role: .destructive) {
                 confirmingDelete = true

@@ -637,13 +637,16 @@ struct ToastView: View {
                     .font(Theme.body)
                     .foregroundStyle(Theme.ink)
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
+            .lineLimit(2)
+            .minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(.leading, Theme.s2)
         .padding(.trailing, Theme.s4)
-        .frame(minHeight: 48)
+        .padding(.vertical, Theme.s1 + 2)
+        .frame(minHeight: 52)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .background { PaperBackground().clipShape(shape) }
         .topHighlight(cornerRadius: Theme.toastRadius)
         .elevation(.e3)

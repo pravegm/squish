@@ -24,6 +24,9 @@ final class PressRig {
     private var damageMarks: [Entity] = []
     private let gaugeGlass = Entity()
     private let teachGlow = ModelEntity()
+    private let sealTag = Entity()
+    private let sealTagCard = ModelEntity()
+    private var tagSwing = JiggleSpring()
     private var glowAlpha: Float = -1
     private let lampOffMaterial = SceneMaterials.enamel(Palette.lampOff, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05, specular: 0.6)
     private let greenOn = SceneMaterials.glowing(Palette.lampGreen, intensity: 2)
@@ -204,9 +207,11 @@ final class PressRig {
         platenGroup.addChild(plate)
         root.addChild(ram)
 
+        buildSealTag()
         setFace(Self.homeFace)
         setNeedle(0)
         setLamps(ready: 1, load: 0)
+        ShadowCasting.offForTranslucent(in: root)
     }
 
     // MARK: - Per frame
@@ -220,7 +225,8 @@ final class PressRig {
     }
 
     /// Tonnage needle (0–60 t dial; > 60 pins into the red), spring response ≈ 0.18 s, damping 0.55.
-    func updateGauge(tons target: Float, dt: Float, tremor: Bool, buzz: Bool, time: Float) {
+    /// `panic`: slam warning (UX-REVIEW P0-5) — a wide, fast needle shiver, the non-text "slowly…" cue.
+    func updateGauge(tons target: Float, dt: Float, tremor: Bool, buzz: Bool, panic: Bool = false, time: Float) {
         guard dt > 0 else { return }
         let omega: Float = 2 * .pi / 0.18, zeta: Float = 0.55
         let steps = max(1, Int((dt * 480).rounded(.up)))
@@ -232,6 +238,7 @@ final class PressRig {
         }
         var shown = min(needleTons, 63)
         if tremor { shown += 0.8 / 4.5 * sin(time * 2 * .pi * 14) }      // ±0.8° at 14 Hz
+        if panic { shown += 3.5 * sin(time * 2 * .pi * 19) * sin(time * 2 * .pi * 3.1) }
         if buzz { shown = 62 + 0.6 * sin(time * 2 * .pi * 23) }          // pinned and buzzing
         if !tremor && !buzz && target < 0.01 { shown += 0.3 / 4.5 * sin(time * 2 * .pi * 0.4) } // idle breathing
         setNeedle(shown)
@@ -260,8 +267,21 @@ final class PressRig {
     }
 
     /// §4.5: green READY when idle, amber LOAD from contact, red 600 ms at failure; the Unsquishable blinks both red at 2 Hz.
-    func updateLamps(dt: Float, loaded: Bool, broken: Bool) {
+    /// `powerOn`: seconds into the launch power-on beat (UX-REVIEW P2-1), lamps flick on one by one; nil = normal.
+    func updateLamps(dt: Float, loaded: Bool, broken: Bool, powerOn: Float? = nil) {
         redTimer = max(redTimer - dt, 0)
+        if let t = powerOn {
+            if t < 0.15 {
+                setLamps(ready: 0, load: 0)
+            } else if t < 0.3 {
+                setLamps(ready: 1, load: 0)
+            } else if t < 0.45 {
+                setLamps(ready: 1, load: 1)
+            } else {
+                setLamps(ready: 1, load: 0)
+            }
+            return
+        }
         if broken {
             blink += dt
             let on = Int(blink * 4) % 2 == 0
@@ -292,6 +312,47 @@ final class PressRig {
             material.blending = .transparent(opacity: .init(floatLiteral: a))
             teachGlow.model?.materials = [material]
         }
+    }
+
+    // MARK: - Sealed tag (touch presses have no cover display: UX-REVIEW P2-4)
+
+    /// A paper tag "SEALED · 48 T" that swings from the crown's front lip.
+    func showSealTag(tons: Int) {
+        let material: any Material
+        if let texture = StudioEnvironment.texture(RigTextures.sealTag(tons: tons), name: "seal.tag.\(tons)") {
+            material = SceneMaterials.textured(texture, roughness: 0.7)
+        } else {
+            material = SceneMaterials.pbr(Palette.paper, roughness: 0.7)
+        }
+        sealTagCard.model?.materials = [material]
+        sealTag.isEnabled = true
+        tagSwing = JiggleSpring(value: 0, velocity: 3.2, omega: 7.5, zeta: 0.18)
+    }
+
+    func hideSealTag() {
+        sealTag.isEnabled = false
+    }
+
+    func updateSealTag(dt: Float, reduceMotion: Bool) {
+        guard sealTag.isEnabled else { return }
+        tagSwing.step(toward: 0, dt: dt)
+        let angle = reduceMotion ? 0 : clamp(tagSwing.value, -0.5, 0.5)
+        sealTag.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
+    }
+
+    private func buildSealTag() {
+        // Pivot under the crown's front lip, right of centre; string + card hang below.
+        sealTag.position = [0.035, 0.330, 0.054]
+        let string = MeshKit.model(MeshKit.capsule(radius: 0.0006, length: 0.016, segments: 8),
+                                   material: SceneMaterials.pbr(Palette.enamelGraphite, roughness: 0.6))
+        string.position = [0, -0.016, 0]
+        sealTag.addChild(string)
+        sealTagCard.model = ModelComponent(mesh: .generatePlane(width: 0.052, height: 0.022, cornerRadius: 0.004),
+                                           materials: [SceneMaterials.pbr(Palette.paper, roughness: 0.7)])
+        sealTagCard.position = [0, -0.016 - 0.011, 0.0004]
+        sealTag.addChild(sealTagCard)
+        sealTag.isEnabled = false
+        root.addChild(sealTag)
     }
 
     // MARK: - The Unsquishable breaks the press (§4.6)
@@ -354,6 +415,7 @@ final class PressRig {
             }
         }
         damage = level
+        ShadowCasting.offForTranslucent(in: root)
     }
 
     /// A fresh press for the next object.
@@ -367,5 +429,6 @@ final class PressRig {
         platenGroup.orientation = simd_quatf(angle: 0, axis: [0, 1, 0])
         damage = 0
         redTimer = 0
+        hideSealTag()
     }
 }
