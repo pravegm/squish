@@ -17,7 +17,7 @@ Squish is a virtual hydraulic press. A virtual object (bubble wrap, rubber duck,
 
 HOW THE HINGE WORKS (iPhone Duo)
 1. Open the phone flat on the inner display, ideally lying on a table (tabletop pose).
-2. Slowly push the top half down. Squish reads the public hinge angle API (SwiftUI onHingeChange / UIHingeInteraction). From about 165 degrees down to 60 degrees the angle maps continuously to press depth. All visible crushing happens in that range.
+2. Slowly push the top half down. Squish reads the public hinge angle API (SwiftUI onHingeChange / UIHingeInteraction). From about 168 degrees down to 48 degrees the angle maps continuously to press depth. All visible crushing happens in that range.
 3. Close fully. The normal magnetic close triggers the "ka-chunk" sound/haptic and a "Press sealed" card on the cover display.
 4. Reopen to see a short replay and the specimen card.
 No extra force is needed or encouraged: the user closes the phone exactly as they normally would.
@@ -57,7 +57,7 @@ Contact: [founder name], [support email], [phone].
 ## Before pasting, check against the final build
 
 - [ ] The unlock rules match the code (bible §4: Soda Can after 3 different objects, Gummy Bear after 6 presses, Glass after a Perfect Squish, the secret after all 9).
-- [ ] The display-off angle from Week 0. If θ_end moved from 60° to 45°, update "60 degrees".
+- [ ] The display-off angle from Week 0. The build seals at 48° (PressConfig.endAngle). If the Week-0 display-off angle forces a change, update "48 degrees" here.
 - [ ] The Settings path and label wording ("Press without folding") match the UI exactly.
 - [ ] The first-run cover hint text matches the build exactly.
 - [ ] "No network requests of its own" is true. Grep for `URLSession` and any SDKs; Game Center and StoreKit traffic is Apple's.

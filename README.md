@@ -24,7 +24,7 @@ Re-run `xcodegen generate` whenever files are added or removed. The `.xcodeproj`
 
 ## On-device checks (first run on the Duo)
 
-Open the **Tuning Lab** (slider icon, top right):
+Open the **Tuning Lab** (Settings → long-press the **Version** row):
 1. Close the phone slowly and note the **raw angle** when the inner screen turns off. Set **End angle** a few degrees above it.
 2. Watch **Hinge updates / s** while folding. That's the real sample rate.
 3. Tap **Copy hinge log CSV** after a few slow and fast folds and paste it into an issue or chat, so the smoothing can be tuned from real data.
