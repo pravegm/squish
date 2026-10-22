@@ -95,6 +95,13 @@ final class DeformableMesh {
         }
     }
 
+    /// Swaps the material of one slot (e.g. when an async texture arrives).
+    func setMaterial(_ material: any RealityKit.Material, forSlot slot: Int) {
+        for group in groups where group.slot == slot {
+            group.model.model?.materials = [material]
+        }
+    }
+
     /// Resets to the rest shape.
     func reset() {
         current = rest

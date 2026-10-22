@@ -338,7 +338,7 @@ enum StudioEnvironment {
     /// Row 0 is v = 1 (wall top) when `flipV` is false. Pure; safe off the main thread.
     /// Separable: every term is a row factor times a column factor, so the inner loop is a few multiply-adds
     /// (Debug builds run this at startup; it used to be the slowest per-pixel loop in the app).
-    static func sweepImage(gel: UInt32, golden: Bool, width: Int = 256, height: Int = 512, flipV: Bool = false,
+    static func sweepImage(gel: UInt32, golden: Bool, width: Int = 256, height: Int = 256, flipV: Bool = false,
                            seed: UInt64 = 0x5EE9) -> CGImage? {
         let total = sweepLength
         let floorNear = rgb(0xF1E9DC), floorPool = rgb(0xF8F3EA), backFloor = rgb(0xEEE5D7)
@@ -433,6 +433,14 @@ enum StudioEnvironment {
             }
         }
         return makeImage(pixels, width: size, height: size)
+    }
+
+    /// Async texture creation (iOS 18 `TextureResource(image:withName:options:) async throws`), so the upload never
+    /// blocks the main actor — the sync initializer stalled main for ~4 s on CI while the IBL was being prefiltered.
+    @MainActor
+    static func textureAsync(_ image: CGImage?, name: String) async -> TextureResource? {
+        guard let image else { return nil }
+        return try? await TextureResource(image: image, withName: name, options: .init(semantic: .color))
     }
 
     @MainActor

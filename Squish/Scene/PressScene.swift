@@ -78,6 +78,10 @@ final class PressScene {
     /// Assets are in; now wait for a few smooth frames (first-draw shader compiles happen while still transparent).
     private var assetsReady = false
     private var smoothFrames = 0
+    private var iblRequested = false
+    private var iblFade: Float = 1
+    /// Fills the shadow side until the IBL arrives (then fades out).
+    private let fallbackFill = PointLight()
     private let createdAt = CACurrentMediaTime()
     private var objectRequest = 0
     private var warmedKinds: Set<ObjectKind> = []
@@ -110,7 +114,6 @@ final class PressScene {
         root.addChild(camera)
         frame(size: CGSize(width: 402, height: 874))
         if DemoScenario.current?.has("calib") == true { buildCalibrationCards() }
-        loadStudioLight()
         SceneTrace.mark("init end")
     }
 
@@ -193,6 +196,8 @@ final class PressScene {
             if smoothFrames >= 4 { markStudioReady(timedOut: false) }
         }
         clock += dt
+        updateLightFade(dt: dt)
+        if !iblRequested && CACurrentMediaTime() - createdAt > 6 { loadStudioLight() }
         // The placement / power-on timeline starts once the studio is visible.
         if isStudioReady { sinceSet += dt }
         if !isStudioReady && CACurrentMediaTime() - createdAt > 4 { markStudioReady(timedOut: true) }
@@ -420,11 +425,16 @@ final class PressScene {
         view.alpha = isStudioReady ? 1 : 0
     }
 
+    /// The full studio IBL. Started only after the first sweep texture is up (its prefilter takes ~6 s on the CI
+    /// simulator and serialises other texture uploads behind it). Until it lands, the key + rim + a fallback fill
+    /// light the scene; then the IBL cross-fades in over 0.6 s while the fill fades out (no lighting pop).
     private func loadStudioLight() {
-        let exponent = style.iblExponent
+        guard !iblRequested else { return }
+        iblRequested = true
         let turns = style.iblQuarterTurns
         Task { @MainActor [weak self] in
-            guard let holder = await StudioEnvironment.makeLight(exponent: exponent), let self else { return }
+            // Start fully dimmed (2^-8); `updateLightFade` ramps it to `style.iblExponent`.
+            guard let holder = await StudioEnvironment.makeLight(exponent: (self?.style.iblExponent ?? 0) - 8), let self else { return }
             holder.orientation = simd_quatf(angle: Float(turns) * .pi / 2, axis: [0, 1, 0])
             self.root.addChild(holder)
             self.iblHolder = holder
@@ -433,15 +443,28 @@ final class PressScene {
                 entity.components.set(receiver)
             }
             self.iblReady = true
-            SceneTrace.mark("ibl ready")
-            self.checkStudioReady()
+            self.iblFade = 0
+            SceneTrace.mark("ibl ready (cross-fading)")
         }
+    }
+
+    /// Cross-fades fallback fill → IBL: linear in intensity (the IBL exponent is log2).
+    private func updateLightFade(dt: Float) {
+        guard iblReady, iblFade < 1, let holder = iblHolder,
+              var ibl = holder.components[ImageBasedLightComponent.self] else { return }
+        iblFade = min(iblFade + dt / 0.6, 1)
+        let k = iblFade * iblFade * (3 - 2 * iblFade)
+        ibl.intensityExponent = style.iblExponent + log2(max(k, 1.0 / 256))
+        holder.components.set(ibl)
+        fallbackFill.light.intensity = style.fallbackFillIntensity * (1 - k)
+        fallbackFill.isEnabled = k < 1
     }
 
     // MARK: - Startup readiness
 
+    /// Ready = sweep + object (+ the always-present fallback light), then a few smooth frames. The IBL fades in later.
     private func checkStudioReady() {
-        guard !isStudioReady, iblReady, sweepReady, objectView != nil else { return }
+        guard !isStudioReady, sweepReady, objectView != nil else { return }
         if !assetsReady { SceneTrace.mark("assets ready (waiting for smooth frames)") }
         assetsReady = true
     }
@@ -452,7 +475,7 @@ final class PressScene {
         isStudioReady = true
         if DemoScenario.current != nil {
             let seconds = CACurrentMediaTime() - createdAt
-            let pending = [iblReady ? "" : "ibl", sweepReady ? "" : "sweep", objectView == nil ? "object" : "",
+            let pending = [sweepReady ? "" : "sweep", objectView == nil ? "object" : "",
                            assetsReady ? "smooth frames" : ""]
                 .filter { !$0.isEmpty }.joined(separator: ", ")
             let note = timedOut ? " (timed out; pending: \(pending))" : ""
@@ -462,8 +485,11 @@ final class PressScene {
         if let view = arView {
             UIView.animate(withDuration: fx.reduceMotion ? 0.1 : 0.25) { view.alpha = 1 }
         }
-        // Background pre-baking waits until the first frames have settled (CPU contention slowed early frames on CI).
+        // The IBL starts once the first frames are flowing (its prefilter is the heaviest startup job), and background
+        // pre-baking waits longer still (CPU contention slowed early frames on CI).
         Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            self?.loadStudioLight()
             try? await Task.sleep(for: .seconds(4))
             self?.prebakeRemainingSweeps()
             self?.prewarmRemainingObjects()
@@ -484,7 +510,7 @@ final class PressScene {
                     ImageBox(image: StudioEnvironment.sweepImage(gel: gel, golden: golden, flipV: flip))
                 }.value
                 guard let self else { return }
-                if self.sweepTextures[gel] == nil, let texture = StudioEnvironment.texture(box.image, name: "sweep.\(gel)") {
+                if self.sweepTextures[gel] == nil, let texture = await StudioEnvironment.textureAsync(box.image, name: "sweep.\(gel)") {
                     self.sweepTextures[gel] = texture
                 }
             }
@@ -839,9 +865,8 @@ final class PressScene {
                 })
             }.value
             guard let self else { return }
-            guard let texture = SceneTrace.measure("sweep texture (main)", {
-                StudioEnvironment.texture(box.image, name: "sweep.\(gel)")
-            }) else {
+            SceneTrace.mark("sweep texture start (async)")
+            guard let texture = await StudioEnvironment.textureAsync(box.image, name: "sweep.\(gel)") else {
                 // Never block readiness on a missing texture: the tone-free floor-colour placeholder stays.
                 SceneTrace.mark("sweep texture FAILED")
                 self.sweepReady = true
@@ -879,6 +904,12 @@ final class PressScene {
         rim.light.attenuationRadius = 2
         rim.look(at: [0, 0.05, 0], from: style.rimPosition, relativeTo: nil)
         root.addChild(rim)
+
+        fallbackFill.light.intensity = style.fallbackFillIntensity
+        fallbackFill.light.color = style.fillColor
+        fallbackFill.light.attenuationRadius = 3
+        fallbackFill.position = style.fallbackFillPosition
+        root.addChild(fallbackFill)
 
         flash.light.intensity = 0
         flash.light.color = style.flashColor

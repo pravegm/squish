@@ -86,13 +86,14 @@ final class SodaCanView: PressObjectView {
         sprayAngle = Float.random(in: 0.6...1.4, using: &rng) // toward the camera side (+Z)
 
         // Fully printed body (print up to the shoulder; brighter lime, less metallic: VISUAL-REVIEW-1 fix 11).
+        // The print texture is created asynchronously (never block main); the plain field shows until it lands.
+        let labelSeed = variant.seed % 4
+        let cachedLabel = look.golden ? nil : Self.labelTextures[labelSeed]
         let label: PhysicallyBasedMaterial
         if look.golden {
             label = SceneMaterials.gold
-        } else if let texture = Self.labelTexture(seed: variant.seed % 4) {
-            var m = SceneMaterials.textured(texture, roughness: 0.22, clearcoat: 1, metallic: 0.35)
-            m.clearcoatRoughness = .init(floatLiteral: 0.06)
-            label = m
+        } else if let cachedLabel {
+            label = Self.labelMaterial(cachedLabel)
         } else {
             label = SceneMaterials.enamel(UIColor(hex: 0x96DB4E), roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.06, metallic: 0.35)
         }
@@ -112,13 +113,25 @@ final class SodaCanView: PressObjectView {
         tab = Part.add(cached: "can.tab", { MeshKit.roundedBox([0.022, 0.001, 0.012], radius: 0.004, bevel: 0.0004) },
                        aluminium, at: [0.008 * ObjectMeshes.canR, 0.1462 * ObjectMeshes.canY, 0], to: entity)
         entity.orientation = Part.yaw(-15)
+        if !look.golden && cachedLabel == nil {
+            Task { @MainActor [weak self] in
+                guard let texture = await Self.loadLabelTexture(seed: labelSeed), let self else { return }
+                self.can.setMaterial(Self.labelMaterial(texture), forSlot: 0)
+            }
+        }
     }
 
-    /// The FIZZO print (one of 4 seeded bubble layouts), drawn once and cached.
-    private static func labelTexture(seed: UInt64) -> TextureResource? {
+    private static func labelMaterial(_ texture: TextureResource) -> PhysicallyBasedMaterial {
+        var m = SceneMaterials.textured(texture, roughness: 0.22, clearcoat: 1, metallic: 0.35)
+        m.clearcoatRoughness = .init(floatLiteral: 0.06)
+        return m
+    }
+
+    /// The FIZZO print (one of 4 seeded bubble layouts), drawn once and uploaded asynchronously.
+    private static func loadLabelTexture(seed: UInt64) async -> TextureResource? {
         if let cached = labelTextures[seed] { return cached }
         let image = RigTextures.canLabel(field: UIColor(hex: 0x96DB4E), drop: UIColor(hex: 0x2F7A1E), seed: 0xF122 &+ seed)
-        let texture = StudioEnvironment.texture(image, name: "can.label.\(seed)")
+        let texture = await StudioEnvironment.textureAsync(image, name: "can.label.\(seed)")
         labelTextures[seed] = texture
         return texture
     }

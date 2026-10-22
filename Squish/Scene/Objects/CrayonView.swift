@@ -22,6 +22,7 @@ final class CrayonView: PressObjectView {
     private var rng = SplitMix64(seed: 0)
     private let body = Entity()
     private var pieces: [Entity] = []
+    private var wrappers: [ModelEntity] = []
     private var chunk: Entity?
     private var failed = false
     private let failC: Float
@@ -54,9 +55,11 @@ final class CrayonView: PressObjectView {
         let coreColour = variant.surprise == .secondColourCore ? Palette.raspberry : UIColor(hex: 0x6F8EF2)
         let coreMaterial = SceneMaterials.pbr(coreColour, roughness: 0.45)
         // Printed wrapper (cobalt wave band + "WAXO", VISUAL-REVIEW-1 fix 11); Golden prints in dark gold.
+        // The print uploads asynchronously (never block main); plain paper shows until it lands.
+        let cachedWrapper = look.golden ? nil : Self.wrapperTexture
         let paper: PhysicallyBasedMaterial
-        if let texture = Self.wrapper(band: look.golden ? UIColor(hex: 0x8A5A00) : Palette.cobalt, golden: look.golden) {
-            paper = SceneMaterials.textured(texture, roughness: 0.75)
+        if let cachedWrapper {
+            paper = SceneMaterials.textured(cachedWrapper, roughness: 0.75)
         } else {
             paper = SceneMaterials.pbr(UIColor(hex: 0xF4ECDD), roughness: 0.75)
         }
@@ -89,19 +92,28 @@ final class CrayonView: PressObjectView {
                 let r = 0.0114 * Self.kR
                 let wrapper = MeshKit.latheUV(profile: [SIMD2(r, lo), SIMD2(r, (lo + hi) / 2), SIMD2(r, hi)], segments: 48,
                                               vRange: Self.wrapperRange)
-                Part.add(wrapper.translated([0, -mid, 0]), paper, to: piece)
+                wrappers.append(Part.add(wrapper.translated([0, -mid, 0]), paper, to: piece))
             }
             axial.addChild(piece)
             pieces.append(piece)
         }
         entity.addChild(body)
         entity.orientation = Part.yaw(-20)
+        if cachedWrapper == nil {
+            let band = look.golden ? UIColor(hex: 0x8A5A00) : Palette.cobalt
+            let golden = look.golden
+            Task { @MainActor [weak self] in
+                guard let texture = await Self.wrapper(band: band, golden: golden), let self else { return }
+                let material = SceneMaterials.textured(texture, roughness: 0.75)
+                for model in self.wrappers { model.model?.materials = [material] }
+            }
+        }
     }
 
     /// The WAXO wrapper print (drawn once; the Golden print is drawn on demand).
-    private static func wrapper(band: UIColor, golden: Bool) -> TextureResource? {
+    private static func wrapper(band: UIColor, golden: Bool) async -> TextureResource? {
         if !golden, let cached = wrapperTexture { return cached }
-        let texture = StudioEnvironment.texture(RigTextures.crayonWrapper(band: band), name: golden ? "crayon.wrapper.gold" : "crayon.wrapper")
+        let texture = await StudioEnvironment.textureAsync(RigTextures.crayonWrapper(band: band), name: golden ? "crayon.wrapper.gold" : "crayon.wrapper")
         if !golden { wrapperTexture = texture }
         return texture
     }

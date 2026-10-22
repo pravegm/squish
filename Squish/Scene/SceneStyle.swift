@@ -34,6 +34,10 @@ struct SceneStyle {
     var rimIntensity: Float = 5000                       // lumens [tune]
     var rimColor = UIColor(red: 1.00, green: 0.93, blue: 0.82, alpha: 1)
     var rimPosition = SIMD3<Float>(0.25, 0.45, -0.45)
+    /// Startup fill (point light near the camera) that stands in for the IBL until it has prefiltered, then fades out.
+    var fallbackFillIntensity: Float = 6000                // lumens [tune]
+    var fallbackFillPosition = SIMD3<Float>(0.18, 0.32, 0.55)
+    var fillColor = UIColor(red: 0.94, green: 0.97, blue: 1.00, alpha: 1)
     var rimInner: Float = 20
     var rimOuter: Float = 35
     /// IBL exponent (2^x). 8-bit HDRI path: 0 + 2.3 (§3.3.1) [tune].
