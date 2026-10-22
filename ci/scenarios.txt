@@ -3,7 +3,7 @@
 02-duck-idle|object=rubberDuck
 03-duck-mid|object=rubberDuck;depth=0.6
 04-bubble-mid|object=bubbleWrap;depth=0.55
-05-reveal-duck|object=rubberDuck;reveal
+05-reveal-duck|object=rubberDuck;reveal|30
 20-shelf|shelf
 21-shelf-squished|shelf=squished
 22-detail|detail
@@ -19,7 +19,7 @@
 31-bubble-mid|object=bubbleWrap;depth=0.6
 32-bubble-done|object=bubbleWrap;depth=1
 33-duck-idle|object=rubberDuck
-34-duck-mid|object=rubberDuck;depth=0.6
+34-duck-mid|object=rubberDuck;depth=0.6|30
 35-duck-done|object=rubberDuck;depth=1
 36-jelly-idle|object=jelly
 37-jelly-mid|object=jelly;depth=0.6
@@ -40,7 +40,7 @@
 52-gummy-mid|object=gummyBear;depth=0.6
 53-gummy-done|object=gummyBear;depth=1
 54-glass-idle|object=glassBottle
-55-glass-mid|object=glassBottle;depth=0.6
+55-glass-mid|object=glassBottle;depth=0.6|30
 56-glass-done|object=glassBottle;depth=1
 57-ball-idle|object=unsquishable
 58-ball-mid|object=unsquishable;depth=0.6
@@ -73,3 +73,5 @@
 97-fold-can-60|object=sodaCan;foldsim=60|24
 98-fold-ball-60|object=unsquishable;foldsim=60|24
 99-fold-jelly-reveal|object=jelly;foldsim=45,170|24
+# App Store icon art (AppIconArt), cropped to ci-screens/AppIcon-1024.png by ci/screenshots.sh
+85-icon|icon|8

@@ -959,8 +959,14 @@ final class PressScene {
     private var foldAnvil: Entity?
 
     func setFraming(_ mode: FramingMode, anvil: Entity? = nil) {
+        let wasFold = framing == .foldAnvil
         framing = mode
         let fold = mode == .foldAnvil
+        if wasFold && !fold {
+            // Handing back to the P-48 ARView: re-add the camera so the new scene registers it as its camera.
+            camera.removeFromParent()
+            root.addChild(camera)
+        }
         rig.root.isEnabled = !fold
         sweep.isEnabled = !fold
         // The Duo stage brings its own camera (a camera moved in from the P-48 ARView's scene isn't picked up).

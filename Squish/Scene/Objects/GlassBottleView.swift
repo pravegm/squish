@@ -25,6 +25,9 @@ final class GlassBottleView: PressObjectView {
     private var shards: [ModelEntity] = []
     private var glassParts: [ModelEntity] = []
     private var glassDust: ModelEntity?
+    /// Bottle-local outward normal of each shard (to lay it flat, outer face up, on shatter).
+    private var shardNormals: [SIMD3<Float>] = []
+    private var sparkles: [Entity] = []
     private var cracks: [Entity] = []
     private var message: Entity?
     private let failC: Float
@@ -69,6 +72,8 @@ final class GlassBottleView: PressObjectView {
         bottle.addChild(axial)
 
         let profile = Self.profile
+        let normals2 = MeshKit.profile2DNormals(profile)
+        let sparkleMaterial = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF))
         func ring(at y: Float) -> Int {
             profile.firstIndex { $0.y >= y } ?? profile.count - 1
         }
@@ -85,19 +90,38 @@ final class GlassBottleView: PressObjectView {
             for k in 0..<n {
                 let patch = MeshKit.lathePatch(profile: profile, rings: rings, angles: cuts[k]...cuts[k + 1],
                                                angularSteps: max(4, 48 / n), thickness: 0.0022)
+                let mid = (rings.lowerBound + rings.upperBound) / 2
+                let theta = (cuts[k] + cuts[k + 1]) / 2
+                let n2 = normals2[mid]
+                let normal = simd_normalize(SIMD3<Float>(n2.x * cos(theta), n2.y, n2.x * sin(theta)))
+                // Author each shard with its outward normal as local +Y (its thin axis), so once it lies flat the debris
+                // settling keeps it flat instead of tipping it onto an edge.
+                let toLocal = simd_quatf(from: normal, to: [0, 1, 0])
+                let rotate = simd_float4x4(toLocal)
                 let shard = ModelEntity()
-                let model = MeshKit.entity(patch.mesh, materials: [outer, inner], name: "glass.shard")
+                let model = MeshKit.entity(patch.mesh.transformed(rotate), materials: [outer, inner], name: "glass.shard")
                 shard.addChild(model)
                 glassParts += Self.models(in: model)
                 shard.position = patch.centre
+                shard.orientation = toLocal.inverse
+                shardNormals.append([0, 1, 0])
+                // A static specular sparkle on some shards, shown once the pile lies flat (reads as glass, not paper).
+                if (b + k) % 3 == 0 {
+                    let sparkle = ModelEntity(mesh: MeshCache.resource("glass.sparkle") { MeshKit.ellipsoid(radii: [0.0016, 0.0005, 0.0016], segments: 12, rings: 6) }
+                                              ?? .generateSphere(radius: 0.001), materials: [sparkleMaterial])
+                    sparkle.position = [0, 0.0016, 0]
+                    sparkle.isEnabled = false
+                    shard.addChild(sparkle)
+                    sparkles.append(sparkle)
+                }
                 // The paper label wraps the middle bands.
                 if b == 2 || b == 3 {
                     let labelPatch = MeshKit.lathePatch(
                         profile: profile.map { SIMD2($0.x + 0.0006, $0.y) }, rings: rings,
                         angles: (cuts[k] + 0.0008)...(cuts[k + 1] - 0.0008), angularSteps: max(4, 48 / n), thickness: 0.0005)
-                    let labelEntity = MeshKit.entity(labelPatch.mesh, materials: [b == 2 ? label : labelStripe, label],
+                    let labelEntity = MeshKit.entity(labelPatch.mesh.transformed(rotate), materials: [b == 2 ? label : labelStripe, label],
                                                      name: "glass.label")
-                    labelEntity.position = labelPatch.centre - patch.centre
+                    labelEntity.position = toLocal.act(labelPatch.centre - patch.centre)
                     shard.addChild(labelEntity)
                 }
                 axial.addChild(shard)
@@ -136,8 +160,9 @@ final class GlassBottleView: PressObjectView {
         if failed, let dust = glassDust {
             // A soft sea-glass spread under the flattened shards: footprint ≥ 1.3× (FOLD-REVIEW-1 #2).
             let t = clamp((state.compression - failC) / max(1 - failC, 0.05), 0, 1)
-            let radius: Float = 0.062 + 0.035 * t
-            dust.scale = SIMD3(radius, 0.0012, radius * 0.75)
+            // Small and faint (FOLD-REVIEW-2 #2): world 0.040 + 0.015·t, in local units (÷ heroScale).
+            let radius: Float = (0.040 + 0.015 * t) / Self.heroScale
+            dust.scale = SIMD3(radius, 0.0008, radius * 0.75)
         }
         guard !failed else { return }
         let s = surfaceHeight(compression: state.compression) / restHeight
@@ -182,10 +207,10 @@ final class GlassBottleView: PressObjectView {
     private func shatter(state: PressVisualState) {
         failed = true
         let dustMaterial = look.golden ? SceneMaterials.goldMess
-            : SceneMaterials.enamel(UIColor(hex: 0x8FE0D3), roughness: 0.25, clearcoat: 0.8, clearcoatRoughness: 0.2, opacity: 0.45)
-        let dust = ModelEntity(mesh: MeshCache.resource("glass.dust") { MeshKit.spreadDisc(seed: 0x6D, height: 1, segments: 48, wobble: 0.2) }
+            : SceneMaterials.enamel(UIColor(hex: 0x8FE0D3), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.3, opacity: 0.22)
+        let dust = ModelEntity(mesh: MeshCache.resource("glass.dust") { MeshKit.spreadDisc(seed: 0x6D, height: 1, segments: 48, wobble: 0.08) }
                                ?? .generateSphere(radius: 0.01), materials: [dustMaterial])
-        dust.scale = SIMD3(0.062, 0.0012, 0.046)
+        dust.scale = SIMD3(0.047, 0.0008, 0.035)
         dust.position = [0, 0.0002, 0]
         entity.addChild(dust)
         glassDust = dust
@@ -193,21 +218,31 @@ final class GlassBottleView: PressObjectView {
         for line in cracks { line.removeFromParent() }
         cracks.removeAll()
         let m = fx.motionScale
-        let axisStart = bottle.convert(position: [0, -Self.length / 2, 0], to: fx.root)
-        let axisEnd = bottle.convert(position: [0, Self.length / 2, 0], to: fx.root)
-        let axis = simd_normalize(axisEnd - axisStart)
-        for shard in shards {
+        // The bottle collapses into a pile of chunky shards lying flat on the plate (FOLD-REVIEW-2 #2): each shard is
+        // turned outer-face-up with a seeded yaw, dropped to plate height and spread 0.6–1.3× the footprint, then
+        // skids outward (no tumbling, so nothing ends up standing on edge; necks and the base lie down too).
+        let centre0 = entity.convert(position: [0, 0, 0], to: fx.root)
+        let footprintWorld = footprint
+        for (i, shard) in shards.enumerated() {
+            let worldNormal = simd_normalize(shard.convert(direction: shardNormals[i], to: fx.root))
             let p = shard.position(relativeTo: fx.root)
-            // Radial direction away from the bottle's axis, plus a little along it.
-            let along = simd_dot(p - axisStart, axis)
-            let onAxis = axisStart + axis * along
-            var radial = p - onAxis
-            radial.y = max(radial.y, 0) + 0.004
+            var radial = SIMD3<Float>(p.x - centre0.x, 0, p.z - centre0.z)
+            if simd_length(radial) < 1e-4 {
+                let a = Float.random(in: 0...(2 * .pi), using: &rng)
+                radial = SIMD3(cos(a), 0, sin(a)) * 0.01
+            }
             let dir = simd_normalize(radial)
-            let speed = Float.random(in: 0.35...0.75, using: &rng)
-            let v = (dir * speed + axis * Float.random(in: -0.12...0.12, using: &rng) + SIMD3(0, 0.45, 0)) * m
-            fx.debris.adopt(shard, velocity: v, spin: Burst.spin(16 * m, rng: &rng), bounciness: 0.3, friction: 0.55)
+            let reach = footprintWorld * Float.random(in: 0.6...1.3, using: &rng) * min(simd_length(radial) / 0.03 + 0.4, 1)
+            shard.setParent(fx.debris.root, preservingWorldTransform: true)
+            let flat = simd_quatf(from: worldNormal, to: [0, 1, 0])
+            let yaw = simd_quatf(angle: Float.random(in: -0.6...0.6, using: &rng), axis: [0, 1, 0])
+            shard.orientation = simd_normalize(yaw * flat * shard.orientation)
+            shard.position = SIMD3(centre0.x, 0.004, centre0.z) + dir * reach * 0.55
+            let v = (dir * Float.random(in: 0.18...0.4, using: &rng) + SIMD3(0, 0.12, 0)) * m
+            fx.debris.adopt(shard, velocity: v, spin: SIMD3(0, Float.random(in: -4...4, using: &rng) * m, 0),
+                            bounciness: 0.1, friction: 0.8)
         }
+        for sparkle in sparkles { sparkle.isEnabled = true }
         let centre = entity.convert(position: [0, 0.03, 0], to: fx.root)
         fx.particles.burst(.glint, count: 14, at: centre, speed: 0.6 * max(m, 0.3), colors: [UIColor(hex: 0xFFFFFF), UIColor(hex: 0xD8FFF8)],
                            size: 0.003...0.006, spread: 0.03, upBias: 0.2, life: 0.35, rng: &rng)

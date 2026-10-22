@@ -22,6 +22,8 @@ struct FoldFrame {
     var dt: Double
     /// Invitation sweep override (§7): 0 = far edge … 1 = crease; nil follows the real angle.
     var sweep: Double?
+    /// The sweep is the fold invitation (not the reveal's peel shimmer): the grip pads pulse with it.
+    var inviting = false
 }
 
 /// One object's print on the platen (§9.5 items 5–7), in print space: approach shadows, the growing ink (masked by a
@@ -131,7 +133,7 @@ final class FoldPrintStack {
         contactAge = 0
         if stamp.kind == .sodaCan, let ctx = decalContext {
             // The can's rim meets the plate first: a ring stamp (§3.2).
-            FoldStamps.ring(ctx, .zero, stamp.featureRadius, 2.4, Palette.lime.withAlphaComponent(0.85))
+            FoldStamps.ring(ctx, .zero, stamp.featureRadius, 2.0, stamp.inkEdge.withAlphaComponent(0.7))
             decal.contents = ctx.makeImage()
         }
     }
@@ -186,11 +188,13 @@ final class FoldPrintStack {
         let gap = f.contacted ? 0 : 1 - f.approach
         let shadow = FoldCurve.shadow(gap: gap)
         let weights: [Double]
-        if shadow.blur <= 16 {
-            let t = (shadow.blur - 4) / 12
+        // Small objects vanish under a 40 pt blur (FOLD-REVIEW-2 #4: no shadow for duck/can at 180°): cap it at 28.
+        let blur = min(shadow.blur, 28)
+        if blur <= 16 {
+            let t = (blur - 4) / 12
             weights = [1 - t, t, 0]
         } else {
-            let t = (shadow.blur - 16) / 24
+            let t = (blur - 16) / 24
             weights = [0, 1 - t, t]
         }
         let presence = f.objectPresent ? 1.0 : 0
@@ -253,7 +257,8 @@ final class FoldPrintStack {
         // 4–5. Splat, then the monoprint spreads with the anvil's mess.
         if let failC = f.failureCompression, splat.opacity > 0 {
             let spread = clamp((f.printCompression - failC) / max(1 - failC, 0.05), 0, 1)
-            let target = 0.85 + 0.35 * spread
+            // Glass frost is pressed into the plate; it doesn't spread (scaling it pushed it past the steel).
+            let target = stamp.kind == .glassBottle ? 1 : 0.85 + 0.35 * spread
             splatScale += (target - splatScale) * (1 - pow(0.5, f.dt / 0.045))
             splat.setAffineTransform(CGAffineTransform(scaleX: CGFloat(splatScale), y: CGFloat(splatScale)))
         }
@@ -371,6 +376,7 @@ final class FoldPlaten {
     private var bolts: [CALayer] = []
     private var pins: [CALayer] = []
     private var pinRims: [CALayer] = []
+    private var gripPads: [CALayer] = []
     private let crack = CAShapeLayer()
     private let crackLight = CAShapeLayer()
     private let printHolder = CALayer()
@@ -459,7 +465,8 @@ final class FoldPlaten {
             layer.insertSublayer(b, above: sheenHolder)
             bolts.append(b)
         }
-        let pinImage = FoldTextures.pin(diameter: CGFloat(FoldMetrics.pinDiameter), ring: false)
+        // FOLD-REVIEW-2 #12: the same dark stud as the anvil's bushing; the bright rim only arrives after 150°.
+        let pinImage = FoldTextures.pin(diameter: CGFloat(FoldMetrics.pinDiameter), ring: true)
         for p in layout.guidePins(platen: true) {
             let pin = CALayer()
             pin.contents = pinImage
@@ -481,6 +488,30 @@ final class FoldPlaten {
             rim.opacity = 0
             layer.insertSublayer(rim, above: pin)
             pinRims.append(rim)
+        }
+        // Grip pads (§7.3, FOLD-REVIEW-2 #11): two soft amber pads at the platen's far corners, where you'd pick up
+        // a lid; they pulse with the invitation sweep only.
+        for pad in gripPads { pad.removeFromSuperlayer() }
+        gripPads = []
+        let padImage = FoldStamps.softDisc(size: 96, feather: 0.9, color: Palette.hydraulicYellow)
+        let corners: [CGPoint]
+        if layout.isBook {
+            let d = -layout.platenReach + FoldMetrics.jaw + 26
+            corners = [layout.point(lateral: layout.platenFieldLateral.lowerBound + 26, depth: d),
+                       layout.point(lateral: layout.platenFieldLateral.upperBound - 26, depth: d)]
+        } else {
+            let d = layout.platenRailDepth.lowerBound + 26
+            corners = [layout.point(lateral: FoldMetrics.rail + 26, depth: d),
+                       layout.point(lateral: layout.lateralLength - FoldMetrics.rail - 26, depth: d)]
+        }
+        for c in corners {
+            let pad = CALayer()
+            pad.contents = padImage
+            pad.bounds = CGRect(x: 0, y: 0, width: 64, height: 64)
+            pad.position = c
+            pad.opacity = 0
+            layer.insertSublayer(pad, below: dim)
+            gripPads.append(pad)
         }
         printHolder.frame = half
         printHolder.bounds = half
@@ -617,6 +648,8 @@ final class FoldPlaten {
         let approachRim = clamp((150 - f.angle) / 18, 0, 1)
         let glint = f.sweep.map { exp(-pow(($0 - 1) / 0.12, 2)) } ?? 0
         for rim in pinRims { rim.opacity = Float(min(1, max(approachRim * 1.3, glint))) }
+        let grip = f.inviting ? (f.sweep.map { sin(.pi * clamp($0, 0, 1)) } ?? 0) : 0
+        for pad in gripPads { pad.opacity = Float(0.35 * grip) }
 
         stack?.update(f)
         for s in outgoing { s.update(f) }

@@ -4,6 +4,8 @@
 
 ---
 
+> **Amendment (22 Oct 2026): Squish is iPhone Duo-first.** On a Duo the two halves of the inner screen *are* the press plates: the bottom (tabletop) or trailing (book) half is the anvil with the 3D object; the other half is the platen face, where the object's shadow sharpens, kisses and becomes an ink contact print. Closing the phone visibly closes the press on the object. This presentation, **Fold Press**, is specified in `design/FOLD-PRESS.md`, which **supersedes** the virtual-ram choices in §2, the mapping numbers in §6.2–6.3 and the layout in §9 on a Duo (see FOLD-PRESS §11 for the line-by-line amendments). The P-48 press-machine view described below remains the experience on iPhones without a hinge. Current mapping: arm ≥ 130°, θ0 ≤ 168°, contact at min(132°, θ0 − 12°), visual flat at 48°, ease 1.7; failures land 96–64° (soft objects 73–64°), and the final crunch and ka-chunk land on the magnet clap.
+
 ## 0. The one-paragraph product
 
 **Squish turns your £2,000 phone into a hydraulic press.** Pick a (virtual) object: bubble wrap, a rubber duck, an egg, a glass bottle. It sits on the lower half of the screen. Push the top half down slowly and watch, hear and *feel* it strain, crack and give way, all following your hand. Snap the phone shut with a heavy *ka-chunk*. Open it again to reveal the flattened result, stamped as a pressed specimen and added to your collection. No ads, no in-app purchases, no timers. It's a calm, ridiculous and deeply satisfying ritual.

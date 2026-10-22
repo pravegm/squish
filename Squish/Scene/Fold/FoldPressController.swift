@@ -92,6 +92,7 @@ final class FoldPressController {
     func detach(host: FoldStageHostView) {
         guard self.host === host else { return }
         self.host = nil
+        scene = nil   // no fold side effect ever reaches the scene without a stage on screen
     }
 
     /// Called once per canvas size (never on division-region activation, §9.2).
@@ -165,6 +166,8 @@ final class FoldPressController {
         if phase == .pressing { hasFolded = true }
         if let revealAge { self.revealAge = revealAge + dt }
 
+        // Only while a fold stage is on screen: the P-48 path must never see a fold side effect.
+        guard host != nil else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -183,12 +186,13 @@ final class FoldPressController {
         let objectPresent = sinceSet > (firstObject ? 0.9 : 1.2) || phase == .pressing
 
         guard let layout else { return }
+        let sweepPosition = sweep(engine: engine, angle: angle, objectPresent: objectPresent,
+                                  reduceMotion: context.reduceMotion, dt: dt)
         let frame = FoldFrame(angle: angle, approach: approach, compression: renderCompression,
                               printCompression: printCompression, contacted: contacted, tell: tell,
                               failureCompression: failureCompression, objectPresent: objectPresent,
                               tabletop: !layout.isBook, reduceMotion: context.reduceMotion, time: clock, dt: dt,
-                              sweep: sweep(engine: engine, angle: angle, objectPresent: objectPresent,
-                                           reduceMotion: context.reduceMotion, dt: dt))
+                              sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil)
         platen.update(frame)
         bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: dt),
                      frame: frame)
@@ -396,7 +400,7 @@ final class FoldPressController {
         let distance = Float(simd_length(solution.eye) * k)
         let creaseZ = -(FoldMetrics.footprintFromAxisMM - FoldMetrics.creaseHalf / FoldMetrics.pointsPerMM)
         let lean = contacted ? Float(8 * Double.pi / 180 * renderCompression) : 0
-        let exposure = FoldCurve.exposure(eyeElevation: eye.renderElevation(pose))
+        let exposure = FoldCurve.exposure(eyeElevation: eye.renderElevation(pose), angle: angle)
         let stage = FoldStage(cameraPosition: toScene(solution.eye), cameraOrientation: simd_quatf(rotation),
                               verticalFOV: Float(solution.verticalFOV), near: max(0.01, distance * 0.1),
                               far: distance * 4, lean: lean, flashPosition: toScene(SIMD3<Double>(0, 30, creaseZ)),

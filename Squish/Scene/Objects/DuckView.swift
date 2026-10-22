@@ -30,6 +30,7 @@ final class DuckView: PressObjectView {
     private let seam = Entity()
     private var skirt = ModelEntity()
     private var seamPopped = false
+    private var deepest: Float = 1
     private var popC: Float = 1
 
     var shadowSpread: Float { spread }
@@ -62,13 +63,13 @@ final class DuckView: PressObjectView {
         let seamMaterial = SceneMaterials.pbr(UIColor(hex: 0x9A7414), roughness: 0.5)
         var previous: SIMD3<Float>?
         for k in 0...7 {
-            let x = -0.034 + 0.040 * Float(k) / 7
+            let x = -0.040 + 0.060 * Float(k) / 7
             let top = 0.026 + 0.026 * max(1 - (x / 0.038) * (x / 0.038), 0).squareRoot() + 0.0006
             let point = SIMD3<Float>(x, top, (k % 2 == 0 ? 0.0012 : -0.0012))
             if let previous {
                 let d = point - previous
                 let length = simd_length(d)
-                let segment = MeshKit.model(MeshKit.roundedBox([length + 0.0008, 0.0014, 0.0016], radius: 0.0005, bevel: 0.0003),
+                let segment = MeshKit.model(MeshKit.roundedBox([length + 0.0008, 0.0016, 0.0024], radius: 0.0006, bevel: 0.0003),
                                             material: seamMaterial)
                 segment.position = (point + previous) / 2
                 segment.orientation = simd_quatf(from: [1, 0, 0], to: d / max(length, 1e-6))
@@ -116,7 +117,11 @@ final class DuckView: PressObjectView {
     }
 
     func update(_ state: PressVisualState) {
-        let target = surfaceHeight(compression: state.compression) / restHeight
+        // Elastic rebound is capped at 15% of the deepest squash (FOLD-PRESS §6.2, FOLD-REVIEW-2 #5): the reveal shows
+        // the pressed specimen, not a duck that has re-inflated.
+        var target = surfaceHeight(compression: state.compression) / restHeight
+        deepest = min(deepest, target)
+        target = min(target, deepest + 0.15 * (1 - deepest))
         // The hand owns the squash; on unloading the vinyl springs back with overshoot (ζ 0.4).
         if target < height.value {
             height.value = target

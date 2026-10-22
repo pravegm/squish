@@ -214,11 +214,17 @@ final class FoldBezel {
         } else {
             platenFoot.isHidden = true
         }
-        // The lid's shade on the anvil (§2.4): the strike plate + 20 pt, soft, 0.30·a².
-        let anvilPlate = layout.strikePlate(platen: false).insetBy(dx: -20, dy: -20)
-        let blur: CGFloat = 14
-        plateShade.contents = FoldTextures.plateShade(size: anvilPlate.size, radius: 28, blur: blur)
-        plateShade.frame = anvilPlate.insetBy(dx: -2 * blur, dy: -2 * blur)
+        // The lid's shade on the anvil (§2.4, FOLD-REVIEW-2 #3): the platen plate's soft footprint, offset 12 pt toward
+        // the crease, blur 28, kept inside the plate + 8 pt (rounded), so no rectangular halo on the enamel.
+        let plate = layout.strikePlate(platen: false)
+        let canvas = plate.insetBy(dx: -8, dy: -8)
+        let towardCrease: CGPoint = layout.isBook ? CGPoint(x: -12, y: 0) : CGPoint(x: 0, y: -12)
+        let shape = plate.insetBy(dx: 22, dy: 22).offsetBy(dx: towardCrease.x, dy: towardCrease.y)
+        plateShade.contents = FoldTextures.plateShade(canvas: canvas.size,
+                                                      shape: shape.offsetBy(dx: -canvas.minX, dy: -canvas.minY),
+                                                      radius: CGFloat(FoldMetrics.plateRadius), blur: 28,
+                                                      clipRadius: CGFloat(FoldMetrics.plateRadius) + 8)
+        plateShade.frame = canvas
         plateShade.opacity = 0
 
         let cb = layout.consoleBand
@@ -234,9 +240,10 @@ final class FoldBezel {
         // UIKit rotations are clockwise-positive on screen.
         let tons = min(max(instruments.needle, -1), Double(FoldTextures.gaugeMaxTons) + 3)
         needle.setAffineTransform(CGAffineTransform(rotationAngle: FoldTextures.needleRotation(tons: tons)))
-        // Plate shade: the lid's shadow arrives on the anvil as it closes (0.30·a²), and stays while loaded.
-        let a = f.contacted ? 1 : f.approach
-        plateShade.opacity = Float(0.30 * a * a)
+        // Plate shade (FOLD-REVIEW-2 #3): driven by the virtual gap, never latched, so it lifts as the press opens
+        // and is gone at the reveal; 0.18·a² peak.
+        let a = clamp(f.approach, 0, 1)
+        plateShade.opacity = Float(0.18 * a * a)
         if lampState != (instruments.ready, instruments.load) {
             readyLamp.contents = lampImages[instruments.ready == 1 ? 1 : (instruments.ready == 2 ? 2 : 0)]
             let load = instruments.load == 1 ? 3 : (instruments.load == 2 ? 2 : 0)

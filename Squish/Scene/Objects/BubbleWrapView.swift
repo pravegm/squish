@@ -68,6 +68,8 @@ final class BubbleWrapView: PressObjectView {
             }) { crinkles.append(crinkle) }
         }
         entity.orientation = Part.yaw(12)
+        // Lifted 0.6 mm so the 0.8 mm film never z-fights the strike plate (FOLD-REVIEW-2 #8).
+        entity.position = [0, 0.0006, 0]
         let filmMaterial = look.golden ? SceneMaterials.gold
             : SceneMaterials.enamel(UIColor(hex: 0xDDEFF8), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
                                     specular: 0.6, opacity: 0.55)

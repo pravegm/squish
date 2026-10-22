@@ -561,9 +561,12 @@ enum FoldCurve {
     /// Fold-mode exposure (FOLD-REVIEW-1 #1): the studio IBL drops 0.5 EV, and a further 0.4 EV as the rendered eye
     /// goes grazing (low eyes see the bright studio mirrored in the clearcoat and steel). Returns (IBL EV offset,
     /// key-light gain) for a rendered eye elevation in degrees.
-    static func exposure(eyeElevation: Double) -> (iblOffset: Double, keyGain: Double) {
+    /// FOLD-REVIEW-2 #4: the flat pose (θ ≥ 160°, faded out by 140°) was then the over-exposed one (the field faces
+    /// the key and the studio head-on): a further −0.3 EV and −8 % key there, so the anvil tone holds across the range.
+    static func exposure(eyeElevation: Double, angle: Double = 120) -> (iblOffset: Double, keyGain: Double) {
         let grazing = clamp((75 - eyeElevation) / 25, 0, 1)
-        return (-0.5 - 0.4 * grazing, 0.92 - 0.12 * grazing)
+        let flat = clamp((angle - 140) / 20, 0, 1)
+        return (-0.5 - 0.4 * grazing - 0.3 * flat, (0.92 - 0.12 * grazing) * (1 - 0.08 * flat))
     }
 
     /// Print radius as a fraction of the full print: r = R·min(1, 1.1·√c) (§3.2).

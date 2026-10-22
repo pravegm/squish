@@ -121,9 +121,11 @@ private struct MachinePanel: View {
             .ignoresSafeArea()
             HStack(spacing: 0) {
                 // Hinge edge: the seam holding pressure.
-                LinearGradient(colors: [Theme.yellow.opacity(holdingPressure ? (glow ? 0.55 : 0.35) : 0), .clear],
-                               startPoint: .leading, endPoint: .trailing)
+                // 6 pt amber seam glow at 0.5, breathing with "OPEN TO SEE" (FOLD-REVIEW-2 #10).
+                Rectangle()
+                    .fill(Theme.yellow.opacity(holdingPressure ? (glow ? 0.5 : 0.3) : 0))
                     .frame(width: 6)
+                    .shadow(color: Theme.yellow.opacity(holdingPressure ? 0.5 : 0), radius: 6)
                 Spacer(minLength: 0)
                 HazardJaw()
                     .frame(width: 10)
@@ -131,7 +133,7 @@ private struct MachinePanel: View {
             .ignoresSafeArea()
             .onAppear {
                 guard holdingPressure, !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { glow = true }
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glow = true }
             }
             GeometryReader { proxy in
                 let inset: CGFloat = 14
@@ -207,12 +209,19 @@ private struct SealedInset: View {
                         .font(Theme.micro)
                         .tracking(Theme.microTracking)
                         .foregroundStyle(Theme.inkSecondary)
-                    // Graphite at 0.35 so it reads on paper (the embossed version was ~1.2:1).
-                    ObjectSilhouette(kind: kind)
-                        .fill(Theme.graphite.opacity(0.35))
-                        .frame(width: 56, height: 56)
-                        .scaleEffect(x: 1.3, y: 0.35)
-                        .frame(height: 24)
+                    // The object's print in its own ink at 0.5 — a recognisable shape, not a squashed grey blob
+                    // (FOLD-REVIEW-2 #10). Bubble wrap shows its domes so it never reads as a plain bar.
+                    ZStack {
+                        ObjectSilhouette(kind: kind)
+                            .fill(Theme.tint(for: kind).opacity(0.5))
+                        ObjectSilhouette(kind: kind)
+                            .stroke(Theme.graphite.opacity(0.35), lineWidth: 1)
+                        if kind == .bubbleWrap {
+                            ObjectTile(kind: kind, cornerRadius: 8)
+                                .opacity(0.6)
+                        }
+                    }
+                    .frame(width: 48, height: 48)
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -244,15 +253,19 @@ private struct SealedInset: View {
     }
 }
 
-/// The press gauge in miniature (VISUAL-TARGET §4.4): paper face, 270° sweep from 0 to 60 tons, red zone
-/// 48–60, needle springing up to the peak (no overshoot under Reduce Motion).
+/// The press gauge in miniature (VISUAL-TARGET §4.4): paper face, 270° sweep from 0 to the Fold Press dial's
+/// maximum (`FoldTextures.gaugeMaxTons`, one scale everywhere), red zone in its top quarter, needle springing
+/// up to the peak (no overshoot under Reduce Motion).
 struct MiniGauge: View {
     let tons: Int
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = 0.0
 
-    /// θ = 225° − 270°·(t/60), in maths degrees (counter-clockwise from +x).
-    private static func angle(_ tons: Double) -> Double { 225 - 270 * tons / 60 }
+    /// One scale with the inner gauge (FOLD-REVIEW-2 #10).
+    nonisolated static var maxTons: Double { Double(FoldTextures.gaugeMaxTons) }
+
+    /// θ = 225° − 270°·(t/max), in maths degrees (counter-clockwise from +x).
+    private static func angle(_ tons: Double) -> Double { 225 - 270 * tons / maxTons }
 
     var body: some View {
         GeometryReader { proxy in
@@ -262,23 +275,21 @@ struct MiniGauge: View {
             ZStack {
                 Circle().fill(Theme.paper)
                 Circle().strokeBorder(Theme.graphite, lineWidth: 3)
-                arc(center: center, radius: radius - 7, from: 48, to: 60)
+                arc(center: center, radius: radius - 7, from: Self.maxTons * 0.75, to: Self.maxTons)
                     .stroke(Theme.stamp, style: StrokeStyle(lineWidth: 4, lineCap: .butt))
-                ForEach(0...6, id: \.self) { step in
-                    tick(center: center, radius: radius - 4, tons: Double(step * 10), length: 6)
-                        .stroke(Theme.graphite, lineWidth: 1.5)
+                ForEach(0...8, id: \.self) { step in
+                    tick(center: center, radius: radius - 4, tons: Self.maxTons * Double(step) / 8,
+                         length: step % 2 == 0 ? 6 : 4)
+                        .stroke(Theme.graphite, lineWidth: step % 2 == 0 ? 1.5 : 1)
                 }
-                // Numerals so it reads as a gauge, not a clock (VISUAL-REVIEW-1, cover sealed).
-                ForEach([0, 30, 60], id: \.self) { value in
+                // Numerals on the same scale as the inner gauge (0 / 40 / 80). The "TONS" unit lives in the big
+                // readout below the dial, so nothing crowds the top numeral (FOLD-REVIEW-2 #10).
+                ForEach([0, Int(Self.maxTons / 2), Int(Self.maxTons)], id: \.self) { value in
                     Text("\(value)")
                         .font(.system(size: 7, weight: .bold, design: .monospaced))
                         .foregroundStyle(Theme.inkSecondary)
                         .position(point(center, radius - 17, Self.angle(Double(value))))
                 }
-                Text("TONS")
-                    .font(.system(size: 6, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Theme.inkSecondary)
-                    .position(x: center.x, y: center.y + 14) // 14 pt below the hub, clear of "60" and the needle
                 GaugeNeedle(tons: shown, inset: 9)
                     .fill(Theme.stamp)
                 Circle().fill(Theme.rgb(0xC9CCD2)).frame(width: 7, height: 7).position(center)
@@ -286,7 +297,7 @@ struct MiniGauge: View {
         }
         .accessibilityHidden(true)
         .onAppear {
-            let target = min(Double(tons), 62)
+            let target = min(Double(tons), Self.maxTons + 2)
             let animation: Animation = reduceMotion
                 ? .easeOut(duration: 0.15)
                 : .spring(response: 0.6, dampingFraction: 0.55).delay(0.15)
@@ -335,7 +346,7 @@ private struct GaugeNeedle: Shape {
     func path(in rect: CGRect) -> Path {
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let length = min(rect.width, rect.height) / 2 - inset
-        let a = 225 - 270 * tons / 60
+        let a = 225 - 270 * tons / Double(FoldTextures.gaugeMaxTons)
         func point(_ radius: CGFloat, _ degrees: Double) -> CGPoint {
             let radians = degrees * .pi / 180
             return CGPoint(x: center.x + CGFloat(cos(radians)) * radius, y: center.y - CGFloat(sin(radians)) * radius)

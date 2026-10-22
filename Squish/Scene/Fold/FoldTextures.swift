@@ -14,7 +14,9 @@ enum FoldTextures {
     static func enamel(gel: UInt32, golden: Bool, lit: Float = 1) -> UIColor {
         let a = StudioEnvironment.rgb(0xF1E9DC)
         let b = StudioEnvironment.rgb(golden ? 0xF3E6C4 : gel)
-        let c = (a + (b - a) * 0.35) * lit
+        // Gel strength 0.18 on both halves (FOLD-REVIEW-2 #12: the flat 2D platen showed the gel far more strongly
+        // than the lit anvil did at 0.35, so the pages read as two materials).
+        let c = (a + (b - a) * 0.18) * lit
         return UIColor(red: CGFloat(c.x), green: CGFloat(c.y), blue: CGFloat(c.z), alpha: 1)
     }
 
@@ -38,6 +40,9 @@ enum FoldTextures {
 
     /// The platen's strike plate as a 2D image: brushed steel, rounded, a 1 pt chamfer highlight, a soft key-light
     /// gradient from the upper left. `streaksAlongX`: true when the crease is horizontal on screen.
+    /// Base #B8BCC2: a touch darker than the P-48's #BFC3C8, to sit within ±12 L of the rendered anvil plate.
+    static let platenSteel = UIColor(hex: 0xB8BCC2)
+
     static func strikePlate(size: CGSize, radius: CGFloat, streaksAlongX: Bool, scale: CGFloat = 2) -> CGImage? {
         let rect = CGRect(origin: .zero, size: size)
         return FoldStamps.image(rect: rect, scale: scale) { ctx in
@@ -45,7 +50,7 @@ enum FoldTextures {
             ctx.addPath(shape)
             ctx.saveGState()
             ctx.clip()
-            ctx.setFillColor(Palette.brushedSteel.cgColor)
+            ctx.setFillColor(platenSteel.cgColor)
             ctx.fill(rect)
             var rng = SplitMix64(seed: 0x57EE2)
             var t: CGFloat = 0
@@ -327,15 +332,17 @@ enum FoldTextures {
         }.cgImage
     }
 
-    /// The plate shade (§2.4): a soft rounded rectangle of shadow ink, the size of the strike plate + 20 pt.
-    static func plateShade(size: CGSize, radius: CGFloat, blur: CGFloat = 14) -> CGImage? {
-        let pad = blur * 2
-        let rect = CGRect(x: -pad, y: -pad, width: size.width + 2 * pad, height: size.height + 2 * pad)
+    /// The plate shade (§2.4): `shape` (canvas-local) blurred by `blur`, in shadow ink, clipped to the canvas as a
+    /// rounded rectangle so it never ends on a straight edge.
+    static func plateShade(canvas: CGSize, shape: CGRect, radius: CGFloat, blur: CGFloat, clipRadius: CGFloat) -> CGImage? {
+        let rect = CGRect(origin: .zero, size: canvas)
         return FoldStamps.image(rect: rect, scale: 1) { ctx in
+            ctx.addPath(CGPath(roundedRect: rect, cornerWidth: clipRadius, cornerHeight: clipRadius, transform: nil))
+            ctx.clip()
             let shift = rect.width + 4 * blur
             ctx.setShadow(offset: CGSize(width: -shift, height: 0), blur: blur, color: Palette.shadowInk.cgColor)
             ctx.translateBy(x: shift, y: 0)
-            ctx.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size), cornerWidth: radius, cornerHeight: radius, transform: nil))
+            ctx.addPath(CGPath(roundedRect: shape, cornerWidth: radius, cornerHeight: radius, transform: nil))
             ctx.setFillColor(Palette.shadowInk.cgColor)
             ctx.fillPath()
         }

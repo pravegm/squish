@@ -154,6 +154,21 @@ struct RootView: View {
         .sheet(item: $sheet) { item in
             sheetContent(item)
         }
+        // ICON DEMO: `-squishDemo icon` shows only the app icon art, a full-width square centred on black, for
+        // ci/screenshots.sh to crop into AppIcon-1024.png. DEBUG only (DemoScenario.current is nil in release).
+        .overlay {
+            if DemoScenario.current?.has("icon") == true {
+                GeometryReader { geo in
+                    ZStack {
+                        Color.black
+                        AppIconArt()
+                            .frame(width: geo.size.width, height: geo.size.width)
+                    }
+                }
+                .ignoresSafeArea()
+            }
+        }
+        // ICON DEMO end
         .preferredColorScheme(.light)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)

@@ -265,11 +265,29 @@ enum FoldStamps {
         case .crayon: return (Palette.cobalt, UIColor(hex: 0x1D3BA8), 0.88)
         case .egg: return (UIColor(hex: 0xF3DFC0), UIColor(hex: 0xC9A877), 0.85)
         case .cakeSlice: return (UIColor(hex: 0xFF9BCB), UIColor(hex: 0xE05FA0), 0.88)
-        case .sodaCan: return (Palette.lime, UIColor(hex: 0x2F7A1E), 0.82)
+        case .sodaCan:
+            // One colour story (FOLD-REVIEW-2 #9): the seed's fizz, exactly as SodaCanView picks it.
+            let fizz = canFizz(variant)
+            return (fizz, darken(fizz, 0.35), 0.82)
         case .gummyBear: return (UIColor(hex: 0xFF5A4E), UIColor(hex: 0xC8203A), 0.72)
         case .glassBottle: return (UIColor(white: 1, alpha: 1), UIColor(white: 1, alpha: 1), 0.38)
         case .unsquishable: return (UIColor(white: 1, alpha: 1), Palette.ballSteel, 1)
         }
+    }
+
+    /// Mirrors SodaCanView's seeded fizz palette (first draw of SplitMix64(seed ^ 0x50DA)); the puddle colour.
+    static func canFizz(_ variant: PressVariant) -> UIColor {
+        if variant.isGolden { return Palette.gold }
+        if variant.surprise == .cherryFizz { return Palette.cherryFizz }
+        var rng = SplitMix64(seed: variant.seed ^ 0x50DA)
+        let puddles = [UIColor(hex: 0xC9EFA0), UIColor(hex: 0xFFB347), UIColor(hex: 0xC77DFF)]
+        return puddles[Int(rng.next() % UInt64(puddles.count))]
+    }
+
+    static func darken(_ color: UIColor, _ amount: CGFloat) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return UIColor(red: r * (1 - amount), green: g * (1 - amount), blue: b * (1 - amount), alpha: a)
     }
 
     // MARK: Images (print space, FoldPrintCanvas.rect)
@@ -414,7 +432,9 @@ enum FoldStamps {
                 if stamp.features.count >= 3 {
                     crack(ctx, from: stamp.features[1], to: stamp.features[2], segments: 7, jitter: 3, width: 2.4,
                           color: UIColor(hex: 0x8A5A00).withAlphaComponent(0.8), rng: &rng)
-                    fillDisc(ctx, stamp.features[0], 0.010 * k, (stamp.golden ? Palette.gold : Palette.beakOrange).withAlphaComponent(0.9))
+                    // The beak spot: an inked blob, not a flat disc (FOLD-REVIEW-2 #12).
+                    blob(ctx, stamp.features[0], 0.010 * k, lobes: 5,
+                         (stamp.golden ? Palette.gold : Palette.beakOrange).withAlphaComponent(0.78), rng: &rng)
                 }
                 return .none
             }
@@ -477,11 +497,11 @@ enum FoldStamps {
             }
             return .none
         case .sodaCan:
-            if !isFailure {
-                let r = stamp.featureRadius * (0.55 + 0.12 * CGFloat(index))
-                ring(ctx, .zero, r, 1.6, UIColor(hex: 0x2F7A1E).withAlphaComponent(0.7))
-                ring(ctx, .zero, r + 3, 0.8, UIColor(white: 1, alpha: 0.6))
-            }
+            // Each buckle stamps one radial crease (FOLD-REVIEW-2 #9: concentric rings read as a "power button").
+            let a = CGFloat(index) / 5 * 2 * .pi + CGFloat.random(in: -0.25...0.25, using: &rng)
+            let r0 = stamp.featureRadius * 0.3, r1 = stamp.featureRadius * 1.08
+            crack(ctx, from: CGPoint(x: cos(a) * r0, y: sin(a) * r0), to: CGPoint(x: cos(a) * r1, y: sin(a) * r1),
+                  segments: 4, jitter: 1.8, width: 1.6, color: stamp.inkEdge.withAlphaComponent(0.75), rng: &rng)
             return .none
         case .gummyBear:
             if !isFailure, index > 0 { return .none }
@@ -493,13 +513,16 @@ enum FoldStamps {
         case .glassBottle:
             let branches = isFailure ? 0 : (index == 0 ? 3 : 5)
             ctx.saveGState()
-            defer { ctx.restoreGState() }
             clipToPlate(ctx)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             for _ in 0..<branches {
                 let start = CGPoint(x: stamp.apex.x + CGFloat.random(in: -40...40, using: &rng),
                                     y: stamp.apex.y + CGFloat.random(in: -14...14, using: &rng))
                 frost(ctx, from: start, heading: CGFloat.random(in: 0...(2 * .pi), using: &rng), length: 46, depth: 2, rng: &rng)
             }
+            fadeInsidePlate(ctx)
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
             return .none
         case .unsquishable:
             return isFailure ? .platenBreaks : .pulse
@@ -582,11 +605,12 @@ enum FoldStamps {
                 }
                 fillDisc(ctx, stamp.apex, 2.2, Palette.graphite)   // the wick
             case .sodaCan:
-                let fizz = variant.surprise == .cherryFizz ? Palette.cherryFizz : (gold ? Palette.gold : UIColor(hex: 0xC9EFA0))
-                ring(ctx, .zero, stamp.featureRadius, 3, UIColor(hex: 0x9AA0A8).withAlphaComponent(0.9))
+                let fizz = canFizz(variant)
+                ring(ctx, .zero, stamp.featureRadius, 2, UIColor(hex: 0x9AA0A8).withAlphaComponent(0.8))
+                blob(ctx, CGPoint(x: stamp.featureRadius * 0.6, y: stamp.featureRadius * 0.4), stamp.featureRadius * 0.7,
+                     lobes: 7, fizz.withAlphaComponent(0.6), rng: &rng)
                 droplets(ctx, around: .zero, from: stamp.featureRadius * 1.25, to: stamp.featureRadius * 2.6, count: 26,
                          color: fizz.withAlphaComponent(0.85), rng: &rng)
-                gloss(ctx, .zero, stamp.featureRadius * 0.8)
             case .gummyBear:
                 let ink = (gold ? Palette.goldMessColor : UIColor(hex: 0xFF8A7F)).withAlphaComponent(0.85)
                 for s: CGFloat in [-1, 1] {
@@ -597,10 +621,13 @@ enum FoldStamps {
                 gloss(ctx, stamp.apex, r * 0.7)
             case .glassBottle:
                 clipToPlate(ctx)
+                ctx.beginTransparencyLayer(auxiliaryInfo: nil)
                 for i in 0..<9 {
                     let a = CGFloat(i) / 9 * 2 * .pi + CGFloat.random(in: -0.2...0.2, using: &rng)
                     frost(ctx, from: stamp.apex, heading: a, length: r * 1.05, depth: 3, rng: &rng)
                 }
+                fadeInsidePlate(ctx)
+                ctx.endTransparencyLayer()
                 if variant.surprise == .messageInABottle {
                     crumbs(ctx, around: stamp.apex, spread: r, count: 18, colors: Palette.rainbow, size: 2...3.5, rng: &rng)
                 }
@@ -721,6 +748,21 @@ enum FoldStamps {
         let r = CGFloat(FoldMetrics.plateRadius) - 3
         ctx.addPath(CGPath(roundedRect: plate, cornerWidth: r, cornerHeight: r, transform: nil))
         ctx.clip()
+    }
+
+    /// Fades whatever was drawn in the current transparency layer to nothing toward the strike plate's edge (an
+    /// ellipse inscribed in the plate, opaque to 78 %), so frost never ends on a straight cut (FOLD-REVIEW-2 #7).
+    static func fadeInsidePlate(_ ctx: CGContext) {
+        ctx.saveGState()
+        ctx.setBlendMode(.destinationIn)
+        ctx.scaleBy(x: CGFloat(FoldMetrics.plateLateral / FoldMetrics.plateDepth), y: 1)
+        let r = CGFloat(FoldMetrics.plateDepth / 2) - 4
+        let colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.white.withAlphaComponent(0).cgColor] as CFArray
+        if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.78, 1]) {
+            ctx.drawRadialGradient(g, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: r,
+                                   options: [.drawsAfterEndLocation])
+        }
+        ctx.restoreGState()
     }
 
     /// Glass prints as frost (§3.2): white branching lines over a faint warm underlay so they read on pale steel.

@@ -138,9 +138,16 @@ struct RevealCardView: View {
             // The diptych folded into one card, shown only while it flies into the Shelf key.
             card(width: cardWidth, height: cardHeight, center: cardCenter, origin: origin, onlyWhileCollecting: true)
                 .position(cardCenter)
+            // The caption gets the platen field's width (minus 24 pt each side), not the plate's, and the ribbon
+            // lives on the plate's corner instead of sharing its row, so nothing truncates (FOLD-REVIEW-2 #6).
+            let field = bands.local(layout.platenField)
             printLabel
-                .frame(maxWidth: plate.width)
-                .position(x: plate.midX, y: plate.maxY + 22)
+                .frame(maxWidth: max(240, field.width - 48))
+                .fixedSize(horizontal: false, vertical: true)
+                .position(x: plate.midX, y: plate.maxY + 24)
+            ribbon
+                .opacity(cardIn && !collecting ? 1 : 0)
+                .position(x: plate.maxX - 36, y: plate.minY + 4)
             toastSlot(compact: true)
                 .frame(width: toastWidth)
                 .position(x: crown.maxX - Theme.s2 - toastWidth / 2, y: crown.midY)
@@ -150,23 +157,23 @@ struct RevealCardView: View {
         }
     }
 
-    /// "RUBBER DUCK · 1 SEAM POP · 63°" in Mono 12 on a paper tag, plus the best/golden tag.
+    /// "RUBBER DUCK · 1 HONK · 1 SEAM POP · 63°" in Mono 12 on a paper tag. Never truncates: it wraps to a
+    /// second line before it would shrink below legibility.
     private var printLabel: some View {
-        HStack(spacing: Theme.s2) {
-            Text(foldLabelText)
-                .font(Theme.label)
-                .tracking(Theme.labelTracking)
-                .foregroundStyle(Theme.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .padding(.horizontal, Theme.s3)
-                .padding(.vertical, 6)
-                .background {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.paper).elevation(.e1)
-                }
-                .rotationEffect(.degrees(-1.5))
-            ribbon
-        }
+        Text(foldLabelText)
+            .font(Theme.label)
+            .tracking(0.3)
+            .foregroundStyle(Theme.ink)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.9)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Theme.s3)
+            .padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.paper).elevation(.e1)
+            }
+            .rotationEffect(.degrees(-1.5))
         .opacity(cardIn && !collecting ? 1 : 0)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(specimen.accessibilitySentence)

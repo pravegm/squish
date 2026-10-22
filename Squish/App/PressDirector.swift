@@ -43,6 +43,8 @@ final class PressDirector {
     @ObservationIgnored private let launchTime = CACurrentMediaTime()
     @ObservationIgnored private var lastHingeLogTime: Double = 0
     @ObservationIgnored private var foldSimulated = false
+    /// Seed of the object last handed to Fold Press (nil = not loaded there yet).
+    @ObservationIgnored private var foldVariantSeed: UInt64?
     @ObservationIgnored private var captionCounter = 0
     @ObservationIgnored private var traceSamples: [PressTrace.Sample] = []
     @ObservationIgnored private var traceStart: Double = 0
@@ -233,7 +235,14 @@ final class PressDirector {
         engine.step(now: CACurrentMediaTime(), dt: dt)
         let context = feedbackContext
         scene.update(engine: engine, context: context, dt: Float(dt))
-        if usesFoldPress { fold.update(engine: engine, context: context, dt: Float(dt)) }
+        if usesFoldPress {
+            // Fold Press only exists while it is showing: (re)load it lazily so non-Duo iPhones never touch it.
+            if foldVariantSeed != variant.seed {
+                foldVariantSeed = variant.seed
+                fold.setObject(currentKind, variant: variant)
+            }
+            fold.update(engine: engine, context: context, dt: Float(dt))
+        }
         haptics.update(engine: engine, context: context)
         audio.update(engine: engine, context: context)
     }
@@ -274,7 +283,7 @@ final class PressDirector {
         }
         engine.load(kind, seed: seed, at: CACurrentMediaTime())
         scene.setObject(kind, variant: variant)
-        fold.setObject(kind, variant: variant)
+        foldVariantSeed = nil
         let context = feedbackContext
         audio.place(context: context)
         haptics.place(context: context)
@@ -293,7 +302,7 @@ final class PressDirector {
     private func handle(_ event: PressEvent) {
         let context = feedbackContext
         scene.handle(event, context: context)
-        fold.handle(event, context: context)
+        if usesFoldPress && foldVariantSeed == variant.seed { fold.handle(event, context: context) }
         haptics.handle(event, context: context)
         audio.handle(event, context: context)
 
@@ -393,6 +402,8 @@ final class PressDirector {
                         try? await Task.sleep(for: .milliseconds(16))
                     }
                 }
+                print(String(format: "SQUISH-T foldsim done at %.2fs phase=%@ c=%.3f", CACurrentMediaTime() - self.launchTime,
+                             self.engine.phase.rawValue, self.engine.measuredCompression))
             }
             return
         }

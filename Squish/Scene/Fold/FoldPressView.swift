@@ -96,8 +96,12 @@ final class FoldStageHostView: UIView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.frames &+= 1
-                // Self-heal: if anything else took the press scene, take it back before this frame renders.
-                if let scene = self.scene, scene.root.parent !== self.anchor || scene.arView !== self.arView {
+                guard let scene = self.scene else { return }
+                // Another view (the P-48 PressSceneView) has attached the scene: it owns it now. Never take it back,
+                // and stop driving the frame loop so a dying fold stage can't fight the machine view.
+                guard scene.arView === self.arView else { return }
+                // Self-heal: the root was moved without anyone attaching; re-anchor it before this frame renders.
+                if scene.root.parent !== self.anchor {
                     self.log("reclaim (root parent was \(scene.root.parent.map { String(describing: type(of: $0)) } ?? "nil"))")
                     self.claimScene()
                 }

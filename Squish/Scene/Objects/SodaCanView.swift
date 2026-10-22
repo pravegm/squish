@@ -24,6 +24,8 @@ final class SodaCanView: PressObjectView {
     private let can: DeformableMesh
     private let puddle: ModelEntity
     private var tab = ModelEntity()
+    /// Dark crease marks on the rim, one per buckle, so top-down it reads "crushed can" (FOLD-REVIEW-2 #9).
+    private let lidMarks = Entity()
     private var fired = 0
     private var phases: [Float] = []
     private var punctured = false
@@ -112,6 +114,7 @@ final class SodaCanView: PressObjectView {
         // Ring-pull tab on the lid.
         tab = Part.add(cached: "can.tab", { MeshKit.roundedBox([0.022, 0.001, 0.012], radius: 0.004, bevel: 0.0004) },
                        aluminium, at: [0.008 * ObjectMeshes.canR, 0.1462 * ObjectMeshes.canY, 0], to: entity)
+        entity.addChild(lidMarks)
         entity.orientation = Part.yaw(-15)
         if !look.golden && cachedLabel == nil {
             Task { @MainActor [weak self] in
@@ -146,6 +149,7 @@ final class SodaCanView: PressObjectView {
         let h = surfaceHeight(compression: state.compression)
         let shortening = restHeight - h
         tab.position.y = h - 0.0038 * ObjectMeshes.canY
+        lidMarks.position.y = h - 0.0045 * ObjectMeshes.canY
         if abs(shortening - lastShort) > 0.00005 {
             lastShort = shortening
             deform(shortening: shortening, height: h)
@@ -224,6 +228,12 @@ final class SodaCanView: PressObjectView {
 
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
         fired = max(fired, index + 1)
+        let creaseAngle = phases[index % phases.count] + Float(index) * 1.3
+        let crease = MeshKit.model(MeshKit.roundedBox([0.012, 0.0009, 0.0016], radius: 0.0004, bevel: 0.0002),
+                                   material: SceneMaterials.pbr(UIColor(hex: 0x5E6067), roughness: 0.5, metallic: 0.6))
+        crease.position = [cos(creaseAngle) * 0.042 * ObjectMeshes.canR / 1.22, 0, sin(creaseAngle) * 0.042 * ObjectMeshes.canR / 1.22]
+        crease.orientation = simd_quatf(angle: -creaseAngle, axis: [0, 1, 0])
+        lidMarks.addChild(crease)
         // A glint where the fold creases.
         let foldY = Self.bodyTop - Self.foldWidth * (Float(index) + 0.5)
         let at = entity.convert(position: [0, min(foldY, state.ramFace - 0.005), 0.057], to: fx.root)

@@ -145,12 +145,12 @@ final class JellyView: PressObjectView {
         // Spread (overflow → splat) grows with compression past the split, up to Ø 0.15.
         if split {
             let t = clamp((state.compression - splatC) / max(1 - splatC, 0.05), 0, 1)
-            let radius: Float = splat ? 0.05 + 0.025 * t : 0.045
+            let radius: Float = splat ? 0.05 + 0.015 * t : 0.045 // capped near plate + 40 pt (FOLD-REVIEW-2 #7)
             let thickness: Float = 0.004 * (splat ? 1 : 0.6)
             spreadDisc.isEnabled = true
             spreadDisc.scale = SIMD3(radius, thickness, radius * 0.92)
             for blob in splorts {
-                let d = 0.045 + 0.03 * t
+                let d = 0.045 + 0.02 * t
                 let flat = max(0.3, min(1, h / 0.02)) * 0.4
                 blob.entity.position = SIMD3(blob.direction.x * d, blob.size * 0.5 * flat, blob.direction.y * d)
                 blob.entity.scale = SIMD3(1 + t * 0.6, flat, 1 + t * 0.6) * (blob.size * 0.5)
