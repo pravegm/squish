@@ -54,7 +54,7 @@ enum Palette {
     static let enamelYellow = UIColor(hex: 0xF5A915)
     static let enamelGraphite = UIColor(hex: 0x34373D)
     static let chrome = UIColor(hex: 0xEDEEF0)
-    static let brushedSteel = UIColor(hex: 0xBFC3C8)
+    static let brushedSteel = UIColor(hex: 0xA9AEB5) // darker: no clipping on the Duo anvil (FOLD-REVIEW-1 #1)
     static let rubber = UIColor(hex: 0x25262A)
     static let lampGreen = UIColor(hex: 0x39D98A)
     static let lampAmber = UIColor(hex: 0xFFA000)

@@ -115,8 +115,9 @@ struct SpecimenRecord: Codable, Identifiable, Equatable, Sendable {
 
     /// Fun, deterministic "tonnage" for the label.
     var tons: Int {
+        // The P-48 gauge reads 0–60 t, so real objects stay on the dial; only The Unsquishable pins it.
         if kind == .unsquishable { return 400 + Int(variant.seed % 97) }
-        return 12 + Int(maxCompression * 50) + Int(variant.seed % 9)
+        return min(60, 10 + Int(maxCompression * 44) + Int(variant.seed % 6))
     }
 
     var flavourLine: String {

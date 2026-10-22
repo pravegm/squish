@@ -24,6 +24,11 @@ struct FoldStage {
     var flashPosition: SIMD3<Float>
     /// Multiplies the rim light: the real top screen lights the object as it closes (§2.4 wedge light).
     var rimGain: Float
+    /// Radians about +y applied to the object slot under the lean (book pose faces the object at the eye).
+    var yaw: Float = 0
+    /// Fold-mode exposure (FOLD-REVIEW-1 #1): studio IBL EV offset and key-light gain.
+    var iblOffset: Float = -0.5
+    var keyGain: Float = 1
 }
 
 /// The lower plate of the press (§2.1), coplanar with the glass: the enamel field (the whole half plus overscan),
@@ -86,8 +91,10 @@ final class FoldAnvil {
     }
 
     private func fieldMaterial(_ gel: UInt32, golden: Bool) -> PhysicallyBasedMaterial {
-        SceneMaterials.enamel(FoldTextures.enamel(gel: gel, golden: golden), roughness: 0.40, clearcoat: 0.70,
-                              clearcoatRoughness: 0.10)
+        // FOLD-REVIEW-1 #1: a softer clearcoat and a slightly darker base, so the field stops mirroring the studio
+        // white as the eye goes grazing (it was clipping 28 → 77 %).
+        SceneMaterials.enamel(FoldTextures.enamel(gel: gel, golden: golden, lit: 0.94), roughness: 0.40, clearcoat: 0.35,
+                              clearcoatRoughness: 0.25)
     }
 
     private func buildPlate() {
@@ -95,7 +102,8 @@ final class FoldAnvil {
         let w = Float(FoldMetrics.plateLateral / ppm), d = Float(FoldMetrics.plateDepth / ppm)
         let r = Float(FoldMetrics.plateRadius / ppm)
         let proud = Float(FoldMetrics.plateProudMM)
-        let steel = SceneMaterials.pbr(Palette.brushedSteel, roughness: 0.30, metallic: 1)
+        let steelBase = UIColor(hex: 0xA9AEB5)   // FOLD-REVIEW-1 #1: was #BFC3C8 / 0.30, read as a white card
+        let steel = SceneMaterials.pbr(steelBase, roughness: 0.38, metallic: 1)
         // Body: top 0.02 mm under the textured face, extending below the field (hidden), 0.4 mm chamfer.
         let thickness = proud + 0.8
         let body = MeshKit.model(MeshKit.roundedBox([w, thickness, d], radius: r, bevel: 0.4), material: steel)
@@ -103,8 +111,8 @@ final class FoldAnvil {
         root.addChild(body)
         // Face: brushed streaks parallel to the crease (anvil x on both layouts).
         var faceMaterial: PhysicallyBasedMaterial = steel
-        if let texture = StudioEnvironment.texture(FoldTextures.brushedSteel(), name: "fold.plate") {
-            faceMaterial = SceneMaterials.textured(texture, roughness: 0.30, metallic: 1)
+        if let texture = StudioEnvironment.texture(FoldTextures.brushedSteel(base: steelBase), name: "fold.plate") {
+            faceMaterial = SceneMaterials.textured(texture, roughness: 0.38, metallic: 1)
         }
         let face = ModelEntity(mesh: .generatePlane(width: w - 0.8, depth: d - 0.8, cornerRadius: max(r - 0.4, 0.1)),
                                materials: [faceMaterial])

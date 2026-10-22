@@ -167,11 +167,11 @@ final class SodaCanView: PressObjectView {
                     let v = simd_normalize(dir + jitter) * 0.75 * fx.motionScale.squareRoot() * Float.random(in: 0.6...1.2, using: &rng)
                     let kind: ParticleKind = rng.next() % 3 == 0 ? .droplet : .fizz
                     fx.particles.emit(kind, at: at, velocity: v, color: look.tint(fizz.drop),
-                                      size: Float.random(in: 0.002...0.004, using: &rng), life: 0.7, rng: &rng)
+                                      size: Float.random(in: 0.004...0.008, using: &rng), life: 0.7, rng: &rng)
                 }
             }
             let t = clamp((state.compression - punctureC) / max(1 - punctureC, 0.05), 0, 1)
-            let radius = 0.05 + 0.02 * t
+            let radius = 0.06 + 0.022 * t // ≥ 1.3× the can footprint at full press (FOLD-REVIEW-1 #2)
             puddle.isEnabled = true
             puddle.scale = SIMD3(radius, 0.0015, radius * 0.9)
             spread = max(spread, radius / footprint)
@@ -236,7 +236,7 @@ final class SodaCanView: PressObjectView {
             // The initial "pssht": a burst of foam.
             let spray = entity.convert(position: [cos(sprayAngle) * 0.058, min(foldY, 0.085), sin(sprayAngle) * 0.058], to: fx.root)
             fx.particles.burst(.fizz, count: 12, at: spray, speed: 0.5 * max(fx.motionScale, 0.4), colors: [look.tint(fizz.drop)],
-                               size: 0.002...0.004, spread: 0.004, upBias: 0.3, life: 0.6, rng: &rng)
+                               size: 0.004...0.007, spread: 0.004, upBias: 0.3, life: 0.6, rng: &rng)
             fx.particles.burst(.crumb, count: 6, at: spray, speed: 0.25 * max(fx.motionScale, 0.4), colors: [UIColor(hex: 0xF8F8F8)],
                                size: 0.003...0.005, spread: 0.004, upBias: 0.3, rng: &rng)
         }

@@ -170,10 +170,11 @@ struct ShareTests {
         let audio = directory.appendingPathComponent("audio.m4a")
         let output = directory.appendingPathComponent("clip.mp4")
 
-        // Picture: 1 s at the clip's own resolution and bitrate.
-        let writer = try ClipWriter(url: video, width: ClipExporter.width, height: ClipExporter.height,
-                                    videoBitRate: ClipExporter.videoBitRate)
-        try writer.start()
+        // Picture: 1 s at the clip's own resolution and bitrate, through the same probed fallback chain as the export.
+        let writer = try await ClipWriter.make(url: video, width: ClipExporter.width, height: ClipExporter.height,
+                                               bitRate: ClipExporter.videoBitRate)
+        #expect(writer.width % 2 == 0 && writer.height % 2 == 0)
+        #expect(writer.width * 16 == writer.height * 9)
         for i in 0..<30 {
             try await writer.appendFrame { context, size in
                 context.setFillColor(UIColor(hue: CGFloat(i) / 30, saturation: 0.6, brightness: 0.9, alpha: 1).cgColor)

@@ -337,6 +337,9 @@ final class PressDirector {
             // The clean top-down specimen shot; fall back to the live frame (never the warped Duo anvil view).
             guard let self else { return }
             var image = await self.scene.specimenSnapshot()
+            if self.usesFoldPress, let diptych = self.fold.specimenDiptych(specimen: image) {
+                image = diptych   // Fold Press cards: the platen's print above the flattened specimen (FOLD-PRESS §6.3)
+            }
             if image == nil, !self.usesFoldPress { image = await self.scene.snapshot() }
             guard let image, let png = image.pngData() else { return }
             self.collection.attachThumbnail(png, to: specimenID)

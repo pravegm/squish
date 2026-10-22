@@ -40,6 +40,7 @@ final class FoldPrintStack {
     private let splat = CALayer()
     private let decal = CALayer()
     private let kiss = CALayer()
+    private let glint = CALayer()
     private let wipeMask = CAGradientLayer()
     private let squeegee = CALayer()
     private var decalContext: CGContext?
@@ -75,6 +76,17 @@ final class FoldPrintStack {
         kiss.position = stamp.apex
         kiss.opacity = 0
         root.addSublayer(kiss)
+        // Ink, not clip-art (FOLD-REVIEW-1 #6): multiply onto the steel so its streaks show through. Glass frost is
+        // white, which multiply would erase, so it stays normal.
+        if stamp.kind != .glassBottle && stamp.kind != .unsquishable {
+            ink.compositingFilter = "multiplyBlendMode"
+        }
+        // One specular glint on the wet core, from the kiss until c ≈ 0.3.
+        glint.contents = FoldStamps.softDisc(size: 32, feather: 0.7)
+        glint.bounds = CGRect(x: 0, y: 0, width: 7, height: 3.5)
+        glint.position = CGPoint(x: stamp.apex.x - 5, y: stamp.apex.y - 4)
+        glint.opacity = 0
+        root.addSublayer(glint)
         decalContext = Self.makeContext(rect: canvas, scale: 2)
         // Squeegee (§6.3 step 6): a steel blade drawn across the plate while the print wipes off.
         squeegee.backgroundColor = Palette.plateSteel.cgColor
@@ -87,6 +99,7 @@ final class FoldPrintStack {
 
     /// Fills in the object's images once they are rendered off the main actor.
     func setImages(ink inkImage: CGImage?, mask: CGImage?, shadows shadowImages: [CGImage?]) {
+        inkCG = inkImage
         ink.contents = inkImage
         ringsMask.contents = mask
         for (layer, image) in zip(shadows, shadowImages) { layer.contents = image }
@@ -127,10 +140,12 @@ final class FoldPrintStack {
         var effect = FoldPrintEffect.none
         if let ctx = decalContext {
             effect = FoldStamps.drawFracture(index: index, isFailure: isFailure, stamp: stamp, into: ctx)
-            decal.contents = ctx.makeImage()
+            decalCG = ctx.makeImage()
+            decal.contents = decalCG
         }
         if isFailure {
-            splat.contents = FoldStamps.splatImage(stamp, variant: variant)
+            splatCG = FoldStamps.splatImage(stamp, variant: variant)
+            splat.contents = splatCG
             splat.opacity = 1
             splatScale = reduceMotion ? 0.9 : 0.55
         }
@@ -181,7 +196,8 @@ final class FoldPrintStack {
         let presence = f.objectPresent ? 1.0 : 0
         let under = f.contacted ? 0.22 : 1
         for (layer, w) in zip(shadows, weights) {
-            layer.opacity = Float(shadow.alpha * w * presence * under)
+            // Flat (gap 1) the spec's 0.08 is invisible on steel: start at 0.14 so the plates belong together at 180°.
+            layer.opacity = Float(max(shadow.alpha, 0.14) * w * presence * under)
             layer.setAffineTransform(CGAffineTransform(scaleX: CGFloat(shadow.scale), y: CGFloat(shadow.scale)))
         }
 
@@ -213,6 +229,7 @@ final class FoldPrintStack {
             }
         }
         ink.opacity = Float(inkOpacity)
+        lastInk = (inkOpacity, CGSize(width: rx * 1.08, height: ry * 1.08))
         growth.bounds = CGRect(x: 0, y: 0, width: 2 * rx * 1.08, height: 2 * ry * 1.08)
         growth.position = stamp.apex
         growth.setAffineTransform(CGAffineTransform(rotationAngle: stamp.growthAngle))
@@ -221,8 +238,9 @@ final class FoldPrintStack {
         if f.contacted {
             pulse *= pow(0.5, f.dt / 0.12)
             let ball = stamp.contact == .fixedRing
+            // FOLD-REVIEW-1 #6: 0.10 + 0.15·c (they were invisible), fading once the print has filled.
             let alpha = ball ? 0.55 + 0.45 * min(1, f.printCompression * 2) + 0.4 * pulse
-                : (fraction < 1 ? (0.06 + 0.10 * f.printCompression) * 0.6 : 0)
+                : (0.10 + 0.15 * f.printCompression) * clamp((1.05 - fraction) / 0.25, 0, 1)
             rings.opacity = Float(min(alpha * (stamp.contact == .uniform ? 0 : 1), 1))
             let k = ball ? 1.25 + 0.5 * pulse : 1 / 0.82
             rings.bounds = CGRect(x: 0, y: 0, width: 2 * rx * k, height: 2 * ry * k)
@@ -242,6 +260,8 @@ final class FoldPrintStack {
 
         // Kiss highlight: one bright wet dot, gone in a few frames.
         kiss.opacity = Float(kissLevel)
+        let wetness = f.contacted ? clamp(1 - f.printCompression / 0.3, 0, 1) : 0
+        glint.opacity = Float(0.5 * wetness) * (stamp.kind == .glassBottle ? 0 : 1)
         kissLevel *= pow(0.5, f.dt / 0.05)
         if kissLevel < 0.02 { kissLevel = 0 }
 
@@ -276,6 +296,64 @@ final class FoldPrintStack {
     }
 
     var isWiped: Bool { (wipeProgress ?? 0) >= 1 }
+
+    // MARK: The monoprint as an image (FOLD-PRESS §6.3 diptych, FOLD-REVIEW-1 #12)
+
+    private var inkCG: CGImage?
+    private var decalCG: CGImage?
+    private var splatCG: CGImage?
+    private var lastInk: (opacity: Double, radii: CGSize) = (0, .zero)
+
+    var hasPrint: Bool { lastInk.opacity > 0.01 || splatCG != nil || decalCG != nil }
+
+    /// The print exactly as it lies on the platen (mirrored across the crease, crease side at the bottom), on the
+    /// steel strike plate, cropped to the plate + 40 pt. No bezel.
+    func renderPrint(scale: CGFloat = 2) -> CGImage? {
+        guard hasPrint else { return nil }
+        let canvas = FoldPrintCanvas.rect
+        let plateSize = CGSize(width: FoldMetrics.plateLateral, height: FoldMetrics.plateDepth)
+        let plate = FoldTextures.strikePlate(size: plateSize, radius: CGFloat(FoldMetrics.plateRadius), streaksAlongX: true)
+        let stamp = self.stamp
+        let ink = inkCG, decal = decalCG, splat = splatCG
+        let inkState = lastInk, splatScale = CGFloat(self.splatScale)
+        return FoldStamps.image(rect: canvas, scale: scale) { ctx in
+            /// CG draws images bottom-up; our contexts are y-down, so flip around the rect for each image.
+            func draw(_ image: CGImage?, in rect: CGRect) {
+                guard let image else { return }
+                ctx.saveGState()
+                ctx.translateBy(x: 0, y: rect.minY + rect.maxY)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.draw(image, in: rect)
+                ctx.restoreGState()
+            }
+            ctx.setFillColor(Palette.paper.cgColor)
+            ctx.fill(canvas)
+            draw(plate, in: CGRect(x: -plateSize.width / 2, y: -plateSize.height / 2, width: plateSize.width, height: plateSize.height))
+            // The platen's mirror (§3.4): print space y → −y.
+            ctx.scaleBy(x: 1, y: -1)
+            if inkState.opacity > 0.01 {
+                ctx.saveGState()
+                ctx.translateBy(x: stamp.apex.x, y: stamp.apex.y)
+                ctx.rotate(by: stamp.growthAngle)
+                ctx.addEllipse(in: CGRect(x: -inkState.radii.width, y: -inkState.radii.height,
+                                          width: 2 * inkState.radii.width, height: 2 * inkState.radii.height))
+                ctx.rotate(by: -stamp.growthAngle)
+                ctx.translateBy(x: -stamp.apex.x, y: -stamp.apex.y)
+                ctx.clip()
+                ctx.setAlpha(CGFloat(inkState.opacity))
+                ctx.setBlendMode(stamp.kind == .glassBottle ? .normal : .multiply)
+                draw(ink, in: canvas)
+                ctx.restoreGState()
+            }
+            if splat != nil {
+                ctx.saveGState()
+                ctx.scaleBy(x: splatScale, y: splatScale)
+                draw(splat, in: canvas)
+                ctx.restoreGState()
+            }
+            draw(decal, in: canvas)
+        }
+    }
 }
 
 /// The top half (§3): the platen face as a 2D Core Animation stack. Zero-depth content only, so it stays true from
@@ -331,7 +409,12 @@ final class FoldPlaten {
         crackLight.strokeColor = UIColor(white: 1, alpha: 0.7).cgColor
         crackLight.lineWidth = 1.2
         crackLight.lineJoin = .round
-        sheen.colors = [UIColor(white: 1, alpha: 0).cgColor, UIColor(white: 1, alpha: 1).cgColor, UIColor(white: 1, alpha: 0).cgColor]
+        // FOLD-REVIEW-1 #13: a 44 pt band at ≈ 0.40 with a 6 pt core at 0.6, screen-blended so it reads on the steel.
+        sheen.colors = [UIColor(white: 1, alpha: 0).cgColor, UIColor(white: 1, alpha: 0.66).cgColor,
+                        UIColor(white: 1, alpha: 1).cgColor, UIColor(white: 1, alpha: 0.66).cgColor,
+                        UIColor(white: 1, alpha: 0).cgColor]
+        sheen.locations = [0, 0.38, 0.5, 0.62, 1]
+        sheen.compositingFilter = "screenBlendMode"
         fieldLight.colors = [UIColor(white: 1, alpha: 0.10).cgColor, UIColor(white: 1, alpha: 0).cgColor,
                              UIColor(white: 0, alpha: 0.04).cgColor]
         fieldLight.locations = [0, 0.5, 1]
@@ -385,10 +468,15 @@ final class FoldPlaten {
             layer.insertSublayer(pin, above: sheenHolder)
             pins.append(pin)
             let rim = CALayer()
-            rim.bounds = CGRect(x: 0, y: 0, width: FoldMetrics.pinDiameter + 1, height: FoldMetrics.pinDiameter + 1)
-            rim.cornerRadius = CGFloat(FoldMetrics.pinDiameter + 1) / 2
-            rim.borderColor = UIColor(white: 1, alpha: 0.95).cgColor
-            rim.borderWidth = 1
+            rim.bounds = CGRect(x: 0, y: 0, width: FoldMetrics.pinDiameter + 3, height: FoldMetrics.pinDiameter + 3)
+            rim.cornerRadius = CGFloat(FoldMetrics.pinDiameter + 3) / 2
+            rim.borderColor = UIColor(white: 1, alpha: 1).cgColor
+            rim.borderWidth = 2
+            rim.shadowColor = UIColor.white.cgColor
+            rim.shadowOpacity = 0.6
+            rim.shadowRadius = 2
+            rim.shadowOffset = .zero
+            rim.shadowPath = CGPath(ellipseIn: rim.bounds, transform: nil)
             rim.position = p
             rim.opacity = 0
             layer.insertSublayer(rim, above: pin)
@@ -465,6 +553,9 @@ final class FoldPlaten {
         pressedAge = 0
     }
 
+    /// The current monoprint (no bezel), for the collection card's diptych.
+    func printImage() -> CGImage? { stack?.renderPrint() }
+
     /// The platen loses (§3.2, the Unsquishable): a chunky cartoon graphite crack across the steel, one bolt pops.
     private func breakPlate(seed: UInt64, reduceMotion: Bool) {
         guard let layout else { return }
@@ -511,7 +602,7 @@ final class FoldPlaten {
         let plateRect = layout.strikePlate(platen: true)
         let position = f.sweep ?? FoldCurve.sheenPosition(angle: f.angle)
         let intensity = f.sweep != nil ? 1 : FoldCurve.sheenIntensity(angle: f.angle)
-        let band: CGFloat = 70
+        let band: CGFloat = 44
         if layout.isBook {
             // Platen = left page: far edge = left (minX), crease = right.
             let x = CGFloat(position) * plateRect.width
@@ -520,12 +611,12 @@ final class FoldPlaten {
             let y = CGFloat(position) * plateRect.height
             sheen.frame = CGRect(x: 0, y: y - band / 2, width: plateRect.width, height: band)
         }
-        sheen.opacity = Float(0.22 * intensity)
+        sheen.opacity = Float(0.6 * intensity)
 
         // Guide pins: a brighter rim from 150° to contact (§3.5), and a glint as the invitation sweep passes.
         let approachRim = clamp((150 - f.angle) / 18, 0, 1)
         let glint = f.sweep.map { exp(-pow(($0 - 1) / 0.12, 2)) } ?? 0
-        for rim in pinRims { rim.opacity = Float(max(approachRim, glint)) }
+        for rim in pinRims { rim.opacity = Float(min(1, max(approachRim * 1.3, glint))) }
 
         stack?.update(f)
         for s in outgoing { s.update(f) }

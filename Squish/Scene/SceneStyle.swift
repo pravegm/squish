@@ -59,6 +59,9 @@ struct SceneStyle {
     // MARK: Decals (§3.6)
     var aoAlpha: Float = 0.75
     var softShadowAlpha: Float = 0.32
+    /// Fold Press anvil (FOLD-REVIEW-1 #9) [tune].
+    var foldAOAlpha: Float = 0.55
+    var foldSoftShadowAlpha: Float = 0.30
     var softShadowCoveredAlpha: Float = 0.12
     var ramOcclusionMax: Float = 0.30
 

@@ -48,7 +48,10 @@ struct RootView: View {
 
                 FailureFlash(count: director.failureFlashCount)
 
-                PressHints(director: director)
+                if !director.usesFoldPress {
+                    // Fold Press teaches with its own sheen sweep and grip glows (FOLD-REVIEW-1 #14).
+                    PressHints(director: director)
+                }
 
                 if director.settings.showCaptions && director.revealed == nil {
                     CaptionOverlay(caption: director.caption, kind: director.currentKind)
@@ -67,6 +70,7 @@ struct RootView: View {
                         collecting: collecting,
                         flyTarget: flyTarget,
                         hinge: bands.hinge,
+                        foldPress: director.usesFoldPress,
                         onNext: { collect { director.next() } },
                         onAgain: { collect { director.again() } }
                     )
@@ -76,12 +80,11 @@ struct RootView: View {
 
                 if let tip = tips.current, showsTips {
                     // Portrait: the 80–86% band (bottom half on a Duo). Book pose: the right half, clear of the crease.
-                    TipToast(tip: tip)
-                        .frame(width: bands.isLandscape
-                               ? max(220, bands.fullWidth * 0.5 - ScreenBands.creaseHalf - bands.margin * 2)
-                               : min(420, bands.size.width - bands.margin * 2))
-                        .position(x: bands.isLandscape ? bands.x(0.75) : bands.size.width / 2,
-                                  y: bands.isLandscape ? bands.size.height * 0.62 : bands.y(0.83))
+                    // Fold Press: one line in the crown strip, never on either plate's stage.
+                    let tipFrame = tipPlacement(bands)
+                    TipToast(tip: tip, compact: director.usesFoldPress)
+                        .frame(width: tipFrame.width)
+                        .position(x: tipFrame.midX, y: tipFrame.midY)
                         .onTapGesture { tips.dismissAll() }
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                         .id(tip.id)
@@ -247,19 +250,42 @@ struct RootView: View {
 
     // MARK: - Console (86–95%, or the right 22% column in landscape)
 
+    /// Where one-time tips go: the Fold Press crown strip (clear of the gauge), the 80–86% band in portrait,
+    /// or the right half in landscape (clear of the crease). Width is never below 300 pt.
+    private func tipPlacement(_ bands: ScreenBands) -> CGRect {
+        if director.usesFoldPress {
+            let crown = bands.local(bands.foldLayout.crownStrip)
+            let width = max(300, min(crown.width - 88, 420))
+            return CGRect(x: crown.maxX - Theme.s2 - width, y: crown.minY, width: width, height: crown.height)
+        }
+        if bands.isLandscape {
+            let width = max(300, bands.fullWidth * 0.5 - ScreenBands.creaseHalf - bands.margin * 2)
+            let center = CGPoint(x: bands.x(0.75), y: bands.size.height * 0.62)
+            return CGRect(x: center.x - width / 2, y: center.y - 26, width: width, height: 52)
+        }
+        let width = min(420, bands.size.width - bands.margin * 2)
+        return CGRect(x: bands.size.width / 2 - width / 2, y: bands.y(0.83) - 26, width: width, height: 52)
+    }
+
     @ViewBuilder
     private func console(_ bands: ScreenBands) -> some View {
         // Tabletop (and non-folding phones): a fixed-width console in the 86–95% band, i.e. on the bottom plate's
         // outer edge on a Duo, far from the crease. Book pose: the right 22% column, right of the crease.
-        let width = bands.isLandscape
-            ? max(180, bands.fullWidth * 0.22)
-            : min(bands.size.width - bands.margin * 2, 440)
-        let chrome = IdleConsole(director: director, landscape: bands.isLandscape, hop: shelfHop, bump: shelfBump,
+        // Fold Press: one row inside the bezel's 62 pt console band (FoldLayout.consoleBand), leaving the
+        // pilot lamp at its far end uncovered (FOLD-REVIEW-1 #5).
+        let foldBand = director.usesFoldPress ? bands.local(bands.foldLayout.consoleBand) : nil
+        let width = foldBand.map { min($0.width - Theme.s3 * 2 - 36, 455) }
+            ?? (bands.isLandscape ? max(180, bands.fullWidth * 0.22) : min(bands.size.width - bands.margin * 2, 440))
+        let chrome = IdleConsole(director: director, landscape: bands.isLandscape && foldBand == nil, hop: shelfHop,
+                                 bump: shelfBump,
                                  shelfOnly: collecting,
                                  onShelf: openShelf,
                                  onShelfFrame: { shelfKeyFrame = $0 },
                                  width: width)
-        if bands.isLandscape {
+        if let foldBand {
+            chrome
+                .position(x: foldBand.minX + Theme.s3 + width / 2, y: foldBand.midY)
+        } else if bands.isLandscape {
             chrome
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(.trailing, bands.margin)

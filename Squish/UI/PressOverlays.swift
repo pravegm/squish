@@ -281,9 +281,10 @@ struct FailureFlash: View {
 
 struct TipToast: View {
     let tip: SquishTip
+    var compact = false
 
     var body: some View {
-        ToastView(title: tip.title, detail: tip.detail, glyph: .symbol(tip.symbol), accent: tip.accent)
+        ToastView(title: tip.title, detail: tip.detail, glyph: .symbol(tip.symbol), accent: tip.accent, compact: compact)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(tip.title.capitalized). \(tip.detail)")
     }

@@ -5,18 +5,24 @@ import UIKit
 /// CoreGraphics art for the Fold Press bezel and plates (FOLD-PRESS.md §2.1, §3.2, §5): brushed steel with streaks
 /// parallel to the crease, chrome bolts and pins, lamps, hazard jaws. Pure functions, generated once per layout.
 enum FoldTextures {
+    /// 2D platen field brightness relative to the base enamel (≈ L 210 for the duck's gel) [tune against CI].
+    static let platenLit: Float = 0.90
+
     /// The enamel field colour (§2.1): mix(floorNear #F1E9DC, gel, 0.35).
-    static func enamel(gel: UInt32, golden: Bool) -> UIColor {
+    /// `lit` multiplies the result: 0.94 for the 3D anvil's base (it is lit on top), `platenLit` for the 2D platen,
+    /// calibrated so the unlit platen matches the rendered anvil field (FOLD-REVIEW-1 #8, target L 195–215) [tune].
+    static func enamel(gel: UInt32, golden: Bool, lit: Float = 1) -> UIColor {
         let a = StudioEnvironment.rgb(0xF1E9DC)
         let b = StudioEnvironment.rgb(golden ? 0xF3E6C4 : gel)
-        let c = a + (b - a) * 0.35
+        let c = (a + (b - a) * 0.35) * lit
         return UIColor(red: CGFloat(c.x), green: CGFloat(c.y), blue: CGFloat(c.z), alpha: 1)
     }
 
     /// Brushed steel, streaks along the image's x axis (parallel to the crease once placed).
-    static func brushedSteel(width: Int = 512, height: Int = 512, seed: UInt64 = 0x57EE1) -> CGImage? {
+    static func brushedSteel(width: Int = 512, height: Int = 512, seed: UInt64 = 0x57EE1,
+                             base: UIColor = Palette.brushedSteel) -> CGImage? {
         FoldStamps.image(rect: CGRect(x: 0, y: 0, width: width, height: height), scale: 1) { ctx in
-            ctx.setFillColor(Palette.brushedSteel.cgColor)
+            ctx.setFillColor(base.cgColor)
             ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
             var rng = SplitMix64(seed: seed)
             var y: CGFloat = 0
@@ -95,16 +101,27 @@ enum FoldTextures {
             ctx.setShadow(offset: CGSize(width: 0.6 * scale, height: -0.8 * scale), blur: 1.2 * scale,
                           color: Palette.shadowInk.withAlphaComponent(0.45).cgColor)
             ctx.addPath(hex)
-            ctx.setFillColor(UIColor(hex: 0xB9BEC6).cgColor)
+            ctx.setFillColor(UIColor(hex: 0x9AA0A8).cgColor)
             ctx.fillPath()
             ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            ctx.saveGState()
             ctx.addPath(hex)
             ctx.clip()
-            let colors = [UIColor.white.cgColor, Palette.chrome.cgColor, UIColor(hex: 0x8A8F98).cgColor] as CFArray
-            if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.45, 1]) {
-                let c = CGPoint(x: -diameter * 0.18, y: -diameter * 0.2)
-                ctx.drawRadialGradient(g, startCenter: c, startRadius: 0, endCenter: .zero, endRadius: diameter * 0.6, options: [])
+            // Flat-topped hex head like the anvil's 3D bolts: faceted shading, not a white dome (FOLD-REVIEW-1 #8).
+            let colors = [UIColor(hex: 0xE4E6EA).cgColor, UIColor(hex: 0xB9BEC6).cgColor, UIColor(hex: 0x7A7F88).cgColor] as CFArray
+            if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.5, 1]) {
+                ctx.drawLinearGradient(g, start: CGPoint(x: -diameter / 2, y: -diameter / 2),
+                                       end: CGPoint(x: diameter / 2, y: diameter / 2), options: [])
             }
+            ctx.restoreGState()
+            ctx.addPath(hex)
+            ctx.setStrokeColor(UIColor(hex: 0x5E6067).cgColor)
+            ctx.setLineWidth(0.7)
+            ctx.strokePath()
+            let inner = CGRect(x: -diameter * 0.2, y: -diameter * 0.2, width: diameter * 0.4, height: diameter * 0.4)
+            ctx.setStrokeColor(UIColor(white: 1, alpha: 0.55).cgColor)
+            ctx.setLineWidth(0.5)
+            ctx.strokeEllipse(in: inner)
         }
     }
 
@@ -128,12 +145,16 @@ enum FoldTextures {
                 ctx.setLineWidth(0.6)
                 ctx.strokeEllipse(in: disc.insetBy(dx: 0.4, dy: 0.4))
             } else {
-                ctx.addEllipse(in: disc)
+                // The guide pin: the bushing's dark ring with a chrome dome in it, so pin and bushing read as a pair.
+                ctx.setFillColor(UIColor(hex: 0x6B6E75).cgColor)
+                ctx.fillEllipse(in: disc)
+                let dome = disc.insetBy(dx: r * 0.28, dy: r * 0.28)
+                ctx.addEllipse(in: dome)
                 ctx.clip()
                 let colors = [UIColor.white.cgColor, Palette.chrome.cgColor, UIColor(hex: 0x7A7F88).cgColor] as CFArray
                 if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.4, 1]) {
-                    ctx.drawRadialGradient(g, startCenter: CGPoint(x: -r * 0.35, y: -r * 0.4), startRadius: 0,
-                                           endCenter: .zero, endRadius: r * 1.1, options: [])
+                    ctx.drawRadialGradient(g, startCenter: CGPoint(x: -r * 0.25, y: -r * 0.3), startRadius: 0,
+                                           endCenter: .zero, endRadius: r * 0.8, options: [])
                 }
             }
         }
@@ -208,6 +229,116 @@ enum FoldTextures {
         return renderer.image { _ in
             string.draw(at: .zero, withAttributes: attributes)
         }.cgImage
+    }
+
+    /// The Fold Press dial (FOLD-REVIEW-1 #11, #15): 0–80 t so the sealed tonnage (up to ~70) always fits, red zone
+    /// 60–80, numerals every 20 big enough to read at 60 pt, "TONS" well below the hub.
+    static let gaugeMaxTons: CGFloat = 80
+
+    @MainActor
+    static func gaugeFace(diameter: CGFloat) -> CGImage? {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = false
+        let size = CGSize(width: diameter, height: diameter)
+        let maxTons = gaugeMaxTons
+        let font = RigTextures.roundedFont(diameter * 0.14, .heavy)
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { context in
+            let cg = context.cgContext
+            let c = CGPoint(x: diameter / 2, y: diameter / 2)
+            let R = diameter / 2
+            cg.setFillColor(Palette.gaugePaper.cgColor)
+            cg.fillEllipse(in: CGRect(origin: .zero, size: size))
+            // Angle in UIKit screen space (y down) for a tonnage: 225° → −45° counter-clockwise in math terms.
+            let angle: (CGFloat) -> CGFloat = { t in (225 - 270 * t / maxTons) * .pi / 180 }
+            let point: (CGFloat, CGFloat) -> CGPoint = { t, r in
+                CGPoint(x: c.x + cos(angle(t)) * r, y: c.y - sin(angle(t)) * r)
+            }
+            cg.setStrokeColor(Palette.stampRed.cgColor)
+            cg.setLineWidth(diameter * 0.055)
+            cg.addArc(center: c, radius: R * 0.84, startAngle: -angle(60), endAngle: -angle(80), clockwise: false)
+            cg.strokePath()
+            cg.setLineCap(.round)
+            for t in stride(from: 0, through: Int(maxTons), by: 5) {
+                let major = t % 20 == 0
+                cg.setStrokeColor((major ? Palette.graphite : Palette.inkSecondary).cgColor)
+                cg.setLineWidth(major ? diameter * 0.022 : diameter * 0.01)
+                let outer = R * 0.93
+                cg.move(to: point(CGFloat(t), outer - (major ? R * 0.13 : R * 0.07)))
+                cg.addLine(to: point(CGFloat(t), outer))
+                cg.strokePath()
+            }
+            for t in stride(from: 0, through: Int(maxTons), by: 20) {
+                let text = "\(t)" as NSString
+                let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Palette.graphite]
+                let s = text.size(withAttributes: attributes)
+                let p = point(CGFloat(t), R * 0.62)
+                text.draw(at: CGPoint(x: p.x - s.width / 2, y: p.y - s.height / 2), withAttributes: attributes)
+            }
+            let tons = "TONS" as NSString
+            let tonsAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedSystemFont(ofSize: diameter * 0.085, weight: .semibold),
+                .foregroundColor: Palette.inkSecondary, .kern: 1,
+            ]
+            let ts = tons.size(withAttributes: tonsAttributes)
+            tons.draw(at: CGPoint(x: c.x - ts.width / 2, y: c.y + R * 0.42), withAttributes: tonsAttributes)
+        }.cgImage
+    }
+
+    /// Dial angle (radians, UIKit rotation from 12 o'clock, clockwise-positive) for a needle tonnage.
+    static func needleRotation(tons: Double) -> CGFloat {
+        let alpha = 225 - 270 * tons / Double(gaugeMaxTons)
+        return CGFloat((90 - alpha) * .pi / 180)
+    }
+
+    /// The P-48 nameplate (FOLD-REVIEW-1 #15): brushed steel, a 1 pt top highlight, two rivets, Mono Bold.
+    @MainActor
+    static func nameplate(size: CGSize) -> CGImage? {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let steel = brushedSteel(width: Int(size.width * 3), height: Int(size.height * 3), seed: 0x48, base: UIColor(hex: 0xC4C8CE))
+        return renderer.image { context in
+            let cg = context.cgContext
+            let rect = CGRect(origin: .zero, size: size)
+            let shape = UIBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 3)
+            shape.addClip()
+            if let steel { UIImage(cgImage: steel).draw(in: rect) }
+            cg.setFillColor(UIColor(white: 1, alpha: 0.7).cgColor)
+            cg.fill(CGRect(x: 0, y: 0.5, width: size.width, height: 1))
+            cg.setFillColor(UIColor(white: 0, alpha: 0.18).cgColor)
+            cg.fill(CGRect(x: 0, y: size.height - 1, width: size.width, height: 1))
+            for x in [CGFloat(7), size.width - 7] {
+                let rivet = CGRect(x: x - 2.2, y: size.height / 2 - 2.2, width: 4.4, height: 4.4)
+                cg.setFillColor(UIColor(hex: 0x7A7F88).cgColor)
+                cg.fillEllipse(in: rivet)
+                cg.setFillColor(UIColor(white: 1, alpha: 0.8).cgColor)
+                cg.fillEllipse(in: rivet.insetBy(dx: 1.3, dy: 1.3).offsetBy(dx: -0.5, dy: -0.5))
+            }
+            let text = "P-48" as NSString
+            let font = UIFont.monospacedSystemFont(ofSize: min(17, size.height * 0.72), weight: .bold)
+            let s = text.size(withAttributes: [.font: font])
+            let origin = CGPoint(x: (size.width - s.width) / 2, y: (size.height - s.height) / 2)
+            text.draw(at: CGPoint(x: origin.x, y: origin.y + 0.8),
+                      withAttributes: [.font: font, .foregroundColor: UIColor(white: 1, alpha: 0.6), .kern: 3])
+            text.draw(at: origin, withAttributes: [.font: font, .foregroundColor: Palette.enamelGraphite, .kern: 3])
+        }.cgImage
+    }
+
+    /// The plate shade (§2.4): a soft rounded rectangle of shadow ink, the size of the strike plate + 20 pt.
+    static func plateShade(size: CGSize, radius: CGFloat, blur: CGFloat = 14) -> CGImage? {
+        let pad = blur * 2
+        let rect = CGRect(x: -pad, y: -pad, width: size.width + 2 * pad, height: size.height + 2 * pad)
+        return FoldStamps.image(rect: rect, scale: 1) { ctx in
+            let shift = rect.width + 4 * blur
+            ctx.setShadow(offset: CGSize(width: -shift, height: 0), blur: blur, color: Palette.shadowInk.cgColor)
+            ctx.translateBy(x: shift, y: 0)
+            ctx.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size), cornerWidth: radius, cornerHeight: radius, transform: nil))
+            ctx.setFillColor(Palette.shadowInk.cgColor)
+            ctx.fillPath()
+        }
     }
 
     /// The red PRESSED stamp (§6.3 step 4), drawn upright (it never mirrors with the print).

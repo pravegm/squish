@@ -55,8 +55,8 @@ final class BubbleWrapView: PressObjectView {
         restHeight = Self.film + Self.domeHeight * (hasMega ? Self.megaScale : 1)
         popOrder = Array(0..<BubbleWrapLayout.count).shuffled(using: &rng)
         poppedMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xF0F7FB), roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.06,
-                                    specular: 0.7, opacity: 0.70)
+            : SceneMaterials.enamel(UIColor(hex: 0xC6DCE7), roughness: 0.22, clearcoat: 0.6, clearcoatRoughness: 0.12,
+                                    specular: 0.6, opacity: 0.80) // popped: stress-whitened but ~15 L darker so pops read (FOLD-REVIEW-1 #10)
         self.rng = rng
         build(variant: variant, hasMega: hasMega)
     }
@@ -69,15 +69,25 @@ final class BubbleWrapView: PressObjectView {
         }
         entity.orientation = Part.yaw(12)
         let filmMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xE4F3FA), roughness: 0.10, clearcoat: 1, clearcoatRoughness: 0.04,
-                                    specular: 0.7, opacity: 0.45)
+            : SceneMaterials.enamel(UIColor(hex: 0xDDEFF8), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
+                                    specular: 0.6, opacity: 0.55)
         let domeMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xD8EEF8), roughness: 0.10, clearcoat: 1, clearcoatRoughness: 0.04,
-                                    specular: 0.7, opacity: 0.42)
+            : SceneMaterials.enamel(UIColor(hex: 0xB9DCEE), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
+                                    specular: 0.6, opacity: 0.52)
         let sheet = Part.add(cached: "bubble.sheet", {
             MeshKit.roundedBox([Self.sheetSize.x, Self.film, Self.sheetSize.y], radius: 0.006, bevel: 0.0004)
         }, filmMaterial, at: [0, Self.film / 2, 0], to: entity)
         _ = sheet
+        // A 1 mm blue edge so the clear sheet reads on pale steel (FOLD-REVIEW-1 #10).
+        let edgeMaterial = look.golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(UIColor(hex: 0x6FAED0), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.15)
+        let w = Self.sheetSize.x, d = Self.sheetSize.y, t: Float = 0.0012
+        for side: Float in [-1, 1] {
+            Part.add(cached: "bubble.edge.x", { MeshKit.roundedBox([w - 0.008, Self.film + 0.0002, t], radius: 0.0005, bevel: 0.0002) },
+                     edgeMaterial, at: [0, Self.film / 2, side * (d / 2 - t / 2)], to: entity)
+            Part.add(cached: "bubble.edge.z", { MeshKit.roundedBox([t, Self.film + 0.0002, d - 0.008], radius: 0.0005, bevel: 0.0002) },
+                     edgeMaterial, at: [side * (w / 2 - t / 2), Self.film / 2, 0], to: entity)
+        }
 
         let domeMesh = MeshCache.resource("bubble.dome", { Self.dome() }) ?? MeshResource.generateSphere(radius: 1)
         let columns = BubbleWrapLayout.columns, rows = BubbleWrapLayout.rows

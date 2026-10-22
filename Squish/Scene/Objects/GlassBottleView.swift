@@ -24,6 +24,7 @@ final class GlassBottleView: PressObjectView {
     private let bottle = Entity()
     private var shards: [ModelEntity] = []
     private var glassParts: [ModelEntity] = []
+    private var glassDust: ModelEntity?
     private var cracks: [Entity] = []
     private var message: Entity?
     private let failC: Float
@@ -54,8 +55,8 @@ final class GlassBottleView: PressObjectView {
             : SceneMaterials.enamel(UIColor(hex: 0x5CC8B8), roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02,
                                     specular: 1, opacity: 0.32)
         let inner = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0x2E8F84), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02,
-                                    specular: 1, opacity: 0.22)
+            : SceneMaterials.enamel(UIColor(hex: 0x2E5E58), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02,
+                                    specular: 1, opacity: 0.40) // dark refraction rim so the edges read on pale steel
         let label = look.golden ? SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.5)
             : SceneMaterials.pbr(Palette.glassLabel, roughness: 0.7)
         let labelStripe = look.golden ? label : SceneMaterials.pbr(Palette.raspberry, roughness: 0.6)
@@ -93,7 +94,7 @@ final class GlassBottleView: PressObjectView {
                 if b == 2 || b == 3 {
                     let labelPatch = MeshKit.lathePatch(
                         profile: profile.map { SIMD2($0.x + 0.0006, $0.y) }, rings: rings,
-                        angles: (cuts[k] + 0.004)...(cuts[k + 1] - 0.004), angularSteps: max(4, 48 / n), thickness: 0.0005)
+                        angles: (cuts[k] + 0.0008)...(cuts[k + 1] - 0.0008), angularSteps: max(4, 48 / n), thickness: 0.0005)
                     let labelEntity = MeshKit.entity(labelPatch.mesh, materials: [b == 2 ? label : labelStripe, label],
                                                      name: "glass.label")
                     labelEntity.position = labelPatch.centre - patch.centre
@@ -128,10 +129,16 @@ final class GlassBottleView: PressObjectView {
 
     func surfaceHeight(compression c: Float) -> Float {
         HeightCurve.brittle(c, rest: restHeight, failC: failC, failed: failed, rigidSquash: 0.02,
-                            afterRatio: 0.45, minRatio: 0.09)
+                            afterRatio: 0.30, minRatio: 0.09)
     }
 
     func update(_ state: PressVisualState) {
+        if failed, let dust = glassDust {
+            // A soft sea-glass spread under the flattened shards: footprint ≥ 1.3× (FOLD-REVIEW-1 #2).
+            let t = clamp((state.compression - failC) / max(1 - failC, 0.05), 0, 1)
+            let radius: Float = 0.062 + 0.035 * t
+            dust.scale = SIMD3(radius, 0.0012, radius * 0.75)
+        }
         guard !failed else { return }
         let s = surfaceHeight(compression: state.compression) / restHeight
         // Bottle local X is world-vertical after the roll.
@@ -174,6 +181,14 @@ final class GlassBottleView: PressObjectView {
     /// The big one: chunky shards burst outward and up with seeded impulses, glints, and the message's confetti.
     private func shatter(state: PressVisualState) {
         failed = true
+        let dustMaterial = look.golden ? SceneMaterials.goldMess
+            : SceneMaterials.enamel(UIColor(hex: 0x8FE0D3), roughness: 0.25, clearcoat: 0.8, clearcoatRoughness: 0.2, opacity: 0.45)
+        let dust = ModelEntity(mesh: MeshCache.resource("glass.dust") { MeshKit.spreadDisc(seed: 0x6D, height: 1, segments: 48, wobble: 0.2) }
+                               ?? .generateSphere(radius: 0.01), materials: [dustMaterial])
+        dust.scale = SIMD3(0.062, 0.0012, 0.046)
+        dust.position = [0, 0.0002, 0]
+        entity.addChild(dust)
+        glassDust = dust
         bottle.scale = SIMD3(repeating: 1)
         for line in cracks { line.removeFromParent() }
         cracks.removeAll()

@@ -16,6 +16,9 @@ struct RevealCardView: View {
     let flyTarget: CGPoint?
     /// Foldable: keep the card off the crease.
     var hinge = false
+    /// iPhone Duo Fold Press: the reveal is the FOLD-PRESS §6.3 diptych (print on the platen, specimen on the
+    /// anvil), so no card covers them; the card appears only for the collect flight.
+    var foldPress = false
     let onNext: () -> Void
     let onAgain: () -> Void
 
@@ -59,7 +62,9 @@ struct RevealCardView: View {
         GeometryReader { proxy in
             let bands = ScreenBands(proxy, hinge: hinge)
             let origin = proxy.frame(in: .global).origin
-            if bands.isLandscape {
+            if foldPress {
+                diptych(bands, origin: origin)
+            } else if bands.isLandscape {
                 landscape(bands, origin: origin)
             } else {
                 portrait(bands, origin: origin)
@@ -80,7 +85,7 @@ struct RevealCardView: View {
         return ZStack {
             card(width: width, height: height, center: center, origin: origin)
                 .position(center)
-            toastSlot
+            toastSlot()
                 .frame(maxWidth: 420)
                 .padding(.horizontal, bands.margin)
                 .position(x: bands.size.width / 2, y: bands.y(0.83))
@@ -104,32 +109,131 @@ struct RevealCardView: View {
                 .position(center)
             VStack(alignment: .trailing, spacing: Theme.s3) {
                 Spacer(minLength: 0)
-                toastSlot
+                toastSlot()
+                    .frame(width: max(300, consoleWidth)) // toasts are never narrower than 300 pt
                 actions(landscape: true)
+                    .frame(width: consoleWidth)
             }
-            .frame(width: consoleWidth)
             .padding(.bottom, Theme.s4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .padding(.trailing, bands.margin)
         }
     }
 
+    /// Fold Press reveal (FOLD-PRESS §6.3, FOLD-REVIEW-1 #4–5). The scene keeps the monoprint on the platen
+    /// (with its PRESSED stamp) and the flattened specimen on the anvil; the UI adds only a paper label under the
+    /// platen plate, one single-line toast in the crown strip, and Again · Share · Next in the console band.
+    private func diptych(_ bands: ScreenBands, origin: CGPoint) -> some View {
+        let layout = bands.foldLayout
+        let plate = bands.local(layout.strikePlate(platen: true))
+        let crown = bands.local(layout.crownStrip)
+        let console = bands.local(layout.consoleBand)
+        // Leave the gauge (outer end of the crown) and the pilot lamp (far end of the console) uncovered.
+        let toastWidth = max(300, min(crown.width - 88, 420))
+        let actionsWidth = min(console.width - Theme.s3 * 2 - 36, 455)
+        let cardWidth = min(plate.width, 250)
+        let cardHeight = min(plate.height + 60, cardWidth * 1.2)
+        let cardCenter = CGPoint(x: plate.midX, y: plate.midY)
+        return ZStack {
+            // The diptych folded into one card, shown only while it flies into the Shelf key.
+            card(width: cardWidth, height: cardHeight, center: cardCenter, origin: origin, onlyWhileCollecting: true)
+                .position(cardCenter)
+            printLabel
+                .frame(maxWidth: plate.width)
+                .position(x: plate.midX, y: plate.maxY + 22)
+            toastSlot(compact: true)
+                .frame(width: toastWidth)
+                .position(x: crown.maxX - Theme.s2 - toastWidth / 2, y: crown.midY)
+            foldActions
+                .frame(width: actionsWidth)
+                .position(x: console.minX + Theme.s3 + actionsWidth / 2, y: console.midY)
+        }
+    }
+
+    /// "RUBBER DUCK · 1 SEAM POP · 63°" in Mono 12 on a paper tag, plus the best/golden tag.
+    private var printLabel: some View {
+        HStack(spacing: Theme.s2) {
+            Text(foldLabelText)
+                .font(Theme.label)
+                .tracking(Theme.labelTracking)
+                .foregroundStyle(Theme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, Theme.s3)
+                .padding(.vertical, 6)
+                .background {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.paper).elevation(.e1)
+                }
+                .rotationEffect(.degrees(-1.5))
+            ribbon
+        }
+        .opacity(cardIn && !collecting ? 1 : 0)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(specimen.accessibilitySentence)
+        .accessibilitySortPriority(2)
+    }
+
+    private var foldLabelText: String {
+        var parts = [specimen.kind.displayName.uppercased(), specimen.kind.breaksLine(fractureCount: specimen.fractureCount)]
+        if specimen.kind != .unsquishable, let angle = specimen.failureAngle { parts.append("\(Int(angle.rounded()))°") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// One row of 44 pt keys in the 62 pt console band; Next is the only yellow.
+    private var foldActions: some View {
+        HStack(spacing: Theme.s2) {
+            Button(action: onAgain) {
+                KeyLabel(title: "Again", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(KeycapStyle(kind: .console, fullWidth: true, compact: true))
+            .accessibilityHint("Press another \(outcome.specimen.kind.displayName).")
+
+            Button(action: shareDefault) {
+                KeyLabel(title: "Share", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(KeycapStyle(kind: .console, fullWidth: true, compact: true))
+            .disabled(share.isExporting)
+            .contextMenu {
+                if let trace {
+                    Button("Share Clip", systemImage: "film") { share.shareClip(trace: trace, specimen: specimen) }
+                }
+                Button("Share Still", systemImage: "photo") { shareStill() }
+            }
+            .accessibilityActions {
+                Button("Share still") { shareStill() }
+            }
+
+            Button(action: onNext) {
+                KeyLabel(title: "Next", systemImage: "arrow.right", iconTrailing: true)
+            }
+            .buttonStyle(KeycapStyle(kind: .primary, fullWidth: true, compact: true))
+            .accessibilityFocused($focusNext)
+            .accessibilityHint("Collects this specimen. Or just fold the phone again.")
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .disabled(collecting)
+        .opacity(actionsIn && !collecting ? 1 : 0)
+    }
+
     // MARK: Card
 
-    private func card(width: CGFloat, height: CGFloat, center: CGPoint, origin: CGPoint) -> some View {
+    private func card(width: CGFloat, height: CGFloat, center: CGPoint, origin: CGPoint,
+                      onlyWhileCollecting: Bool = false) -> some View {
         let flight: CGSize = flyTarget.map {
             CGSize(width: $0.x - (origin.x + center.x), height: $0.y - (origin.y + center.y))
         } ?? .zero
         let flying = flyTarget != nil
         let tilt = Double(Int(specimen.variant.seed % 11) - 5) * 0.5
+        let visible = onlyWhileCollecting ? collecting : cardIn
         return SpecimenCardView(specimen: specimen, thumbnail: collection.thumbnail(for: specimen),
-                                style: .reveal, animateStamp: true)
+                                style: .reveal, animateStamp: !onlyWhileCollecting)
             .frame(width: width, height: height)
-            .overlay(alignment: .topLeading) { ribbon }
+            .overlay(alignment: .topLeading) { if !onlyWhileCollecting { ribbon } }
             .scaleEffect(flying && !reduceMotion ? 0.16 : 1)
             .rotationEffect(.degrees(flying && !reduceMotion ? tilt : 0))
             .offset(reduceMotion ? .zero : flight)
-            .opacity(cardIn && !(flying && reduceMotion) ? 1 : 0)
+            .opacity(visible && !(flying && reduceMotion) ? 1 : 0)
+            .accessibilityHidden(onlyWhileCollecting)
             .offset(y: cardIn || reduceMotion ? 0 : -60)
             .rotationEffect(.degrees(cardIn || reduceMotion ? 0 : -3))
             .accessibilitySortPriority(2)
@@ -167,17 +271,17 @@ struct RevealCardView: View {
     // MARK: Toasts (one at a time)
 
     @ViewBuilder
-    private var toastSlot: some View {
+    private func toastSlot(compact: Bool = false) -> some View {
         let list = toasts
         ZStack {
             if toastIndex >= 0 && toastIndex < list.count && !collecting {
                 let toast = list[toastIndex]
-                ToastView(title: toast.title, detail: toast.detail, glyph: toast.glyph, accent: toast.accent)
+                ToastView(title: toast.title, detail: toast.detail, glyph: toast.glyph, accent: toast.accent, compact: compact)
                     .id(toast.id)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .frame(minHeight: 52)
+        .frame(minHeight: compact ? 48 : 52)
     }
 
     // MARK: Actions

@@ -34,6 +34,7 @@ final class PressScene {
     // Decals
     private var gaussian: [Int: TextureResource] = [:]
     private var aoDecal: Decal?
+    private var staticDecals: [Decal] = []
     private var softDecal: Decal?
     private var ramDecal: Decal?
     private var sweepTextures: [UInt32: TextureResource] = [:]
@@ -258,7 +259,10 @@ final class PressScene {
             slowMo -= dt
             if !context.reduceMotion { fxDt *= style.slowMoRate }
         }
-        fx.step(dt: fxDt, ceiling: ramFace, plateHalfExtent: rig.plateHalfExtent)
+        // Fold Press: the whole top half is the platen, so its virtual face is a ceiling over the entire anvil
+        // (FOLD-REVIEW-1 #2: shards must flatten to the platen height, not only under the P-48 plate).
+        let ceilingExtent = framing == .foldAnvil ? SIMD2<Float>(repeating: 1) : rig.plateHalfExtent
+        fx.step(dt: fxDt, ceiling: ramFace, plateHalfExtent: ceilingExtent)
 
         updateDrop(dt: dt)
         let jitter = updateShake(engine: engine, context: context, dt: dt, approach: approach)
@@ -364,7 +368,8 @@ final class PressScene {
 
         let anchor = AnchorEntity(world: .zero)
         let objectClone = objectSlot.clone(recursive: true)
-        objectClone.orientation = simd_quatf(angle: 0, axis: [0, 1, 0]) // FOLD PRESS: never the clamshell lean
+        // FOLD PRESS: never the clamshell lean; keep the book-pose yaw so the shot matches the mess and the print.
+        objectClone.orientation = simd_quatf(angle: framing == .foldAnvil ? foldYaw : 0, axis: [0, 1, 0])
         let fxClone = fx.root.clone(recursive: true)
         anchor.addChild(objectClone)
         anchor.addChild(fxClone)
@@ -373,6 +378,10 @@ final class PressScene {
         }
         if let holder = iblHolder {
             let light = holder.clone(recursive: true)
+            if var ibl = light.components[ImageBasedLightComponent.self] { // FOLD PRESS: product-shot exposure
+                ibl.intensityExponent = style.iblExponent
+                light.components.set(ibl)
+            }
             anchor.addChild(light)
             let receiver = ImageBasedLightReceiverComponent(imageBasedLight: light)
             objectClone.components.set(receiver)
@@ -812,13 +821,13 @@ final class PressScene {
 
     private func buildDecals() {
         // Static grounding.
-        _ = addDecal(sigma: 0.25, size: [0.18, 0.135], alpha: 0.45, at: [0, PressRig.bedTop + 0.0003, 0])
+        staticDecals.append(addDecal(sigma: 0.25, size: [0.18, 0.135], alpha: 0.45, at: [0, PressRig.bedTop + 0.0003, 0]))
         for side: Float in [-1, 1] {
-            _ = addDecal(sigma: 0.30, size: [0.04, 0.04], alpha: 0.40,
-                         at: [side * PressRig.columnX, PressRig.bedTop + 0.0004, PressRig.columnZ])
+            staticDecals.append(addDecal(sigma: 0.30, size: [0.04, 0.04], alpha: 0.40,
+                         at: [side * PressRig.columnX, PressRig.bedTop + 0.0004, PressRig.columnZ]))
         }
-        _ = addDecal(sigma: 0.45, size: [0.36, 0.26], alpha: 0.35, at: [0.03, PressRig.floorY + 0.0003, -0.03])
-        _ = addDecal(sigma: 0.40, size: [0.24, 0.016], alpha: 0.50, at: [0, PressRig.floorY + 0.0005, 0.075])
+        staticDecals.append(addDecal(sigma: 0.45, size: [0.36, 0.26], alpha: 0.35, at: [0.03, PressRig.floorY + 0.0003, -0.03]))
+        staticDecals.append(addDecal(sigma: 0.40, size: [0.24, 0.016], alpha: 0.50, at: [0, PressRig.floorY + 0.0005, 0.075]))
         // Live: object AO, soft shadow, ram occlusion.
         aoDecal = addDecal(sigma: 0.25, size: [0.1, 0.1], alpha: style.aoAlpha, at: [0.003, 0.0003, -0.003])
         softDecal = addDecal(sigma: 0.50, size: [0.15, 0.15], alpha: style.softShadowAlpha, at: [0.012, 0.0004, -0.010])
@@ -831,8 +840,15 @@ final class PressScene {
         softDecal?.size([footprint * 1.8, footprint * 1.8 * 0.85])
         // Fade the object's grounding in with its drop (nothing on the anvil until it lands).
         let present: Float = view.entity.isEnabled ? clamp(1 - dropHeight / max(style.dropHeight, 0.001), 0, 1) : 0
-        aoDecal?.setAlpha(style.aoAlpha * present)
-        softDecal?.setAlpha((style.softShadowAlpha + (style.softShadowCoveredAlpha - style.softShadowAlpha) * approach) * present)
+        // Fold Press (FOLD-REVIEW-1 #9): no P-48 bed/floor decals; softer AO on the bright anvil field; the plate shade
+        // covers the whole strike plate so the anvil visibly darkens as the lid closes.
+        let fold = framing == .foldAnvil
+        for decal in staticDecals where decal.entity.isEnabled == fold { decal.entity.isEnabled = !fold }
+        let ao = fold ? style.foldAOAlpha : style.aoAlpha
+        let soft = fold ? style.foldSoftShadowAlpha : style.softShadowAlpha
+        aoDecal?.setAlpha(ao * present)
+        softDecal?.setAlpha((soft + (style.softShadowCoveredAlpha - style.softShadowAlpha) * approach) * present)
+        ramDecal?.size(fold ? [0.19, 0.15] : [0.13, 0.10])
         ramDecal?.setAlpha(style.ramOcclusionMax * approach * approach)
     }
 
@@ -955,8 +971,25 @@ final class PressScene {
         if !fold {
             flash.position = [0, 0.16, 0.22]
             foldRimLight?.light.intensity = style.rimIntensity
+            foldKeyLight?.light.intensity = style.keyIntensity
+            setFoldIBLOffset(0)
             framedSize = .zero
         }
+    }
+
+    /// Fold-mode exposure (FOLD-REVIEW-1 #1): the IBL's EV relative to `style.iblExponent`.
+    private var foldIBLOffset: Float = 0
+    private var foldYaw: Float = 0
+    private func setFoldIBLOffset(_ offset: Float) {
+        guard abs(offset - foldIBLOffset) > 0.01, let holder = iblHolder,
+              var ibl = holder.components[ImageBasedLightComponent.self] else { return }
+        foldIBLOffset = offset
+        ibl.intensityExponent = style.iblExponent + offset
+        holder.components.set(ibl)
+    }
+
+    private var foldKeyLight: DirectionalLight? {
+        root.children.first(where: { $0 is DirectionalLight }) as? DirectionalLight
     }
 
     /// The object on the anvil once it is built (meshes build asynchronously), for the fold scale and the print.
@@ -966,10 +999,13 @@ final class PressScene {
 
     func setFoldStage(_ stage: FoldStage) {
         guard framing == .foldAnvil else { return }
-        // Clamshell lean (§2.4): the squash tips away from the real hinge.
-        objectSlot.orientation = simd_quatf(angle: stage.lean, axis: [1, 0, 0])
+        // Clamshell lean (§2.4): the squash tips away from the real hinge; book pose also turns the object to the eye.
+        objectSlot.orientation = simd_quatf(angle: stage.lean, axis: [1, 0, 0]) * simd_quatf(angle: stage.yaw, axis: [0, 1, 0])
+        foldYaw = stage.yaw
         flash.position = stage.flashPosition
         foldRimLight?.light.intensity = style.rimIntensity * stage.rimGain
+        foldKeyLight?.light.intensity = style.keyIntensity * stage.keyGain
+        setFoldIBLOffset(stage.iblOffset)
         if let foldAnvil, let iblHolder, !foldAnvil.components.has(ImageBasedLightReceiverComponent.self) {
             foldAnvil.components.set(ImageBasedLightReceiverComponent(imageBasedLight: iblHolder))
         }

@@ -201,6 +201,14 @@ struct ScreenBands {
         return CGRect(x: -insets.leading, y: y(0.5) - Self.creaseHalf, width: fullWidth, height: Self.creaseHalf * 2)
     }
 
+    /// The Fold Press bezel for this canvas (crown strip, console band, plates), shared with Scene/Fold.
+    var foldLayout: FoldLayout { FoldLayout(canvas: CGSize(width: fullWidth, height: fullHeight)) }
+
+    /// A full-canvas rect (e.g. from `FoldLayout`) in this view's local, safe-area coordinates.
+    func local(_ canvasRect: CGRect) -> CGRect {
+        canvasRect.offsetBy(dx: -insets.leading, dy: -insets.top)
+    }
+
     /// Bottom of the top band for overlays (6–44%), kept clear of the crease.
     var topBandBottom: CGFloat {
         let bottom = y(0.44)
@@ -359,9 +367,12 @@ struct KeycapStyle: ButtonStyle {
     var round = false
     /// Chips only: the selected chip (tabs, segmented choices, the object on the anvil).
     var selected = false
+    /// 44 pt keys for the Fold Press console band (62 pt), whatever the kind (FOLD-REVIEW-1 #5).
+    var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        KeycapFace(configuration: configuration, kind: kind, fullWidth: fullWidth, round: round, selected: selected)
+        KeycapFace(configuration: configuration, kind: kind, fullWidth: fullWidth, round: round, selected: selected,
+                   compact: compact)
     }
 }
 
@@ -371,6 +382,7 @@ private struct KeycapFace: View {
     let fullWidth: Bool
     let round: Bool
     let selected: Bool
+    let compact: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
@@ -422,6 +434,7 @@ private struct KeycapFace: View {
 
     private var height: CGFloat {
         if round { return Theme.hit }
+        if compact && kind != .chip { return Theme.hit }
         switch kind {
         case .primary: return 52
         case .secondary, .destructive: return 48
@@ -431,6 +444,7 @@ private struct KeycapFace: View {
     }
     private var radius: CGFloat {
         if round { return Theme.hit / 2 }
+        if compact && kind != .chip { return 14 }
         switch kind {
         case .primary, .secondary, .destructive: return 16
         case .console: return 14
@@ -657,14 +671,16 @@ struct ToastView: View {
     let detail: String
     let glyph: Glyph
     var accent: Color = Theme.yellow
+    /// One line each for title and detail, ≤ 52 pt tall (the Fold Press crown strip).
+    var compact = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.toastRadius, style: .continuous)
         HStack(spacing: Theme.s3) {
+            // A fixed-height rail: an unbounded Capsule grew the toast to ~411 pt in book pose (FOLD-REVIEW-1 #4).
             Capsule()
                 .fill(accent)
-                .frame(width: 4)
-                .padding(.vertical, Theme.s2)
+                .frame(width: 4, height: 32)
             glyphView
                 .frame(width: 32, height: 32)
             VStack(alignment: .leading, spacing: 1) {
@@ -672,19 +688,21 @@ struct ToastView: View {
                     .font(Theme.micro)
                     .tracking(Theme.microTracking)
                     .foregroundStyle(Theme.inkSecondary)
+                    .lineLimit(1)
                 Text(detail)
-                    .font(Theme.body)
+                    .font(compact ? Theme.footnote : Theme.body)
                     .foregroundStyle(Theme.ink)
+                    .lineLimit(compact ? 1 : 2)
             }
-            .lineLimit(2)
-            .minimumScaleFactor(0.8)
+            .minimumScaleFactor(0.7)
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.leading, Theme.s2)
         .padding(.trailing, Theme.s4)
         .padding(.vertical, Theme.s1 + 2)
-        .frame(minHeight: 52)
+        .frame(minWidth: 300, minHeight: compact ? 48 : 52)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .background { PaperBackground().clipShape(shape).elevation(.e3) }
         .topHighlight(cornerRadius: Theme.toastRadius)

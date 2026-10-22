@@ -104,9 +104,10 @@ enum FoldStamps {
         }
     }
 
-    static func stamp(for kind: ObjectKind, variant: PressVariant, foldScale: Double) -> FoldStamp {
+    /// `extraYaw` (degrees): the fold stage's own turn of the object (book pose faces objects at the eye).
+    static func stamp(for kind: ObjectKind, variant: PressVariant, foldScale: Double, extraYaw: Double = 0) -> FoldStamp {
         let k = FoldMetrics.mmPerSceneMetre * foldScale * FoldMetrics.pointsPerMM
-        let yaw = yawDegrees(kind) * .pi / 180
+        let yaw = (yawDegrees(kind) + extraYaw) * .pi / 180
         let map = LocalMap(k: k, yaw: yaw)
         let t = map.transform
         let path = CGMutablePath()
@@ -304,6 +305,25 @@ enum FoldStamps {
             ctx.setLineWidth(stamp.kind == .glassBottle ? 3 : 4)
             ctx.strokePath()
             ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            // The wet rim (FOLD-REVIEW-1 #6): a crisp 1.5 pt line of pooled ink just inside the edge.
+            ctx.addPath(outline)
+            ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.7 : 0.55).cgColor)
+            ctx.setLineWidth(3)   // half of it falls outside the clip: 1.5 pt visible
+            ctx.strokePath()
+            // Mottle: ±8 % alpha, so the ink takes the steel's tooth instead of reading as a vector fill.
+            var mottle = SplitMix64(seed: stamp.seed ^ 0x307)
+            let box = outline.boundingBoxOfPath
+            if !box.isEmpty {
+                ctx.setBlendMode(.destinationOut)
+                for _ in 0..<Int(min(900, box.width * box.height / 30)) {
+                    let p = CGPoint(x: CGFloat.random(in: box.minX...box.maxX, using: &mottle),
+                                    y: CGFloat.random(in: box.minY...box.maxY, using: &mottle))
+                    let s = CGFloat.random(in: 1.5...4.5, using: &mottle)
+                    ctx.setFillColor(UIColor(white: 0, alpha: CGFloat.random(in: 0.04...0.16, using: &mottle)).cgColor)
+                    ctx.fillEllipse(in: CGRect(x: p.x - s / 2, y: p.y - s / 2, width: s, height: s))
+                }
+                ctx.setBlendMode(.normal)
+            }
             let wet = [UIColor(white: 1, alpha: 0.24).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray
             if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: wet, locations: [0, 1]) {
                 ctx.drawRadialGradient(gradient, startCenter: stamp.apex, startRadius: 0, endCenter: stamp.apex,
@@ -472,6 +492,9 @@ enum FoldStamps {
             return .none
         case .glassBottle:
             let branches = isFailure ? 0 : (index == 0 ? 3 : 5)
+            ctx.saveGState()
+            defer { ctx.restoreGState() }
+            clipToPlate(ctx)
             for _ in 0..<branches {
                 let start = CGPoint(x: stamp.apex.x + CGFloat.random(in: -40...40, using: &rng),
                                     y: stamp.apex.y + CGFloat.random(in: -14...14, using: &rng))
@@ -573,6 +596,7 @@ enum FoldStamps {
                 }
                 gloss(ctx, stamp.apex, r * 0.7)
             case .glassBottle:
+                clipToPlate(ctx)
                 for i in 0..<9 {
                     let a = CGFloat(i) / 9 * 2 * .pi + CGFloat.random(in: -0.2...0.2, using: &rng)
                     frost(ctx, from: stamp.apex, heading: a, length: r * 1.05, depth: 3, rng: &rng)
@@ -689,20 +713,41 @@ enum FoldStamps {
         fillDisc(ctx, CGPoint(x: c.x - r * 0.3, y: c.y - r * 0.3), r * 0.25, UIColor(white: 1, alpha: 0.45))
     }
 
-    /// Glass prints as frost (§3.2): white branching lines.
+    /// Clips to the strike plate (print space): glass prints on the steel; frost never strays onto the enamel
+    /// (FOLD-REVIEW-1 #7). Callers save / restore the graphics state.
+    static func clipToPlate(_ ctx: CGContext) {
+        let plate = CGRect(x: -FoldMetrics.plateLateral / 2, y: -FoldMetrics.plateDepth / 2,
+                           width: FoldMetrics.plateLateral, height: FoldMetrics.plateDepth).insetBy(dx: 3, dy: 3)
+        let r = CGFloat(FoldMetrics.plateRadius) - 3
+        ctx.addPath(CGPath(roundedRect: plate, cornerWidth: r, cornerHeight: r, transform: nil))
+        ctx.clip()
+    }
+
+    /// Glass prints as frost (§3.2): white branching lines over a faint warm underlay so they read on pale steel.
     static func frost(_ ctx: CGContext, from start: CGPoint, heading: CGFloat, length: CGFloat, depth: Int, rng: inout SplitMix64) {
         var p = start
         var h = heading
         let steps = 5
-        ctx.setStrokeColor(UIColor(white: 1, alpha: 0.9).cgColor)
-        ctx.setLineWidth(CGFloat(depth) * 0.6 + 0.6)
-        ctx.setLineCap(.round)
-        ctx.move(to: p)
+        let line = CGMutablePath()
+        line.move(to: p)
         for _ in 0..<steps {
             h += CGFloat.random(in: -0.5...0.5, using: &rng)
             p = CGPoint(x: p.x + cos(h) * length / CGFloat(steps), y: p.y + sin(h) * length / CGFloat(steps))
-            ctx.addLine(to: p)
+            line.addLine(to: p)
         }
+        let width = CGFloat(depth) * 0.6 + 0.6
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.saveGState()
+        ctx.translateBy(x: 0.6, y: 0.6)
+        ctx.addPath(line)
+        ctx.setStrokeColor(Palette.shadowInk.withAlphaComponent(0.25).cgColor)
+        ctx.setLineWidth(width + 1)
+        ctx.strokePath()
+        ctx.restoreGState()
+        ctx.addPath(line)
+        ctx.setStrokeColor(UIColor(white: 1, alpha: 0.92).cgColor)
+        ctx.setLineWidth(width)
         ctx.strokePath()
         if depth > 1 {
             for _ in 0..<2 {

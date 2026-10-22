@@ -32,6 +32,20 @@ final class FoldPressController {
     private var firstObject = true
     private var hadObject = false
     private var appliedMetresPerMM = FoldMetrics.metresPerMM(foldScale: 1)
+    /// Book pose turns the object (degrees about +y) so its hero face points at the tilted eye (FOLD-REVIEW-1 #3).
+    private var stageYaw: Double = 0
+
+    /// Faces turn toward the eye above the page's top edge; lying objects lie along the hinge.
+    static func bookYaw(_ kind: ObjectKind) -> Double {
+        switch kind {
+        case .rubberDuck, .gummyBear, .sodaCan: 60
+        case .cakeSlice: 45
+        case .egg, .crayon: 20
+        case .glassBottle: 15
+        case .bubbleWrap: -12
+        case .jelly, .unsquishable: 0
+        }
+    }
     private var targetMetresPerMM: Double?
 
     // Press
@@ -107,7 +121,7 @@ final class FoldPressController {
 
     private func applyColours() {
         let gel = StudioEnvironment.gel(for: kind, golden: variant.isGolden)
-        let enamel = FoldTextures.enamel(gel: gel, golden: variant.isGolden)
+        let enamel = FoldTextures.enamel(gel: gel, golden: variant.isGolden, lit: FoldTextures.platenLit)
         platen.setEnamel(enamel)
         anvil.setGel(gel, golden: variant.isGolden)
         host?.setEnamel(enamel)
@@ -224,10 +238,13 @@ final class FoldPressController {
     /// The scene builds objects asynchronously; once it reports the new object, make its print and its fold scale.
     /// The scale (glass + eye size, so the plates never move) switches while the anvil is empty (rest beat).
     private func updateObjectScale(engine: PressEngine, reduceMotion: Bool) {
-        let key = "\(kind.rawValue)-\(variant.seed)-\(variant.isGolden)"
+        let book = layout?.isBook ?? false
+        let key = "\(kind.rawValue)-\(variant.seed)-\(variant.isGolden)-\(book)"
         if stampKey != key, let info = scene?.foldObject, info.kind == kind {
             let scale = FoldMetrics.foldScale(restHeight: Double(info.restHeight))
-            platen.setStamp(FoldStamps.stamp(for: kind, variant: variant, foldScale: scale), variant: variant)
+            stageYaw = book ? Self.bookYaw(kind) : 0
+            platen.setStamp(FoldStamps.stamp(for: kind, variant: variant, foldScale: scale, extraYaw: stageYaw),
+                            variant: variant)
             stampKey = key
             targetMetresPerMM = FoldMetrics.metresPerMM(foldScale: scale)
         }
@@ -285,19 +302,24 @@ final class FoldPressController {
     // MARK: - Gauge and lamps (2D on the crown strip, §5)
 
     private func instruments(engine: PressEngine, approach: Double, reduceMotion: Bool, dt: Double) -> FoldInstruments {
+        // One source of truth (FOLD-REVIEW-1 #11): the needle climbs to exactly the tonnage the specimen record (and
+        // so the cover and the card) will print, 12 + 50·c_max + seed % 9, on a 0–80 t dial. The ball pins past 80.
+        let base = 12 + Double(variant.seed % 9)
+        let dialMax = Double(FoldTextures.gaugeMaxTons)
         var tons = 0.0
         switch engine.phase {
         case .armed, .pressing:
             if engine.renderDepth < engine.mapping.contactT {
                 tons = 0.6 * approach + min(abs(engine.closingSpeed) / 200, 1) * 0.25
             } else if kind == .unsquishable {
-                tons = 8 + 60 * renderCompression
+                tons = 10 + (dialMax - 10) * min(1, renderCompression * 1.6)
             } else {
-                tons = 4 + 52 * renderCompression
+                tons = base * min(1, renderCompression * 4) + 50 * renderCompression
             }
             peakTons = max(peakTons, tons)
         case .sealed:
-            tons = max(peakTons, kind == .unsquishable ? 64 : 50)
+            let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
+            tons = kind == .unsquishable ? dialMax + 3 : base + Double(Int(maxC * 50))
         case .idle, .revealing:
             tons = 0
         }
@@ -312,13 +334,13 @@ final class FoldPressController {
                 needleTons += needleVelocity * h
             }
         }
-        var shown = min(needleTons, 63)
+        var shown = min(needleTons, dialMax + 3)
         let slamming = engine.isLoaded && engine.closingSpeed > engine.config.slamSpeed
-        let buzz = kind == .unsquishable && engine.phase != .revealing && engine.phase != .idle && tons >= 60
+        let buzz = kind == .unsquishable && engine.phase != .revealing && engine.phase != .idle && tons >= dialMax
         if !reduceMotion {
             if tell { shown += 0.8 / 4.5 * sin(clock * 2 * .pi * 14) }
             if slamming { shown += 3.5 * sin(clock * 2 * .pi * 19) * sin(clock * 2 * .pi * 3.1) }
-            if buzz { shown = 62 + 0.6 * sin(clock * 2 * .pi * 23) }
+            if buzz { shown = dialMax + 2 + 0.6 * sin(clock * 2 * .pi * 23) }
             if !tell && !buzz && tons < 0.01 { shown += 0.3 / 4.5 * sin(clock * 2 * .pi * 0.4) }
         }
 
@@ -374,13 +396,53 @@ final class FoldPressController {
         let distance = Float(simd_length(solution.eye) * k)
         let creaseZ = -(FoldMetrics.footprintFromAxisMM - FoldMetrics.creaseHalf / FoldMetrics.pointsPerMM)
         let lean = contacted ? Float(8 * Double.pi / 180 * renderCompression) : 0
+        let exposure = FoldCurve.exposure(eyeElevation: eye.renderElevation(pose))
         let stage = FoldStage(cameraPosition: toScene(solution.eye), cameraOrientation: simd_quatf(rotation),
                               verticalFOV: Float(solution.verticalFOV), near: max(0.01, distance * 0.1),
                               far: distance * 4, lean: lean, flashPosition: toScene(SIMD3<Double>(0, 30, creaseZ)),
-                              rimGain: Float(FoldCurve.rimGain(angle: angle)))
+                              rimGain: Float(FoldCurve.rimGain(angle: angle)),
+                              yaw: Float(stageYaw * .pi / 180), iblOffset: Float(exposure.iblOffset),
+                              keyGain: Float(exposure.keyGain))
         host?.setCamera(position: stage.cameraPosition, orientation: stage.cameraOrientation,
                         verticalFOV: stage.verticalFOV, near: stage.near, far: stage.far)
         self.scene?.setFoldStage(stage)
+    }
+
+    // MARK: - Collection card (FOLD-PRESS §6.3, FOLD-REVIEW-1 #12)
+
+    /// A square diptych for the collection card: the monoprint as it lies on the platen now (print, splat, stamps;
+    /// no bezel) above a hairline crease, the flattened specimen's top-down shot below if given. Nil if no print.
+    func specimenDiptych(specimen: UIImage?, side: CGFloat = 720) -> UIImage? {
+        guard let print = platen.printImage() else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let size = CGSize(width: side, height: side)
+        let margin = side * 0.04
+        let crease = side * 0.004
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            Palette.paper.setFill()
+            cg.fill(CGRect(origin: .zero, size: size))
+            let half = (side - crease) / 2
+            let top = CGRect(x: margin, y: margin, width: side - 2 * margin, height: half - 1.5 * margin)
+            let bottom = CGRect(x: margin, y: half + crease + 0.5 * margin, width: side - 2 * margin, height: half - 1.5 * margin)
+            func fit(_ w: CGFloat, _ h: CGFloat, in box: CGRect) -> CGRect {
+                let s = min(box.width / max(w, 1), box.height / max(h, 1))
+                return CGRect(x: box.midX - w * s / 2, y: box.midY - h * s / 2, width: w * s, height: h * s)
+            }
+            let printImage = UIImage(cgImage: print)
+            if let specimen {
+                printImage.draw(in: fit(printImage.size.width, printImage.size.height, in: top))
+                // The hairline crease between the halves, like a pressed-flower page and its tissue.
+                cg.setFillColor(Palette.graphite.withAlphaComponent(0.55).cgColor)
+                cg.fill(CGRect(x: margin, y: half, width: side - 2 * margin, height: crease))
+                specimen.draw(in: fit(specimen.size.width, specimen.size.height, in: bottom))
+            } else {
+                let box = CGRect(x: margin, y: margin, width: side - 2 * margin, height: side - 2 * margin)
+                printImage.draw(in: fit(printImage.size.width, printImage.size.height, in: box))
+            }
+        }
     }
 
     /// One line for CI logs (demo runs): layout, view size, eye, projected corners and the warp.

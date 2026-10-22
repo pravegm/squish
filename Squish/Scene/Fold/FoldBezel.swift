@@ -25,6 +25,11 @@ final class FoldBezel {
     private let anvilJaw = CALayer()
     private let crown = CALayer()
     private let console = CALayer()
+    private let platenFoot = CALayer()
+    private let plateShade = CALayer()
+    private let creaseShadePlaten = CAGradientLayer()
+    private var readyLabelImage: CGImage?
+    private var loadLabelImage: CGImage?
     private let gaugeFace = CALayer()
     private let gaugeRing = CAShapeLayer()
     private let needle = CAShapeLayer()
@@ -73,10 +78,16 @@ final class FoldBezel {
             if let image = FoldTextures.lamp(color, lit: state != 0, diameter: 14) { lampImages[state] = image }
             if let image = FoldTextures.lamp(color, lit: state != 0, diameter: 10) { pilotImages[state] = image }
         }
-        readyLabel.contents = FoldTextures.label("READY", size: 6.5, color: UIColor(white: 1, alpha: 0.55))
-        loadLabel.contents = FoldTextures.label("LOAD", size: 6.5, color: UIColor(white: 1, alpha: 0.55))
-        gaugeFace.contents = RigTextures.gaugeFace(size: 192)
-        nameplate.contents = RigTextures.nameplate()
+        // FOLD-REVIEW-1 #15: 9 pt SF Mono Semibold at 0.8 (6.5 pt at 0.55 was unreadable).
+        readyLabelImage = FoldTextures.label("READY", size: 9, color: UIColor(white: 1, alpha: 0.8))
+        loadLabelImage = FoldTextures.label("LOAD", size: 9, color: UIColor(white: 1, alpha: 0.8))
+        readyLabel.contents = readyLabelImage
+        loadLabel.contents = loadLabelImage
+        platenFoot.backgroundColor = Palette.graphite.cgColor
+        layer.insertSublayer(platenFoot, above: console)
+        layer.insertSublayer(plateShade, at: 0)
+        creaseShadePlaten.colors = [Palette.graphite.withAlphaComponent(0).cgColor, Palette.graphite.withAlphaComponent(0.22).cgColor]
+        layer.insertSublayer(creaseShadePlaten, above: creaseShade)
     }
 
     func build(layout: FoldLayout) {
@@ -106,12 +117,16 @@ final class FoldBezel {
         // A soft occlusion ramp off the anvil's back lip: debris near the crease fades under it (§2.3).
         let shadeDepth = (c + FoldMetrics.backLip)...(c + FoldMetrics.backLip + 24)
         creaseShade.frame = layout.rect(lateral: all, depth: shadeDepth)
-        if layout.isBook {
-            creaseShade.startPoint = CGPoint(x: 0, y: 0.5)
-            creaseShade.endPoint = CGPoint(x: 1, y: 0.5)
-        } else {
-            creaseShade.startPoint = CGPoint(x: 0.5, y: 0)
-            creaseShade.endPoint = CGPoint(x: 0.5, y: 1)
+        // The same ramp mirrored on the platen, so both lips read alike (FOLD-REVIEW-1 #8).
+        creaseShadePlaten.frame = layout.rect(lateral: all, depth: (-shadeDepth.upperBound)...(-shadeDepth.lowerBound))
+        for shade in [creaseShade, creaseShadePlaten] {
+            if layout.isBook {
+                shade.startPoint = CGPoint(x: 0, y: 0.5)
+                shade.endPoint = CGPoint(x: 1, y: 0.5)
+            } else {
+                shade.startPoint = CGPoint(x: 0.5, y: 0)
+                shade.endPoint = CGPoint(x: 0.5, y: 1)
+            }
         }
 
         // Rails (§5): yellow enamel with a 1 pt highlight on the inner edge.
@@ -144,15 +159,16 @@ final class FoldBezel {
         let cr = layout.crownStrip
         crown.frame = cr
         console.frame = layout.consoleBand
-        let gaugeCentre = CGPoint(x: cr.minX + 36, y: cr.midY)
-        let gaugeSize: CGFloat = 56
+        let gaugeCentre = CGPoint(x: cr.minX + 38, y: cr.midY)
+        let gaugeSize: CGFloat = 60   // FOLD-REVIEW-1 #15: 56 → 60 pt (the 64 pt strip leaves a 2 pt margin)
+        gaugeFace.contents = FoldTextures.gaugeFace(diameter: gaugeSize - 6)
         let gaugeRect = CGRect(x: gaugeCentre.x - gaugeSize / 2, y: gaugeCentre.y - gaugeSize / 2, width: gaugeSize, height: gaugeSize)
         gaugeFace.frame = gaugeRect.insetBy(dx: 3, dy: 3)
         gaugeFace.cornerRadius = (gaugeSize - 6) / 2
         gaugeFace.masksToBounds = true
         gaugeRing.frame = gaugeRect
         gaugeRing.path = CGPath(ellipseIn: CGRect(x: 1.5, y: 1.5, width: gaugeSize - 3, height: gaugeSize - 3), transform: nil)
-        let tip: CGFloat = 22, tail: CGFloat = 5
+        let tip: CGFloat = 24, tail: CGFloat = 5
         let needlePath = CGMutablePath()
         needlePath.move(to: CGPoint(x: -1.9, y: tail))
         needlePath.addLine(to: CGPoint(x: 1.9, y: tail))
@@ -170,24 +186,40 @@ final class FoldBezel {
         gaugeCrack.frame = gaugeRect
         gaugeCrack.path = nil
 
-        let lampY = cr.midY - 6
-        let readyX = layout.isBook ? cr.minX + 96 : cr.maxX - 76
-        let loadX = layout.isBook ? cr.minX + 126 : cr.maxX - 44
+        let lampY = cr.midY - 7
+        let readyX = layout.isBook ? cr.minX + 106 : cr.maxX - 94
+        let loadX = layout.isBook ? cr.minX + 150 : cr.maxX - 46
         for (lamp, x) in [(readyLamp, readyX), (loadLamp, loadX)] {
             lamp.bounds = CGRect(x: 0, y: 0, width: 20, height: 20)
             lamp.position = CGPoint(x: x, y: lampY)
         }
         for (label, x) in [(readyLabel, readyX), (loadLabel, loadX)] {
-            label.bounds = CGRect(x: 0, y: 0, width: label === readyLabel ? 24 : 18, height: 9)
-            label.position = CGPoint(x: x, y: lampY + 16)
+            let image = label === readyLabel ? readyLabelImage : loadLabelImage
+            let w = CGFloat(image?.width ?? 60) / 3, h = CGFloat(image?.height ?? 33) / 3
+            label.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+            label.position = CGPoint(x: x, y: lampY + 19)
         }
-        nameplate.bounds = CGRect(x: 0, y: 0, width: 92, height: 23)
+        let plateSize = CGSize(width: 92, height: 24)
+        nameplate.contents = FoldTextures.nameplate(size: plateSize)
+        nameplate.bounds = CGRect(origin: .zero, size: plateSize)
         // Narrow (non-Duo) canvases: keep the nameplate beside the gauge, clear of a centred camera cut-out.
         let narrow = !layout.isBook && layout.canvas.width < 500
-        nameplate.position = CGPoint(x: layout.isBook ? cr.minX + 232 : (narrow ? cr.minX + 116 : cr.midX),
+        nameplate.position = CGPoint(x: layout.isBook ? cr.minX + 258 : (narrow ? cr.minX + 120 : cr.midX),
                                      y: narrow ? cr.maxY - 16 : cr.midY)
-        nameplate.cornerRadius = 2
-        nameplate.masksToBounds = true
+
+        // Book: the platen page's empty foot band mirrors the anvil console (bands mesh when shut).
+        if let foot = layout.platenFoot {
+            platenFoot.frame = foot
+            platenFoot.isHidden = false
+        } else {
+            platenFoot.isHidden = true
+        }
+        // The lid's shade on the anvil (§2.4): the strike plate + 20 pt, soft, 0.30·a².
+        let anvilPlate = layout.strikePlate(platen: false).insetBy(dx: -20, dy: -20)
+        let blur: CGFloat = 14
+        plateShade.contents = FoldTextures.plateShade(size: anvilPlate.size, radius: 28, blur: blur)
+        plateShade.frame = anvilPlate.insetBy(dx: -2 * blur, dy: -2 * blur)
+        plateShade.opacity = 0
 
         let cb = layout.consoleBand
         pilotLamp.bounds = CGRect(x: 0, y: 0, width: 16, height: 16)
@@ -200,9 +232,11 @@ final class FoldBezel {
     func update(_ instruments: FoldInstruments, frame f: FoldFrame) {
         // Dial angle α = 225° − 270°·t/60 (CCW from +x); the needle is drawn at 12 o'clock (90°), and
         // UIKit rotations are clockwise-positive on screen.
-        let tons = min(max(instruments.needle, -1), 63)
-        let alpha = 225 - 270 * tons / 60
-        needle.setAffineTransform(CGAffineTransform(rotationAngle: CGFloat((90 - alpha) * .pi / 180)))
+        let tons = min(max(instruments.needle, -1), Double(FoldTextures.gaugeMaxTons) + 3)
+        needle.setAffineTransform(CGAffineTransform(rotationAngle: FoldTextures.needleRotation(tons: tons)))
+        // Plate shade: the lid's shadow arrives on the anvil as it closes (0.30·a²), and stays while loaded.
+        let a = f.contacted ? 1 : f.approach
+        plateShade.opacity = Float(0.30 * a * a)
         if lampState != (instruments.ready, instruments.load) {
             readyLamp.contents = lampImages[instruments.ready == 1 ? 1 : (instruments.ready == 2 ? 2 : 0)]
             let load = instruments.load == 1 ? 3 : (instruments.load == 2 ? 2 : 0)
@@ -217,7 +251,7 @@ final class FoldBezel {
     func crackGauge(seed: UInt64) {
         var rng = SplitMix64(seed: seed ^ 0x6A6E)
         let path = CGMutablePath()
-        let c = CGPoint(x: 28, y: 28)
+        let c = CGPoint(x: 30, y: 30)
         for k in 0..<3 {
             let a = CGFloat(k) * 2.1 + CGFloat.random(in: -0.3...0.3, using: &rng)
             path.move(to: CGPoint(x: c.x + cos(a) * 4, y: c.y + sin(a) * 4))

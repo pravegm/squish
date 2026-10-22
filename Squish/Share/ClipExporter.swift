@@ -104,8 +104,10 @@ final class ClipExporter {
         // 3. Picture: writer and studio.
         let writer: ClipWriter
         do {
-            writer = try ClipWriter(url: files.video, width: Self.width, height: Self.height, videoBitRate: Self.videoBitRate)
-            try writer.start()
+            writer = try await ClipWriter.make(url: files.video, width: Self.width, height: Self.height,
+                                               bitRate: Self.videoBitRate)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw ExportError.writer(error.localizedDescription)
         }
@@ -157,8 +159,9 @@ final class ClipExporter {
     private func renderFrames(trace: PressTrace, specimen: SpecimenRecord, timeline: ClipTimeline,
                               steps: [ClipTimeline.DriveStep], style: SoundStyle, reduceMotion: Bool,
                               studio: ClipStudio, writer: ClipWriter, report: (Double) -> Void) async throws {
-        let width = CGFloat(Self.width)
-        let height = CGFloat(Self.height)
+        // The writer may have fallen back to a smaller size on a weak encoder; draw at whatever it encodes.
+        let width = CGFloat(writer.width)
+        let height = CGFloat(writer.height)
         let bounds = CGRect(x: 0, y: 0, width: width, height: height)
         let backdrop = UIColor(Theme.gel(for: specimen.kind, golden: specimen.variant.isGolden)).cgColor
         let totalFrames = Double(max(timeline.totalFrames, 1))

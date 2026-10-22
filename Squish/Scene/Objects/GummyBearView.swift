@@ -164,7 +164,7 @@ final class GummyBearView: PressObjectView {
         if spreading {
             let t = clamp((state.compression - spreadC) / max(1 - spreadC, 0.05), 0, 1)
             goo.isEnabled = true
-            let radius = 0.035 + 0.03 * t
+            let radius = 0.045 + 0.03 * t
             goo.scale = SIMD3(radius, 0.004, radius * 0.85)
             spread = max(spread, radius / footprint)
         }

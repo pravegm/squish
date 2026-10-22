@@ -146,8 +146,8 @@ final class EggView: PressObjectView {
         }
         let t = clamp((c - failC) / max(1 - failC, 0.05), 0, 1)
         // Albumen spreads to Ø 0.13, 2 mm.
-        albumen.scale = SIMD3(0.045 + 0.02 * t, 0.002, (0.045 + 0.02 * t) * 0.9)
-        spread = (0.045 + 0.02 * t) / footprint
+        albumen.scale = SIMD3(0.050 + 0.024 * t, 0.002, (0.050 + 0.024 * t) * 0.9)
+        spread = (0.050 + 0.024 * t) / footprint
         for (i, yolk) in yolks.enumerated() {
             let dome: Float = yolkBroken ? 0.006 : 0.011
             let height = min(dome, max(h - 0.001, 0.0015))

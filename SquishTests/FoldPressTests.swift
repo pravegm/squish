@@ -166,7 +166,10 @@ struct FoldPressTests {
         #expect(near(open.blur, 40) && near(open.alpha, 0.08) && near(open.scale, 1.25))
         #expect(near(shut.blur, 4) && near(shut.alpha, 0.35) && near(shut.scale, 1))
         #expect(near(FoldCurve.platenDimming(angle: 45), 0.55) && near(FoldCurve.platenDimming(angle: 90), 1))
-        #expect(near(FoldCurve.rimGain(angle: 180), 0.6) && near(FoldCurve.rimGain(angle: 90), 1))
+        #expect(near(FoldCurve.rimGain(angle: 180), 0.6) && near(FoldCurve.rimGain(angle: 60), 0.8))
+        // FOLD-REVIEW-1 #1: at least −0.5 EV in fold framing, more as the eye goes grazing.
+        let high = FoldCurve.exposure(eyeElevation: 85), low = FoldCurve.exposure(eyeElevation: 47.5)
+        #expect(near(high.iblOffset, -0.5) && low.iblOffset < high.iblOffset && low.keyGain < high.keyGain)
     }
 
     // MARK: Eye model (§2.2)
@@ -175,8 +178,14 @@ struct FoldPressTests {
         let eye = FoldEyeModel.standard
         #expect(near(eye.renderElevation(.tabletop), 47.5, 0.01))
         #expect(near(simd_length(eye.renderEye(.tabletop)), 380, 1e-6))
-        let flat = eye.designEye(.book(hinge: 180))
+        var bisector = eye
+        bisector.bookTiltTowardTopDegrees = 0
+        let flat = bisector.designEye(.book(hinge: 180))
         #expect(near(flat.x, 0) && near(flat.y, 320) && near(flat.z, -40))
+        // FOLD-REVIEW-1 #3: the held book is seen from above its top edge (anvil +x), so the object gets a 3/4 face.
+        let tilted = eye.designEye(.book(hinge: 180))
+        #expect(tilted.x > 100 && near(simd_length(SIMD2(tilted.x, tilted.y)), 320, 1e-6))
+        #expect(eye.renderElevation(.book(hinge: 180)) < 75)
         // The book eye drops toward the anvil as the book closes (the pop-up stands up).
         let e120 = eye.renderElevation(.book(hinge: 120)), e90 = eye.renderElevation(.book(hinge: 90))
         #expect(e120 > e90 && e90 >= eye.minRenderElevationDegrees)

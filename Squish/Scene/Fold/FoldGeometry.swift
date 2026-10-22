@@ -187,7 +187,15 @@ struct FoldLayout: Equatable, Sendable {
     /// Lateral range of the stage fields (inside the rails, and clear of the book crown / console bands).
     var platenFieldLateral: ClosedRange<Double> {
         let r = FoldMetrics.rail
-        return isBook ? (r + FoldMetrics.crownDepth)...(lateralLength - r) : r...(lateralLength - r)
+        return isBook ? (r + FoldMetrics.crownDepth)...(lateralLength - r - FoldMetrics.consoleDepth) : r...(lateralLength - r)
+    }
+
+    /// Book only (FOLD-REVIEW-1 §5): an empty graphite band at the bottom of the platen page, the console's mirror,
+    /// so the bands mesh when the phone shuts and the canvas isn't lopsided.
+    var platenFoot: CGRect? {
+        guard isBook else { return nil }
+        let l1 = lateralLength - FoldMetrics.rail
+        return rect(lateral: (l1 - FoldMetrics.consoleDepth)...l1, depth: (-platenReach + FoldMetrics.jaw)...(-c))
     }
 
     var anvilFieldLateral: ClosedRange<Double> {
@@ -303,41 +311,49 @@ struct FoldEyeModel: Equatable, Sendable {
     /// Floor on the rendered elevation, so tall objects never lean into the crease band (§12 R2) when the
     /// book eye drops low below ~70° [tune].
     var minRenderElevationDegrees: Double = 47.5
+    /// Book only (FOLD-REVIEW-1 #3): a held book is seen from above its top edge, not down the bisector. The eye is
+    /// rotated about the anvil's z axis toward the top of the page (anvil +x) so objects get a 3/4 face [tune].
+    var bookTiltTowardTopDegrees: Double = 25
 
     static let standard = FoldEyeModel()
 
     func designEye(_ pose: FoldPose) -> SIMD3<Double> {
         switch pose {
         case .tabletop:
-            return Self.polar(distance: tabletopDistanceMM, elevation: elevationDegrees)
+            return Self.polar(distance: tabletopDistanceMM, elevation: elevationDegrees, azimuth: 0)
         case let .handheld(pitch):
-            return Self.polar(distance: tabletopDistanceMM, elevation: min(elevationDegrees + max(pitch, 0), 75))
+            return Self.polar(distance: tabletopDistanceMM, elevation: min(elevationDegrees + max(pitch, 0), 75), azimuth: 0)
         case let .book(hinge):
             let half = clamp(hinge, 20, 180) / 2 * .pi / 180
             let hingeAxis = SIMD3<Double>(0, 0, -FoldMetrics.footprintFromAxisMM)
-            return hingeAxis + bookDistanceMM * SIMD3(0, sin(half), cos(half))
+            let bisector = hingeAxis + bookDistanceMM * SIMD3(0, sin(half), cos(half))
+            let tilt = bookTiltTowardTopDegrees * .pi / 180
+            return SIMD3(bisector.y * sin(tilt), bisector.y * cos(tilt), bisector.z)
         }
     }
 
-    /// ε_render = ε + (1 − s)(90° − ε), measured from the footprint centre (§2.2); the distance is kept.
+    /// ε_render = ε + (1 − s)(90° − ε) above the glass, measured from the footprint centre (§2.2); the distance and
+    /// the direction around the normal (azimuth) are kept.
     func renderEye(_ pose: FoldPose) -> SIMD3<Double> {
         let eye = designEye(pose)
         let distance = simd_length(eye)
-        let elevation = atan2(eye.y, eye.z) * 180 / .pi
+        let elevation = asin(clamp(eye.y / max(distance, 1e-9), -1, 1)) * 180 / .pi
+        let azimuth = atan2(eye.x, eye.z)
         var rendered = elevation + (1 - clamp(anamorphicStrength, 0, 1)) * (90 - elevation)
-        rendered = clamp(rendered, minRenderElevationDegrees, 180 - minRenderElevationDegrees)
-        return Self.polar(distance: distance, elevation: rendered)
+        rendered = clamp(rendered, minRenderElevationDegrees, 90)
+        return Self.polar(distance: distance, elevation: rendered, azimuth: azimuth)
     }
 
-    /// Elevation (degrees above the glass, from the footprint centre, toward the front edge) of the rendered eye.
+    /// Elevation of the rendered eye above the glass (degrees), from the footprint centre.
     func renderElevation(_ pose: FoldPose) -> Double {
         let eye = renderEye(pose)
-        return atan2(eye.y, eye.z) * 180 / .pi
+        return asin(clamp(eye.y / max(simd_length(eye), 1e-9), -1, 1)) * 180 / .pi
     }
 
-    private static func polar(distance: Double, elevation degrees: Double) -> SIMD3<Double> {
+    /// `azimuth` (radians) is measured in the glass plane from +z (the front edge) toward +x.
+    private static func polar(distance: Double, elevation degrees: Double, azimuth: Double) -> SIMD3<Double> {
         let e = degrees * .pi / 180
-        return distance * SIMD3(0, sin(e), cos(e))
+        return distance * SIMD3(cos(e) * sin(azimuth), sin(e), cos(e) * cos(azimuth))
     }
 
     /// Where a point above the glass appears on the glass from `eye` (the anamorphic footprint of height).
@@ -538,8 +554,17 @@ enum FoldCurve {
         1 - 0.45 * clamp((75 - angle) / 30, 0, 1)
     }
 
-    /// Wedge light (§2.4): rimGain = 0.6 + 0.4·clamp((150 − θ)/60, 0, 1).
-    static func rimGain(angle: Double) -> Double { 0.6 + 0.4 * clamp((150 - angle) / 60, 0, 1) }
+    /// Wedge light (§2.4), capped at 0.8 (FOLD-REVIEW-1 #1: the anvil blew out as the phone closed):
+    /// rimGain = 0.6 + 0.2·clamp((150 − θ)/60, 0, 1).
+    static func rimGain(angle: Double) -> Double { 0.6 + 0.2 * clamp((150 - angle) / 60, 0, 1) }
+
+    /// Fold-mode exposure (FOLD-REVIEW-1 #1): the studio IBL drops 0.5 EV, and a further 0.4 EV as the rendered eye
+    /// goes grazing (low eyes see the bright studio mirrored in the clearcoat and steel). Returns (IBL EV offset,
+    /// key-light gain) for a rendered eye elevation in degrees.
+    static func exposure(eyeElevation: Double) -> (iblOffset: Double, keyGain: Double) {
+        let grazing = clamp((75 - eyeElevation) / 25, 0, 1)
+        return (-0.5 - 0.4 * grazing, 0.92 - 0.12 * grazing)
+    }
 
     /// Print radius as a fraction of the full print: r = R·min(1, 1.1·√c) (§3.2).
     static func printFraction(compression c: Double) -> Double { min(1, 1.1 * max(c, 0).squareRoot()) }

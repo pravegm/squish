@@ -29,11 +29,16 @@ struct CoverView: View {
     private var sideInset: CGFloat { Theme.s5 }
     private var bottomInset: CGFloat { 0 }
 
+    private var isSealed: Bool {
+        if case .sealed = content { return true }
+        return false
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let width = max(220, min(proxy.size.width - sideInset * 2, 340))
             ZStack {
-                MachinePanel()
+                MachinePanel(holdingPressure: isSealed)
                 ScrollView(.vertical) {
                     VStack(spacing: Theme.s4) {
                         switch content {
@@ -98,8 +103,13 @@ private struct FoldGlyph: View {
     }
 }
 
-/// Graphite gradient panel, 1 pt top highlight, four chrome screws.
+/// The press's outside (FOLD-PRESS §6.1): graphite panel, 1 pt top highlight, four chrome screws, 10 pt hazard
+/// jaws on the free (trailing) edge, and — while sealed — a faint amber seam glow on the hinge (leading) edge.
 private struct MachinePanel: View {
+    var holdingPressure = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var glow = false
+
     var body: some View {
         ZStack {
             LinearGradient(colors: [Theme.rgb(0x3A3D43), Theme.rgb(0x2B2D31)], startPoint: .top, endPoint: .bottom)
@@ -109,6 +119,20 @@ private struct MachinePanel: View {
                 Spacer()
             }
             .ignoresSafeArea()
+            HStack(spacing: 0) {
+                // Hinge edge: the seam holding pressure.
+                LinearGradient(colors: [Theme.yellow.opacity(holdingPressure ? (glow ? 0.55 : 0.35) : 0), .clear],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 6)
+                Spacer(minLength: 0)
+                HazardJaw()
+                    .frame(width: 10)
+            }
+            .ignoresSafeArea()
+            .onAppear {
+                guard holdingPressure, !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { glow = true }
+            }
             GeometryReader { proxy in
                 let inset: CGFloat = 14
                 ForEach(0..<4, id: \.self) { index in
@@ -116,6 +140,28 @@ private struct MachinePanel: View {
                         .position(x: index % 2 == 0 ? inset : proxy.size.width - inset,
                                   y: index < 2 ? inset : proxy.size.height - inset)
                 }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// 45° yellow/graphite stripes, 8 pt stripe width (16 pt period), drawn vertically.
+private struct HazardJaw: View {
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Theme.yellow))
+            let period: CGFloat = 16
+            var y: CGFloat = -size.width
+            while y < size.height + size.width {
+                var path = Path()
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y + size.width))
+                path.addLine(to: CGPoint(x: size.width, y: y + size.width + period / 2))
+                path.addLine(to: CGPoint(x: 0, y: y + period / 2))
+                path.closeSubpath()
+                context.fill(path, with: .color(Theme.graphite))
+                y += period
             }
         }
         .accessibilityHidden(true)
@@ -141,9 +187,17 @@ private struct SealedInset: View {
 
     var body: some View {
         VStack(spacing: Theme.s3) {
-            Text("PRESS SEALED")
-                .font(.system(.headline, design: .rounded, weight: .heavy))
-                .foregroundStyle(Theme.graphite)
+            HStack(spacing: Theme.s2) {
+                // LOAD lamp: amber while the press holds pressure.
+                Circle()
+                    .fill(Theme.yellow)
+                    .overlay(Circle().strokeBorder(Theme.yellowLip, lineWidth: 1))
+                    .frame(width: 10, height: 10)
+                    .shadow(color: Theme.yellow.opacity(0.6), radius: 4)
+                Text("PRESS SEALED")
+                    .font(.system(.headline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(Theme.graphite)
+            }
             HStack(spacing: Theme.s4) {
                 MiniGauge(tons: tons)
                     .frame(width: 72, height: 72)
@@ -153,7 +207,9 @@ private struct SealedInset: View {
                         .font(Theme.micro)
                         .tracking(Theme.microTracking)
                         .foregroundStyle(Theme.inkSecondary)
-                    EmbossedSilhouette(kind: kind)
+                    // Graphite at 0.35 so it reads on paper (the embossed version was ~1.2:1).
+                    ObjectSilhouette(kind: kind)
+                        .fill(Theme.graphite.opacity(0.35))
                         .frame(width: 56, height: 56)
                         .scaleEffect(x: 1.3, y: 0.35)
                         .frame(height: 24)
@@ -176,7 +232,7 @@ private struct SealedInset: View {
         }
         .padding(.horizontal, Theme.s5)
         .padding(.vertical, Theme.s4)
-        .frame(minWidth: 220)
+        .frame(maxWidth: .infinity)
         .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).elevation(.e2) }
         .topHighlight(cornerRadius: 16)
         .onAppear {
@@ -222,7 +278,7 @@ struct MiniGauge: View {
                 Text("TONS")
                     .font(.system(size: 6, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Theme.inkSecondary)
-                    .position(x: center.x, y: center.y + radius * 0.42)
+                    .position(x: center.x, y: center.y + 14) // 14 pt below the hub, clear of "60" and the needle
                 GaugeNeedle(tons: shown, inset: 9)
                     .fill(Theme.stamp)
                 Circle().fill(Theme.rgb(0xC9CCD2)).frame(width: 7, height: 7).position(center)
