@@ -14,7 +14,7 @@ enum RigTextures {
     }
 
     /// Gauge angle (radians, CCW from +x, y up) for a tonnage on the 0–60 t dial.
-    static func gaugeAngle(tons: CGFloat) -> CGFloat {
+    nonisolated static func gaugeAngle(tons: CGFloat) -> CGFloat {
         (225 - 270 * tons / 60) * .pi / 180
     }
 
