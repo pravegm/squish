@@ -210,7 +210,7 @@ enum ShadowCasting {
         }
     }
 
-    static func isTranslucent(_ material: any Material) -> Bool {
+    static func isTranslucent(_ material: any RealityKit.Material) -> Bool {
         if let pbr = material as? PhysicallyBasedMaterial {
             if case .transparent = pbr.blending { return true }
         }
