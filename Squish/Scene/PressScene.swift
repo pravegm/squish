@@ -79,6 +79,7 @@ final class PressScene {
     /// Assets are in; now wait for a few smooth frames (first-draw shader compiles happen while still transparent).
     private var assetsReady = false
     private var smoothFrames = 0
+    private var framesSinceAssets = 0
     private var iblRequested = false
     private var iblFade: Float = 1
     /// Fills the shadow side until the IBL arrives (then fades out).
@@ -194,7 +195,9 @@ final class PressScene {
         if assetsReady && !isStudioReady {
             // A stalled frame clamps to 0.05 s, so "smooth" means comfortably under that.
             smoothFrames = dt < 0.045 ? smoothFrames + 1 : 0
-            if smoothFrames >= 4 { markStudioReady(timedOut: false) }
+            framesSinceAssets += 1
+            // On a slow GPU (or the CI simulator) frames are never "smooth"; don't hold the scene hostage for it.
+            if smoothFrames >= 4 || framesSinceAssets >= 8 { markStudioReady(timedOut: false) }
         }
         clock += dt
         updateLightFade(dt: dt)
