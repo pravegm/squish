@@ -548,7 +548,9 @@ enum FoldStoreShot {
     private static func drawCaption(_ text: String, subline: String?, size: CGSize) {
         let band = CGRect(x: size.width * 0.06, y: size.height * 0.03,
                           width: size.width * 0.88, height: size.height * 0.165)
-        let minimum = size.height * 0.058   // SF Rounded cap height ≈ 0.70 em → 4.06 %
+        // Shrink until the caption fits the band (two-line headlines need ~0.045 at 1320 wide); fitting beats the
+        // 4 % cap-height target, which a 0.058 floor kept but at the cost of clipping the first line off the frame.
+        let minimum = size.height * 0.036
         var fontSize = size.height * 0.064
         let breakSentences = captionString(text, size: fontSize, breakSentences: false).size().width > band.width
         func measure(_ string: NSAttributedString) -> CGSize {
@@ -568,7 +570,7 @@ enum FoldStoreShot {
         let headSize = measure(headline)
         let subSize = sub.map { measure($0) } ?? .zero
         let gap = sub == nil ? 0 : fontSize * 0.30
-        var y = band.midY - (headSize.height + gap + subSize.height) / 2
+        var y = max(band.minY, band.midY - (headSize.height + gap + subSize.height) / 2)
         headline.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: headSize.height + 2),
                       options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         y += headSize.height + gap
