@@ -211,7 +211,9 @@ struct FoldLayout: Equatable, Sendable {
     }
 
     func bolts(platen: Bool) -> [CGPoint] {
-        let d = platen ? -FoldMetrics.footprintDepth : FoldMetrics.footprintDepth
+        // The platen's bolts are the anvil's, mirrored across the hinge, index for index (so they meet at close).
+        if platen { return bolts(platen: false).map(mirror) }
+        let d = FoldMetrics.footprintDepth
         let dl = FoldMetrics.plateLateral / 2 - FoldMetrics.boltInset
         let dd = FoldMetrics.plateDepth / 2 - FoldMetrics.boltInset
         let signs: [SIMD2<Double>] = [SIMD2(-1, -1), SIMD2(1, -1), SIMD2(1, 1), SIMD2(-1, 1)]
