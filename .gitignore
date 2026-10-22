@@ -1,0 +1,17 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+
+# Raw purchased sound libraries (licensed, not redistributable)
+audio-source/
