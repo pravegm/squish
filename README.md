@@ -5,4 +5,4 @@ A hydraulic press in your pocket. A paid toy for iPhone Duo: place an object on 
 ## Layout
 
 - `research/` — design research reports (haptics, sound, visuals, psychology/UX, hinge UX, market)
-- `design/` — the Squish design bible and specs
+- `design/SQUISH-DESIGN-BIBLE.md` — the single source of truth: pillars, resolved decisions, beat-by-beat experience, hinge/haptics/sound/visual specs, launch objects, build plan
