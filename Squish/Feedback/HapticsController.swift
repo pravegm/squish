@@ -3,21 +3,37 @@ import CoreHaptics
 import QuartzCore
 
 /// Core Haptics, three layers on one engine (bible §7):
-/// a looping strain bed steered live, per-degree grains, and event patterns.
+/// a looping strain bed steered live, per-degree grains (delivered by the engine as `.grain` events),
+/// and event patterns from each object's recipe and `BrandCues`.
+///
+/// Rules enforced here for every cue: user level (Off / Soft ×0.6 / Full), ±10 % intensity, ±0.05 sharpness,
+/// ±15 % timing (at most ±15 ms), a 12 ms minimum gap between transients, and 1.0 intensity only for climaxes
+/// (failure, ka-chunk); everything else is capped at 0.9.
 @MainActor
 final class HapticsController {
-    /// User setting × device gain. Off = 0, Soft = 0.6, Full = 1.
-    var scale: Float = 1
+    var level: HapticsLevel = .full
 
     private var engine: CHHapticEngine?
     private var bed: CHHapticAdvancedPatternPlayer?
+    private var tremor: (any CHHapticPatternPlayer)?
     private let supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
     private var lastIntensity: Float = 0
-    private var lastSharpness: Float = 0.5
+    private var lastSharpness: Float = 0
+    private var lastSend: CFTimeInterval = 0
+    private var lastUpdate: CFTimeInterval = 0
     private var hushUntil: CFTimeInterval = 0
-    private var tellUntil: CFTimeInterval = 0
+    private var tellActive = false
     private var nextTransientTime: TimeInterval = 0
+    private var grainCount = 0
+    private var tell = PulseSchedule(kind: .tell)
+    private var settle = PulseSchedule(kind: .settle)
+    private var wasHoldingLoaded = false
+    private var holdCount = 0
+    private var fatigue = BedFatigue()
     private var rng = SystemRandomNumberGenerator()
+    private let auditionDice = FeedbackDice(seed: 0xB0D1_7105)
+
+    private static let nonClimaxCap: Float = 0.9
 
     func start() {
         guard supportsHaptics, engine == nil else { return }
@@ -25,11 +41,17 @@ final class HapticsController {
             let engine = try CHHapticEngine(audioSession: .sharedInstance())
             engine.playsHapticsOnly = true
             engine.isAutoShutdownEnabled = false
+            // Both handlers arrive on an engine-internal queue: hop to the main actor with an immutable capture.
             engine.stoppedHandler = { [weak self] _ in
-                Task { @MainActor in self?.bed = nil }
+                guard let self else { return }
+                Task { @MainActor in
+                    self.bed = nil
+                    self.tremor = nil
+                }
             }
             engine.resetHandler = { [weak self] in
-                Task { @MainActor in self?.restart() }
+                guard let self else { return }
+                Task { @MainActor in self.restart() }
             }
             try engine.start()
             self.engine = engine
@@ -39,9 +61,11 @@ final class HapticsController {
         }
     }
 
+    /// After a reset the server forgets every player: rebuild them (bible §7).
     private func restart() {
         guard let engine else { return }
         bed = nil
+        tremor = nil
         try? engine.start()
         try? makeBed()
     }
@@ -78,159 +102,323 @@ final class HapticsController {
         lastIntensity = 0
     }
 
+    private var isThermallyLimited: Bool {
+        let state = ProcessInfo.processInfo.thermalState
+        return state == .serious || state == .critical
+    }
+
     // MARK: - Per frame
 
-    func update(engine press: PressEngine) {
-        guard let bed, let material = press.material else { return }
+    func update(engine press: PressEngine, context: FeedbackContext) {
         let now = CACurrentMediaTime()
-        var intensity: Float = 0
+        let dt = lastUpdate == 0 ? 1.0 / 60 : min(max(now - lastUpdate, 0), 0.1)
+        lastUpdate = now
+        advanceSchedules(press, context: context, dt: dt)
+        guard let bed else { return }
+
+        let material = context.kind.profile
+        let beds = Recipes.recipe(for: context.kind).beds
+        let memory = CueBook.shared.memory
         let c = Float(press.measuredCompression)
-        if press.isLoaded && !press.isHolding && press.closingSpeed > 0 && now >= hushUntil {
-            let speed = Float(clamp(press.closingSpeed / 60, 0, 1))
-            intensity = min(0.7, (0.15 + 0.55 * c) * (0.35 + 0.65 * speed)) * material.bedGain
-            if now < tellUntil {
-                intensity *= 1 + 0.08 * sin(Float(2 * Double.pi * 14 * now))
-            }
+        let speed = Float(clamp(press.closingSpeed / 60, 0, 1))
+        var target: Float = 0
+        var ramp: TimeInterval = 0.03
+        var sharpness = material.bedSharpness - 0.5
+
+        if now < hushUntil {
+            ramp = 0.01 // hush: bed off (01 §6 step 5)
+        } else if !press.isLoaded || press.closingSpeed < -2 {
+            ramp = 0.06 // opening: relief within 80 ms
+        } else if press.isHolding {
+            ramp = 0.3 // holding still: fade over 300 ms
+        } else if memory.hasFailed {
+            // Crush: softer, speed-driven bed (01 §6 step 7).
+            target = beds.crushHapticIntensity * (0.3 + 0.7 * speed)
+            sharpness += beds.crushHapticSharpness
+        } else {
+            // I_bed = strain(p) · (0.35 + 0.65·v), clamped ≤ 0.7 (01 §3.2).
+            let progress = Recipes.strainProgress(c, kind: context.kind)
+            let strain = beds.hapticCurve.level(progress, sinceFracture: c - memory.lastFractureCompression,
+                                                fractures: memory.fractures)
+            target = min(beds.hapticMax, strain * (0.35 + 0.65 * speed)) * material.bedGain
+            sharpness += 0.25 * progress
+            if tellActive { sharpness += 0.2 }
         }
-        intensity = clamp(intensity * scale, 0, 1)
-        var sharpness = material.bedSharpness - 0.5 + 0.25 * c
-        if now < tellUntil { sharpness += 0.2 }
+
+        if target > 0.01 { fatigue.record(dt, at: now) }
+        target *= fatigue.factor(at: now) * level.scale
+        target = clamp(target, 0, isThermallyLimited ? 0.5 : 0.7)
         sharpness = clamp(sharpness, -1, 1)
 
-        guard abs(intensity - lastIntensity) > 0.02 || abs(sharpness - lastSharpness) > 0.02 else { return }
-        // Ramp over 30 ms instead of stepping: raw steps at hinge rate feel like a zipper.
+        let mustSilence = target == 0 && lastIntensity > 0
+        guard mustSilence || abs(target - lastIntensity) > 0.02 || abs(sharpness - lastSharpness) > 0.02 else { return }
+        // ≤ 60 Hz sends, except when the bed must go quiet now.
+        guard mustSilence || now - lastSend >= 1.0 / 60 else { return }
+        lastSend = now
+        // Ramp with a 2-point curve instead of stepping: raw steps at hinge rate feel like a zipper.
         let curve = CHHapticParameterCurve(
             parameterID: .hapticIntensityControl,
             controlPoints: [
                 CHHapticParameterCurve.ControlPoint(relativeTime: 0, value: lastIntensity),
-                CHHapticParameterCurve.ControlPoint(relativeTime: 0.03, value: intensity),
+                CHHapticParameterCurve.ControlPoint(relativeTime: ramp, value: target),
             ],
             relativeTime: 0
         )
         try? bed.scheduleParameterCurve(curve, atTime: CHHapticTimeImmediate)
         try? bed.sendParameters([CHHapticDynamicParameter(parameterID: .hapticSharpnessControl, value: sharpness, relativeTime: 0)],
                                 atTime: CHHapticTimeImmediate)
-        lastIntensity = intensity
+        lastIntensity = target
         lastSharpness = sharpness
+    }
+
+    /// Micro-cracks during the tell and settling creaks while held, in lockstep with the audio.
+    private func advanceSchedules(_ press: PressEngine, context: FeedbackContext, dt: Double) {
+        if tell.isRunning {
+            if !press.isLoaded || press.closingSpeed < -5 {
+                endTell()
+            } else if let index = tell.advance(by: dt * (press.isHolding ? 0.35 : 1)) {
+                play(CueBook.shared.cue(for: .recipe(.microCrack(index: index)), context: context, consumer: .haptics),
+                     timing: .grain)
+            }
+        }
+        let holdingLoaded = press.isLoaded && press.isHolding
+        if holdingLoaded && !wasHoldingLoaded {
+            holdCount += 1
+            settle.start(seed: context.variant.seed &+ UInt64(holdCount))
+        }
+        if !holdingLoaded { settle.stop() }
+        wasHoldingLoaded = holdingLoaded
+        if let index = settle.advance(by: dt) {
+            play(CueBook.shared.cue(for: .settle(index), context: context, consumer: .haptics), timing: .grain)
+        }
     }
 
     // MARK: - Events
 
-    func handle(_ event: PressEvent, kind: ObjectKind) {
+    func handle(_ event: PressEvent, context: FeedbackContext) {
+        let recipeCue = RecipeMoment(event).map {
+            CueBook.shared.cue(for: .recipe($0), context: context, consumer: .haptics)
+        }
         switch event {
-        case .armed, .sealed:
-            break
-        case .contact:
-            transient(0.40, 0.30)
-        case .grain(let c):
-            switch kind {
-            case .bubbleWrap: transient(0.14 + 0.1 * Float(c), 0.8)
-            case .rubberDuck: transient(0.16 + 0.12 * Float(c), 0.3)
-            }
         case .preFailureTell:
-            tellUntil = CACurrentMediaTime() + 0.35
+            tellActive = true
+            tell.start(seed: context.variant.seed)
+            startTremor()
         case .hush:
             hushUntil = CACurrentMediaTime() + 0.06
-        case .fracture(let index, let isFailure):
-            fracture(kind: kind, index: index, isFailure: isFailure)
-        case .bottomOut:
-            transient(0.75, 0.15)
-        case .kaChunk:
-            play([
-                transientEvent(1.0, 0.15, at: 0),
-                continuousEvent(0.8, 0.05, at: 0.005, duration: 0.12, decay: 0.10),
-                transientEvent(0.35, 0.4, at: 1.5),
-                transientEvent(0.35, 0.4, at: 1.62),
-            ])
-        case .released:
+            endTell()
+        case .fracture(_, true), .released, .bottomOut, .kaChunk, .sealed:
+            endTell()
+        case .armed, .contact, .grain, .fracture, .reveal:
             break
-        case .reveal:
-            play([transientEvent(0.4, 0.5, at: 0), transientEvent(0.55, 0.5, at: 0.16)])
         }
+        perform(event, recipeCue: recipeCue)
     }
 
-    func place() {
-        transient(0.35, 0.4)
+    func place(context: FeedbackContext) {
+        endTell()
+        settle.stop()
+        grainCount = 0
+        play(CueBook.shared.cue(for: .recipe(.place), context: context, consumer: .haptics))
     }
 
     func collect() {
-        play([transientEvent(0.6, 0.6, at: 0), transientEvent(0.9, 0.4, at: 0.09)])
+        play(BrandCues.collect)
     }
 
-    private func fracture(kind: ObjectKind, index: Int, isFailure: Bool) {
-        switch kind {
-        case .bubbleWrap:
-            transient(Float.random(in: 0.55...0.8, using: &rng), Float.random(in: 0.7...0.85, using: &rng))
-        case .rubberDuck:
-            if isFailure {
-                // Pop: hard transient, then an air rush with fine grains.
-                var events = [transientEvent(1.0, 0.5, at: 0),
-                              continuousEvent(0.4, 0.6, at: 0.01, duration: 0.5, decay: 0.45)]
-                for i in 0..<12 {
-                    events.append(transientEvent(0.2, 0.9, at: 0.03 + Double(i) * 0.025))
-                }
-                play(events)
-            } else {
-                // Comic honk.
-                play([transientEvent(0.5, 0.35, at: 0), continuousEvent(0.3, 0.3, at: 0.01, duration: 0.2, decay: 0.15)])
-            }
+    /// Tuning Lab: feel one moment of an object's recipe plus the shared layers, outside the live press.
+    func audition(_ kind: ObjectKind, event: PressEvent, golden: Bool = false, surprise: Surprise? = nil) {
+        let context = Audition.context(for: kind, event: event, golden: golden, surprise: surprise)
+        let recipeCue = RecipeMoment(event).map { CueBook.preview($0, context: context, dice: auditionDice) }
+        perform(event, recipeCue: recipeCue)
+    }
+
+    /// Tuning Lab: feel the object's placement tap.
+    func auditionPlace(_ kind: ObjectKind) {
+        let context = Audition.context(for: kind, event: .armed)
+        play(CueBook.preview(.place, context: context, dice: auditionDice))
+    }
+
+    private func perform(_ event: PressEvent, recipeCue: FeedbackCue?) {
+        switch event {
+        case .armed, .sealed, .preFailureTell, .hush, .contact, .fracture, .released, .reveal:
+            break
+        case .grain:
+            // Thermal guard: halve the grain rate (bible §7).
+            grainCount += 1
+            if isThermallyLimited && grainCount % 2 == 0 { return }
+            if let recipeCue { play(recipeCue, timing: .grain) }
+            return
+        case .bottomOut:
+            play(BrandCues.bottomOut)
+        case .kaChunk:
+            play(BrandCues.kaChunk)
         }
+        if case .reveal = event {
+            play(BrandCues.sting)
+        }
+        if let recipeCue { play(recipeCue) }
     }
 
-    // MARK: - Helpers
+    // MARK: - Tremor (01 §6 step 4)
 
-    private func transient(_ intensity: Float, _ sharpness: Float) {
-        play([transientEvent(intensity, sharpness, at: 0)], enforceGap: true)
-    }
-
-    private func jittered(_ value: Float) -> Float {
-        clamp(value * Float.random(in: 0.9...1.1, using: &rng), 0, 1)
-    }
-
-    private func transientEvent(_ intensity: Float, _ sharpness: Float, at time: TimeInterval) -> CHHapticEvent {
-        CHHapticEvent(
-            eventType: .hapticTransient,
-            parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: clamp(jittered(intensity) * scale, 0, 1)),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: clamp(sharpness + Float.random(in: -0.05...0.05, using: &rng), 0, 1)),
-            ],
-            relativeTime: time
-        )
-    }
-
-    private func continuousEvent(_ intensity: Float, _ sharpness: Float, at time: TimeInterval,
-                                 duration: TimeInterval, decay: Float) -> CHHapticEvent {
-        CHHapticEvent(
+    /// A 14 Hz intensity tremor (±0.08 around the bed) as its own player, stopped by the hush.
+    private func startTremor() {
+        guard let engine, level != .off else { return }
+        tremor = nil
+        var points: [CHHapticParameterCurve.ControlPoint] = []
+        var time: TimeInterval = 0
+        for index in 0..<16 { // Core Haptics allows 16 control points per curve.
+            points.append(CHHapticParameterCurve.ControlPoint(relativeTime: time, value: index % 2 == 0 ? 1 : 0.2))
+            time += (1.0 / 28) * Double.random(in: 0.9...1.1, using: &rng)
+        }
+        let event = CHHapticEvent(
             eventType: .hapticContinuous,
             parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: clamp(jittered(intensity) * scale, 0, 1)),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-                CHHapticEventParameter(parameterID: .sustained, value: 0),
-                CHHapticEventParameter(parameterID: .decayTime, value: decay),
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: min(0.16 * level.scale, 1)),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.7),
             ],
-            relativeTime: time,
-            duration: duration
+            relativeTime: 0,
+            duration: time
         )
+        let curve = CHHapticParameterCurve(parameterID: .hapticIntensityControl, controlPoints: points, relativeTime: 0)
+        do {
+            let pattern = try CHHapticPattern(events: [event], parameterCurves: [curve])
+            let player = try engine.makePlayer(with: pattern)
+            try player.start(atTime: CHHapticTimeImmediate)
+            tremor = player
+        } catch {
+            tremor = nil
+        }
     }
 
-    /// Plays a one-shot pattern. With `enforceGap`, transients closer than 12 ms are pushed back (or dropped
-    /// if the queue is already 100 ms ahead) so same-type events never blur together.
-    private func play(_ events: [CHHapticEvent], enforceGap: Bool = false) {
-        guard let engine, scale > 0 else { return }
-        var startTime = CHHapticTimeImmediate
-        if enforceGap {
-            let now = engine.currentTime
-            let earliest = max(now, nextTransientTime)
-            guard earliest - now < 0.1 else { return }
-            nextTransientTime = earliest + 0.012
-            startTime = earliest > now ? earliest : CHHapticTimeImmediate
+    private func endTell() {
+        tellActive = false
+        tell.stop()
+        if let tremor {
+            try? tremor.stop(atTime: CHHapticTimeImmediate)
+        }
+        tremor = nil
+    }
+
+    // MARK: - Playback
+
+    private enum Timing {
+        /// Never blocks: a grain more than 100 ms behind the gap queue is dropped.
+        case grain
+        /// Always plays, delayed if needed to keep the 12 ms gap.
+        case event
+    }
+
+    private func play(_ cue: FeedbackCue, timing: Timing = .event) {
+        guard let engine, level != .off, !cue.haptics.isEmpty else { return }
+        let scale = level.scale
+        let cap = cue.isClimax ? 1 : Self.nonClimaxCap
+
+        // ±15 % timing jitter (at most ±15 ms), then the 12 ms gap between transients.
+        var notes = cue.haptics.map { note -> HapticNote in
+            var jittered = note
+            let shift = note.time * Double.random(in: -0.15...0.15, using: &rng)
+            jittered.time = max(0, note.time + clamp(shift, -0.015, 0.015))
+            return jittered
+        }
+        notes.sort { $0.time < $1.time }
+        var lastTransient = -Double.infinity
+        for index in notes.indices where notes[index].kind == .transient {
+            if notes[index].time < lastTransient + 0.012 {
+                notes[index].time = lastTransient + 0.012
+            }
+            lastTransient = notes[index].time
+        }
+
+        // Keep the gap against patterns already scheduled.
+        let now = engine.currentTime
+        var startTime = now
+        if let firstTransient = notes.first(where: { $0.kind == .transient })?.time,
+           now + firstTransient < nextTransientTime {
+            let delay = nextTransientTime - (now + firstTransient)
+            if timing == .grain && delay > 0.1 { return }
+            startTime = now + delay
+        }
+        if lastTransient > -Double.infinity {
+            nextTransientTime = max(nextTransientTime, startTime + lastTransient + 0.012)
+        }
+
+        let events = notes.map { event(for: $0, scale: scale, cap: cap) }
+        var curves: [CHHapticParameterCurve] = []
+        if let sweep = cue.sharpnessSweep {
+            curves.append(CHHapticParameterCurve(
+                parameterID: .hapticSharpnessControl,
+                controlPoints: [
+                    CHHapticParameterCurve.ControlPoint(relativeTime: 0, value: sweep.from),
+                    CHHapticParameterCurve.ControlPoint(relativeTime: sweep.duration, value: sweep.to),
+                ],
+                relativeTime: 0
+            ))
         }
         do {
-            let pattern = try CHHapticPattern(events: events, parameters: [])
+            let pattern = try CHHapticPattern(events: events, parameterCurves: curves)
             let player = try engine.makePlayer(with: pattern)
-            try player.start(atTime: startTime)
+            try player.start(atTime: startTime > now ? startTime : CHHapticTimeImmediate)
         } catch {
             // A dropped haptic is never worth surfacing to the user.
         }
+    }
+
+    private func event(for note: HapticNote, scale: Float, cap: Float) -> CHHapticEvent {
+        let intensity = min(note.intensity * Float.random(in: 0.9...1.1, using: &rng), cap) * scale
+        let sharpness = clamp(note.sharpness + Float.random(in: -0.05...0.05, using: &rng), 0, 1)
+        switch note.kind {
+        case .transient:
+            return CHHapticEvent(
+                eventType: .hapticTransient,
+                parameters: [
+                    CHHapticEventParameter(parameterID: .hapticIntensity, value: clamp(intensity, 0, 1)),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+                ],
+                relativeTime: note.time
+            )
+        case .continuous:
+            return CHHapticEvent(
+                eventType: .hapticContinuous,
+                parameters: [
+                    CHHapticEventParameter(parameterID: .hapticIntensity, value: clamp(intensity, 0, 1)),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+                    CHHapticEventParameter(parameterID: .attackTime, value: note.attack),
+                    CHHapticEventParameter(parameterID: .decayTime, value: note.decay),
+                    CHHapticEventParameter(parameterID: .releaseTime, value: note.release),
+                    CHHapticEventParameter(parameterID: .sustained, value: note.sustained ? 1 : 0),
+                ],
+                relativeTime: note.time,
+                duration: max(note.duration, 0.01)
+            )
+        }
+    }
+}
+
+/// Fatigue guard (bible §7): after 60 s of bed time within 5 minutes, the bed drops 10 %.
+private struct BedFatigue {
+    private static let bucketSeconds: Double = 10
+    private static let bucketCount = 30 // 30 × 10 s = 5 min
+    private var seconds = [Double](repeating: 0, count: BedFatigue.bucketCount)
+    private var ids = [Int](repeating: -1, count: BedFatigue.bucketCount)
+
+    mutating func record(_ dt: Double, at time: Double) {
+        let id = Int(time / Self.bucketSeconds)
+        let slot = ((id % Self.bucketCount) + Self.bucketCount) % Self.bucketCount
+        if ids[slot] != id {
+            ids[slot] = id
+            seconds[slot] = 0
+        }
+        seconds[slot] += dt
+    }
+
+    func factor(at time: Double) -> Float {
+        let current = Int(time / Self.bucketSeconds)
+        var total: Double = 0
+        for index in 0..<Self.bucketCount where ids[index] > current - Self.bucketCount {
+            total += seconds[index]
+        }
+        return total > 60 ? 0.9 : 1
     }
 }

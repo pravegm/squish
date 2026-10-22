@@ -1,142 +1,222 @@
 import SwiftUI
+import UIKit
 
-/// The "pressed specimen" card shown on reopen (bible §5): label in SF Mono, red PRESSED stamp, flavour line.
+/// The reveal (VISUAL-TARGET §6.8, bible §3.1 beats 11–12). Portrait: the 3:4 specimen card drops into the
+/// 6–44% band (over the lifted ram, so the flattened object stays visible on the anvil), one toast at a time
+/// in 80–86%, and Again / Share / Next keycaps on the console (86–95%). Landscape: card in the left 30% column,
+/// console in the right 22% column. On collect, the card shrinks into the Shelf key.
 struct RevealCardView: View {
-    let result: PressResult
-    let specimenNumber: Int
+    let outcome: RecordOutcome
+    let collection: CollectionStore
+    /// Hinge trace for the share clip, when one is stored for this specimen.
+    let trace: PressTrace?
+    /// Set by RootView when Next/Again was tapped: the card flies into the Shelf key.
+    let collecting: Bool
     let onNext: () -> Void
+    let onAgain: () -> Void
 
-    private var tons: Int {
-        12 + Int(result.maxCompression * 50) + Int(result.seed % 9)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var share = SpecimenShareModel()
+    @State private var cardIn = false
+    @State private var toastIndex = -1
+    @State private var actionsIn = false
+    @State private var choosingShare = false
+
+    /// The live record (it gains its thumbnail ~1 s after the reveal).
+    private var specimen: SpecimenRecord { collection.specimen(withID: outcome.specimen.id) ?? outcome.specimen }
+
+    private struct Toast: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let glyph: ToastView.Glyph
+        let accent: Color
     }
 
-    private var flavour: String {
-        let lines = result.kind.flavourLines
-        return lines[Int(result.seed % UInt64(lines.count))]
-    }
-
-    private var stampAngle: Double {
-        -12 + Double(result.seed % 9)
+    private var toasts: [Toast] {
+        var list = outcome.newlyUnlocked.map { kind in
+            Toast(id: "unlock-\(kind.rawValue)", title: "NEW OBJECT UNLOCKED",
+                  detail: "\(kind.displayName) · up next", glyph: .object(kind), accent: Theme.tint(for: kind))
+        }
+        list += outcome.newAchievements.map { achievement in
+            Toast(id: "ach-\(achievement.rawValue)", title: "ACHIEVEMENT · \(achievement.title.uppercased())",
+                  detail: achievement.detail, glyph: .symbol(achievement.symbolName), accent: Theme.yellow)
+        }
+        return list
     }
 
     var body: some View {
-        VStack {
-            Spacer()
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top) {
-                    Text(result.kind.displayName.uppercased())
-                        .font(.system(size: 28, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Palette.graphiteColor)
-                    Spacer()
-                    Text(String(format: "№%04d", specimenNumber))
-                        .font(.system(.footnote, design: .monospaced, weight: .semibold))
-                        .foregroundStyle(Palette.graphiteColor.opacity(0.6))
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    if let angle = result.failureAngle {
-                        specimenLine("CRUSHED AT \(Int(angle.rounded()))°")
-                    }
-                    specimenLine("PEAK \(tons) TONS")
-                    specimenLine(breaksLine)
-                    specimenLine(String(format: "PRESS TIME %.1f S", result.duration))
-                }
-
-                HStack(spacing: 8) {
-                    if result.isPerfect { trait("PERFECT SQUISH", systemImage: "sparkles") }
-                    if result.wasSlammed { trait("SLAM", systemImage: "bolt.fill") }
-                }
-
-                Text(flavour)
-                    .font(.system(.callout, design: .rounded))
-                    .foregroundStyle(Palette.graphiteColor.opacity(0.75))
-
-                Button(action: onNext) {
-                    Text("Next")
-                        .font(.system(.headline, design: .rounded, weight: .heavy))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .foregroundStyle(Palette.graphiteColor)
-                        .background(Palette.yellowColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-                .buttonStyle(.plain)
+        GeometryReader { proxy in
+            let bands = ScreenBands(proxy)
+            if bands.isLandscape {
+                landscape(bands)
+            } else {
+                portrait(bands)
             }
-            .padding(22)
-            .background(Color(white: 0.985), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(alignment: .topTrailing) {
-                Text("PRESSED")
-                    .font(.system(size: 22, weight: .black, design: .rounded))
-                    .foregroundStyle(Palette.stampColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.stampColor, lineWidth: 3))
-                    .rotationEffect(.degrees(stampAngle))
-                    .opacity(0.85)
-                    .offset(x: -18, y: 54)
-                    .accessibilityHidden(true)
-            }
-            .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
-            .padding(16)
-            .frame(maxWidth: 460)
         }
-        .accessibilityElement(children: .contain)
+        .modifier(SpecimenSharingChrome(model: share))
+        .confirmationDialog("Share this specimen", isPresented: $choosingShare, titleVisibility: .hidden) {
+            if let trace {
+                Button("Share Clip") { share.shareClip(trace: trace, specimen: specimen) }
+            }
+            Button("Share Image") { share.shareImage(specimen: specimen, thumbnail: collection.thumbnail(for: specimen)) }
+            Button("Cancel", role: .cancel) {}
+        }
+        .onAppear(perform: choreograph)
     }
 
-    private var breaksLine: String {
-        switch result.kind {
-        case .bubbleWrap: "\(result.fractureCount) POPS"
-        case .rubberDuck: result.fractureCount >= 2 ? "1 HONK · 1 SEAM POP" : "\(result.fractureCount) HONK"
+    // MARK: Layouts
+
+    private func portrait(_ bands: ScreenBands) -> some View {
+        let bandHeight = bands.height(0.06, 0.44)
+        let width = min(bands.fullWidth * 0.84, 340, bandHeight * 0.75)
+        let cardHeight = width / 0.75
+        let cardCenterY = bands.y(0.06) + bandHeight / 2
+        let shelfAnchor = UnitPoint(x: 0.5 + 70 / width, y: (bands.y(0.905) - (cardCenterY - cardHeight / 2)) / cardHeight)
+        return ZStack {
+            card(width: width, collectAnchor: shelfAnchor)
+                .position(x: bands.size.width / 2, y: cardCenterY)
+            toastSlot
+                .frame(maxWidth: 420)
+                .padding(.horizontal, bands.margin)
+                .position(x: bands.size.width / 2, y: bands.y(0.83))
+            actions(landscape: false)
+                .frame(maxWidth: 460)
+                .padding(.horizontal, bands.margin)
+                .position(x: bands.size.width / 2, y: bands.y(0.905))
         }
     }
 
-    private func specimenLine(_ text: String) -> some View {
-        Text(text)
-            .font(.system(.subheadline, design: .monospaced, weight: .medium))
-            .foregroundStyle(Palette.graphiteColor)
+    private func landscape(_ bands: ScreenBands) -> some View {
+        let columnWidth = bands.fullWidth * 0.30
+        let width = min(columnWidth - bands.margin, (bands.size.height - Theme.s5) * 0.75)
+        let consoleWidth = bands.fullWidth * 0.22
+        return ZStack(alignment: .topLeading) {
+            card(width: width, collectAnchor: UnitPoint(x: 3, y: 1))
+                .position(x: bands.margin + width / 2, y: bands.size.height / 2)
+            VStack(alignment: .trailing, spacing: Theme.s3) {
+                Spacer(minLength: 0)
+                toastSlot
+                actions(landscape: true)
+            }
+            .frame(width: consoleWidth)
+            .padding(.bottom, Theme.s4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .padding(.trailing, bands.margin)
+        }
     }
 
-    private func trait(_ text: String, systemImage: String) -> some View {
-        Label(text, systemImage: systemImage)
-            .font(.system(.caption, design: .rounded, weight: .heavy))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .foregroundStyle(Palette.graphiteColor)
-            .background(Palette.yellowColor.opacity(0.35), in: Capsule())
+    // MARK: Card
+
+    private func card(width: CGFloat, collectAnchor: UnitPoint) -> some View {
+        SpecimenCardView(specimen: specimen, thumbnail: collection.thumbnail(for: specimen),
+                         style: .reveal, animateStamp: true)
+            .frame(width: width)
+            .overlay(alignment: .topLeading) { ribbon }
+            .opacity(cardIn && !collecting ? 1 : 0)
+            .offset(y: cardIn || reduceMotion ? 0 : -60)
+            .rotationEffect(.degrees(cardIn || reduceMotion ? 0 : -3))
+            .scaleEffect(collecting && !reduceMotion ? 0.3 : 1, anchor: collectAnchor)
     }
-}
 
-/// What the outer display shows while the phone is shut: the sealed press, or an invitation to open.
-struct CoverView: View {
-    let director: PressDirector
+    @ViewBuilder
+    private var ribbon: some View {
+        if outcome.isNewBest {
+            let upgraded = outcome.specimen.variant.isGolden || outcome.specimen.isPerfect
+            Text(upgraded ? "NEW BEST" : "NEW ON THE SHELF")
+                .font(Theme.micro)
+                .tracking(Theme.microTracking)
+                .foregroundStyle(Theme.graphite)
+                .padding(.horizontal, Theme.s2)
+                .padding(.vertical, 4)
+                .background(Theme.yellow, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .topHighlight(cornerRadius: 6)
+                .rotationEffect(.degrees(-5))
+                .elevation(.e1)
+                .offset(x: Theme.s3, y: -Theme.s2)
+                .accessibilityHidden(true)
+        }
+    }
 
-    var body: some View {
+    // MARK: Toasts (one at a time)
+
+    @ViewBuilder
+    private var toastSlot: some View {
+        let list = toasts
         ZStack {
-            Palette.graphiteColor.ignoresSafeArea()
-            VStack(spacing: 16) {
-                if director.engine.phase == .sealed, let result = director.engine.lastResult {
-                    Image(systemName: "gauge.with.dots.needle.67percent")
-                        .font(.system(size: 64, weight: .bold))
-                        .foregroundStyle(Palette.yellowColor)
-                    Text("PRESS SEALED")
-                        .font(.system(size: 26, weight: .heavy, design: .rounded))
-                    Text("\(12 + Int(result.maxCompression * 50) + Int(result.seed % 9)) TONS")
-                        .font(.system(.title3, design: .monospaced, weight: .bold))
-                    Text("Open to see")
-                        .font(.system(.headline, design: .rounded))
-                        .opacity(0.7)
-                } else {
-                    Image(systemName: "rectangle.portrait.and.arrow.forward")
-                        .font(.system(size: 52, weight: .bold))
-                        .foregroundStyle(Palette.yellowColor)
-                    Text("Open to press")
-                        .font(.system(size: 26, weight: .heavy, design: .rounded))
-                    Text(director.currentKind.displayName)
-                        .font(.system(.headline, design: .rounded))
-                        .opacity(0.7)
-                }
+            if toastIndex >= 0 && toastIndex < list.count && !collecting {
+                let toast = list[toastIndex]
+                ToastView(title: toast.title, detail: toast.detail, glyph: toast.glyph, accent: toast.accent)
+                    .id(toast.id)
+                    .transition(reduceMotion ? AnyTransition.opacity
+                                             : AnyTransition.move(edge: .bottom).combined(with: .opacity))
             }
-            .foregroundStyle(.white)
-            .padding(24)
+        }
+        .frame(height: 52)
+    }
+
+    // MARK: Actions
+
+    private func actions(landscape: Bool) -> some View {
+        let layout = landscape ? AnyLayout(VStackLayout(alignment: .trailing, spacing: Theme.s3))
+                               : AnyLayout(HStackLayout(spacing: Theme.s3))
+        return layout {
+            Button(action: onAgain) {
+                KeyLabel(title: "Again", systemImage: "arrow.counterclockwise")
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary))
+            .accessibilityHint("Press another \(outcome.specimen.kind.displayName).")
+
+            Button {
+                choosingShare = true
+            } label: {
+                KeyLabel(title: "Share", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary))
+            .disabled(share.isExporting)
+
+            Button(action: onNext) {
+                KeyLabel(title: "Next", systemImage: "arrow.right", iconTrailing: true)
+            }
+            .buttonStyle(KeycapStyle(kind: .primary, fullWidth: !landscape))
+            .accessibilityHint(nextHint)
+        }
+        .disabled(collecting)
+        .opacity(actionsIn && !collecting ? 1 : 0)
+        .offset(y: actionsIn || reduceMotion ? 0 : 24)
+    }
+
+    private var nextHint: String {
+        if let unlocked = outcome.newlyUnlocked.first {
+            return "Puts the \(unlocked.displayName) on the anvil."
+        }
+        return "Collects this card and puts the next object on the anvil."
+    }
+
+    // MARK: Choreography (§6.8)
+
+    private func choreograph() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            withAnimation(Theme.cardDrop(reduceMotion)) { cardIn = true }
+            try? await Task.sleep(for: .milliseconds(500))
+            withAnimation(Theme.settle(reduceMotion)) { actionsIn = true }
+            // Toasts, one at a time; the last one stays.
+            let count = toasts.count
+            for index in 0..<count {
+                try? await Task.sleep(for: .milliseconds(index == 0 ? 300 : 1_800))
+                guard !Task.isCancelled, !collecting else { return }
+                withAnimation(Theme.pop(reduceMotion)) { toastIndex = index }
+                if index == 0 { UIFeel.success() }
+            }
+        }
+        if UIAccessibility.isVoiceOverRunning {
+            let announcement = ([specimen.accessibilitySentence] + toasts.map { "\($0.title.capitalized). \($0.detail)" })
+                .joined(separator: " ")
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(700))
+                UIAccessibility.post(notification: .announcement, argument: announcement)
+            }
         }
     }
 }

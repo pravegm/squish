@@ -1,41 +1,5 @@
 import Foundation
 
-enum ObjectKind: String, CaseIterable, Codable, Sendable, Identifiable {
-    case bubbleWrap
-    case rubberDuck
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .bubbleWrap: "Bubble Wrap"
-        case .rubberDuck: "Rubber Duck"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .bubbleWrap: "circle.grid.3x3.fill"
-        case .rubberDuck: "bird.fill"
-        }
-    }
-
-    var profile: MaterialProfile {
-        switch self {
-        case .bubbleWrap: .bubbleWrap
-        case .rubberDuck: .rubberDuck
-        }
-    }
-
-    /// Flavour lines shown on the specimen card (12+ tone lives here, never in the imagery).
-    var flavourLines: [String] {
-        switch self {
-        case .bubbleWrap: ["Every single one. You monster.", "Shipping department's worst nightmare.", "Popped with professional care."]
-        case .rubberDuck: ["He'll be fine. Probably.", "Bath time is cancelled.", "Quack, but flatter."]
-        }
-    }
-}
-
 /// How an object responds to the press. Compression values (`c`) run 0 at contact → 1 fully flat.
 struct MaterialProfile: Sendable {
     /// 1 − elastic rebound when the ram lifts.
@@ -54,28 +18,6 @@ struct MaterialProfile: Sendable {
     /// Strain-bed intensity multiplier.
     var bedGain: Float
 
-    static let bubbleWrap = MaterialProfile(
-        plasticity: 0.92,
-        fractures: (0..<BubbleWrapLayout.count).map { 0.03 + 0.80 * Double($0) / Double(BubbleWrapLayout.count - 1) },
-        failureIndex: nil,
-        thresholdJitter: 0.02,
-        grainSpacing: 3.0,
-        grainStopC: nil,
-        bedSharpness: 0.65,
-        bedGain: 0.55
-    )
-
-    static let rubberDuck = MaterialProfile(
-        plasticity: 0.35,
-        fractures: [0.42, 0.66],
-        failureIndex: 1,
-        thresholdJitter: 0.04,
-        grainSpacing: 9.0,
-        grainStopC: 0.56,
-        bedSharpness: 0.30,
-        bedGain: 0.85
-    )
-
     /// Fracture thresholds for one press, jittered deterministically from the seed and kept ascending.
     func jitteredFractures(seed: UInt64) -> [Double] {
         var rng = SplitMix64(seed: seed)
@@ -83,6 +25,88 @@ struct MaterialProfile: Sendable {
             .map { clamp($0 + Double.random(in: -thresholdJitter...thresholdJitter, using: &rng), 0.01, 0.97) }
             .sorted()
     }
+}
+
+extension MaterialProfile {
+    /// Discrete pops, no single failure; each bubble is its own event.
+    static let bubbleWrap = MaterialProfile(
+        plasticity: 0.92,
+        fractures: (0..<BubbleWrapLayout.count).map { 0.03 + 0.80 * Double($0) / Double(BubbleWrapLayout.count - 1) },
+        failureIndex: nil, thresholdJitter: 0.02,
+        grainSpacing: 3.0, grainStopC: nil, bedSharpness: 0.65, bedGain: 0.55
+    )
+
+    /// Elastic: honk, then the seam pops. Mostly springs back.
+    static let rubberDuck = MaterialProfile(
+        plasticity: 0.35,
+        fractures: [0.42, 0.66],
+        failureIndex: 1, thresholdJitter: 0.04,
+        grainSpacing: 9.0, grainStopC: 0.56, bedSharpness: 0.30, bedGain: 0.85
+    )
+
+    /// Gel: wobbles, the skin splits, then it splats out the sides.
+    static let jelly = MaterialProfile(
+        plasticity: 0.75,
+        fractures: [0.30, 0.55],
+        failureIndex: 1, thresholdJitter: 0.04,
+        grainSpacing: 3.5, grainStopC: nil, bedSharpness: 0.10, bedGain: 0.70
+    )
+
+    /// Brittle-waxy: a clean snap, a second snap, then a waxy crumble.
+    static let crayon = MaterialProfile(
+        plasticity: 0.95,
+        fractures: [0.30, 0.52, 0.74],
+        failureIndex: 0, thresholdJitter: 0.04,
+        grainSpacing: 2.0, grainStopC: 0.22, bedSharpness: 0.55, bedGain: 0.80
+    )
+
+    /// Shell + liquid: hairline crack, the shell gives, then the yolk spreads.
+    static let egg = MaterialProfile(
+        plasticity: 0.97,
+        fractures: [0.12, 0.24, 0.50],
+        failureIndex: 1, thresholdJitter: 0.03,
+        grainSpacing: 3.0, grainStopC: 0.16, bedSharpness: 0.70, bedGain: 0.60
+    )
+
+    /// Soft crumb: icing cracks, the candle bends, frosting squirts.
+    static let cakeSlice = MaterialProfile(
+        plasticity: 0.90,
+        fractures: [0.22, 0.42, 0.62],
+        failureIndex: 2, thresholdJitter: 0.04,
+        grainSpacing: 1.2, grainStopC: nil, bedSharpness: 0.12, bedGain: 0.55
+    )
+
+    /// Thin metal: five concertina buckles; the third punctures it and the fizz goes everywhere.
+    static let sodaCan = MaterialProfile(
+        plasticity: 0.96,
+        fractures: [0.28, 0.42, 0.55, 0.68, 0.80],
+        failureIndex: 2, thresholdJitter: 0.03,
+        grainSpacing: 0.8, grainStopC: nil, bedSharpness: 0.80, bedGain: 0.80
+    )
+
+    /// Plastic gel: splits at the seam into lobes, then spreads.
+    static let gummyBear = MaterialProfile(
+        plasticity: 0.82,
+        fractures: [0.36, 0.62],
+        failureIndex: 0, thresholdJitter: 0.04,
+        grainSpacing: 3.5, grainStopC: 0.28, bedSharpness: 0.15, bedGain: 0.75
+    )
+
+    /// Glass: silent rigidity, a crack, then the biggest event in the app.
+    static let glassBottle = MaterialProfile(
+        plasticity: 1.0,
+        fractures: [0.22, 0.40, 0.62],
+        failureIndex: 1, thresholdJitter: 0.03,
+        grainSpacing: 4.0, grainStopC: 0.10, bedSharpness: 0.90, bedGain: 0.90
+    )
+
+    /// The secret steel ball: never deforms. The press groans twice, then the press itself cracks.
+    static let unsquishable = MaterialProfile(
+        plasticity: 0.0,
+        fractures: [0.22, 0.46, 0.70],
+        failureIndex: 2, thresholdJitter: 0.02,
+        grainSpacing: 6.0, grainStopC: nil, bedSharpness: 0.95, bedGain: 1.0
+    )
 }
 
 enum BubbleWrapLayout {

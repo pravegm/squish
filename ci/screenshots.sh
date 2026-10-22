@@ -28,7 +28,7 @@ while IFS= read -r line; do
   scenario="${line#*|}"
   xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
   xcrun simctl launch "$UDID" "$BUNDLE" -squishDemo "$scenario" >/dev/null
-  sleep 7
+  sleep "${SHOT_DELAY:-11}"
   xcrun simctl io "$UDID" screenshot "$OUT/$name.png" >/dev/null
   echo "captured $name ($scenario)"
 done < ci/scenarios.txt

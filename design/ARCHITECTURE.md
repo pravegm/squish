@@ -97,7 +97,8 @@ enum Captions {
 ### What the UI can rely on (director surface)
 Read: `engine` (phase, depths, angles, `lastResult`), `settings: AppSettings`, `collection`, `currentKind`, `variant`, `hingeAvailable`, `isShowingCover`, `usesTouchPress`, `canChooseObject`, `completedPresses`, `failureFlashCount`, `revealed: RecordOutcome?`, `caption: CaptionEvent?`, `lastTrace: PressTrace?`, `hingeLog`.
 Write: `reduceMotion`.
-Call: `start()`, `sceneBecameActive()`, `choose(_:)`, `next()`, `again()`, `virtualPress(_ fraction:)`, `virtualRelease()`, `hingeUpdate(angle:closed:)`, `hingeUnavailable()`.
+Call: `start()`, `sceneBecameActive()`, `choose(_:)`, `queue(_:)` (cover display only), `next()`, `again()`, `trace(for: SpecimenRecord) -> PressTrace?`, `virtualPress(_ fraction:)`, `virtualRelease()`, `hingeUpdate(angle:closed:)`, `hingeUnavailable()`.
+Demo keys honoured by the director: `object=`, `depth=`, `reveal`, `seed=<UInt64>`, `golden`, `surprise=<Surprise>`. UI demo keys: `shelf[=squished]`, `settings`, `detail`, `cover[=sealed]`, `specimens=N`.
 
 ### Share (`Squish/Share/`)
 ```swift

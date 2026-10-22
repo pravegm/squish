@@ -26,16 +26,13 @@ struct PressConfig: Codable, Equatable, Sendable {
     var maxPredict: Double = 0.05
     var staleAfter: Double = 0.08
 
-    // Feel
+    // Feel (user-facing sound/haptics settings live in AppSettings)
     var slamSpeed: Double = 250
     var perfectMaxSpeed: Double = 100
-    var hapticsScale: Double = 1.0
-    var soundEnabled: Bool = true
-    var soundVolume: Double = 1.0
 
     static let standard = PressConfig()
 
-    private static let storageKey = "squish.pressConfig.v1"
+    private static let storageKey = "squish.pressConfig.v2"
 
     static func loadSaved() -> PressConfig {
         guard let data = UserDefaults.standard.data(forKey: storageKey),

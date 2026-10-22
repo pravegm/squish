@@ -30,9 +30,15 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIStatusBarHidden: true
+        UIUserInterfaceStyle: Light   # VISUAL-TARGET §6.13: the studio stays bright in Dark Mode
         UIViewControllerBasedStatusBarAppearance: false
         CADisableMinimumFrameDurationOnPhone: true
         ITSAppUsesNonExemptEncryption: false
+    # Game Center achievements (bible §11). Ignored by CI (CODE_SIGNING_ALLOWED=NO); needed for device builds.
+    entitlements:
+      path: Squish/Squish.entitlements
+      properties:
+        com.apple.developer.game-center: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pravegm.squish

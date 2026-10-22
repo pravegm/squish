@@ -1,73 +1,88 @@
 import Observation
 import QuartzCore
-import RealityKit
+import UIKit
 
-/// Wires the press engine to the scene, haptics and audio, and owns the per-frame loop.
+/// Wires the press engine to the scene, haptics, audio and collection, and owns the per-frame loop.
+/// The only object the UI talks to. Its public surface is the contract in design/ARCHITECTURE.md.
 @MainActor
 @Observable
 final class PressDirector {
     let engine: PressEngine
+    let settings: AppSettings
+    let collection: CollectionStore
     @ObservationIgnored let scene = PressScene()
     @ObservationIgnored let haptics = HapticsController()
     @ObservationIgnored let audio = AudioController()
     @ObservationIgnored let hingeLog = HingeLog()
-    @ObservationIgnored var frameSubscription: EventSubscription?
 
     private(set) var currentKind: ObjectKind = .bubbleWrap
+    private(set) var variant = PressVariant(kind: .bubbleWrap, seed: 1)
     private(set) var hingeAvailable = false
+    /// Latest raw hinge "closed" status, tracked even when pressing without folding.
+    private(set) var hingeClosed = false
     /// Increments on every big failure; the UI flashes the top half of the screen.
     private(set) var failureFlashCount = 0
-    private(set) var revealResult: PressResult?
-    private(set) var completedPresses = 0
+    /// The specimen being revealed (non-nil while the reveal card is up).
+    private(set) var revealed: RecordOutcome?
+    /// The latest onomatopoeia caption ("POP!"), for captions and VoiceOver.
+    private(set) var caption: CaptionEvent?
+    /// Hinge (or touch) samples of the last finished press, for the share-clip renderer.
+    private(set) var lastTrace: PressTrace?
+    /// Set by the UI from the environment.
+    var reduceMotion = false
 
+    @ObservationIgnored private let traceStore = TraceStore()
+    @ObservationIgnored private var lastSpecimenID: UUID?
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var renderedFrames = 0
+    @ObservationIgnored private var captionCounter = 0
+    @ObservationIgnored private var traceSamples: [PressTrace.Sample] = []
+    @ObservationIgnored private var traceStart: Double = 0
 
     init() {
         engine = PressEngine(config: .loadSaved())
+        settings = AppSettings(defaultCaptions: UIAccessibility.isClosedCaptioningEnabled)
+        collection = CollectionStore()
         engine.onEvent = { [weak self] event in self?.handle(event) }
     }
 
-    var isShowingCover: Bool { hingeAvailable && engine.isClosed }
+    // MARK: - Derived state for the UI
+
+    var isShowingCover: Bool { hingeAvailable && hingeClosed }
+
+    /// True when the touch press drives the engine (no hinge, or the user chose to press without folding).
+    var usesTouchPress: Bool { !hingeAvailable || settings.pressWithoutFolding }
 
     var canChooseObject: Bool {
-        !isShowingCover && revealResult == nil
+        !isShowingCover && revealed == nil
             && (engine.phase == .idle || engine.phase == .armed) && engine.measuredDepth < 0.01
     }
+
+    var completedPresses: Int { collection.totalPresses }
+
+    var feedbackContext: FeedbackContext {
+        FeedbackContext(
+            kind: currentKind,
+            variant: variant,
+            compression: Float(engine.measuredCompression),
+            closingSpeed: Float(engine.closingSpeed),
+            soundStyle: settings.soundStyle,
+            reduceMotion: reduceMotion
+        )
+    }
+
+    // MARK: - Lifecycle
 
     func start() {
         guard !started else { return }
         started = true
         audio.start()
         haptics.start()
+        GameCenter.shared.authenticate()
         engine.activate(at: CACurrentMediaTime())
-        load(.bubbleWrap)
+        load(firstObject())
         if let demo = DemoScenario.current {
             runDemo(demo)
-        }
-    }
-
-    /// Drives the touch fallback to a scripted state for screenshots (see DemoMode.swift).
-    private func runDemo(_ demo: DemoScenario) {
-        engine.config.ignoreInputAfterActivation = 0
-        hingeUnavailable()
-        if let kind = demo.object { load(kind) }
-        let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
-        guard let targetDepth else { return }
-        let targetAngle = PressMapping.angle(forDepth: targetDepth, start: engine.config.armAngleMax, config: engine.config)
-        Task { @MainActor in
-            virtualPress(0)
-            try? await Task.sleep(for: .milliseconds(300))
-            let steps = 90
-            for step in 1...steps {
-                let angle = 180 + (targetAngle - 180) * Double(step) / Double(steps)
-                virtualPress((180 - angle) / 180)
-                try? await Task.sleep(for: .milliseconds(16))
-            }
-            // Keep feeding the held angle so the filter settles exactly on target.
-            for _ in 0..<30 {
-                virtualPress((180 - targetAngle) / 180)
-                try? await Task.sleep(for: .milliseconds(16))
-            }
         }
     }
 
@@ -79,19 +94,46 @@ final class PressDirector {
     }
 
     func choose(_ kind: ObjectKind) {
-        guard canChooseObject, kind != currentKind else { return }
+        guard canChooseObject, kind != currentKind, collection.isUnlocked(kind) else { return }
         load(kind)
     }
 
     /// Collect the revealed specimen and put the next object on the anvil.
+    /// A freshly unlocked object goes on next, so the unlock is felt immediately.
     func next() {
+        guard let outcome = revealed else { return }
         audio.collect()
         haptics.collect()
         engine.finishReveal()
-        revealResult = nil
-        let all = ObjectKind.allCases
-        let index = all.firstIndex(of: currentKind) ?? 0
-        load(all[(index + 1) % all.count])
+        revealed = nil
+        if let unlocked = outcome.newlyUnlocked.first {
+            load(unlocked)
+        } else {
+            load(nextUnlocked(after: currentKind))
+        }
+    }
+
+    /// Pick the next object from the cover display while the phone is shut; it's waiting on the anvil on open.
+    func queue(_ kind: ObjectKind) {
+        guard isShowingCover, revealed == nil, collection.isUnlocked(kind), kind != currentKind,
+              engine.phase == .idle || engine.phase == .armed, engine.measuredDepth < 0.01 else { return }
+        load(kind)
+    }
+
+    /// The recorded input of a past press, so any card in the collection can share a clip.
+    func trace(for specimen: SpecimenRecord) -> PressTrace? {
+        if let lastTrace, lastSpecimenID == specimen.id { return lastTrace }
+        return traceStore.load(specimen.id)
+    }
+
+    /// Press the same object again (from the reveal card).
+    func again() {
+        guard revealed != nil else { return }
+        audio.collect()
+        haptics.collect()
+        engine.finishReveal()
+        revealed = nil
+        load(currentKind)
     }
 
     // MARK: - Input
@@ -99,63 +141,216 @@ final class PressDirector {
     func hingeUpdate(angle: Double, closed: Bool) {
         if !hingeAvailable {
             hingeAvailable = true
-            engine.usesVirtualHinge = false
         }
+        hingeClosed = closed
         let now = CACurrentMediaTime()
         hingeLog.record(time: now, angle: angle, closed: closed)
+        engine.usesVirtualHinge = settings.pressWithoutFolding
+        guard !settings.pressWithoutFolding else { return }
+        recordTrace(angle: angle, closed: closed, at: now)
         engine.ingest(angle: angle, closed: closed, at: now)
     }
 
     func hingeUnavailable() {
         hingeAvailable = false
+        hingeClosed = false
         engine.usesVirtualHinge = true
     }
 
-    /// Touch fallback: 0 = open, 1 = fully pressed.
+    /// Touch press: 0 = open, 1 = fully pressed.
     func virtualPress(_ fraction: Double) {
-        engine.setVirtualAngle(180 - clamp(fraction, 0, 1) * 180, at: CACurrentMediaTime())
+        guard usesTouchPress else { return }
+        engine.usesVirtualHinge = true
+        let angle = 180 - clamp(fraction, 0, 1) * 180
+        let now = CACurrentMediaTime()
+        recordTrace(angle: angle, closed: false, at: now)
+        engine.setVirtualAngle(angle, at: now)
     }
 
     func virtualRelease() {
+        guard usesTouchPress else { return }
         engine.releaseVirtual()
     }
 
     // MARK: - Loop
 
     func frame(dt: TimeInterval) {
-        let config = engine.config
-        haptics.scale = Float(config.hapticsScale)
-        audio.enabled = config.soundEnabled
-        audio.volume = Float(config.soundVolume)
+        renderedFrames &+= 1
+        haptics.level = settings.hapticsLevel
+        audio.enabled = settings.soundEnabled
+        audio.style = settings.soundStyle
+        // The scene's first-run "drag down" teaching pulse stops once a press has been completed.
+        scene.isFirstPress = completedPresses == 0
 
         engine.step(now: CACurrentMediaTime(), dt: dt)
-        scene.update(engine: engine)
-        haptics.update(engine: engine)
-        audio.update(engine: engine)
+        let context = feedbackContext
+        scene.update(engine: engine, context: context, dt: Float(dt))
+        haptics.update(engine: engine, context: context)
+        audio.update(engine: engine, context: context)
+    }
+
+    // MARK: - Internals
+
+    private func firstObject() -> ObjectKind {
+        .bubbleWrap
+    }
+
+    private func nextUnlocked(after kind: ObjectKind) -> ObjectKind {
+        let all = ObjectKind.allCases
+        let start = all.firstIndex(of: kind) ?? 0
+        for offset in 1...all.count {
+            let candidate = all[(start + offset) % all.count]
+            if collection.isUnlocked(candidate) { return candidate }
+        }
+        return kind
     }
 
     private func load(_ kind: ObjectKind) {
         currentKind = kind
-        let seed = UInt64.random(in: 1...UInt64.max)
+        var seed = UInt64.random(in: 1...UInt64.max)
+        if let demo = DemoScenario.current, let forced = demo.string("seed").flatMap(UInt64.init) {
+            seed = forced
+        }
+        variant = PressVariant(kind: kind, seed: seed)
+        if let demo = DemoScenario.current {
+            if demo.has("golden") { variant.isGolden = kind != .unsquishable }
+            if let raw = demo.string("surprise"), let surprise = Surprise(rawValue: raw) { variant.surprise = surprise }
+        }
         engine.load(kind, seed: seed, at: CACurrentMediaTime())
-        scene.setObject(kind, seed: seed)
-        audio.place(kind)
-        haptics.place()
+        scene.setObject(kind, variant: variant)
+        let context = feedbackContext
+        audio.place(context: context)
+        haptics.place(context: context)
+        traceSamples.removeAll(keepingCapacity: true)
+        traceStart = CACurrentMediaTime()
+        if UIAccessibility.isVoiceOverRunning {
+            UIAccessibility.post(notification: .announcement, argument: kind.accessibilityDescription)
+        }
+    }
+
+    private func recordTrace(angle: Double, closed: Bool, at time: Double) {
+        guard engine.phase != .revealing, traceSamples.count < 20_000 else { return }
+        traceSamples.append(PressTrace.Sample(time: time - traceStart, angle: angle, closed: closed))
     }
 
     private func handle(_ event: PressEvent) {
-        scene.handle(event)
-        haptics.handle(event, kind: currentKind)
-        audio.handle(event, kind: currentKind)
+        let context = feedbackContext
+        scene.handle(event, context: context)
+        haptics.handle(event, context: context)
+        audio.handle(event, context: context)
+
+        if let line = Captions.caption(for: event, context: context) {
+            captionCounter += 1
+            caption = CaptionEvent(id: captionCounter, text: line.text, announce: line.announce)
+            if line.announce && UIAccessibility.isVoiceOverRunning {
+                UIAccessibility.post(notification: .announcement, argument: line.text)
+            }
+        }
+
         switch event {
         case .fracture(_, true):
             failureFlashCount += 1
         case .reveal:
-            revealResult = engine.lastResult
-            completedPresses += 1
+            reveal()
         default:
             break
         }
+    }
+
+    private func reveal() {
+        guard let result = engine.lastResult else { return }
+        lastTrace = PressTrace(kind: currentKind, variant: variant, samples: traceSamples,
+                               usesVirtualHinge: engine.usesVirtualHinge, config: engine.config)
+        let outcome = collection.record(result, variant: variant)
+        revealed = outcome
+        lastSpecimenID = outcome.specimen.id
+        if let lastTrace {
+            traceStore.save(lastTrace, for: outcome.specimen.id)
+        }
+        if !outcome.newlyUnlocked.isEmpty {
+            audio.unlock()
+        }
+        GameCenter.shared.report(outcome.newAchievements)
+        // Capture the specimen thumbnail once the ram has lifted clear of the flattened object.
+        let specimenID = outcome.specimen.id
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard let self, let image = await self.scene.snapshot(), let png = image.pngData() else { return }
+            self.collection.attachThumbnail(png, to: specimenID)
+        }
+    }
+
+    // MARK: - Demo (CI screenshots)
+
+    /// Drives the touch press to a scripted state (see DemoMode.swift).
+    private func runDemo(_ demo: DemoScenario) {
+        engine.config.ignoreInputAfterActivation = 0
+        hingeUnavailable()
+        if let kind = demo.object { load(kind) }
+        let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
+        guard let targetDepth else { return }
+        let targetAngle = PressMapping.angle(forDepth: targetDepth, start: engine.config.armAngleMax, config: engine.config)
+        Task { @MainActor in
+            // Wait until the scene is actually rendering (first frames can be slow on CI simulators).
+            while renderedFrames < 30 {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            virtualPress(0)
+            try? await Task.sleep(for: .milliseconds(300))
+            let steps = 90
+            for step in 1...steps {
+                let angle = 180 + (targetAngle - 180) * Double(step) / Double(steps)
+                virtualPress((180 - angle) / 180)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            for _ in 0..<30 {
+                virtualPress((180 - targetAngle) / 180)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+}
+
+/// The input of one press, kept so the share clip can replay it deterministically.
+struct PressTrace: Codable, Sendable {
+    struct Sample: Codable, Sendable {
+        var time: Double
+        var angle: Double
+        var closed: Bool
+    }
+
+    var kind: ObjectKind
+    var variant: PressVariant
+    var samples: [Sample]
+    var usesVirtualHinge: Bool
+    var config: PressConfig
+}
+
+/// One small JSON file per specimen in Application Support/Squish/traces (a few KB each).
+@MainActor
+final class TraceStore {
+    private let directory: URL?
+
+    init() {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        directory = base?.appendingPathComponent("Squish/traces", isDirectory: true)
+        if let directory {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+    }
+
+    func save(_ trace: PressTrace, for id: UUID) {
+        guard let url = url(for: id), let data = try? JSONEncoder().encode(trace) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    func load(_ id: UUID) -> PressTrace? {
+        guard let url = url(for: id), let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(PressTrace.self, from: data)
+    }
+
+    private func url(for id: UUID) -> URL? {
+        directory?.appendingPathComponent("\(id.uuidString).json")
     }
 }
 

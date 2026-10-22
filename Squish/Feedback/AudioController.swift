@@ -1,23 +1,37 @@
 import AVFoundation
 import QuartzCore
 
-/// Owns the audio session and engine and turns press events into synth sounds (bible §8).
-/// Brand sounds (ticks, ka-chunk, sting, chime) are fixed and all sit on one C major pentatonic.
+/// Owns the audio session and engine and turns press events into synthesised sound (bible §8).
+/// Shared press layers (hiss, motor, creak, gauge ticks, hush, bottom-out, ka-chunk, sting, chime, fanfare) live here
+/// and in `BrandCues`; each object's material sounds come from its recipe through `CueBook`.
+///
+/// Gain staging (target ≈ −16 LUFS integrated, 02 §6): beds sit around −30 dBFS, grains −30…−20, fractures −12…−8,
+/// failures and the ka-chunk peak into the −1 dBFS limiter, about 6 LU above the strain bed.
 @MainActor
 final class AudioController {
     var enabled = true
+    var style: SoundStyle = .workshop
+    /// Extra trim for the Tuning Lab.
     var volume: Float = 1
+    /// Sampled-layer seam (bible §15.1). Nil in v1: everything is synthesised.
+    var sampleBank: (any SampleBank)?
+
+    private static let masterGain: Float = 0.8
 
     private let engine = AVAudioEngine()
     private var synth: Synth?
     private var sourceNode: AVAudioSourceNode?
-    private var configObserver: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
     private var lastTickAngle: Double?
-    private var hushUntil: CFTimeInterval = 0
-    private var rng = SystemRandomNumberGenerator()
-
-    /// C major pentatonic from C5: the gauge ticks climb this as pressure builds.
-    private static let pentatonic: [Float] = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51, 1567.98, 1760.0, 2093.0]
+    private var lastUpdate: CFTimeInterval = 0
+    private var lastPhase: PressPhase = .idle
+    private var spinDown: Double = 0
+    private var grainCount = 0
+    private var tell = PulseSchedule(kind: .tell)
+    private var settle = PulseSchedule(kind: .settle)
+    private var wasHoldingLoaded = false
+    private var holdCount = 0
+    private let auditionDice = FeedbackDice(seed: 0xA0D1_7105)
 
     func start() {
         guard synth == nil else { return }
@@ -31,7 +45,38 @@ final class AudioController {
         let sampleRate = session.sampleRate > 0 ? session.sampleRate : 48_000
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else { return }
         let synth = Synth(sampleRate: Float(sampleRate))
-        let node = AVAudioSourceNode(format: format) { _, _, frameCount, bufferList -> OSStatus in
+        let node = AVAudioSourceNode(format: format, renderBlock: Self.renderBlock(for: synth))
+        engine.attach(node)
+        engine.connect(node, to: engine.mainMixerNode, format: format)
+        try? engine.start()
+        self.synth = synth
+        sourceNode = node
+
+        // Route changes (headphones in/out) can stop the engine; restart it.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.engine.isRunning else { return }
+                try? self.engine.start()
+            }
+        })
+        // Calls and Siri interrupt the session; pick up again when they end (not when they begin).
+        observers.append(NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            guard raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .ended else { return }
+            MainActor.assumeIsolated {
+                self?.resume()
+            }
+        })
+    }
+
+    /// Built outside the main actor on purpose: the block runs on the real-time audio thread, so it must not
+    /// inherit main-actor isolation (which would add a runtime isolation check). It touches only `Synth`.
+    private nonisolated static func renderBlock(for synth: Synth) -> AVAudioSourceNodeRenderBlock {
+        { _, _, frameCount, bufferList -> OSStatus in
             let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
             guard let first = buffers.first, let data = first.mData?.assumingMemoryBound(to: Float.self) else { return noErr }
             synth.render(frames: Int(frameCount), into: data)
@@ -42,53 +87,90 @@ final class AudioController {
             }
             return noErr
         }
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
-        try? engine.start()
-        self.synth = synth
-        sourceNode = node
-
-        // Route changes (headphones in/out) can stop the engine; restart it.
-        configObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, !self.engine.isRunning else { return }
-                try? self.engine.start()
-            }
-        }
     }
 
     func resume() {
         try? AVAudioSession.sharedInstance().setActive(true)
-        if !engine.isRunning { try? engine.start() }
+        if synth != nil && !engine.isRunning { try? engine.start() }
     }
 
     // MARK: - Per frame
 
-    func update(engine press: PressEngine) {
-        guard let synth else { return }
-        var beds = BedParams()
-        beds.master = enabled ? 0.9 * volume : 0
+    func update(engine press: PressEngine, context: FeedbackContext) {
         let now = CACurrentMediaTime()
-        let ducked: Float = now < hushUntil ? 0.25 : 1
+        let dt = lastUpdate == 0 ? 1.0 / 60 : min(max(now - lastUpdate, 0), 0.1)
+        lastUpdate = now
+        // Schedules run even without a synth so the shared cue sync stays aligned with haptics.
+        advanceSchedules(press, context: context, dt: dt)
+        guard let synth else { return }
+
+        let beds = Recipes.recipe(for: context.kind).beds
+        let memory = CueBook.shared.memory
+        let soft = style == .soft
+        var params = BedParams()
+        params.master = enabled ? Self.masterGain * volume : 0
+        params.softAmount = soft ? 1 : 0
+
+        let c = Float(press.measuredCompression)
         let speed = Float(clamp(press.closingSpeed / 120, 0, 1))
+        if press.phase == .sealed && lastPhase != .sealed { spinDown = 0.4 }
+        lastPhase = press.phase
+
         switch press.phase {
         case .armed, .pressing:
-            let c = Float(press.measuredCompression)
-            beds.hissGain = press.closingSpeed > 2 ? speed * speed * (3 - 2 * speed) * 0.05 * ducked : 0
-            beds.hissCenter = 1500 * pow(4, speed)
-            beds.humGain = (press.phase == .pressing ? 0.02 + 0.04 * c : 0.012) * ducked
-            beds.humPitch = 1 + 0.33 * c + 0.06 * speed
-        case .sealed, .idle, .revealing:
+            // Hiss opens with closing speed; motor rises ~5 st under load (02 §7.2).
+            if press.closingSpeed > 2 {
+                params.hissGain = Self.smoothstep(0.05, 0.8, speed) * 0.045
+            }
+            params.hissCenter = 1500 * pow(4, speed)
+            params.humGain = press.phase == .pressing ? 0.018 + 0.035 * c : 0.010
+            params.humPitch = pow(2, (5 * c + speed) / 12)
+            if press.isLoaded {
+                let opening = press.closingSpeed < -5
+                let progress = Recipes.strainProgress(c, kind: context.kind)
+                // Procedural stick-slip creak: slips speed up with strain; sparse settling slips while held.
+                params.creakPitch = beds.creakPitch * (1 + 0.25 * progress)
+                params.creakRate = opening ? 0 : (press.isHolding ? 2.5 : 8 + 55 * progress * max(speed, 0.2))
+                params.creakGain = beds.creakAmount * (0.012 + 0.03 * progress)
+                // Material strain loop until the failure: gain = strain^1.5 · max(v, 0.25) (02 §7.2).
+                let strain = beds.strain
+                if !memory.hasFailed && !opening && !(soft && strain.isWet) {
+                    params.strainGain = strain.gain * pow(progress, 1.5) * max(speed, press.isHolding ? 0.1 : 0.25)
+                    params.strainCutoff = strain.cutoff * (1 + strain.cutoffRise * progress)
+                    params.strainQ = strain.q
+                    params.strainFilter = strain.filter
+                    params.strainFlutterRate = strain.flutterRate
+                    params.strainFlutterDepth = strain.flutterDepth
+                }
+                // Granular crush after the failure: rate = base · v · (fresh ? 1 : 0.25) (02 §7.2).
+                let crush = beds.crush
+                if memory.hasFailed && press.closingSpeed > 2 && !(soft && crush.isWet) {
+                    let fresh = press.measuredCompression >= press.maxCompression - 0.01
+                    params.crushRate = crush.rate * (0.2 + 0.8 * speed) * (fresh ? 1 : 0.25) * (soft ? 0.5 : 1)
+                    params.crushGain = crush.gain * (fresh ? 1 : 0.4) * (soft ? 0.7 : 1)
+                    params.crushLow = crush.low
+                    params.crushHigh = soft ? min(crush.high, 5000) : crush.high
+                    params.crushQ = crush.q
+                    params.crushGrainDecay = crush.grainDecay
+                }
+            }
+        case .sealed:
+            // Motor spins down over 400 ms after the seal (02 §7.1 phase 6).
+            if spinDown > 0 {
+                spinDown -= dt
+                let fraction = Float(max(spinDown / 0.4, 0))
+                params.humGain = 0.05 * fraction
+                params.humPitch = 0.6 + 0.7 * fraction
+            }
+        case .idle, .revealing:
             break
         }
-        synth.setBeds(beds)
-        updateGaugeTicks(press)
+        synth.setBeds(params)
+        updateGaugeTicks(press, failed: memory.hasFailed)
     }
 
-    /// One tick per 5° of closing under load: the sensor's resolution turned into a feature.
-    private func updateGaugeTicks(_ press: PressEngine) {
+    /// One tick per 5° of closing under load: the sensor's resolution turned into a feature (02 §3.1).
+    private func updateGaugeTicks(_ press: PressEngine, failed: Bool) {
         guard press.isLoaded, press.closingSpeed > 0 else {
             if press.closingSpeed < -5 || press.phase != .pressing { lastTickAngle = nil }
             return
@@ -99,121 +181,123 @@ final class AudioController {
         }
         if press.angle <= last - 5 {
             lastTickAngle = press.angle
-            let step = min(Int(press.measuredCompression * 10), Self.pentatonic.count - 1)
-            tick(Self.pentatonic[step])
+            let scale = BrandCues.pentatonic
+            let step = min(Int(press.measuredCompression * 10), scale.count - 1)
+            // After the failure the needle has dropped: the ticks continue, quieter, so the climax keeps its contrast.
+            play(BrandCues.tick(scale[step], gain: failed ? 0.6 : 1))
+        }
+    }
+
+    /// Micro-cracks during the tell and settling creaks while held, in lockstep with the haptics.
+    private func advanceSchedules(_ press: PressEngine, context: FeedbackContext, dt: Double) {
+        if tell.isRunning {
+            if !press.isLoaded || press.closingSpeed < -5 {
+                tell.stop()
+            } else if let index = tell.advance(by: dt * (press.isHolding ? 0.35 : 1)) {
+                play(CueBook.shared.cue(for: .recipe(.microCrack(index: index)), context: context, consumer: .audio))
+            }
+        }
+        let holdingLoaded = press.isLoaded && press.isHolding
+        if holdingLoaded && !wasHoldingLoaded {
+            holdCount += 1
+            settle.start(seed: context.variant.seed &+ UInt64(holdCount))
+        }
+        if !holdingLoaded { settle.stop() }
+        wasHoldingLoaded = holdingLoaded
+        if let index = settle.advance(by: dt) {
+            play(CueBook.shared.cue(for: .settle(index), context: context, consumer: .audio))
         }
     }
 
     // MARK: - Events
 
-    func handle(_ event: PressEvent, kind: ObjectKind) {
+    func handle(_ event: PressEvent, context: FeedbackContext) {
+        let recipeCue = RecipeMoment(event).map {
+            CueBook.shared.cue(for: .recipe($0), context: context, consumer: .audio)
+        }
         switch event {
-        case .armed, .preFailureTell, .sealed:
+        case .preFailureTell:
+            tell.start(seed: context.variant.seed)
+        case .hush, .fracture(_, true), .released, .bottomOut, .kaChunk, .sealed:
+            tell.stop()
+        case .contact:
+            lastTickAngle = nil
+        case .armed, .grain, .fracture, .reveal:
+            break
+        }
+        perform(event, recipeCue: recipeCue)
+    }
+
+    func place(context: FeedbackContext) {
+        tell.stop()
+        settle.stop()
+        lastTickAngle = nil
+        grainCount = 0
+        play(CueBook.shared.cue(for: .recipe(.place), context: context, consumer: .audio))
+    }
+
+    func collect() {
+        play(BrandCues.collect)
+    }
+
+    func unlock() {
+        play(BrandCues.unlock)
+    }
+
+    /// Tuning Lab: plays one moment of an object's recipe plus the shared layers, outside the live press.
+    /// `golden`/`surprise` only matter for `.reveal`.
+    func audition(_ kind: ObjectKind, event: PressEvent, golden: Bool = false, surprise: Surprise? = nil) {
+        let context = Audition.context(for: kind, event: event, golden: golden, surprise: surprise)
+        let recipeCue = RecipeMoment(event).map { CueBook.preview($0, context: context, dice: auditionDice) }
+        perform(event, recipeCue: recipeCue)
+    }
+
+    /// Tuning Lab: audition the object's placement plop.
+    func auditionPlace(_ kind: ObjectKind) {
+        let context = Audition.context(for: kind, event: .armed)
+        play(CueBook.preview(.place, context: context, dice: auditionDice))
+    }
+
+    private func perform(_ event: PressEvent, recipeCue: FeedbackCue?) {
+        var playRecipe = true
+        switch event {
+        case .armed, .sealed, .preFailureTell:
             break
         case .contact:
-            play(.tone(start: 160, end: 90, glide: 0.06, duration: 0.10, attack: 0.002, gain: 0.35,
-                       harmonics: 2, vibratoRate: 0, vibratoDepth: 0, delay: 0))
-            play(.noise(center: 700, q: 1, attack: 0.001, decay: 0.03, gain: 0.15, delay: 0))
-        case .grain(let c):
-            grain(kind: kind, compression: Float(c))
+            play(BrandCues.contact)
+        case .grain:
+            // Soft style: half grain density (bible §8).
+            grainCount += 1
+            if style == .soft && grainCount % 2 == 0 { playRecipe = false }
         case .hush:
-            hushUntil = CACurrentMediaTime() + 0.06
-        case .fracture(let index, let isFailure):
-            fracture(kind: kind, index: index, isFailure: isFailure)
+            if enabled { synth?.trigger(.hush(duration: 0.07)) }
+        case .fracture(_, let isFailure):
+            if isFailure { play(BrandCues.tonic) }
         case .bottomOut:
-            play(.tone(start: 95, end: 45, glide: 0.12, duration: 0.18, attack: 0.002, gain: 0.45,
-                       harmonics: 2, vibratoRate: 0, vibratoDepth: 0, delay: 0))
+            play(BrandCues.bottomOut)
         case .kaChunk:
-            // Fixed brand sound: low thock + latch click + short metallic body.
-            play(.tone(start: 120, end: 38, glide: 0.15, duration: 0.30, attack: 0.001, gain: 0.8,
-                       harmonics: 2, vibratoRate: 0, vibratoDepth: 0, delay: 0))
-            play(.noise(center: 3200, q: 2, attack: 0.0005, decay: 0.006, gain: 0.4, delay: 0.02))
-            play(.noise(center: 900, q: 3, attack: 0.001, decay: 0.07, gain: 0.3, delay: 0.03))
+            play(BrandCues.kaChunk)
         case .released:
-            play(.noise(center: 2500, q: 0.7, attack: 0.08, decay: 0.2, gain: 0.06, delay: 0))
-            if kind == .rubberDuck {
-                squeak(pitch: 700, gain: 0.08)
-            }
+            play(BrandCues.releaseSigh)
         case .reveal:
-            sting()
+            play(BrandCues.releaseSigh)
+            play(BrandCues.sting)
+        }
+        if playRecipe, let recipeCue {
+            play(recipeCue)
         }
     }
 
-    func place(_ kind: ObjectKind) {
-        play(.tone(start: 220, end: 120, glide: 0.06, duration: 0.09, attack: 0.002, gain: 0.3,
-                   harmonics: 1, vibratoRate: 0, vibratoDepth: 0, delay: 0))
-        play(.noise(center: kind == .bubbleWrap ? 3000 : 500, q: 1, attack: 0.001, decay: 0.04, gain: 0.12, delay: 0))
-    }
-
-    /// Fixed two-note answer to the reveal sting.
-    func collect() {
-        note(783.99, at: 0, gain: 0.16)
-        note(1046.5, at: 0.12, gain: 0.18)
-    }
-
-    private func grain(kind: ObjectKind, compression c: Float) {
-        switch kind {
-        case .bubbleWrap:
-            play(.noise(center: 6000 + Float.random(in: -800...800, using: &rng), q: 0.8,
-                        attack: 0.0005, decay: 0.008, gain: 0.05, delay: 0))
-        case .rubberDuck:
-            squeak(pitch: 850 + 500 * c, gain: 0.12)
+    private func play(_ cue: FeedbackCue) {
+        guard enabled, let synth, !cue.sounds.isEmpty else { return }
+        for layer in cue.styled(style).sounds {
+            if let bank = sampleBank, bank.play(layer) { continue }
+            synth.trigger(layer.command)
         }
     }
 
-    private func fracture(kind: ObjectKind, index: Int, isFailure: Bool) {
-        switch kind {
-        case .bubbleWrap:
-            // Transient snap + band-passed body + tiny low "tock": three layers, randomised every time.
-            let center = 1300 * Float.random(in: 0.75...1.3, using: &rng)
-            play(.noise(center: 5200, q: 1.2, attack: 0.0003, decay: 0.004, gain: 0.25, delay: 0))
-            play(.noise(center: center, q: 1.5, attack: 0.0005, decay: 0.018, gain: 0.5, delay: 0.001))
-            play(.tone(start: 220, end: 120, glide: 0.03, duration: 0.04, attack: 0.001, gain: 0.12,
-                       harmonics: 1, vibratoRate: 0, vibratoDepth: 0, delay: 0.002))
-        case .rubberDuck:
-            if isFailure {
-                // Seam pop, comic "bloop" and an air rush. Never a pained squeal.
-                play(.noise(center: 900, q: 1.2, attack: 0.0005, decay: 0.05, gain: 0.5, delay: 0))
-                play(.tone(start: 700, end: 140, glide: 0.12, duration: 0.14, attack: 0.002, gain: 0.25,
-                           harmonics: 1, vibratoRate: 0, vibratoDepth: 0, delay: 0.01))
-                play(.noise(center: 4000, q: 0.7, attack: 0.01, decay: 0.25, gain: 0.08, delay: 0.02))
-            } else {
-                // Comic honk.
-                play(.tone(start: 330, end: 300, glide: 0.25, duration: 0.25, attack: 0.01, gain: 0.16,
-                           harmonics: 6, vibratoRate: 6, vibratoDepth: 0.01, delay: 0))
-            }
-        }
-    }
-
-    private func squeak(pitch: Float, gain: Float) {
-        let p = pitch * Float.random(in: 0.97...1.03, using: &rng)
-        play(.tone(start: p, end: p * 1.25, glide: 0.12, duration: 0.16, attack: 0.01, gain: gain,
-                   harmonics: 3, vibratoRate: 28, vibratoDepth: 0.02, delay: 0))
-    }
-
-    private func tick(_ frequency: Float) {
-        play(.noise(center: 4000, q: 1.5, attack: 0.0003, decay: 0.002, gain: 0.08, delay: 0))
-        play(.tone(start: frequency, end: frequency, glide: 0.01, duration: 0.06, attack: 0.001, gain: 0.07,
-                   harmonics: 1, vibratoRate: 0, vibratoDepth: 0, delay: 0))
-    }
-
-    /// Fixed reveal sting: C5 E5 G5.
-    private func sting() {
-        note(523.25, at: 0, gain: 0.18)
-        note(659.25, at: 0.16, gain: 0.18)
-        note(783.99, at: 0.32, gain: 0.2)
-    }
-
-    /// Soft marimba-ish note: fundamental plus a quick 4× partial.
-    private func note(_ frequency: Float, at delay: Float, gain: Float) {
-        play(.tone(start: frequency, end: frequency, glide: 0.01, duration: 0.6, attack: 0.004, gain: gain,
-                   harmonics: 2, vibratoRate: 0, vibratoDepth: 0, delay: delay))
-        play(.tone(start: frequency * 4, end: frequency * 4, glide: 0.01, duration: 0.08, attack: 0.001, gain: gain * 0.2,
-                   harmonics: 1, vibratoRate: 0, vibratoDepth: 0, delay: delay))
-    }
-
-    private func play(_ command: SynthCommand) {
-        guard enabled, let synth else { return }
-        synth.trigger(command)
+    private static func smoothstep(_ edge0: Float, _ edge1: Float, _ x: Float) -> Float {
+        let t = min(max((x - edge0) / (edge1 - edge0), 0), 1)
+        return t * t * (3 - 2 * t)
     }
 }

@@ -35,6 +35,8 @@ struct PressResult: Equatable, Sendable {
     var duration: Double
     var wasSlammed: Bool
     var isPerfect: Bool
+    /// Times the user opened again mid-press while the object was loaded ("pumping" the press).
+    var reversals: Int = 0
 }
 
 /// The heart of Squish: turns hinge samples into press depth, fires material events once,
@@ -77,6 +79,8 @@ final class PressEngine {
     var visualCompression: Double { PressMapping.compression(depth: visualDepth, config: config) }
     var measuredCompression: Double { PressMapping.compression(depth: measuredDepth, config: config) }
     var isLoaded: Bool { phase == .pressing && measuredCompression > 0 }
+    /// True when hinge samples arrive slower than ~10 Hz.
+    var isLowRate: Bool { !usesVirtualHinge && sampleInterval > 0.1 }
 
     @ObservationIgnored var onEvent: ((PressEvent) -> Void)?
 
@@ -97,6 +101,10 @@ final class PressEngine {
     @ObservationIgnored private var failureAngle: Double?
     @ObservationIgnored private var peakClosingSpeed = 0.0
     @ObservationIgnored private var reversedWhileLoaded = false
+    @ObservationIgnored private var isReversing = false
+    @ObservationIgnored private var reversals = 0
+    /// Recent hinge sample intervals, for the low-rate mode (bible §6.1).
+    @ObservationIgnored private var sampleInterval = 1.0 / 30.0
     @ObservationIgnored private var virtualAngle = 180.0
     @ObservationIgnored private var virtualReleasing = false
 
@@ -139,6 +147,8 @@ final class PressEngine {
         failureAngle = nil
         peakClosingSpeed = 0
         reversedWhileLoaded = false
+        isReversing = false
+        reversals = 0
         lastResult = nil
         phase = .idle
         tryArm(at: time)
@@ -156,6 +166,12 @@ final class PressEngine {
         let filtered = filter.filter(raw, at: time)
         angle = filtered
         closingSpeed = -filter.derivative
+        if lastSampleTime.isFinite {
+            let interval = time - lastSampleTime
+            if interval > 0 && interval < 1 {
+                sampleInterval += (interval - sampleInterval) * 0.2
+            }
+        }
         lastSampleTime = time
         let wasClosed = isClosed
         isClosed = closed
@@ -246,12 +262,15 @@ final class PressEngine {
             target = 0
         case .armed, .pressing:
             // Predict a little ahead while samples are fresh; hold still when they stop.
-            let lead = age < config.staleAfter ? min(age + 1.0 / 60.0, config.maxPredict) : 0
+            // Low-rate mode: when samples arrive slower than ~10 Hz (thermal, Low Power), don't predict.
+            let fresh = age < max(config.staleAfter, sampleInterval * 1.5)
+            let lead = fresh && !isLowRate ? min(age + 1.0 / 60.0, config.maxPredict) : 0
             target = PressMapping.depth(angle: angle - closingSpeed * lead, start: startAngle, config: config)
         case .sealed:
             target = 1
         }
-        spring.step(toward: target, omega: config.springOmega, dt: dt)
+        let omega = isLowRate ? config.springOmega * 0.6 : config.springOmega
+        spring.step(toward: target, omega: omega, dt: dt)
         renderDepth = clamp(spring.value, 0, 1)
     }
 
@@ -295,8 +314,15 @@ final class PressEngine {
 
         if c > 0 {
             peakClosingSpeed = max(peakClosingSpeed, closingSpeed)
-            if closingSpeed < -8 { reversedWhileLoaded = true }
+            if closingSpeed < -8 {
+                reversedWhileLoaded = true
+                if !isReversing {
+                    isReversing = true
+                    reversals += 1
+                }
+            }
         }
+        if closingSpeed > 3 { isReversing = false }
 
         if closingSpeed > 0 && c > 0 && fresh && !inRigidPlateau(c, material: material) {
             releaseFired = false
@@ -409,7 +435,8 @@ final class PressEngine {
             maxCompression: maxCompression,
             duration: duration,
             wasSlammed: slammed,
-            isPerfect: !slammed && !reversedWhileLoaded && peakClosingSpeed <= config.perfectMaxSpeed && duration >= 2
+            isPerfect: !slammed && !reversedWhileLoaded && peakClosingSpeed <= config.perfectMaxSpeed && duration >= 2,
+            reversals: reversals
         )
         emit(.sealed(blind: blind))
         if usesVirtualHinge {

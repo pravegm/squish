@@ -10,7 +10,10 @@ final class EventLog {
     }
 
     func fractureIndices() -> [Int] {
-        events.compactMap { if case let .fracture(index, _) = $0 { index } else { nil } }
+        events.compactMap { event -> Int? in
+            if case let .fracture(index, _) = event { return index }
+            return nil
+        }
     }
 }
 

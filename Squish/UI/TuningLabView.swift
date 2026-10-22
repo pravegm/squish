@@ -11,17 +11,6 @@ struct TuningLabView: View {
         @Bindable var engine = director.engine
         NavigationStack {
             Form {
-                Section("Feel") {
-                    Picker("Haptics", selection: $engine.config.hapticsScale) {
-                        Text("Off").tag(0.0)
-                        Text("Soft").tag(0.6)
-                        Text("Full").tag(1.0)
-                    }
-                    .pickerStyle(.segmented)
-                    Toggle("Sound", isOn: $engine.config.soundEnabled)
-                    TuneSlider(title: "Volume", value: $engine.config.soundVolume, range: 0...1, format: "%.2f")
-                }
-
                 Section("Live") {
                     TimelineView(.periodic(from: .now, by: 0.1)) { _ in
                         VStack(alignment: .leading, spacing: 4) {
@@ -52,6 +41,19 @@ struct TuningLabView: View {
                     Text("Mapping")
                 } footer: {
                     Text("Tip: close slowly and note the raw angle when the inner screen turns off. Set the end angle a few degrees above it.")
+                }
+
+                Section {
+                    TuneSlider(title: "Arm angle min", value: $engine.config.armAngleMin, range: 60...160, format: "%.0f°")
+                    TuneSlider(title: "Seal depth", value: $engine.config.sealDepth, range: 0.85...1, format: "%.2f")
+                    TuneSlider(title: "Seal hold", value: $engine.config.sealHold, range: 0...0.5, format: "%.2f s")
+                    TuneSlider(title: "Failure hush", value: $engine.config.failureHushDelay, range: 0...0.12, format: "%.3f s")
+                    TuneSlider(title: "Slam speed", value: $engine.config.slamSpeed, range: 100...600, format: "%.0f°/s")
+                    TuneSlider(title: "Perfect max speed", value: $engine.config.perfectMaxSpeed, range: 30...250, format: "%.0f°/s")
+                } header: {
+                    Text("Press & traits")
+                } footer: {
+                    Text("Sound, haptics and captions are user settings now (Settings sheet), not tuning values.")
                 }
 
                 Section("Smoothing") {
