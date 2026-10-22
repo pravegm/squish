@@ -61,3 +61,15 @@
 72-ball-calib|object=unsquishable;calib
 # Share clip export (uploads the MP4 too)
 80-clip-duck|object=rubberDuck;reveal;exportclip|240
+# Fold Press on a non-Duo simulator (needs the director's `foldsim` hook: fake hinge sweep 180° → the listed angle,
+# forced 951×669 book canvas is NOT possible on an iPhone 18 Pro, so these frames show the tabletop layout).
+90-fold-duck-180|object=rubberDuck;foldsim=180|12
+91-fold-duck-120|object=rubberDuck;foldsim=120|14
+92-fold-duck-90|object=rubberDuck;foldsim=90|14
+93-fold-duck-60|object=rubberDuck;foldsim=60|15
+94-fold-bubble-120|object=bubbleWrap;foldsim=120|14
+95-fold-bubble-60|object=bubbleWrap;foldsim=60|15
+96-fold-glass-90|object=glassBottle;foldsim=90|14
+97-fold-can-60|object=sodaCan;foldsim=60|15
+98-fold-ball-60|object=unsquishable;foldsim=60|15
+99-fold-jelly-reveal|object=jelly;foldsim=45,170|18

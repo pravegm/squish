@@ -14,7 +14,7 @@ struct SceneStyle {
 
     // MARK: Camera / composition (§3.2)
     /// P — phone portrait (a ≤ 0.56).
-    var presetP = CameraPreset(position: [0, 0.3225, 0.6468], pitch: 14, fieldOfView: 49.6)
+    var presetP = CameraPreset(position: [0, 0.3884, 0.6096], pitch: 20, fieldOfView: 49.6) // VISUAL-REVIEW-1 fix 3: anvil still at 74%
     /// D — Duo press posture, full inner display (0.66 … 0.80).
     var presetD = CameraPreset(position: [0, 0.3503, 0.7903], pitch: 14, fieldOfView: 40.0)
     /// L — landscape diorama (a ≥ 1.2), used only when `bookPoseRolls` is false.
@@ -53,8 +53,8 @@ struct SceneStyle {
     var sweepTextureSize = 512
 
     // MARK: Decals (§3.6)
-    var aoAlpha: Float = 0.55
-    var softShadowAlpha: Float = 0.22
+    var aoAlpha: Float = 0.75
+    var softShadowAlpha: Float = 0.32
     var softShadowCoveredAlpha: Float = 0.12
     var ramOcclusionMax: Float = 0.30
 

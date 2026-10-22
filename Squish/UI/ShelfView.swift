@@ -74,6 +74,7 @@ struct ShelfView: View {
                 .presentationCornerRadius(Theme.sheetRadius)
                 .presentationBackground { AlbumPage(dots: false) }
                 .sheetTypeCap()
+                .creaseSafe()
         }
         // Settings stacks on the Shelf, so closing it comes back here (P2-11).
         .sheet(isPresented: $showSettings) {
@@ -83,6 +84,7 @@ struct ShelfView: View {
                 .presentationCornerRadius(Theme.sheetRadius)
                 .presentationBackground { AlbumPage(dots: false) }
                 .sheetTypeCap()
+                .creaseSafe()
         }
         .task {
             guard demoDetail != nil || demoSettings else { return }

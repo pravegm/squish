@@ -11,8 +11,10 @@ import UIKit
 @MainActor
 final class GummyBearView: PressObjectView {
     let entity = Entity()
-    let restHeight: Float = 0.107
-    let footprint: Float = 0.045
+    /// Hero scale ×1.2 (VISUAL-REVIEW-1 fix 6), applied on `entity`.
+    static let heroScale: Float = 1.2
+    let restHeight: Float = 0.107 * GummyBearView.heroScale
+    let footprint: Float = 0.045 * GummyBearView.heroScale
     private let minHeightRatio: Float = 0.14
 
     private let fx: SceneFX
@@ -20,6 +22,8 @@ final class GummyBearView: PressObjectView {
     private var rng = SplitMix64(seed: 0)
     private let bear = Entity()
     private var halves: [Entity] = []
+    /// One welded bear for idle and strain: no seam until it breaks (VISUAL-REVIEW-1 fix 11).
+    private let welded = Entity()
     private var shells: [ModelEntity] = []
     private let goo: ModelEntity
     private var split = false
@@ -77,7 +81,7 @@ final class GummyBearView: PressObjectView {
 
     private func shellMaterial(glow: Float) -> PhysicallyBasedMaterial {
         if look.golden { return SceneMaterials.gold }
-        var m = SceneMaterials.enamel(shellColour, roughness: 0.20, clearcoat: 0.6, clearcoatRoughness: 0.28, opacity: 0.88)
+        var m = SceneMaterials.enamel(shellColour, roughness: 0.20, clearcoat: 0.6, clearcoatRoughness: 0.28, opacity: 0.80)
         m.emissiveColor = .init(color: UIColor(hex: 0xFF6B5A))
         m.emissiveIntensity = glow
         return m
@@ -85,21 +89,26 @@ final class GummyBearView: PressObjectView {
 
     private func build() {
         let core = look.golden ? SceneMaterials.gold : SceneMaterials.pbr(UIColor(hex: 0xC8203A), roughness: 0.3)
-        let shell = shellMaterial(glow: 0.15)
+        let shell = shellMaterial(glow: 0.22)
+        Part.add(cached: "gummy.full.core", { ObjectMeshes.gummy(side: nil, coreScale: 0.82) }, core, to: welded)
+        shells.append(Part.add(cached: "gummy.full.shell", { ObjectMeshes.gummy(side: nil, coreScale: 1) }, shell, to: welded))
+        bear.addChild(welded)
         for side: Float in [1, -1] {
             // side = clip normal: +1 keeps x ≤ 0 (left half), −1 keeps x ≥ 0 (right half).
             let half = Entity()
             let key = side > 0 ? "L" : "R"
-            Part.add(cached: "gummy.core.\(key)", { Self.halfMesh(side: side, coreScale: 0.82) }, core, to: half)
-            let shellModel = Part.add(cached: "gummy.shell.\(key)", { Self.halfMesh(side: side, coreScale: 1) }, shell, to: half)
+            Part.add(cached: "gummy.core.\(key)", { ObjectMeshes.gummy(side: side, coreScale: 0.82) }, core, to: half)
+            let shellModel = Part.add(cached: "gummy.shell.\(key)", { ObjectMeshes.gummy(side: side, coreScale: 1) }, shell, to: half)
             shells.append(shellModel)
             addCrossSection(to: half, side: side)
+            half.isEnabled = false
             bear.addChild(half)
             halves.append(half)
         }
         entity.addChild(bear)
         entity.addChild(goo)
         entity.orientation = Part.yaw(10)
+        entity.scale = SIMD3(repeating: Self.heroScale)
     }
 
     /// The seam faces: core-coloured, or candy stripes for the rainbow surprise. Hidden inside until the split.
@@ -139,7 +148,7 @@ final class GummyBearView: PressObjectView {
         let step = Int(state.compression * 8)
         if step != glowStep {
             glowStep = step
-            let material = shellMaterial(glow: 0.15 * (1 + 1.5 * state.compression))
+            let material = shellMaterial(glow: 0.22 * (1 + 1.5 * state.compression))
             for shell in shells { shell.model?.materials = [material] }
         }
         if split {
@@ -165,6 +174,9 @@ final class GummyBearView: PressObjectView {
         let m = max(fx.motionScale, 0.3)
         let colors = look.golden ? [Palette.goldMessColor] : [UIColor(hex: 0xFF5A4E), UIColor(hex: 0xFF8A7F)]
         if index == 0 {
+            // Swap the welded bear for the pre-split halves at the break.
+            welded.isEnabled = false
+            for half in halves { half.isEnabled = true }
             split = true
             splitC = state.compression
             gap.kick(0.4 * m)

@@ -12,9 +12,11 @@ import UIKit
 @MainActor
 final class SodaCanView: PressObjectView {
     let entity = Entity()
-    let restHeight: Float = 0.150
-    let footprint: Float = 0.045
-    private let minHeightRatio: Float = 0.12
+    /// Ø 0.110 × 0.140 (VISUAL-REVIEW-1 fix 6).
+    let restHeight: Float = 0.150 * ObjectMeshes.canY
+    let footprint: Float = 0.045 * ObjectMeshes.canR
+    private let minHeightRatio: Float = 0.13
+    private static var labelTextures: [UInt64: TextureResource] = [:]
 
     private let fx: SceneFX
     private let look: Look
@@ -33,8 +35,8 @@ final class SodaCanView: PressObjectView {
     private let fizz: (drop: UIColor, puddle: UIColor)
 
     /// Straight body between the bottom and shoulder bevels, split into five fold bands (top-down).
-    static let bodyBottom: Float = 0.011
-    static let bodyTop: Float = 0.126
+    static let bodyBottom: Float = ObjectMeshes.canBodyBottom
+    static let bodyTop: Float = ObjectMeshes.canBodyTop
     static let folds = 5
     static var foldWidth: Float { (bodyTop - bodyBottom) / Float(folds) }
 
@@ -83,18 +85,20 @@ final class SodaCanView: PressObjectView {
         phases = (0..<Self.folds).map { _ in Float.random(in: 0...(2 * .pi), using: &rng) }
         sprayAngle = Float.random(in: 0.6...1.4, using: &rng) // toward the camera side (+Z)
 
-        let field = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(Palette.lime, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.06, metallic: 0.55)
-        let band = look.golden ? SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.3, metallic: 0.6)
-            : SceneMaterials.enamel(UIColor(hex: 0xF8F8F8), roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.06, metallic: 0.3)
-        let line = look.golden ? SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.3, metallic: 0.6)
-            : SceneMaterials.enamel(UIColor(hex: 0x2F7A1E), roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.06, metallic: 0.3)
-        let aluminium = SceneMaterials.pbr(UIColor(hex: 0xD7DBE0), roughness: 0.20, metallic: 1)
-        let profile = Self.profile()
-        let mesh = MeshCache.mesh("can.body") {
-            MeshKit.lathe(profile: profile, segments: 64, material: { i in Self.slot(i, profile) })
+        // Fully printed body (print up to the shoulder; brighter lime, less metallic: VISUAL-REVIEW-1 fix 11).
+        let label: PhysicallyBasedMaterial
+        if look.golden {
+            label = SceneMaterials.gold
+        } else if let texture = Self.labelTexture(seed: variant.seed % 4) {
+            var m = SceneMaterials.textured(texture, roughness: 0.22, clearcoat: 1, metallic: 0.35)
+            m.clearcoatRoughness = .init(floatLiteral: 0.06)
+            label = m
+        } else {
+            label = SceneMaterials.enamel(UIColor(hex: 0x96DB4E), roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.06, metallic: 0.35)
         }
-        can = DeformableMesh(mesh, materials: [field, band, line, aluminium], maxSpread: 1.6)
+        let aluminium = SceneMaterials.pbr(UIColor(hex: 0xD7DBE0), roughness: 0.20, metallic: 1)
+        let mesh = MeshCache.mesh("can.body") { ObjectMeshes.canBody() }
+        can = DeformableMesh(mesh, materials: [label, aluminium], maxSpread: 1.6)
         puddle = ModelEntity(mesh: MeshKit.spreadDisc(seed: variant.seed &+ 9, height: 1, segments: 64, wobble: 0.13).resource()
                              ?? .generateSphere(radius: 0.01),
                              materials: [look.golden ? SceneMaterials.goldMess
@@ -106,8 +110,17 @@ final class SodaCanView: PressObjectView {
         entity.addChild(puddle)
         // Ring-pull tab on the lid.
         tab = Part.add(cached: "can.tab", { MeshKit.roundedBox([0.022, 0.001, 0.012], radius: 0.004, bevel: 0.0004) },
-                       aluminium, at: [0.008, 0.1462, 0], to: entity)
+                       aluminium, at: [0.008 * ObjectMeshes.canR, 0.1462 * ObjectMeshes.canY, 0], to: entity)
         entity.orientation = Part.yaw(-15)
+    }
+
+    /// The FIZZO print (one of 4 seeded bubble layouts), drawn once and cached.
+    private static func labelTexture(seed: UInt64) -> TextureResource? {
+        if let cached = labelTextures[seed] { return cached }
+        let image = RigTextures.canLabel(field: UIColor(hex: 0x96DB4E), drop: UIColor(hex: 0x2F7A1E), seed: 0xF122 &+ seed)
+        let texture = StudioEnvironment.texture(image, name: "can.label.\(seed)")
+        labelTextures[seed] = texture
+        return texture
     }
 
     func surfaceHeight(compression c: Float) -> Float {
@@ -119,7 +132,7 @@ final class SodaCanView: PressObjectView {
     func update(_ state: PressVisualState) {
         let h = surfaceHeight(compression: state.compression)
         let shortening = restHeight - h
-        tab.position.y = h - 0.0038
+        tab.position.y = h - 0.0038 * ObjectMeshes.canY
         if abs(shortening - lastShort) > 0.00005 {
             lastShort = shortening
             deform(shortening: shortening, height: h)
@@ -131,7 +144,7 @@ final class SodaCanView: PressObjectView {
                 let rate: Float = state.reduceMotion ? 20 : 60
                 let count = max(1, Int((rate * state.dt * ParticleSystem.budget).rounded()))
                 let foldY = min(h * 0.62, Self.bodyTop)
-                let r: Float = 0.05
+                let r: Float = 0.061
                 let at = entity.convert(position: [cos(sprayAngle) * r, foldY, sin(sprayAngle) * r], to: fx.root)
                 let dirLocal = SIMD3<Float>(cos(sprayAngle), 0.9, sin(sprayAngle))
                 let dir = simd_normalize(entity.convert(direction: dirLocal, to: fx.root))
@@ -200,7 +213,7 @@ final class SodaCanView: PressObjectView {
         fired = max(fired, index + 1)
         // A glint where the fold creases.
         let foldY = Self.bodyTop - Self.foldWidth * (Float(index) + 0.5)
-        let at = entity.convert(position: [0, min(foldY, state.ramFace - 0.005), 0.046], to: fx.root)
+        let at = entity.convert(position: [0, min(foldY, state.ramFace - 0.005), 0.057], to: fx.root)
         fx.particles.burst(.glint, count: 2, at: at, speed: 0.08, colors: [UIColor(hex: 0xFFFFFF)],
                            size: 0.002...0.003, upBias: 0.2, life: 0.25, rng: &rng)
         if isFailure {
@@ -208,7 +221,7 @@ final class SodaCanView: PressObjectView {
             punctureC = state.compression
             sprayTime = state.reduceMotion ? 0.35 : 0.7
             // The initial "pssht": a burst of foam.
-            let spray = entity.convert(position: [cos(sprayAngle) * 0.048, min(foldY, 0.09), sin(sprayAngle) * 0.048], to: fx.root)
+            let spray = entity.convert(position: [cos(sprayAngle) * 0.058, min(foldY, 0.085), sin(sprayAngle) * 0.058], to: fx.root)
             fx.particles.burst(.fizz, count: 12, at: spray, speed: 0.5 * max(fx.motionScale, 0.4), colors: [look.tint(fizz.drop)],
                                size: 0.002...0.004, spread: 0.004, upBias: 0.3, life: 0.6, rng: &rng)
             fx.particles.burst(.crumb, count: 6, at: spray, speed: 0.25 * max(fx.motionScale, 0.4), colors: [UIColor(hex: 0xF8F8F8)],

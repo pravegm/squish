@@ -23,14 +23,17 @@ final class PressRig {
     private var boltRest: [Transform] = []
     private var damageMarks: [Entity] = []
     private let gaugeGlass = Entity()
-    private let teachGlow = ModelEntity()
+    private var hazardBand: ModelEntity?
+    private var hazardMaterial: PhysicallyBasedMaterial?
+    private var platenModel = ModelEntity()
+    private var platenMaterial = PhysicallyBasedMaterial()
     private let sealTag = Entity()
     private let sealTagCard = ModelEntity()
     private var tagSwing = JiggleSpring()
     private var glowAlpha: Float = -1
     private let lampOffMaterial = SceneMaterials.enamel(Palette.lampOff, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05, specular: 0.6)
     private let greenOn = SceneMaterials.glowing(Palette.lampGreen, intensity: 2)
-    private let amberOn = SceneMaterials.glowing(Palette.lampAmber, intensity: 2)
+    private let amberOn = SceneMaterials.glowing(Palette.lampAmber, intensity: 0.9)
     private let redOn = SceneMaterials.glowing(Palette.lampRed, intensity: 2)
 
     // Instruments
@@ -42,17 +45,17 @@ final class PressRig {
     private(set) var damage = 0
 
     static let homeFace: Float = 0.205
-    static let barrelBottom: Float = 0.270
+    static let barrelBottom: Float = 0.262
     static let columnX: Float = 0.093
     static let columnZ: Float = -0.020
     static let floorY: Float = -0.108
     static let bedTop: Float = -0.035
     /// Half size (x, z) of the press plate (debris ceilings).
-    let plateHalfExtent = SIMD2<Float>(0.065, 0.045)
+    let plateHalfExtent = SIMD2<Float>(0.055, 0.045)
     /// Anvil top bounds for tidy mess (x, z).
-    static let anvilHalf = SIMD2<Float>(0.072, 0.052)
+    static let anvilHalf = SIMD2<Float>(0.079, 0.056)
     private let platenZ: Float = -0.005
-    private let platenTopLocal: Float = 0.012 + 0.042
+    private let platenTopLocal: Float = 0.008 + 0.030
 
     init() {
         let yellow = SceneMaterials.enamel(Palette.enamelYellow, roughness: 0.40, clearcoat: 0.7, clearcoatRoughness: 0.10)
@@ -76,16 +79,16 @@ final class PressRig {
             }
         }
         _ = add(MeshKit.roundedBox([0.220, 0.065, 0.150], radius: 0.012, bevel: 0.012), graphite, at: [0, -0.0675, 0])
-        _ = add(MeshKit.roundedBox([0.214, 0.002, 0.144], radius: 0.010, bevel: 0.0008), steel, at: [0, -0.0345, 0])
+        _ = add(MeshKit.roundedBox([0.214, 0.002, 0.144], radius: 0.010, bevel: 0.0008), graphite, at: [0, -0.0345, 0])
 
         // Anvil (bolster) with four chrome hex bolts.
-        _ = add(MeshKit.roundedBox([0.150, 0.035, 0.110], radius: 0.004, bevel: 0.0015), steel, at: [0, -0.0175, 0])
+        _ = add(MeshKit.roundedBox([0.165, 0.035, 0.120], radius: 0.004, bevel: 0.0015), steel, at: [0, -0.0175, 0])
         let hexagon: [SIMD2<Float>] = (0..<6).map { k in
             let a = Float(k) * .pi / 3
             return SIMD2(cos(a) * 0.005, sin(a) * 0.005)
         }
-        for x: Float in [-0.063, 0.063] {
-            for z: Float in [-0.043, 0.043] {
+        for x: Float in [-0.0705, 0.0705] {
+            for z: Float in [-0.048, 0.048] {
                 let bolt = add(MeshKit.roundedPrism(polygon: hexagon, height: 0.004, cornerRadius: 0.0009, bevel: 0.0008,
                                                     cornerSteps: 2, bevelSteps: 2), chrome, at: [x, 0, z])
                 bolts.append(bolt)
@@ -154,23 +157,31 @@ final class PressRig {
 
         // Lamps (hemispheres on the panel) and nameplate.
         let lampMesh = MeshKit.ellipsoid(radii: [0.007, 0.007, 0.0045], segments: 32, rings: 12)
-        readyLamp = add(lampMesh, lampOffMaterial, at: [0.040, 0.373, 0.054])
-        loadLamp = add(lampMesh, lampOffMaterial, at: [0.066, 0.373, 0.054])
+        readyLamp = add(lampMesh, lampOffMaterial, at: [0.010, 0.373, 0.054])
+        loadLamp = add(lampMesh, lampOffMaterial, at: [0.030, 0.373, 0.054])
         let plateMaterial: any Material
         if let texture = StudioEnvironment.texture(RigTextures.nameplate(), name: "nameplate") {
             plateMaterial = SceneMaterials.textured(texture, roughness: 0.3, metallic: 0.8)
         } else {
             plateMaterial = steel
         }
-        _ = add(MeshKit.roundedBox([0.048, 0.012, 0.002], radius: 0.001, bevel: 0.0006), steel, at: [0.053, 0.354, 0.0545])
+        _ = add(MeshKit.roundedBox([0.048, 0.012, 0.002], radius: 0.001, bevel: 0.0006), plateMaterial, at: [0.062, 0.365, 0.0545])
         let nameplate = ModelEntity(mesh: .generatePlane(width: 0.046, height: 0.0112), materials: [plateMaterial])
-        nameplate.position = [0.053, 0.354, 0.0557]
+        nameplate.position = [0.062, 0.365, 0.0557]
         root.addChild(nameplate)
 
         // Barrel with its lip.
-        _ = add(MeshKit.roundedCylinder(radius: 0.030, height: 0.060, bevel: 0.004, segments: 64), graphite,
+        // Lighter, glossier graphite so the key lays a strip highlight on it (VISUAL-REVIEW-1 fix 7), two machined rings.
+        let barrelGraphite = SceneMaterials.enamel(UIColor(hex: 0x4A4E56), roughness: 0.4, clearcoat: 0.7, clearcoatRoughness: 0.10)
+        let barrelHeight: Float = 0.330 - Self.barrelBottom
+        _ = add(MeshKit.roundedCylinder(radius: 0.025, height: barrelHeight, bevel: 0.004, segments: 64), barrelGraphite,
                 at: [0, Self.barrelBottom, -0.010])
-        _ = add(MeshKit.torus(major: 0.030, minor: 0.002, segments: 64, sides: 12), graphite, at: [0, Self.barrelBottom + 0.002, -0.010])
+        _ = add(MeshKit.torus(major: 0.025, minor: 0.002, segments: 64, sides: 12), barrelGraphite,
+                at: [0, Self.barrelBottom + 0.002, -0.010])
+        for k in 1...2 {
+            _ = add(MeshKit.torus(major: 0.0255, minor: 0.0012, segments: 64, sides: 10), chrome,
+                    at: [0, Self.barrelBottom + barrelHeight * Float(k) / 3, -0.010])
+        }
 
         // Rod: a unit-height chrome cylinder hanging from the barrel (pivot at the top); length set per frame.
         rod = MeshKit.model(MeshKit.lathe(profile: [SIMD2(0, -1), SIMD2(0.015, -1), SIMD2(0.015, 0), SIMD2(0, 0)], segments: 48),
@@ -180,30 +191,30 @@ final class PressRig {
 
         // The moving crosshead.
         ram.addChild(platenGroup)
-        let platen = MeshKit.model(MeshKit.roundedBox([0.210, 0.042, 0.095], radius: 0.010, bevel: 0.010), material: yellow)
-        platen.position = [0, 0.012 + 0.021, platenZ]
-        platenGroup.addChild(platen)
+        // Thin crosshead (30 mm platen + 8 mm plate) so the object stays visible under load (VISUAL-REVIEW-1 fix 3).
+        platenMaterial = yellow
+        platenModel = MeshKit.model(MeshKit.roundedBox([0.210, 0.030, 0.095], radius: 0.010, bevel: 0.008), material: yellow)
+        platenModel.position = [0, 0.008 + 0.015, platenZ]
+        platenGroup.addChild(platenModel)
         for side: Float in [-1, 1] {
-            let collar = MeshKit.model(MeshKit.roundedCylinder(radius: 0.018, height: 0.046, bevel: 0.005, segments: 48), material: yellow)
-            collar.position = [side * Self.columnX, 0.010, Self.columnZ]
+            let collar = MeshKit.model(MeshKit.roundedCylinder(radius: 0.018, height: 0.034, bevel: 0.005, segments: 48), material: yellow)
+            collar.position = [side * Self.columnX, 0.006, Self.columnZ]
             platenGroup.addChild(collar)
         }
         if let texture = StudioEnvironment.texture(RigTextures.hazard(), name: "hazard") {
-            var hazardMaterial = SceneMaterials.textured(texture, roughness: 0.45, clearcoat: 0.6)
-            hazardMaterial.clearcoatRoughness = .init(floatLiteral: 0.12)
-            let band = ModelEntity(mesh: .generatePlane(width: 0.150, height: 0.010, cornerRadius: 0.002), materials: [hazardMaterial])
-            band.position = [0, 0.012 + 0.0075, platenZ + 0.0475 + 0.0003]
+            var material = SceneMaterials.textured(texture, roughness: 0.45, clearcoat: 0.6)
+            material.clearcoatRoughness = .init(floatLiteral: 0.12)
+            // Teaching glows the band itself: the stripes' own colours, emissive 0 until `setTeachGlow`.
+            material.emissiveColor = .init(color: Palette.hydraulicYellow, texture: .init(texture))
+            material.emissiveIntensity = 0
+            let band = ModelEntity(mesh: .generatePlane(width: 0.150, height: 0.010, cornerRadius: 0.002), materials: [material])
+            band.position = [0, 0.008 + 0.006, platenZ + 0.0475 + 0.0003]
             platenGroup.addChild(band)
+            hazardBand = band
+            hazardMaterial = material
         }
-        // First-run teaching glow over the hazard band (off until `setTeachGlow`).
-        teachGlow.model = ModelComponent(mesh: .generatePlane(width: 0.17, height: 0.03, cornerRadius: 0.012),
-                                         materials: [SceneMaterials.unlit(Palette.lemon, opacity: 0.01)])
-        teachGlow.position = [0, 0.012 + 0.0075, platenZ + 0.0475 + 0.0009]
-        teachGlow.isEnabled = false
-        ShadowCasting.off(teachGlow)
-        platenGroup.addChild(teachGlow)
-        let plate = MeshKit.model(MeshKit.roundedBox([0.130, 0.012, 0.090], radius: 0.003, bevel: 0.003), material: steel)
-        plate.position = [0, 0.006, 0]
+        let plate = MeshKit.model(MeshKit.roundedBox([0.110, 0.008, 0.090], radius: 0.003, bevel: 0.0025), material: steel)
+        plate.position = [0, 0.004, 0]
         platenGroup.addChild(plate)
         root.addChild(ram)
 
@@ -306,12 +317,15 @@ final class PressRig {
         let a = clamp(level, 0, 1)
         guard abs(a - glowAlpha) > 0.03 || (a == 0 && glowAlpha != 0) else { return }
         glowAlpha = a
-        teachGlow.isEnabled = a > 0.01
-        if a > 0.01 {
-            var material = UnlitMaterial(color: Palette.lemon, applyPostProcessToneMap: false)
-            material.blending = .transparent(opacity: .init(floatLiteral: a))
-            teachGlow.model?.materials = [material]
+        // No overlay geometry: the hazard band's own stripes glow (emissive 0 → 0.5) and the platen enamel warms (0 → 0.12).
+        if let band = hazardBand, var material = hazardMaterial {
+            material.emissiveIntensity = 0.5 * a
+            band.model?.materials = [material]
         }
+        var platen = platenMaterial
+        platen.emissiveColor = .init(color: Palette.hydraulicYellow)
+        platen.emissiveIntensity = 0.12 * a
+        platenModel.model?.materials = [platen]
     }
 
     // MARK: - Sealed tag (touch presses have no cover display: UX-REVIEW P2-4)
@@ -372,7 +386,7 @@ final class PressRig {
                 let mid = p + d * length / 2
                 let line = MeshKit.model(MeshKit.roundedBox([length, 0.0015, 0.0008], radius: 0.0003, bevel: 0.0002), material: ink)
                 // Plate front face is at z = +0.045, plate spans y 0…0.012 (ram local).
-                line.position = [mid.x, clamp(0.006 + mid.y, 0.001, 0.011), 0.0452]
+                line.position = [mid.x, clamp(0.004 + mid.y, 0.0008, 0.0072), 0.0452]
                 line.orientation = simd_quatf(angle: atan2(d.y, d.x), axis: [0, 0, 1])
                 platenGroup.addChild(line)
                 damageMarks.append(line)

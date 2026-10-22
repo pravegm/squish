@@ -35,11 +35,7 @@ final class JellyView: PressObjectView {
 
     var shadowSpread: Float { spread }
 
-    static let profile: [SIMD2<Float>] = MeshKit.smoothProfile([
-        SIMD2(0.000, 0.000), SIMD2(0.044, 0.000), SIMD2(0.048, 0.003), SIMD2(0.049, 0.008), SIMD2(0.047, 0.020),
-        SIMD2(0.044, 0.035), SIMD2(0.041, 0.048), SIMD2(0.038, 0.058), SIMD2(0.033, 0.066), SIMD2(0.024, 0.072),
-        SIMD2(0.012, 0.0755), SIMD2(0.000, 0.0765),
-    ], perSpan: 3)
+    static var profile: [SIMD2<Float>] { ObjectMeshes.jellyProfile }
 
     /// Fluted mould mesh: r(y, θ) = r₀(y)·(1 + 0.07·cos 8θ·f(y)), flutes fading out toward the apex.
     static func mould(scale: Float = 1) -> MeshData {
@@ -70,8 +66,8 @@ final class JellyView: PressObjectView {
         }
         let coreMaterial = SceneMaterials.pbr(UIColor(hex: 0xB81E52), roughness: 0.3)
         dropColors = look.golden ? [Palette.goldMessColor] : [Palette.raspberry, UIColor(hex: 0xF0487A)]
-        shell = DeformableMesh(MeshCache.mesh("jelly.mould") { Self.mould() }, materials: [shellMaterial], maxSpread: 2.2)
-        core = ModelEntity(mesh: MeshCache.resource("jelly.core") { Self.mould(scale: 0.8) } ?? .generateSphere(radius: 0.03),
+        shell = DeformableMesh(MeshCache.mesh("jelly.mould") { ObjectMeshes.jellyMould(scale: 1) }, materials: [shellMaterial], maxSpread: 2.2)
+        core = ModelEntity(mesh: MeshCache.resource("jelly.core") { ObjectMeshes.jellyMould(scale: 0.8) } ?? .generateSphere(radius: 0.03),
                            materials: [look.golden ? SceneMaterials.gold : coreMaterial])
         let discMaterial = look.golden ? SceneMaterials.goldMess
             : SceneMaterials.enamel(Palette.raspberry, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.03, opacity: 0.92)

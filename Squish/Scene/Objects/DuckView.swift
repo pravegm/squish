@@ -10,8 +10,10 @@ import UIKit
 @MainActor
 final class DuckView: PressObjectView {
     let entity = Entity()
-    let restHeight: Float = 0.085
-    let footprint: Float = 0.052
+    /// Hero scale ×1.25 (VISUAL-REVIEW-1 fix 6): the model is authored at 0.085 m and scaled on `entity`.
+    static let heroScale: Float = 1.25
+    let restHeight: Float = 0.085 * DuckView.heroScale
+    let footprint: Float = 0.052 * DuckView.heroScale
     private let minHeightRatio: Float = 0.18
 
     private let squash = Entity()
@@ -40,9 +42,8 @@ final class DuckView: PressObjectView {
         let beakMaterial = SceneMaterials.enamel(Palette.beakOrange, roughness: 0.30, clearcoat: 0.8, clearcoatRoughness: 0.1)
         let eyeMaterial = SceneMaterials.enamel(UIColor(hex: 0x1E1B24), roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02)
 
-        let bodyResource = MeshCache.resource("duck.body") { Self.bodyBlob().mesh(centre: [0.0, 0.036, 0], reach: 0.1) }
-        let beakResource = MeshCache.resource("duck.beak") { Self.beakBlob().mesh(centre: [0.043, 0.0555, 0], reach: 0.03,
-                                                                                    rings: 20, segments: 32) }
+        let bodyResource = MeshCache.resource("duck.body") { ObjectMeshes.duckBody() }
+        let beakResource = MeshCache.resource("duck.beak") { ObjectMeshes.duckBeak() }
         beak = ModelEntity(mesh: beakResource ?? .generateSphere(radius: 0.01), materials: [beakMaterial])
         let bodyModel = ModelEntity(mesh: bodyResource ?? .generateSphere(radius: 0.03), materials: [body])
         squash.addChild(bodyModel)
@@ -54,6 +55,7 @@ final class DuckView: PressObjectView {
         entity.addChild(squash)
         // 3/4 view, beak toward camera-right (+X forward, yaw −30°).
         entity.orientation = Part.yaw(-30)
+        entity.scale = SIMD3(repeating: Self.heroScale)
     }
 
     static func bodyBlob() -> SDFBlob {
@@ -95,7 +97,7 @@ final class DuckView: PressObjectView {
         beakPop.step(toward: 0, dt: state.dt)
         let s = max(min(height.value, 1.05), 0.05)
         // Volume-preserving: XZ × 1/√s, clamped so the pancake stays ≤ Ø 0.15.
-        spread = min(1 / s.squareRoot(), 1.47) * deflate
+        spread = min(1 / s.squareRoot(), 1.2) * deflate
         squash.scale = SIMD3(spread, s * deflate, spread)
         let pop = 1 + max(beakPop.value, -0.3)
         beak.scale = SIMD3(pop, 1, pop)

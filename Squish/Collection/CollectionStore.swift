@@ -332,16 +332,25 @@ final class CollectionStore {
     static func specimenCrop(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let width = CGFloat(cg.width), height = CGFloat(cg.height)
-        let side = min(width, height) * 0.92
-        let centerY = height > width ? height * 0.62 : height * 0.55
-        let originX = (width - side) / 2
+        // Portrait: a tight square on the anvil (contact line ~74%, flattened object ~66–78%), inside the
+        // columns at 20/80% width, so the card shows the specimen rather than the press (VISUAL-REVIEW-1 #12).
+        // Interim until Scene provides a dedicated orthographic specimen render.
+        // Book pose (landscape; the scene camera rolls −90° so the ram comes from the left): the same framing
+        // turned on its side — anvil ~70% across — and the crop is rotated upright so the card never shows
+        // a sideways press (Duo review).
+        let portrait = height > width
+        let side = portrait ? width * 0.58 : height * 0.58
+        let centerX = portrait ? width * 0.5 : width * 0.70
+        let centerY = portrait ? height * 0.70 : height * 0.5
+        let originX = min(max(centerX - side / 2, 0), width - side)
         let originY = min(max(centerY - side / 2, 0), height - side)
         guard let cropped = cg.cropping(to: CGRect(x: originX, y: originY, width: side, height: side).integral) else { return nil }
         let target = CGSize(width: thumbnailSize, height: thumbnailSize)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
+        let upright = UIImage(cgImage: cropped, scale: 1, orientation: portrait ? .up : .right)
         return UIGraphicsImageRenderer(size: target, format: format).image { _ in
-            UIImage(cgImage: cropped).draw(in: CGRect(origin: .zero, size: target))
+            upright.draw(in: CGRect(origin: .zero, size: target))
         }
     }
 

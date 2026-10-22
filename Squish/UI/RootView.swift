@@ -158,8 +158,17 @@ struct RootView: View {
 
     // MARK: - Stage
 
+    /// iPhone Duo: the two halves of the screen are the press (FOLD-PRESS.md). Every other iPhone: the P-48 machine.
+    @ViewBuilder private var stageContent: some View {
+        if director.usesFoldPress {
+            FoldPressView(director: director)
+        } else {
+            PressSceneView(director: director)
+        }
+    }
+
     private func stage(height: CGFloat) -> some View {
-        PressSceneView(director: director)
+        stageContent
             .ignoresSafeArea()
             .accessibilityIgnoresInvertColors(true)
             .gesture(touchPress(height: height), including: director.usesTouchPress ? .all : .none)
@@ -204,7 +213,7 @@ struct RootView: View {
         case .sealed, .revealing: return "Sealed"
         case .idle, .armed, .pressing: break
         }
-        if engine.measuredDepth < engine.config.contactT {
+        if engine.measuredDepth < engine.mapping.contactT {
             return engine.measuredDepth > 0.01 ? "Approaching" : "Ready"
         }
         let compression = engine.measuredCompression
@@ -213,7 +222,7 @@ struct RootView: View {
 
     /// VoiceOver press: step 1 is contact, then each swipe adds 12.5% compression; step 9 seals.
     private func adjustAccessiblePress(by delta: Int) {
-        let config = director.engine.config
+        let config = director.engine.mapping
         accessibleStep = min(max(accessibleStep + delta, 0), 9)
         guard accessibleStep > 0 else {
             director.virtualRelease()
@@ -233,7 +242,7 @@ struct RootView: View {
     }
 
     private var pressedPastContact: Bool {
-        director.engine.measuredDepth >= director.engine.config.contactT || director.engine.phase == .sealed
+        director.engine.measuredDepth >= director.engine.mapping.contactT || director.engine.phase == .sealed
     }
 
     // MARK: - Console (86–95%, or the right 22% column in landscape)
@@ -280,6 +289,7 @@ struct RootView: View {
                 .presentationBackground { AlbumPage() }
                 .presentationContentInteraction(.scrolls)
                 .sheetTypeCap()
+                .creaseSafe()
         }
     }
 

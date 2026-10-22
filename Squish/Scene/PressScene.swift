@@ -69,6 +69,16 @@ final class PressScene {
     private var fovScale: Float = 1
     private var fovTarget: Float = 1
     private var baseFieldOfView: Float = 49.6
+    // Startup (studio readiness gate: VISUAL-REVIEW-1 fix 1)
+    /// True once the IBL, the gel sweep and the current object are built. Until then the ARView is transparent
+    /// (the SwiftUI backdrop shows through), so there is no grey flash and no lighting pop; it fades in at ready.
+    private(set) var isStudioReady = false
+    private var iblReady = false
+    private var sweepReady = false
+    private let createdAt = CACurrentMediaTime()
+    private var objectRequest = 0
+    private var warmedKinds: Set<ObjectKind> = []
+    private var specimenView: ARView?
     /// True while the camera is rolled for book (vice) pose — UI can move its edge cues to the moving half.
     private(set) var isBookPose = false
     private var dropHeight: Float = 0
@@ -102,6 +112,26 @@ final class PressScene {
     // MARK: - Contract
 
     func setObject(_ kind: ObjectKind, variant: PressVariant) {
+        // Heavy procedural meshes (SDF blobs, dense lathes) are built off the main actor first (startup budget),
+        // then the view is assembled here on main. The latest request wins.
+        objectRequest += 1
+        let request = objectRequest
+        if warmedKinds.contains(kind) || ObjectMeshes.jobs(for: kind).isEmpty {
+            buildObject(kind, variant: variant)
+            return
+        }
+        Task { @MainActor [weak self] in
+            let results = await Task.detached(priority: .userInitiated) { () -> [(String, MeshData)] in
+                ObjectMeshes.build(kind)
+            }.value
+            guard let self else { return }
+            for (key, data) in results { MeshCache.store(key, data) }
+            self.warmedKinds.insert(kind)
+            if request == self.objectRequest { self.buildObject(kind, variant: variant) }
+        }
+    }
+
+    private func buildObject(_ kind: ObjectKind, variant: PressVariant) {
         self.kind = kind
         self.variant = variant
         finishOutgoing()
@@ -144,13 +174,16 @@ final class PressScene {
         view.update(state)
         lastState = state
         applyGel()
+        checkStudioReady()
     }
 
     func update(engine: PressEngine, context: FeedbackContext, dt: Float) {
         guard let view = objectView else { return }
         let dt = min(max(dt, 0), 1.0 / 20.0)
         clock += dt
-        sinceSet += dt
+        // The placement / power-on timeline starts once the studio is visible.
+        if isStudioReady { sinceSet += dt }
+        if !isStudioReady && CACurrentMediaTime() - createdAt > 3 { markStudioReady(timedOut: true) }
         fx.reduceMotion = context.reduceMotion
         updateFraming(engine: engine)
         updateRestBeat(engine: engine, context: context, dt: dt)
@@ -158,7 +191,7 @@ final class PressScene {
         fovScale = Deform.approach(fovScale, fovTarget, halfLife: 0.15, dt: dt)
         camera.camera.fieldOfViewInDegrees = baseFieldOfView * fovScale
 
-        let contactT = Float(engine.config.contactT)
+        let contactT = Float(engine.mapping.contactT)
         let renderDepth = Float(engine.renderDepth)
         let renderC = Float(engine.renderCompression)
         let visualC = Float(engine.visualCompression)
@@ -280,13 +313,91 @@ final class PressScene {
         }
     }
 
+    /// A clean top-down product shot of the flattened result and its mess, for specimen cards and share images
+    /// (VISUAL-TARGET §6.8, VISUAL-REVIEW-1 fix 12, FOLD-PRESS §9.6 — never the live or warped view).
+    /// Renders clones of the object, its debris/mess and grounding decals in a small offscreen `ARView` on paper
+    /// (`Palette.gaugePaper`), lit by the same studio IBL and key, from straight above with a long lens (≈ orthographic).
+    func specimenSnapshot(size: CGSize = CGSize(width: 360, height: 360)) async -> UIImage? {
+        guard let host = arView, var container = host.superview, objectView != nil else { return nil }
+        // FOLD PRESS: the Duo anvil ARView sits in a clipping, warped half; park the offscreen view on the stage host.
+        if framing == .foldAnvil, let stage = container.superview { container = stage }
+        let offscreen: ARView
+        if let existing = specimenView {
+            offscreen = existing
+        } else {
+            offscreen = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+            offscreen.renderOptions.insert(.disableMotionBlur)
+            offscreen.renderOptions.insert(.disableCameraGrain)
+            offscreen.renderOptions.insert(.disableDepthOfField)
+            offscreen.renderOptions.insert(.disableGroundingShadows)
+            offscreen.isUserInteractionEnabled = false
+            specimenView = offscreen
+        }
+        // Must live in the window to render; parked just outside the visible bounds.
+        offscreen.frame = CGRect(x: -size.width - 64, y: 0, width: size.width, height: size.height)
+        if offscreen.superview !== container { container.addSubview(offscreen) }
+        offscreen.isHidden = false
+        offscreen.environment.background = .color(Palette.gaugePaper)
+
+        let anchor = AnchorEntity(world: .zero)
+        let objectClone = objectSlot.clone(recursive: true)
+        objectClone.orientation = simd_quatf(angle: 0, axis: [0, 1, 0]) // FOLD PRESS: never the clamshell lean
+        let fxClone = fx.root.clone(recursive: true)
+        anchor.addChild(objectClone)
+        anchor.addChild(fxClone)
+        for decal in [aoDecal, softDecal] {
+            if let entity = decal?.entity, entity.isEnabled { anchor.addChild(entity.clone(recursive: true)) }
+        }
+        if let holder = iblHolder {
+            let light = holder.clone(recursive: true)
+            anchor.addChild(light)
+            let receiver = ImageBasedLightReceiverComponent(imageBasedLight: light)
+            objectClone.components.set(receiver)
+            fxClone.components.set(receiver)
+        }
+        let key = DirectionalLight()
+        key.light.intensity = style.keyIntensity
+        key.light.color = style.keyColor
+        key.look(at: .zero, from: simd_normalize(style.keyDirection), relativeTo: nil)
+        anchor.addChild(key)
+
+        // Frame the flattened footprint (+ settled mess) × 1.25 from 1 m above.
+        var bounds = objectClone.visualBounds(relativeTo: nil, excludeInactive: true)
+        let mess = fxClone.visualBounds(relativeTo: nil, excludeInactive: true)
+        if !mess.isEmpty { bounds = bounds.union(mess) }
+        let extentXZ = max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z)
+        let extent = clamp(extentXZ * 1.25, 0.09, 0.22)
+        let centre = SIMD3<Float>((bounds.min.x + bounds.max.x) / 2, 0, (bounds.min.z + bounds.max.z) / 2)
+        let camera = PerspectiveCamera()
+        let height: Float = 1.0
+        camera.camera.fieldOfViewInDegrees = 2 * atan(extent / 2 / height) * 180 / .pi
+        camera.camera.near = 0.3
+        camera.camera.far = 2
+        camera.look(at: centre, from: centre + SIMD3(0, height, 0), upVector: [0, 0, -1], relativeTo: nil)
+        anchor.addChild(camera)
+        offscreen.scene.addAnchor(anchor)
+
+        try? await Task.sleep(for: .milliseconds(180))
+        let image: UIImage? = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            offscreen.snapshot(saveToHDR: false) { image in
+                continuation.resume(returning: image)
+            }
+        }
+        offscreen.scene.removeAnchor(anchor)
+        offscreen.isHidden = true
+        return image
+    }
+
     // MARK: - Hosting
 
     /// Called by PressSceneView once the ARView exists.
     func attach(to view: ARView) {
+        if framing != .machine { setFraming(.machine) } // FOLD PRESS: the P-48 view takes the scene back
         arView = view
         framedSize = .zero
         view.environment.background = .color(UIColor(hex: StudioEnvironment.gel(for: kind, golden: variant.isGolden)))
+        // Startup gate: invisible until the studio is lit (see `isStudioReady`).
+        view.alpha = isStudioReady ? 1 : 0
     }
 
     private func loadStudioLight() {
@@ -298,8 +409,69 @@ final class PressScene {
             self.root.addChild(holder)
             self.iblHolder = holder
             let receiver = ImageBasedLightReceiverComponent(imageBasedLight: holder)
-            for entity in [self.root, self.rig.root, self.objectSlot, self.fx.root] {
+            for entity in [self.root, self.rig.root, self.objectSlot, self.fx.root, self.outgoing] {
                 entity.components.set(receiver)
+            }
+            self.iblReady = true
+            self.checkStudioReady()
+        }
+    }
+
+    // MARK: - Startup readiness
+
+    private func checkStudioReady() {
+        guard !isStudioReady, iblReady, sweepReady, objectView != nil else { return }
+        markStudioReady(timedOut: false)
+    }
+
+    /// Fades the scene in (the ARView was transparent) and starts background pre-baking for later objects.
+    private func markStudioReady(timedOut: Bool) {
+        guard !isStudioReady else { return }
+        isStudioReady = true
+        if DemoScenario.current != nil {
+            let seconds = CACurrentMediaTime() - createdAt
+            print("SQUISH-T studio ready at \(String(format: "%.2f", seconds)) s\(timedOut ? " (timed out)" : "")")
+        }
+        if let view = arView {
+            UIView.animate(withDuration: fx.reduceMotion ? 0.1 : 0.25) { view.alpha = 1 }
+        }
+        prebakeRemainingSweeps()
+        prewarmRemainingObjects()
+    }
+
+    /// Every other gel wall, baked once in the background so object switches never wait.
+    private func prebakeRemainingSweeps() {
+        var gels: [UInt32] = ObjectKind.allCases.map { StudioEnvironment.gel(for: $0, golden: false) }
+        gels.append(StudioEnvironment.gel(for: .bubbleWrap, golden: true))
+        let missing = gels.filter { sweepTextures[$0] == nil }
+        guard !missing.isEmpty else { return }
+        let flip = style.sweepFlipV
+        Task { @MainActor [weak self] in
+            for gel in missing {
+                let golden = gel == StudioEnvironment.gel(for: .bubbleWrap, golden: true)
+                let box = await Task.detached(priority: .utility) { () -> ImageBox in
+                    ImageBox(image: StudioEnvironment.sweepImage(gel: gel, golden: golden, flipV: flip))
+                }.value
+                guard let self else { return }
+                if self.sweepTextures[gel] == nil, let texture = StudioEnvironment.texture(box.image, name: "sweep.\(gel)") {
+                    self.sweepTextures[gel] = texture
+                }
+            }
+        }
+    }
+
+    /// Heavy object meshes for every other object, built off the main actor at low priority.
+    private func prewarmRemainingObjects() {
+        let kinds = ObjectKind.allCases.filter { !warmedKinds.contains($0) && !ObjectMeshes.jobs(for: $0).isEmpty }
+        guard !kinds.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            for kind in kinds {
+                let results = await Task.detached(priority: .utility) { () -> [(String, MeshData)] in
+                    ObjectMeshes.build(kind)
+                }.value
+                guard let self else { return }
+                for (key, data) in results { MeshCache.store(key, data) }
+                self.warmedKinds.insert(kind)
             }
         }
     }
@@ -307,6 +479,7 @@ final class PressScene {
     // MARK: - Framing (§3.2)
 
     private func updateFraming(engine: PressEngine) {
+        if framing == .foldAnvil { return } // FOLD PRESS: the camera is driven by FoldPressController
         guard let view = arView else { return }
         let size = view.bounds.size
         guard size.width > 1, size.height > 1 else { return }
@@ -369,7 +542,7 @@ final class PressScene {
             dropVelocity = 0
             if dropHeight == 0 { landedAt = clock }
         }
-        if let t = powerOn {
+        if let t = powerOn, isStudioReady {
             powerOn = t + dt > 0.8 ? nil : t + dt
         }
     }
@@ -489,7 +662,7 @@ final class PressScene {
         var tons: Float = 0
         switch engine.phase {
         case .armed, .pressing:
-            if engine.renderDepth < engine.config.contactT {
+            if engine.renderDepth < engine.mapping.contactT {
                 tons = 0.6 * approach + min(abs(Float(engine.closingSpeed)) / 200, 1) * 0.25
             } else if kind == .unsquishable {
                 tons = 8 + 60 * renderC
@@ -582,7 +755,7 @@ final class PressScene {
 
     private func buildDecals() {
         // Static grounding.
-        _ = addDecal(sigma: 0.25, size: [0.165, 0.125], alpha: 0.45, at: [0, PressRig.bedTop + 0.0003, 0])
+        _ = addDecal(sigma: 0.25, size: [0.18, 0.135], alpha: 0.45, at: [0, PressRig.bedTop + 0.0003, 0])
         for side: Float in [-1, 1] {
             _ = addDecal(sigma: 0.30, size: [0.04, 0.04], alpha: 0.40,
                          at: [side * PressRig.columnX, PressRig.bedTop + 0.0004, PressRig.columnZ])
@@ -590,14 +763,14 @@ final class PressScene {
         _ = addDecal(sigma: 0.45, size: [0.36, 0.26], alpha: 0.35, at: [0.03, PressRig.floorY + 0.0003, -0.03])
         _ = addDecal(sigma: 0.40, size: [0.24, 0.016], alpha: 0.50, at: [0, PressRig.floorY + 0.0005, 0.075])
         // Live: object AO, soft shadow, ram occlusion.
-        aoDecal = addDecal(sigma: 0.35, size: [0.1, 0.1], alpha: style.aoAlpha, at: [0.003, 0.0003, -0.003])
+        aoDecal = addDecal(sigma: 0.25, size: [0.1, 0.1], alpha: style.aoAlpha, at: [0.003, 0.0003, -0.003])
         softDecal = addDecal(sigma: 0.50, size: [0.15, 0.15], alpha: style.softShadowAlpha, at: [0.012, 0.0004, -0.010])
-        ramDecal = addDecal(sigma: 0.45, size: [0.16, 0.11], alpha: 0, at: [0.006, 0.0005, -0.004])
+        ramDecal = addDecal(sigma: 0.45, size: [0.13, 0.10], alpha: 0, at: [0.006, 0.0005, -0.004])
     }
 
     private func updateDecals(view: PressObjectView, approach: Float) {
         let footprint = view.footprint * 2 * view.shadowSpread
-        aoDecal?.size([footprint * 1.15, footprint * 1.15 * 0.9])
+        aoDecal?.size([footprint * 1.05, footprint * 1.05 * 0.9])
         softDecal?.size([footprint * 1.8, footprint * 1.8 * 0.85])
         // Fade the object's grounding in with its drop (nothing on the anvil until it lands).
         let present: Float = view.entity.isEnabled ? clamp(1 - dropHeight / max(style.dropHeight, 0.001), 0, 1) : 0
@@ -610,7 +783,8 @@ final class PressScene {
 
     private func buildSweep() {
         if let mesh = StudioEnvironment.sweepMesh() {
-            sweep.model = ModelComponent(mesh: mesh, materials: [SceneMaterials.unlit(Palette.backdrop)])
+            // Placeholder until the baked sweep arrives: the floor colour, not tone-mapped (never the grey #CECBC5).
+            sweep.model = ModelComponent(mesh: mesh, materials: [SceneMaterials.unlit(UIColor(hex: 0xF1E9DC))])
         }
         ShadowCasting.off(sweep)
     }
@@ -626,11 +800,10 @@ final class PressScene {
         sweepRequest += 1
         let request = sweepRequest
         let golden = variant.isGolden
-        let size = style.sweepTextureSize
         let flip = style.sweepFlipV
         Task { @MainActor [weak self] in
             let box = await Task.detached(priority: .userInitiated) { () -> ImageBox in
-                ImageBox(image: StudioEnvironment.sweepImage(gel: gel, golden: golden, size: size, flipV: flip))
+                ImageBox(image: StudioEnvironment.sweepImage(gel: gel, golden: golden, flipV: flip))
             }.value
             guard let self, let texture = StudioEnvironment.texture(box.image, name: "sweep.\(gel)") else { return }
             self.sweepTextures[gel] = texture
@@ -642,13 +815,16 @@ final class PressScene {
         var material = UnlitMaterial(applyPostProcessToneMap: false)
         material.color = .init(tint: .white, texture: .init(texture))
         sweep.model?.materials = [material]
+        sweepReady = true
+        checkStudioReady()
     }
 
     private func buildLights() {
         let key = DirectionalLight()
         key.light.intensity = style.keyIntensity
         key.light.color = style.keyColor
-        key.shadow = DirectionalLightComponent.Shadow(maximumDistance: 2.5, depthBias: 1)
+        // Tighter shadow range = finer shadow map at product scale; more bias against acne (VISUAL-REVIEW-1 fix 4).
+        key.shadow = DirectionalLightComponent.Shadow(maximumDistance: 1.2, depthBias: 2)
         key.look(at: [0, 0, 0], from: simd_normalize(style.keyDirection), relativeTo: nil)
         root.addChild(key)
 
@@ -669,16 +845,69 @@ final class PressScene {
         root.addChild(flash)
     }
 
-    /// `-squishDemo calib` (§3.5): grey and white cards on the bed, angled 30° toward the key.
+    /// `-squishDemo calib` (§3.5): grey and white cards on the sweep floor, angled 30° toward the key.
     private func buildCalibrationCards() {
         let grey = SceneMaterials.pbr(UIColor(hex: 0x767676), roughness: 1)
         let white = SceneMaterials.pbr(UIColor(hex: 0xF2F2F2), roughness: 1)
         for (x, material) in [(Float(-0.085), grey), (Float(0.085), white)] {
             let card = ModelEntity(mesh: .generateBox(width: 0.05, height: 0.07, depth: 0.002, cornerRadius: 0.001),
                                    materials: [material])
-            card.position = [x, PressRig.bedTop + 0.035, 0.06]
+            card.position = [x, PressRig.floorY + 0.035, 0.10]
             card.orientation = simd_quatf(angle: -30 * .pi / 180, axis: [0, 1, 0])
             root.addChild(card)
         }
+    }
+
+    // MARK: - FOLD PRESS (design/FOLD-PRESS.md §2, §9.1): anvil-only framing for the iPhone Duo
+
+    /// `.machine` is the P-48; `.foldAnvil` hides the rig and sweep, shows the Fold Press anvil plates and hands the
+    /// camera to `FoldPressController` (which calls `setFoldStage` every frame, after `update`).
+    private(set) var framing: FramingMode = .machine
+    private var foldAnvil: Entity?
+
+    func setFraming(_ mode: FramingMode, anvil: Entity? = nil) {
+        framing = mode
+        let fold = mode == .foldAnvil
+        rig.root.isEnabled = !fold
+        sweep.isEnabled = !fold
+        if foldAnvil !== anvil || !fold {
+            foldAnvil?.removeFromParent()
+            foldAnvil = fold ? anvil : nil
+        }
+        if let foldAnvil, foldAnvil.parent !== root { root.addChild(foldAnvil) }
+        objectSlot.orientation = simd_quatf(angle: 0, axis: [0, 1, 0])
+        if !fold {
+            flash.position = [0, 0.16, 0.22]
+            foldRimLight?.light.intensity = style.rimIntensity
+            framedSize = .zero
+        }
+    }
+
+    /// The object on the anvil once it is built (meshes build asynchronously), for the fold scale and the print.
+    var foldObject: (kind: ObjectKind, restHeight: Float)? {
+        objectView.map { (kind, $0.restHeight) }
+    }
+
+    func setFoldStage(_ stage: FoldStage) {
+        guard framing == .foldAnvil else { return }
+        camera.position = stage.cameraPosition
+        camera.orientation = stage.cameraOrientation
+        camera.camera.fieldOfViewInDegrees = stage.verticalFOV
+        camera.camera.near = stage.near
+        camera.camera.far = stage.far
+        baseFieldOfView = stage.verticalFOV
+        fovScale = 1
+        fovTarget = 1
+        // Clamshell lean (§2.4): the squash tips away from the real hinge.
+        objectSlot.orientation = simd_quatf(angle: stage.lean, axis: [1, 0, 0])
+        flash.position = stage.flashPosition
+        foldRimLight?.light.intensity = style.rimIntensity * stage.rimGain
+        if let foldAnvil, let iblHolder, !foldAnvil.components.has(ImageBasedLightReceiverComponent.self) {
+            foldAnvil.components.set(ImageBasedLightReceiverComponent(imageBasedLight: iblHolder))
+        }
+    }
+
+    private var foldRimLight: SpotLight? {
+        root.children.first(where: { $0 is SpotLight }) as? SpotLight
     }
 }

@@ -24,30 +24,42 @@ struct CoverView: View {
     /// The one-time safety line (bible §3.2), when it's due.
     var showsSafetyLine = false
 
+    /// Outer display (466 × 678 pt): symmetric 84 pt side insets keep the clock column clear *and* the layout
+    /// centred; 34 pt bottom inset. Elsewhere (CI demo on a slab iPhone) a normal 24 pt margin.
+    private var sideInset: CGFloat { reservesClockColumn ? 84 : Theme.s5 }
+    private var bottomInset: CGFloat { reservesClockColumn ? 34 : 0 }
+
     var body: some View {
-        ZStack {
-            MachinePanel()
-            VStack(spacing: Theme.s4) {
-                Spacer(minLength: Theme.s4)
-                switch content {
-                case let .sealed(kind, tons):
-                    SealedInset(kind: kind, tons: tons)
-                case .idle:
-                    IdleCover(recent: recent, currentKind: currentKind, thumbnail: thumbnail,
-                              unlockedKinds: unlockedKinds, onQueue: onQueue)
+        GeometryReader { proxy in
+            let width = max(220, min(proxy.size.width - sideInset * 2, 340))
+            ZStack {
+                MachinePanel()
+                ScrollView(.vertical) {
+                    VStack(spacing: Theme.s4) {
+                        switch content {
+                        case let .sealed(kind, tons):
+                            SealedInset(kind: kind, tons: tons)
+                        case .idle:
+                            IdleCover(recent: recent, currentKind: currentKind, thumbnail: thumbnail,
+                                      unlockedKinds: unlockedKinds, onQueue: onQueue)
+                        }
+                        if showsSafetyLine {
+                            Text("Squish is on-screen only. Never close your phone on real things.")
+                                .font(Theme.footnote)
+                                .foregroundStyle(Theme.paper.opacity(0.85))
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(width: width)
+                    .padding(.vertical, Theme.s5)
+                    .frame(minHeight: proxy.size.height - bottomInset)
+                    .frame(maxWidth: .infinity)
                 }
-                if showsSafetyLine {
-                    Text("Squish is on-screen only. Never close your phone on real things.")
-                        .font(Theme.footnote)
-                        .foregroundStyle(Theme.paper.opacity(0.85))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, Theme.s4)
-                }
-                Spacer(minLength: Theme.s4)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.hidden)
+                .padding(.bottom, bottomInset)
             }
-            .padding(.horizontal, Theme.s5)
-            .padding(.trailing, reservesClockColumn ? 84 : 0)
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
@@ -290,74 +302,87 @@ private struct IdleCover: View {
     let onQueue: ((ObjectKind) -> Void)?
 
     var body: some View {
-        VStack(spacing: Theme.s4) {
-            trophyRow
+        VStack(spacing: Theme.s5) {
+            trophyCard
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(shelfDescription)
+
             VStack(spacing: Theme.s1) {
                 Text("ON THE ANVIL")
                     .font(Theme.micro)
                     .tracking(Theme.microTracking)
                     .foregroundStyle(Theme.paper.opacity(0.7))
-                Text(currentKind.displayName)
-                    .font(.system(.headline, design: .rounded, weight: .heavy))
-                    .foregroundStyle(Theme.paper)
-                    .contentTransition(.opacity)
-                    .animation(Theme.fade, value: currentKind)
+                HStack(spacing: Theme.s2) {
+                    TintDot(kind: currentKind, size: 12)
+                    Text(currentKind.displayName)
+                        .font(Theme.headline)
+                        .foregroundStyle(Theme.paper)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .contentTransition(.opacity)
+                }
+                .animation(Theme.fade, value: currentKind)
             }
             .accessibilityElement(children: .combine)
+
             if let onQueue, unlockedKinds.count > 1 {
-                ScrollView(.horizontal) {
-                    HStack(spacing: Theme.s2) {
-                        ForEach(unlockedKinds) { kind in
-                            let selected = kind == currentKind
-                            Button {
-                                onQueue(kind)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    TintDot(kind: kind)
-                                    Text(kind.displayName.uppercased())
-                                }
+                // Two fixed columns that wrap: every chip is fully readable, nothing clips (Duo review).
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.s2), GridItem(.flexible())], spacing: Theme.s1) {
+                    ForEach(unlockedKinds) { kind in
+                        let selected = kind == currentKind
+                        Button {
+                            onQueue(kind)
+                        } label: {
+                            HStack(spacing: 6) {
+                                TintDot(kind: kind)
+                                Text(kind.chipName)
+                                Spacer(minLength: 0)
                             }
-                            .buttonStyle(KeycapStyle(kind: .chip, selected: selected))
-                            .accessibilityLabel(kind.displayName)
-                            .accessibilityAddTraits(selected ? [.isSelected] : [])
-                            .accessibilityHint(selected ? "On the anvil." : "Puts it on the anvil for when you open.")
                         }
+                        .buttonStyle(KeycapStyle(kind: .chip, fullWidth: true, selected: selected))
+                        .accessibilityLabel(kind.displayName)
+                        .accessibilityAddTraits(selected ? [.isSelected] : [])
+                        .accessibilityHint(selected ? "On the anvil." : "Puts it on the anvil for when you open.")
                     }
-                    .padding(.horizontal, Theme.s1)
-                    .padding(.vertical, Theme.s1)
                 }
-                .scrollIndicators(.hidden)
             }
+
             HStack(spacing: Theme.s2) {
                 FoldGlyph()
                     .frame(width: 34, height: 26)
                 Text("Open to press")
-                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
+                    .font(Theme.button)
                     .foregroundStyle(Theme.yellow)
             }
             .accessibilityHidden(true)
         }
     }
 
-    private var trophyRow: some View {
+    /// The three latest stickers on a paper inset; empty slots are visible debossed wells.
+    private var trophyCard: some View {
         HStack(spacing: Theme.s3) {
             ForEach(0..<3, id: \.self) { index in
-                if index < recent.count {
-                    let specimen = recent[index]
-                    Sticker(seed: specimen.variant.seed, golden: specimen.variant.isGolden) {
-                        SpecimenImage(specimen: specimen, thumbnail: thumbnail(specimen), cornerRadius: 10)
+                Group {
+                    if index < recent.count {
+                        let specimen = recent[index]
+                        Sticker(seed: specimen.variant.seed, golden: specimen.variant.isGolden) {
+                            SpecimenImage(specimen: specimen, thumbnail: thumbnail(specimen), cornerRadius: 10)
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: Theme.stickerRadius, style: .continuous)
+                            .fill(Theme.paperShade.opacity(0.55))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.stickerRadius, style: .continuous)
+                                    .strokeBorder(Theme.paperEdge, style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                            )
                     }
-                    .frame(width: 70, height: 70)
-                } else {
-                    RoundedRectangle(cornerRadius: Theme.stickerRadius, style: .continuous)
-                        .strokeBorder(Theme.paper.opacity(0.2), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
-                        .frame(width: 70, height: 70)
                 }
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(Theme.s3)
+        .frame(maxWidth: .infinity)
         .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).elevation(.e2) }
         .topHighlight(cornerRadius: 16)
     }

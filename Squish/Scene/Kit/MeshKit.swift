@@ -4,12 +4,15 @@ import simd
 
 /// CPU-side triangle mesh: positions, normals, CCW-from-outside triangles and an optional material id per triangle.
 /// Every procedural builder in the kit returns one of these; `MeshData.resource()` turns it into a `MeshResource`.
-struct MeshData {
+/// Sendable (plain value arrays) so `ObjectMeshes` can build it in a detached task and hand it back to the main actor.
+struct MeshData: Sendable {
     var positions: [SIMD3<Float>] = []
     var normals: [SIMD3<Float>] = []
     var indices: [UInt32] = []
     /// Material slot per triangle (same count as `indices.count / 3`). Empty means slot 0 everywhere.
     var triangleMaterials: [UInt8] = []
+    /// Optional texture coordinates (same count as positions). v = 1 is the top row of a texture image.
+    var uvs: [SIMD2<Float>] = []
 
     var vertexCount: Int { positions.count }
     var triangleCount: Int { indices.count / 3 }
@@ -17,6 +20,7 @@ struct MeshData {
     var isValid: Bool {
         guard positions.count == normals.count, indices.count % 3 == 0, !indices.isEmpty else { return false }
         guard triangleMaterials.isEmpty || triangleMaterials.count == triangleCount else { return false }
+        guard uvs.isEmpty || uvs.count == positions.count else { return false }
         let count = UInt32(positions.count)
         return indices.allSatisfy { $0 < count }
     }
@@ -46,6 +50,13 @@ struct MeshData {
     /// Appends another mesh (its material slots are offset by `materialOffset`).
     mutating func append(_ other: MeshData, materialOffset: UInt8 = 0) {
         let base = UInt32(positions.count)
+        if !uvs.isEmpty || !other.uvs.isEmpty {
+            if uvs.count == positions.count && other.uvs.count == other.positions.count {
+                uvs.append(contentsOf: other.uvs)
+            } else {
+                uvs.removeAll()
+            }
+        }
         let ownTriangles = triangleCount
         positions.append(contentsOf: other.positions)
         normals.append(contentsOf: other.normals)
@@ -144,6 +155,7 @@ struct MeshData {
                         remap[v] = sub.positions.count
                         sub.positions.append(positions[v])
                         sub.normals.append(normals[v])
+                        if !uvs.isEmpty { sub.uvs.append(uvs[v]) }
                         source.append(v)
                     }
                     sub.indices.append(UInt32(remap[v]))
@@ -163,6 +175,7 @@ struct MeshData {
         var descriptor = MeshDescriptor(name: name)
         descriptor.positions = MeshBuffers.Positions(positions)
         descriptor.normals = MeshBuffers.Normals(normals)
+        if !uvs.isEmpty { descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs) }
         descriptor.primitives = .triangles(indices)
         return try? MeshResource.generate(from: [descriptor])
     }
@@ -266,6 +279,42 @@ enum MeshKit {
                     mesh.addTriangle(lower[j], upper[j], upper[j1], material: slot)
                     mesh.addTriangle(lower[j], upper[j1], lower[j1], material: slot)
                 }
+            }
+        }
+        mesh.orientToNormals()
+        return mesh
+    }
+
+    /// A lathe with texture coordinates: the seam column is duplicated (u wraps 0…1) and poles become rings.
+    /// u = 1 − θ/2π so text reads left-to-right from outside; v = (y − v0) / (v1 − v0), so v = 1 is the image's top row.
+    /// Use `DeformableMesh` (which welds seam normals) or static meshes.
+    static func latheUV(profile: [SIMD2<Float>], segments: Int, vRange: ClosedRange<Float>? = nil,
+                        material: ((Int) -> UInt8)? = nil) -> MeshData {
+        var mesh = MeshData()
+        let n = max(segments, 3)
+        let normals2 = profile2DNormals(profile)
+        let y0 = vRange?.lowerBound ?? (profile.first?.y ?? 0)
+        let y1 = vRange?.upperBound ?? (profile.last?.y ?? 1)
+        var rings: [[Int]] = []
+        for (i, point) in profile.enumerated() {
+            var ring: [Int] = []
+            let n2 = normals2[i]
+            for j in 0...n {
+                let theta = Float(j) / Float(n) * 2 * .pi
+                let c = cos(theta), s = sin(theta)
+                let p = SIMD3<Float>(point.x * c, point.y, point.x * s)
+                var normal = SIMD3<Float>(n2.x * c, n2.y, n2.x * s)
+                normal = simd_length(normal) > 1e-6 ? simd_normalize(normal) : SIMD3(0, n2.y >= 0 ? 1 : -1, 0)
+                ring.append(mesh.addVertex(p, normal))
+                mesh.uvs.append(SIMD2(1 - Float(j) / Float(n), (point.y - y0) / max(y1 - y0, 1e-6)))
+            }
+            rings.append(ring)
+        }
+        for i in 0..<(rings.count - 1) {
+            let slot = material?(i) ?? 0
+            for j in 0..<n {
+                mesh.addTriangle(rings[i][j], rings[i + 1][j], rings[i + 1][j + 1], material: slot)
+                mesh.addTriangle(rings[i][j], rings[i + 1][j + 1], rings[i][j + 1], material: slot)
             }
         }
         mesh.orientToNormals()

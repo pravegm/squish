@@ -93,8 +93,8 @@ struct PressEngineTests {
         // Find an angle just past the first duck fracture.
         let target = engine.thresholds[0] + 0.03
         var angle = 165.0
-        while PressMapping.compression(depth: PressMapping.depth(angle: angle, start: engine.startAngle, config: engine.config),
-                                       config: engine.config) < target {
+        while PressMapping.compression(depth: PressMapping.depth(angle: angle, start: engine.startAngle, config: engine.mapping),
+                                       config: engine.mapping) < target {
             angle -= 0.5
         }
         var time = sweep(engine, from: 180, to: angle, duration: 3, startTime: 0)

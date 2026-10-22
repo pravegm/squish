@@ -57,7 +57,7 @@ enum Palette {
     static let brushedSteel = UIColor(hex: 0xBFC3C8)
     static let rubber = UIColor(hex: 0x25262A)
     static let lampGreen = UIColor(hex: 0x39D98A)
-    static let lampAmber = UIColor(hex: 0xFFB81C)
+    static let lampAmber = UIColor(hex: 0xFFA000)
     static let lampRed = UIColor(hex: 0xFF3B4E)
     static let lampOff = UIColor(hex: 0x6B6E75)
     static let gaugePaper = UIColor(hex: 0xFBF8F1)
@@ -140,8 +140,9 @@ enum SceneMaterials {
         return material
     }
 
-    static func unlit(_ color: UIColor, opacity: Float = 1) -> UnlitMaterial {
-        var material = UnlitMaterial(color: color)
+    /// Unlit colour. Not tone-mapped by default (decals, glints, sprites must render exactly; VISUAL-REVIEW-1 fix 1).
+    static func unlit(_ color: UIColor, opacity: Float = 1, toneMapped: Bool = false) -> UnlitMaterial {
+        var material = UnlitMaterial(color: color, applyPostProcessToneMap: toneMapped)
         if opacity < 1 {
             material.blending = .transparent(opacity: .init(floatLiteral: opacity))
         }

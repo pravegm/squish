@@ -15,8 +15,8 @@ struct ImageBox: @unchecked Sendable {
 }
 
 enum StudioEnvironment {
-    static let hdriWidth = 1024
-    static let hdriHeight = 512
+    static let hdriWidth = 512
+    static let hdriHeight = 256
 
     // MARK: - HDRI recipe (§3.3.3)
 
@@ -28,19 +28,20 @@ enum StudioEnvironment {
         var value: Float
         var colour: SIMD3<Float>
         var replace: Bool
+        var feather: Float = 4
     }
 
     private static let shapes: [Shape] = [
         Shape(azimuth: -40, elevation: 45, width: 55, height: 40, value: 5.0, colour: [1.00, 0.98, 0.95], replace: false), // key
         Shape(azimuth: 0, elevation: 75, width: 70, height: 12, value: 2.2, colour: [1, 1, 1], replace: false),            // top strip
-        Shape(azimuth: 65, elevation: 20, width: 30, height: 45, value: 1.2, colour: [0.94, 0.97, 1.00], replace: false),  // fill card
-        Shape(azimuth: -135, elevation: 25, width: 10, height: 55, value: 4.0, colour: [1.00, 0.98, 0.96], replace: false), // rim L
-        Shape(azimuth: 135, elevation: 25, width: 10, height: 55, value: 4.0, colour: [1.00, 0.98, 0.96], replace: false),  // rim R
+        Shape(azimuth: 45, elevation: 25, width: 26, height: 45, value: 1.2, colour: [0.94, 0.97, 1.00], replace: false),  // fill card
+        Shape(azimuth: -135, elevation: 10, width: 14, height: 80, value: 6.0, colour: [1.00, 0.98, 0.96], replace: false), // rim L
+        Shape(azimuth: 135, elevation: 10, width: 14, height: 80, value: 6.0, colour: [1.00, 0.98, 0.96], replace: false),  // rim R
         Shape(azimuth: 15, elevation: 6, width: 35, height: 20, value: 1.0, colour: [1.00, 0.97, 0.93], replace: false),    // front card
         Shape(azimuth: 0, elevation: -25, width: 80, height: 25, value: 0.8, colour: [1.00, 0.92, 0.80], replace: false),   // floor bounce
-        Shape(azimuth: -95, elevation: 10, width: 22, height: 50, value: 0.03, colour: [1, 1, 1], replace: true),           // flag L
-        Shape(azimuth: 95, elevation: 10, width: 22, height: 50, value: 0.03, colour: [1, 1, 1], replace: true),            // flag R
-        Shape(azimuth: 180, elevation: 20, width: 90, height: 40, value: 0.55, colour: [0.95, 0.94, 0.92], replace: true),  // back wall
+        Shape(azimuth: -70, elevation: 10, width: 22, height: 50, value: 0.03, colour: [1, 1, 1], replace: true),           // flag L
+        Shape(azimuth: 70, elevation: 10, width: 22, height: 50, value: 0.03, colour: [1, 1, 1], replace: true),            // flag R
+        Shape(azimuth: 180, elevation: 20, width: 90, height: 40, value: 0.55, colour: [0.95, 0.94, 0.92], replace: true, feather: 20),  // back wall
     ]
 
     private static let gradientStops: [(phi: Float, value: Float, colour: SIMD3<Float>)] = [
@@ -95,7 +96,7 @@ enum StudioEnvironment {
         let λ = s.azimuth * .pi / 180, φ = s.elevation * .pi / 180
         let c = direction(azimuth: λ, elevation: φ)
         let east = SIMD3<Float>(cos(λ), 0, -sin(λ))
-        let halfDiag = (s.width * s.width + s.height * s.height).squareRoot() * 0.5 + 6
+        let halfDiag = (s.width * s.width + s.height * s.height).squareRoot() * 0.5 + max(6, s.feather)
         return Frame(shape: s, centre: c, east: east, north: simd_cross(c, east), cosLimit: cos(min(halfDiag, 89) * .pi / 180))
     }
 
@@ -111,7 +112,7 @@ enum StudioEnvironment {
         let qx = abs(x) - (s.width / 2 - r), qy = abs(y) - (s.height / 2 - r)
         let outside = SIMD2<Float>(max(qx, 0), max(qy, 0))
         let dist = simd_length(outside) + min(max(qx, qy), 0) - r
-        let feather: Float = 4
+        let feather = s.feather
         let t = clamp((dist + feather / 2) / feather, 0, 1)
         return 1 - t * t * (3 - 2 * t)
     }
@@ -273,19 +274,20 @@ enum StudioEnvironment {
 
     /// Bakes the sweep texture (sRGB values written directly: the material is unlit with no tone map).
     /// Row 0 is v = 1 (wall top) when `flipV` is false. Pure; safe off the main thread.
-    static func sweepImage(gel: UInt32, golden: Bool, size: Int = 512, flipV: Bool = false, seed: UInt64 = 0x5EE9) -> CGImage? {
-        var pixels = [UInt8](repeating: 255, count: size * size * 4)
+    static func sweepImage(gel: UInt32, golden: Bool, width: Int = 256, height: Int = 512, flipV: Bool = false,
+                           seed: UInt64 = 0x5EE9) -> CGImage? {
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
         var rng = SplitMix64(seed: seed)
         let total = sweepLength
         let floorNear = rgb(0xF1E9DC), floorPool = rgb(0xF8F3EA), backFloor = rgb(0xEEE5D7)
         let bend = rgb(0xEAE0D0), wallBase = rgb(0xEDE5D8), wallTop = rgb(gel)
         let ink = rgb(0x3B2F25)
-        for row in 0..<size {
-            let vImage = (Float(row) + 0.5) / Float(size)
+        for row in 0..<height {
+            let vImage = (Float(row) + 0.5) / Float(height)
             let v = flipV ? vImage : 1 - vImage
             let p = sweepPoint(arc: v * total)
-            for col in 0..<size {
-                let u = (Float(col) + 0.5) / Float(size)
+            for col in 0..<width {
+                let u = (Float(col) + 0.5) / Float(width)
                 let x = -halfWidth + 2 * halfWidth * u
                 var c: SIMD3<Float>
                 if p.y <= floorY + 1e-4 {
@@ -316,14 +318,14 @@ enum StudioEnvironment {
                 // Horizontal vignette.
                 let h = (u - 0.5) / 0.5
                 c *= 1 - 0.06 * h * h
-                let i = (row * size + col) * 4
+                let i = (row * width + col) * 4
                 for k in 0..<3 {
                     let dither = Float(Int(rng.next() % 3) - 1)
                     pixels[i + k] = UInt8(clamp(c[k] * 255 + dither + 0.5, 0, 255))
                 }
             }
         }
-        return makeImage(pixels, width: size, height: size)
+        return makeImage(pixels, width: width, height: height)
     }
 
     private static func smooth(_ t: Float) -> Float { t * t * (3 - 2 * t) }

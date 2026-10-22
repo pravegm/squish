@@ -928,3 +928,28 @@ struct Sticker<Content: View>: View {
             .rotationEffect(.degrees(tilt))
     }
 }
+
+// MARK: - Crease safety for sheets
+
+/// On a foldable in book pose (landscape, vertical crease), keep a sheet's content on the right half so no
+/// control sits on the 40 pt crease. Tabletop sheets use a 0.45 detent instead (RootView).
+struct CreaseSafe: ViewModifier {
+    @AppStorage("squish.hasHinge") private var hasHinge = false
+
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            if hasHinge && proxy.size.width > proxy.size.height {
+                content
+                    .frame(width: proxy.size.width / 2 - ScreenBands.creaseHalf)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            } else {
+                content
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+        }
+    }
+}
+
+extension View {
+    func creaseSafe() -> some View { modifier(CreaseSafe()) }
+}

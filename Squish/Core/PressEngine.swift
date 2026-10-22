@@ -46,6 +46,16 @@ struct PressResult: Equatable, Sendable {
 final class PressEngine {
     var config: PressConfig
 
+    /// The config used to map this press: `config` with the contact point captured at arm
+    /// (FOLD-PRESS.md §4.1), so tuning applies live but contact never moves mid-press.
+    var mapping: PressConfig {
+        guard let armedContactT else { return config }
+        var mapped = config
+        mapped.contactT = armedContactT
+        return mapped
+    }
+    @ObservationIgnored private var armedContactT: Double?
+
     private(set) var phase: PressPhase = .idle
     private(set) var kind: ObjectKind?
     private(set) var material: MaterialProfile?
@@ -75,9 +85,9 @@ final class PressEngine {
     var usesVirtualHinge = false
 
     var visualDepth: Double { max(plasticDepth, renderDepth) }
-    var renderCompression: Double { PressMapping.compression(depth: renderDepth, config: config) }
-    var visualCompression: Double { PressMapping.compression(depth: visualDepth, config: config) }
-    var measuredCompression: Double { PressMapping.compression(depth: measuredDepth, config: config) }
+    var renderCompression: Double { PressMapping.compression(depth: renderDepth, config: mapping) }
+    var visualCompression: Double { PressMapping.compression(depth: visualDepth, config: mapping) }
+    var measuredCompression: Double { PressMapping.compression(depth: measuredDepth, config: mapping) }
     var isLoaded: Bool { phase == .pressing && measuredCompression > 0 }
     /// True when hinge samples arrive slower than ~10 Hz.
     var isLowRate: Bool { !usesVirtualHinge && sampleInterval > 0.1 }
@@ -152,6 +162,7 @@ final class PressEngine {
         isReversing = false
         reversals = 0
         lastResult = nil
+        armedContactT = nil
         phase = .idle
         tryArm(at: time)
     }
@@ -191,6 +202,7 @@ final class PressEngine {
             guard !closed else { break }
             if filtered > startAngle {
                 startAngle = min(filtered, config.armAngleMax)
+                if pressStartTime == nil { armedContactT = config.armed(at: startAngle).contactT }
             }
             if filtered <= startAngle - config.hysteresis {
                 phase = .pressing
@@ -286,7 +298,7 @@ final class PressEngine {
             // Low-rate mode: when samples arrive slower than ~10 Hz (thermal, Low Power), don't predict.
             let fresh = age < max(config.staleAfter, sampleInterval * 1.5)
             let lead = fresh && !isLowRate ? min(age + 1.0 / 60.0, config.maxPredict) : 0
-            target = PressMapping.depth(angle: angle - closingSpeed * lead, start: startAngle, config: config)
+            target = PressMapping.depth(angle: angle - closingSpeed * lead, start: startAngle, config: mapping)
         case .sealed:
             target = 1
         }
@@ -311,19 +323,20 @@ final class PressEngine {
         guard material != nil, !isClosed, angle >= config.armAngleMin,
               time - activationTime >= config.ignoreInputAfterActivation else { return }
         startAngle = min(angle, config.armAngleMax)
+        armedContactT = config.armed(at: startAngle).contactT
         phase = .armed
         emit(.armed)
     }
 
     private func updatePress(angle θ: Double, at time: Double) {
         guard let material else { return }
-        let depth = PressMapping.depth(angle: θ, start: startAngle, config: config)
+        let depth = PressMapping.depth(angle: θ, start: startAngle, config: mapping)
         measuredDepth = depth
         maxDepthReached = max(maxDepthReached, depth)
         plasticDepth = max(plasticDepth, depth * material.plasticity)
-        let c = PressMapping.compression(depth: depth, config: config)
+        let c = PressMapping.compression(depth: depth, config: mapping)
 
-        if !contactFired && depth >= config.contactT {
+        if !contactFired && depth >= mapping.contactT {
             contactFired = true
             emit(.contact)
         }

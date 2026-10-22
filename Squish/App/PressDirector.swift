@@ -14,6 +14,9 @@ final class PressDirector {
     @ObservationIgnored let haptics = HapticsController()
     @ObservationIgnored let audio = AudioController()
     @ObservationIgnored let hingeLog = HingeLog()
+    /// The iPhone Duo presentation: the two screen halves are the plates (FOLD-PRESS.md). Drives the 2D platen
+    /// half and the bezel; the 3D anvil half is `scene` in fold framing.
+    @ObservationIgnored let fold = FoldPressController()
 
     private(set) var currentKind: ObjectKind = .bubbleWrap
     private(set) var variant = PressVariant(kind: .bubbleWrap, seed: 1)
@@ -39,6 +42,7 @@ final class PressDirector {
     @ObservationIgnored private var renderedFrames = 0
     @ObservationIgnored private let launchTime = CACurrentMediaTime()
     @ObservationIgnored private var lastHingeLogTime: Double = 0
+    @ObservationIgnored private var foldSimulated = false
     @ObservationIgnored private var captionCounter = 0
     @ObservationIgnored private var traceSamples: [PressTrace.Sample] = []
     @ObservationIgnored private var traceStart: Double = 0
@@ -60,6 +64,9 @@ final class PressDirector {
 
     /// True when the touch press drives the engine (no hinge, or the user chose to press without folding).
     var usesTouchPress: Bool { !hingeAvailable || settings.pressWithoutFolding }
+
+    /// True on iPhone Duo when folding drives the press: the screen halves become the plates. This is Squish.
+    var usesFoldPress: Bool { hingeAvailable && !settings.pressWithoutFolding }
 
     var canChooseObject: Bool {
         !isShowingCover && revealed == nil
@@ -160,7 +167,9 @@ final class PressDirector {
         // CI (ci/duo-screenshots.sh) counts these to prove onHingeChange fired on the Duo simulator.
         if DemoScenario.current != nil, CACurrentMediaTime() - lastHingeLogTime > 0.25 {
             lastHingeLogTime = CACurrentMediaTime()
-            print(String(format: "SQUISH-H %.2f %.1f %d", lastHingeLogTime - launchTime, angle, closed ? 1 : 0))
+            print(String(format: "SQUISH-H %.2f %.1f %d phase=%@ depth=%.3f c=%.3f virtual=%d", lastHingeLogTime - launchTime,
+                         angle, closed ? 1 : 0, engine.phase.rawValue, engine.measuredDepth, engine.measuredCompression,
+                         engine.usesVirtualHinge ? 1 : 0))
         }
 
         // The reveal card is dismissed with the hinge too: closing the phone collects it, and
@@ -184,6 +193,7 @@ final class PressDirector {
     }
 
     func hingeUnavailable() {
+        guard !foldSimulated else { return }
         hingeAvailable = false
         hingeClosed = false
         engine.usesVirtualHinge = true
@@ -223,6 +233,7 @@ final class PressDirector {
         engine.step(now: CACurrentMediaTime(), dt: dt)
         let context = feedbackContext
         scene.update(engine: engine, context: context, dt: Float(dt))
+        if usesFoldPress { fold.update(engine: engine, context: context, dt: Float(dt)) }
         haptics.update(engine: engine, context: context)
         audio.update(engine: engine, context: context)
     }
@@ -263,6 +274,7 @@ final class PressDirector {
         }
         engine.load(kind, seed: seed, at: CACurrentMediaTime())
         scene.setObject(kind, variant: variant)
+        fold.setObject(kind, variant: variant)
         let context = feedbackContext
         audio.place(context: context)
         haptics.place(context: context)
@@ -281,6 +293,7 @@ final class PressDirector {
     private func handle(_ event: PressEvent) {
         let context = feedbackContext
         scene.handle(event, context: context)
+        fold.handle(event, context: context)
         haptics.handle(event, context: context)
         audio.handle(event, context: context)
 
@@ -321,7 +334,11 @@ final class PressDirector {
         let specimenID = outcome.specimen.id
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
-            guard let self, let image = await self.scene.snapshot(), let png = image.pngData() else { return }
+            // The clean top-down specimen shot; fall back to the live frame (never the warped Duo anvil view).
+            guard let self else { return }
+            var image = await self.scene.specimenSnapshot()
+            if image == nil, !self.usesFoldPress { image = await self.scene.snapshot() }
+            guard let image, let png = image.pngData() else { return }
             self.collection.attachThumbnail(png, to: specimenID)
         }
     }
@@ -353,11 +370,36 @@ final class PressDirector {
             if let kind = demo.object { load(kind) }
             return
         }
+        if let raw = demo.string("foldsim") {
+            // Fold Press on a regular simulator: fake a hinge and sweep it through the listed angles.
+            foldSimulated = true
+            if let kind = demo.object { load(kind) }
+            let targets = raw.split(separator: ",").compactMap { Double($0) }
+            hingeUpdate(angle: 180, closed: false)
+            Task { @MainActor in
+                while renderedFrames < 30 { try? await Task.sleep(for: .milliseconds(50)) }
+                var angle = 180.0
+                for target in targets {
+                    while abs(angle - target) > 0.5 {
+                        angle += max(-0.5, min(0.5, target - angle))
+                        hingeUpdate(angle: angle, closed: false)
+                        try? await Task.sleep(for: .milliseconds(16))
+                    }
+                    for _ in 0..<60 {
+                        hingeUpdate(angle: target, closed: false)
+                        try? await Task.sleep(for: .milliseconds(16))
+                    }
+                }
+            }
+            return
+        }
         hingeUnavailable()
         if let kind = demo.object { load(kind) }
         let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
         guard let targetDepth else { return }
-        let targetAngle = PressMapping.angle(forDepth: targetDepth, start: engine.config.armAngleMax, config: engine.config)
+        // The touch press arms at armAngleMax, so map with the contact point captured there (floating contact).
+        let start = engine.config.armAngleMax
+        let targetAngle = PressMapping.angle(forDepth: targetDepth, start: start, config: engine.config.armed(at: start))
         Task { @MainActor in
             // Wait until the scene is actually rendering (first frames can be slow on CI simulators).
             while renderedFrames < 30 {

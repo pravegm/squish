@@ -12,8 +12,10 @@ import UIKit
 @MainActor
 final class CrayonView: PressObjectView {
     let entity = Entity()
-    let restHeight: Float = 0.022
-    let footprint: Float = 0.057
+    /// Chunky toddler crayon: Ø 0.032 × 0.125 (VISUAL-REVIEW-1 fix 6).
+    let restHeight: Float = 2 * CrayonView.radius
+    let footprint: Float = 0.0625
+    private static var wrapperTexture: TextureResource?
 
     private let fx: SceneFX
     private let look: Look
@@ -25,11 +27,16 @@ final class CrayonView: PressObjectView {
     private let failC: Float
     private let wax: UIColor
 
-    static let length: Float = 0.113
+    static let kR: Float = 0.016 / 0.011
+    static let kL: Float = 0.125 / 0.113
+    static let radius: Float = 0.011 * kR
+    static let length: Float = 0.113 * kL
+    /// The art-spec profile (r, axial), with a 1.5 mm round where the tip cone meets the body, scaled up.
     static let profile: [SIMD2<Float>] = [
-        SIMD2(0.000, 0.000), SIMD2(0.0095, 0.000), SIMD2(0.0110, 0.0015), SIMD2(0.0110, 0.0880),
+        SIMD2(0.000, 0.000), SIMD2(0.0095, 0.000), SIMD2(0.0110, 0.0015), SIMD2(0.0110, 0.0865), SIMD2(0.01065, 0.0895),
         SIMD2(0.0045, 0.1050), SIMD2(0.0025, 0.1090), SIMD2(0.0010, 0.1120), SIMD2(0.000, 0.1130),
-    ]
+    ].map { SIMD2($0.x * kR, $0.y * kL) }
+    static let wrapperRange: ClosedRange<Float> = (0.008 * kL)...(0.078 * kL)
 
     init(variant: PressVariant, fx: SceneFX) {
         self.fx = fx
@@ -39,20 +46,24 @@ final class CrayonView: PressObjectView {
         failC = PressObjectFactory.failureThreshold(.crayon, variant: variant) ?? 0.3
         let wax = Palette.cobalt
         self.wax = wax
-        let cut1 = Float.random(in: 0.030...0.048, using: &rng)
-        let cut2 = Float.random(in: 0.062...0.080, using: &rng)
+        let cut1 = Float.random(in: 0.030...0.048, using: &rng) * Self.kL
+        let cut2 = Float.random(in: 0.062...0.080, using: &rng) * Self.kL
         self.rng = rng
 
         let waxMaterial = look.body(wax, roughness: 0.52, clearcoat: 0)
         let coreColour = variant.surprise == .secondColourCore ? Palette.raspberry : UIColor(hex: 0x6F8EF2)
         let coreMaterial = SceneMaterials.pbr(coreColour, roughness: 0.45)
-        let paper = SceneMaterials.pbr(UIColor(hex: 0xF4ECDD), roughness: 0.75)
-        let band = look.golden ? SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.5)
-            : SceneMaterials.pbr(Palette.cobalt, roughness: 0.6)
+        // Printed wrapper (cobalt wave band + "WAXO", VISUAL-REVIEW-1 fix 11); Golden prints in dark gold.
+        let paper: PhysicallyBasedMaterial
+        if let texture = Self.wrapper(band: look.golden ? UIColor(hex: 0x8A5A00) : Palette.cobalt, golden: look.golden) {
+            paper = SceneMaterials.textured(texture, roughness: 0.75)
+        } else {
+            paper = SceneMaterials.pbr(UIColor(hex: 0xF4ECDD), roughness: 0.75)
+        }
 
         // Lying: lathe about local Y, rolled −90° about Z (tip → +X), centred on its length, resting on the anvil.
         body.orientation = simd_quatf(angle: -.pi / 2, axis: [0, 0, 1])
-        body.position = [0, 0.011, 0]
+        body.position = [0, Self.radius, 0]
         let axial = Entity()
         axial.position = [0, -Self.length / 2, 0]
         body.addChild(axial)
@@ -65,32 +76,34 @@ final class CrayonView: PressObjectView {
             Part.add(mesh, waxMaterial, to: piece)
             // Fresh-wax core discs on the cut faces (hidden while intact).
             if i > 0 {
-                Part.add(cached: "crayon.core", { MeshKit.roundedCylinder(radius: 0.0052, height: 0.0006, bevel: 0.0002, segments: 32) },
+                Part.add(cached: "crayon.core", { MeshKit.roundedCylinder(radius: 0.0052 * Self.kR, height: 0.0006, bevel: 0.0002, segments: 32) },
                          coreMaterial, at: [0, range.lowerBound - mid - 0.0005, 0], to: piece)
             }
             if i < 2 {
-                Part.add(cached: "crayon.core", { MeshKit.roundedCylinder(radius: 0.0052, height: 0.0006, bevel: 0.0002, segments: 32) },
+                Part.add(cached: "crayon.core", { MeshKit.roundedCylinder(radius: 0.0052 * Self.kR, height: 0.0006, bevel: 0.0002, segments: 32) },
                          coreMaterial, at: [0, range.upperBound - mid - 0.0001, 0], to: piece)
             }
-            // Wrapper: paper from 0.008 to 0.078, with two cobalt stripes and a wide band.
-            let lo = max(range.lowerBound, 0.008), hi = min(range.upperBound, 0.078)
+            // Wrapper segment of this piece; v spans the whole wrapper so the print is continuous across the cuts.
+            let lo = max(range.lowerBound, Self.wrapperRange.lowerBound), hi = min(range.upperBound, Self.wrapperRange.upperBound)
             if hi - lo > 0.001 {
-                let wrapper = MeshKit.lathe(profile: [SIMD2(0.0114, lo), SIMD2(0.0114, hi)], segments: 48)
+                let r = 0.0114 * Self.kR
+                let wrapper = MeshKit.latheUV(profile: [SIMD2(r, lo), SIMD2(r, (lo + hi) / 2), SIMD2(r, hi)], segments: 48,
+                                              vRange: Self.wrapperRange)
                 Part.add(wrapper.translated([0, -mid, 0]), paper, to: piece)
-                let stripes: [SIMD2<Float>] = [SIMD2(0.012, 0.0145), SIMD2(0.030, 0.050), SIMD2(0.0715, 0.074)]
-                for stripe in stripes {
-                    let a = max(stripe.x, lo), b = min(stripe.y, hi)
-                    if b - a > 0.0005 {
-                        let ring = MeshKit.lathe(profile: [SIMD2(0.01145, a), SIMD2(0.01145, b)], segments: 48)
-                        Part.add(ring.translated([0, -mid, 0]), band, to: piece)
-                    }
-                }
             }
             axial.addChild(piece)
             pieces.append(piece)
         }
         entity.addChild(body)
         entity.orientation = Part.yaw(-20)
+    }
+
+    /// The WAXO wrapper print (drawn once; the Golden print is drawn on demand).
+    private static func wrapper(band: UIColor, golden: Bool) -> TextureResource? {
+        if !golden, let cached = wrapperTexture { return cached }
+        let texture = StudioEnvironment.texture(RigTextures.crayonWrapper(band: band), name: golden ? "crayon.wrapper.gold" : "crayon.wrapper")
+        if !golden { wrapperTexture = texture }
+        return texture
     }
 
     /// One capped lathe slice of the crayon profile between two axial positions.

@@ -12,8 +12,11 @@ import UIKit
 @MainActor
 final class GlassBottleView: PressObjectView {
     let entity = Entity()
-    let restHeight: Float = 0.060
-    let footprint: Float = 0.068
+    /// ×0.86 so it sits fully on the anvil at ~42% width (VISUAL-REVIEW-1 fix 6); authored at Ø 0.060.
+    static let heroScale: Float = 0.86
+    static let localHeight: Float = 0.060
+    let restHeight: Float = 0.060 * GlassBottleView.heroScale
+    let footprint: Float = 0.068 * GlassBottleView.heroScale
 
     private let fx: SceneFX
     private let look: Look
@@ -113,6 +116,7 @@ final class GlassBottleView: PressObjectView {
         }
         entity.addChild(bottle)
         entity.orientation = Part.yaw(-15)
+        entity.scale = SIMD3(repeating: Self.heroScale)
     }
 
     static func models(in entity: Entity) -> [ModelEntity] {
@@ -145,14 +149,14 @@ final class GlassBottleView: PressObjectView {
                 let length = Float.random(in: 0.006...0.011, using: &rng)
                 let turn = Float.random(in: -0.7...0.7, using: &rng)
                 let line = ModelEntity(mesh: .generateBox(width: length, height: 0.0004, depth: 0.0007), materials: [white])
-                line.position = [x + length / 2 * cos(turn), restHeight + 0.0003, z + length / 2 * sin(turn)]
+                line.position = [x + length / 2 * cos(turn), Self.localHeight + 0.0003, z + length / 2 * sin(turn)]
                 line.orientation = simd_quatf(angle: -turn, axis: [0, 1, 0])
                 entity.addChild(line)
                 cracks.append(line)
                 x += length * cos(turn)
                 z += length * sin(turn) * 0.5
             }
-            fx.particles.burst(.glint, count: 3, at: entity.convert(position: [0, restHeight, 0], to: fx.root), speed: 0.05,
+            fx.particles.burst(.glint, count: 3, at: entity.convert(position: [0, Self.localHeight, 0], to: fx.root), speed: 0.05,
                                colors: [UIColor(hex: 0xFFFFFF)], size: 0.003...0.005, upBias: 0.6, life: 0.25, rng: &rng)
         case 1:
             shatter(state: state)

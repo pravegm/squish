@@ -48,6 +48,19 @@ struct PressSceneView: View {              // hosts the 3D view full-screen
 }
 ```
 
+### Fold Press (`Squish/Scene/Fold/`) — the iPhone Duo experience (design/FOLD-PRESS.md)
+Squish is Duo-first: on a Duo the two screen halves ARE the press plates. The P-48 machine (`PressSceneView`) is the
+fallback for non-folding iPhones and "press without folding".
+```swift
+@MainActor final class FoldPressController {     // owned by the director as `fold`
+    init()
+    func setObject(_ kind: ObjectKind, variant: PressVariant)
+    func update(engine: PressEngine, context: FeedbackContext, dt: Float)   // only while director.usesFoldPress
+    func handle(_ event: PressEvent, context: FeedbackContext)
+}
+struct FoldPressView: View { let director: PressDirector }   // RootView shows it when director.usesFoldPress
+```
+
 ### Feedback (`Squish/Feedback/`)
 ```swift
 @MainActor final class HapticsController {

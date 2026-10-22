@@ -3,13 +3,20 @@ import Foundation
 /// Every tunable number in the press. Defaults come from design/SQUISH-DESIGN-BIBLE.md (§6);
 /// values marked [tune] there are adjusted live in the Tuning Lab and persisted here.
 struct PressConfig: Codable, Equatable, Sendable {
-    // Angle → press mapping (bible §6.2)
-    var armAngleMax: Double = 165
-    var armAngleMin: Double = 100
-    var endAngle: Double = 60
-    var contactT: Double = 0.20
-    var easeExponent: Double = 1.6
+    // Angle → press mapping (design/FOLD-PRESS.md §4.1; supersedes bible §6.2 on Duo).
+    // Contact floats with the arm angle; the visual flat is absolute.
+    var armAngleMax: Double = 168
+    /// Arming at ≥ 130° guarantees every failure lands ≥ ~60°, while both halves are still visible.
+    var armAngleMin: Double = 130
+    var endAngle: Double = 48
+    /// Base contact point; recomputed per press by `armed(at:)` when `floatingContact` is on.
+    var contactT: Double = 0.30
+    var easeExponent: Double = 1.7
     var hysteresis: Double = 4
+    var floatingContact: Bool = true
+    /// Contact happens at min(contactCeiling, θ0 − contactLead).
+    var contactCeiling: Double = 132
+    var contactLead: Double = 12
 
     // State machine (bible §6.3)
     var sealDepth: Double = 0.98
@@ -34,7 +41,21 @@ struct PressConfig: Codable, Equatable, Sendable {
 
     static let standard = PressConfig()
 
-    private static let storageKey = "squish.pressConfig.v2"
+    /// The mapping for one press, captured at arm: contact floats with the start angle, the bottom never moves
+    /// (FOLD-PRESS.md §4.1). The engine keeps this copy for the whole press so contactT never changes mid-press.
+    func armed(at theta0: Double) -> PressConfig {
+        guard floatingContact else { return self }
+        var config = self
+        let start = min(theta0, armAngleMax)
+        let contact = min(contactCeiling, start - contactLead)
+        let span = start - endAngle
+        if span > 1 {
+            config.contactT = clamp((start - contact) / span, 0.05, 0.6)
+        }
+        return config
+    }
+
+    private static let storageKey = "squish.pressConfig.v3"
 
     static func loadSaved() -> PressConfig {
         guard let data = UserDefaults.standard.data(forKey: storageKey),

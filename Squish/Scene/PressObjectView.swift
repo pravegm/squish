@@ -91,6 +91,11 @@ enum MeshCache {
         return built
     }
 
+    /// Inserts mesh data built off the main actor (see `ObjectMeshes`).
+    static func store(_ key: String, _ mesh: MeshData) {
+        if data[key] == nil { data[key] = mesh }
+    }
+
     static func resource(_ key: String, _ build: () -> MeshData) -> MeshResource? {
         if let cached = resources[key] { return cached }
         guard let resource = mesh(key, build).resource(name: key) else { return nil }

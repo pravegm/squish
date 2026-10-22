@@ -72,7 +72,27 @@ final class DeformableMesh {
             current.positions[i] = deform(rest.positions[i])
         }
         MeshKit.computeNormals(positions: current.positions, indices: rest.indices, into: &current.normals)
+        weldNormals()
         upload()
+    }
+
+    /// Vertices that share a rest position (UV seams, pole rings) get one averaged normal, so seams stay invisible.
+    private lazy var weldGroups: [[Int]] = {
+        var buckets: [SIMD3<Int32>: [Int]] = [:]
+        for (i, p) in self.rest.positions.enumerated() {
+            let key = SIMD3<Int32>(Int32((p.x * 1e5).rounded()), Int32((p.y * 1e5).rounded()), Int32((p.z * 1e5).rounded()))
+            buckets[key, default: []].append(i)
+        }
+        return buckets.values.filter { $0.count > 1 }
+    }()
+
+    private func weldNormals() {
+        for group in weldGroups {
+            var sum = SIMD3<Float>.zero
+            for i in group { sum += current.normals[i] }
+            let n = simd_length(sum) > 1e-9 ? simd_normalize(sum) : SIMD3<Float>(0, 1, 0)
+            for i in group { current.normals[i] = n }
+        }
     }
 
     /// Resets to the rest shape.
@@ -87,11 +107,13 @@ final class DeformableMesh {
             if let low = group.lowLevel {
                 let positions = current.positions
                 let normals = current.normals
+                let uvs = rest.uvs
                 let source = group.sourceVertex
                 low.withUnsafeMutableBytes(bufferIndex: 0) { raw in
                     let vertices = raw.bindMemory(to: DeformVertex.self)
                     for (k, v) in source.enumerated() where k < vertices.count {
-                        vertices[k] = DeformVertex(position: positions[v], normal: normals[v])
+                        vertices[k] = DeformVertex(position: positions[v], normal: normals[v],
+                                                   uv: uvs.isEmpty ? .zero : uvs[v])
                     }
                 }
                 continue
@@ -100,6 +122,7 @@ final class DeformableMesh {
             var sub = MeshData()
             sub.positions = group.sourceVertex.map { current.positions[$0] }
             sub.normals = group.sourceVertex.map { current.normals[$0] }
+            if !rest.uvs.isEmpty { sub.uvs = group.sourceVertex.map { rest.uvs[$0] } }
             sub.indices = group.indices
             if let resource = sub.resource() {
                 group.model.model?.mesh = resource
@@ -114,6 +137,7 @@ final class DeformableMesh {
         descriptor.vertexAttributes = [
             LowLevelMesh.Attribute(semantic: .position, format: .float3, offset: 0),
             LowLevelMesh.Attribute(semantic: .normal, format: .float3, offset: MemoryLayout<SIMD3<Float>>.stride),
+            LowLevelMesh.Attribute(semantic: .uv0, format: .float2, offset: MemoryLayout<SIMD3<Float>>.stride * 2),
         ]
         descriptor.vertexLayouts = [
             LowLevelMesh.Layout(bufferIndex: 0, bufferStride: MemoryLayout<DeformVertex>.stride),
@@ -124,10 +148,11 @@ final class DeformableMesh {
         guard let low = try? LowLevelMesh(descriptor: descriptor) else { return nil }
         let positions = mesh.positions
         let normals = mesh.normals
+        let uvs = mesh.uvs
         low.withUnsafeMutableBytes(bufferIndex: 0) { raw in
             let vertices = raw.bindMemory(to: DeformVertex.self)
             for i in positions.indices where i < vertices.count {
-                vertices[i] = DeformVertex(position: positions[i], normal: normals[i])
+                vertices[i] = DeformVertex(position: positions[i], normal: normals[i], uv: uvs.isEmpty ? .zero : uvs[i])
             }
         }
         let indices = mesh.indices
@@ -146,10 +171,11 @@ final class DeformableMesh {
     #endif
 }
 
-/// Interleaved vertex for `LowLevelMesh`: position at offset 0, normal at offset 16 (SIMD3<Float> stride), stride 32.
+/// Interleaved vertex for `LowLevelMesh`: position at 0, normal at 16, uv0 at 32 (SIMD3<Float> stride 16), stride 48.
 struct DeformVertex {
     var position: SIMD3<Float>
     var normal: SIMD3<Float>
+    var uv: SIMD2<Float>
 }
 
 /// Shared analytic deformations (research 03 §4 "the backbone").

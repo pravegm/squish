@@ -70,7 +70,7 @@ final class BubbleWrapView: PressObjectView {
         entity.orientation = Part.yaw(12)
         let filmMaterial = look.golden ? SceneMaterials.gold
             : SceneMaterials.enamel(UIColor(hex: 0xE4F3FA), roughness: 0.10, clearcoat: 1, clearcoatRoughness: 0.04,
-                                    specular: 0.7, opacity: 0.55)
+                                    specular: 0.7, opacity: 0.45)
         let domeMaterial = look.golden ? SceneMaterials.gold
             : SceneMaterials.enamel(UIColor(hex: 0xD8EEF8), roughness: 0.10, clearcoat: 1, clearcoatRoughness: 0.04,
                                     specular: 0.7, opacity: 0.42)

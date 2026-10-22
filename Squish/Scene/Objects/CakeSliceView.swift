@@ -123,7 +123,7 @@ final class CakeSliceView: PressObjectView {
         flame.position = [0, Self.candleLength + 0.002, 0]
         candlePivot.addChild(flame)
         candlePivot.position = [Self.candleBase.x, Self.cakeHeight, Self.candleBase.y]
-        candlePivot.orientation = simd_quatf(angle: Self.candleLean, axis: [1, 0, 0])
+        candlePivot.orientation = simd_quatf(angle: Self.candleLean, axis: [0, 0, 1])
         cake.addChild(candlePivot)
 
         // Centroid (0.072 from the apex) at the anvil centre; apex toward world (−0.8, 0, +0.6).
@@ -165,14 +165,15 @@ final class CakeSliceView: PressObjectView {
         spread = k
         // Candle: lean just enough to stay under the ram face, until it bends flat.
         if candleBent {
-            candlePivot.orientation = simd_quatf(angle: 1.45, axis: [1, 0, 0])
+            candlePivot.orientation = simd_quatf(angle: 1.45, axis: [0, 0, 1])
             let thickness = max(min(1, (h - cakeTop) / 0.007), 0.3)
-            // Lying (rotated ~83° about X): its local Z is now nearly vertical, so flatten along Z.
-            candlePivot.scale = SIMD3(1 / k, 1 / s, 1 / k) * SIMD3(1, 1, thickness)
+            // Lying along the slice toward the apex (≤ 0.04 m, stays on the cake: VISUAL-REVIEW-1 fix 15);
+            // rotated ~83° about Z, its local X is now nearly vertical, so flatten along X.
+            candlePivot.scale = SIMD3(1 / k, 1 / s, 1 / k) * SIMD3(thickness, 1, 1)
         } else {
             let room = max(h - cakeTop, 0.001)
             let lean = acos(clamp(room / (Self.candleLength + 0.01), 0, 1))
-            candlePivot.orientation = simd_quatf(angle: max(Self.candleLean, min(lean, 1.45)), axis: [1, 0, 0])
+            candlePivot.orientation = simd_quatf(angle: max(Self.candleLean, min(lean, 1.45)), axis: [0, 0, 1])
             candlePivot.scale = SIMD3(1 / k, 1 / s, 1 / k)
         }
         if !flameOut && !state.reduceMotion {
