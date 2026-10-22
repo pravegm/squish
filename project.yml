@@ -30,6 +30,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIStatusBarHidden: true
+        UIRequiresFullScreen: true   # a press toy is full-screen only; also lets the demo request portrait on the Duo
         UIUserInterfaceStyle: Light   # VISUAL-TARGET §6.13: the studio stays bright in Dark Mode
         UIViewControllerBasedStatusBarAppearance: false
         CADisableMinimumFrameDurationOnPhone: true
