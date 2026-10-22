@@ -24,6 +24,8 @@ struct FoldFrame {
     var sweep: Double?
     /// The sweep is the fold invitation (not the reveal's peel shimmer): the grip pads pulse with it.
     var inviting = false
+    /// The hinge angle the object failed at, once it has (the crown readout freezes on it, in red).
+    var failureAngle: Double? = nil
 }
 
 /// One object's print on the platen (§9.5 items 5–7), in print space: approach shadows, the growing ink (masked by a
@@ -386,6 +388,9 @@ final class FoldPlaten {
     private(set) var stack: FoldPrintStack?
     private var outgoing: [FoldPrintStack] = []
     private var pressedAge: Double?
+    /// The specimen's seed: the PRESSED stamp's offset and tilt follow it (FOLD-REVIEW-3 N12).
+    private var pressedSeed: UInt64 = 0
+    private var pressedAngle: CGFloat = -0.14
     private var poppedBolt: (layer: CALayer, age: Double, start: CGPoint)?
     private let softDisc = FoldStamps.softDisc()
     private let ringImage = FoldStamps.newtonRings()
@@ -518,7 +523,7 @@ final class FoldPlaten {
         for s in [stack].compactMap({ $0 }) + outgoing { position(s) }
         pressed.contents = FoldTextures.pressedStamp()
         pressed.bounds = CGRect(x: 0, y: 0, width: 150, height: 57)
-        pressed.position = CGPoint(x: layout.printCentre.x + (layout.isBook ? 0 : 60), y: layout.printCentre.y + (layout.isBook ? 70 : 24))
+        placePressed()
         crack.path = nil
         crackLight.path = nil
     }
@@ -553,6 +558,8 @@ final class FoldPlaten {
 
     func setStamp(_ stamp: FoldStamp, variant: PressVariant) {
         if stack != nil { wipe() }
+        pressedSeed = variant.seed
+        placePressed()
         let s = FoldPrintStack(stamp: stamp, variant: variant, softDisc: softDisc, rings: ringImage)
         position(s)
         printHolder.addSublayer(s.root)
@@ -582,6 +589,29 @@ final class FoldPlaten {
 
     func reveal() {
         pressedAge = 0
+        placePressed()
+    }
+
+    /// The PRESSED stamp's pose for one specimen (FOLD-REVIEW-3 N12): deterministic per seed, ±20 pt and −8° ± 6°
+    /// about a base on the plate's lower half (book: toward the far edge), so reveals stop being carbon copies.
+    /// `offset` is from the print centre in canvas points; it keeps the 85 % stamp inside the strike plate.
+    static func pressedPose(seed: UInt64, book: Bool) -> (offset: CGPoint, angle: CGFloat) {
+        var rng = SplitMix64(seed: seed ^ 0x9E55ED)
+        let base = book ? CGPoint(x: -22, y: 72) : CGPoint(x: 60, y: 24)
+        let dx = CGFloat.random(in: -20...20, using: &rng)
+        let dy = CGFloat.random(in: -20...20, using: &rng)
+        let tilt = CGFloat.random(in: -6...6, using: &rng) * .pi / 180
+        return (CGPoint(x: base.x + dx, y: base.y + dy), -0.14 + tilt)
+    }
+
+    /// The stamp is 85 % of its drawn size once it has landed (it covered the print's lower third at 100 %).
+    static let pressedScale: CGFloat = 0.85
+
+    private func placePressed() {
+        guard let layout else { return }
+        let pose = Self.pressedPose(seed: pressedSeed, book: layout.isBook)
+        pressed.position = CGPoint(x: layout.printCentre.x + pose.offset.x, y: layout.printCentre.y + pose.offset.y)
+        pressedAngle = pose.angle
     }
 
     /// The current monoprint (no bezel), for the collection card's diptych.
@@ -664,9 +694,9 @@ final class FoldPlaten {
             pressedAge = age + f.dt
             if t > 0 {
                 let k = f.reduceMotion ? 1 : min(1, t / 0.12)
-                let s = 1.5 - 0.5 * k
+                let s = CGFloat(1.5 - 0.5 * k) * Self.pressedScale
                 pressed.opacity = Float(0.92 * k)
-                pressed.setAffineTransform(CGAffineTransform(rotationAngle: -0.14).scaledBy(x: s, y: s))
+                pressed.setAffineTransform(CGAffineTransform(rotationAngle: pressedAngle).scaledBy(x: s, y: s))
             }
         }
 

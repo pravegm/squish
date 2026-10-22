@@ -65,7 +65,8 @@ jobs:
         if: success() && (github.event_name == 'push' || inputs.screenshots)
         env:
           # Pushes capture a representative subset; run the workflow manually with filter "." for all of them.
-          SCENARIO_FILTER: ${{ inputs.filter || '^(01|05|20|25|34|55|80|85|9[0-9])-' }}
+          # 9A–9Z are the folded-device store shots (ci/scenarios.txt).
+          SCENARIO_FILTER: ${{ inputs.filter || '^(01|05|20|25|34|55|80|85|9[0-9A-Z])-' }}
         run: bash ci/screenshots.sh
 
       - name: Upload logs

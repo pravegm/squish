@@ -9,8 +9,8 @@ enum FoldTextures {
     static let platenLit: Float = 0.90
 
     /// The enamel field colour (§2.1): mix(floorNear #F1E9DC, gel, 0.35).
-    /// `lit` multiplies the result: 0.94 for the 3D anvil's base (it is lit on top), `platenLit` for the 2D platen,
-    /// calibrated so the unlit platen matches the rendered anvil field (FOLD-REVIEW-1 #8, target L 195–215) [tune].
+    /// `lit` multiplies the result. Both fields use `platenLit`: the 2D platen and, since FOLD-REVIEW-3 N3, the 3D
+    /// anvil's unlit field, so the two pages are the same colour by construction (target L 195–215) [tune].
     static func enamel(gel: UInt32, golden: Bool, lit: Float = 1) -> UIColor {
         let a = StudioEnvironment.rgb(0xF1E9DC)
         let b = StudioEnvironment.rgb(golden ? 0xF3E6C4 : gel)
@@ -237,7 +237,7 @@ enum FoldTextures {
     }
 
     /// The Fold Press dial (FOLD-REVIEW-1 #11, #15): 0–80 t so the sealed tonnage (up to ~70) always fits, red zone
-    /// 60–80, numerals every 20 big enough to read at 60 pt, "TONS" well below the hub.
+    /// 60–80, numerals 0 / 40 / 80 (as on the cover, FOLD-REVIEW-3 N11), "TONS" centred under the hub.
     static let gaugeMaxTons: CGFloat = 80
 
     @MainActor
@@ -247,7 +247,7 @@ enum FoldTextures {
         format.opaque = false
         let size = CGSize(width: diameter, height: diameter)
         let maxTons = gaugeMaxTons
-        let font = RigTextures.roundedFont(diameter * 0.14, .heavy)
+        let font = RigTextures.roundedFont(diameter * 0.15, .heavy)
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
             let cg = context.cgContext
@@ -274,20 +274,24 @@ enum FoldTextures {
                 cg.addLine(to: point(CGFloat(t), outer))
                 cg.strokePath()
             }
-            for t in stride(from: 0, through: Int(maxTons), by: 20) {
+            // FOLD-REVIEW-3 N11: numerals 0 / 40 / 80 only (five crowded a 60 pt dial). The end numerals sit 5.5 t inside
+            // their ticks, so the resting needle no longer covers the "0" and the "80" clears "TONS".
+            for t in stride(from: 0, through: Int(maxTons), by: 40) {
                 let text = "\(t)" as NSString
                 let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Palette.graphite]
                 let s = text.size(withAttributes: attributes)
-                let p = point(CGFloat(t), R * 0.62)
+                let nudge: CGFloat = t == 0 ? 5.5 : (CGFloat(t) == maxTons ? -5.5 : 0)
+                let p = point(CGFloat(t) + nudge, R * 0.56)
                 text.draw(at: CGPoint(x: p.x - s.width / 2, y: p.y - s.height / 2), withAttributes: attributes)
             }
+            // "TONS" centred just under the hub, narrow enough to stay clear of the 0 and 80.
             let tons = "TONS" as NSString
             let tonsAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.monospacedSystemFont(ofSize: diameter * 0.085, weight: .semibold),
-                .foregroundColor: Palette.inkSecondary, .kern: 1,
+                .font: UIFont.monospacedSystemFont(ofSize: diameter * 0.075, weight: .semibold),
+                .foregroundColor: Palette.inkSecondary, .kern: 0.5,
             ]
             let ts = tons.size(withAttributes: tonsAttributes)
-            tons.draw(at: CGPoint(x: c.x - ts.width / 2, y: c.y + R * 0.42), withAttributes: tonsAttributes)
+            tons.draw(at: CGPoint(x: c.x - ts.width / 2, y: c.y + R * 0.22), withAttributes: tonsAttributes)
         }.cgImage
     }
 
@@ -297,7 +301,8 @@ enum FoldTextures {
         return CGFloat((90 - alpha) * .pi / 180)
     }
 
-    /// The P-48 nameplate (FOLD-REVIEW-1 #15): brushed steel, a 1 pt top highlight, two rivets, Mono Bold.
+    /// The crown nameplate (FOLD-REVIEW-1 #15): brushed steel, a 1 pt top highlight, two rivets. Blank since
+    /// FOLD-REVIEW-3 N7: the bezel lays the live hinge-angle readout (`engraved`) over it instead of "P-48".
     @MainActor
     static func nameplate(size: CGSize) -> CGImage? {
         let format = UIGraphicsImageRendererFormat()
@@ -322,13 +327,29 @@ enum FoldTextures {
                 cg.setFillColor(UIColor(white: 1, alpha: 0.8).cgColor)
                 cg.fillEllipse(in: rivet.insetBy(dx: 1.3, dy: 1.3).offsetBy(dx: -0.5, dy: -0.5))
             }
-            let text = "P-48" as NSString
-            let font = UIFont.monospacedSystemFont(ofSize: min(17, size.height * 0.72), weight: .bold)
-            let s = text.size(withAttributes: [.font: font])
-            let origin = CGPoint(x: (size.width - s.width) / 2, y: (size.height - s.height) / 2)
-            text.draw(at: CGPoint(x: origin.x, y: origin.y + 0.8),
-                      withAttributes: [.font: font, .foregroundColor: UIColor(white: 1, alpha: 0.6), .kern: 3])
-            text.draw(at: origin, withAttributes: [.font: font, .foregroundColor: Palette.enamelGraphite, .kern: 3])
+        }.cgImage
+    }
+
+    /// Engraved plate text, for the hinge-angle readout on the nameplate (FOLD-REVIEW-3 N7): Mono Bold, graphite ink
+    /// over a 0.8 pt white lower highlight, or stamp red once it has frozen at the failure angle. Image at 3×,
+    /// tight to the text.
+    @MainActor
+    static func engraved(_ text: String, fontSize: CGFloat, red: Bool) -> CGImage? {
+        let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
+        let ink: UIColor = red ? Palette.stampRed : Palette.enamelGraphite
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink, .kern: 1.5]
+        let highlight: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: UIColor(white: 1, alpha: 0.6), .kern: 1.5,
+        ]
+        let string = text as NSString
+        let bounds = string.size(withAttributes: attributes)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = false
+        let canvas = CGSize(width: max(1, ceil(bounds.width)), height: max(1, ceil(bounds.height + 0.8)))
+        return UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
+            string.draw(at: CGPoint(x: 0, y: 0.8), withAttributes: highlight)
+            string.draw(at: .zero, withAttributes: attributes)
         }.cgImage
     }
 

@@ -73,5 +73,11 @@
 97-fold-can-60|object=sodaCan;foldsim=60|24
 98-fold-ball-60|object=unsquishable;foldsim=60|24
 99-fold-jelly-reveal|object=jelly;foldsim=45,170|24
+# Store shots (FOLD-REVIEW-3 N1): the live Fold Press halves mapped onto a folded Duo-shaped device, 3/4 eye, written by
+# the app to Documents and copied to ci-screens/<name>-storeshot-<angle>[-land|-eye].png (-eye = exact design eye, for
+# the §12 E checks). Tabletop layout here (an 18 Pro canvas); the real book-pose Duo shots come from duo.yml.
+9A-store-duck-110|object=rubberDuck;foldsim=110;storeshot|30
+9B-store-duck-120|object=rubberDuck;foldsim=120;storeshot;storeshotsize=both|30
+9C-store-duck-sweep|object=rubberDuck;foldsim=120,90,60;storeshot|60
 # App Store icon art (AppIconArt), cropped to ci-screens/AppIcon-1024.png by ci/screenshots.sh
 85-icon|icon|8

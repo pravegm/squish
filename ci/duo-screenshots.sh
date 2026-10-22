@@ -43,8 +43,16 @@
 # Never run `simctl io ... screenConfig` on the Duo: it crash-loops SpringBoard (needs shutdown + boot).
 # ---------------------------------------------------------------------------------------------------------
 #
+# STORE SHOTS (FOLD-REVIEW-3 N1): for objects in STORESHOT_OBJECTS the app is launched with
+# `storeshot=<STORESHOT_ANGLES, comma-separated>`. Once the real hinge has been still near one of those angles, the app
+# snapshots the live Fold Press stage and writes Documents/storeshot-<angle>.png (folded-device mock-up, 3/4 eye) and
+# storeshot-<angle>-eye.png (exact design eye), logging `SQUISH-T storeshot <angle> ok|failed`. The script waits for
+# that line before moving the hinge on, then copies the files to <object>-storeshot-<angle>[-eye].png. Store-shot
+# angles must also be in ANGLES (the hinge has to stop there).
+#
 # Env: UDID (required), OBJECTS, ANGLES, HINGE_DRIVER, SWEEP_SECS_PER_30 (1.5), SWEEP_STEP (10),
-#      SETTLE (2.5), OUT (duo-screens), APP, BUNDLE, DUO_HINGE (path to the duo-hinge binary).
+#      SETTLE (2.5), OUT (duo-screens), APP, BUNDLE, DUO_HINGE (path to the duo-hinge binary),
+#      STORESHOT_OBJECTS (rubberDuck; empty = none), STORESHOT_ANGLES (120 75), STORESHOT_WAIT (45 s per shot).
 set -uo pipefail
 
 UDID="${UDID:?set UDID to the iPhone Duo simulator}"
@@ -58,6 +66,9 @@ OUT="${OUT:-duo-screens}"
 APP="${APP:-build/Build/Products/Debug-iphonesimulator/Squish.app}"
 BUNDLE="${BUNDLE:-com.pravegm.squish}"
 DUO_HINGE="${DUO_HINGE:-$HOME/duo-fold-control/tools/duo-hinge}"
+STORESHOT_OBJECTS="${STORESHOT_OBJECTS-rubberDuck}"
+STORESHOT_ANGLES="${STORESHOT_ANGLES-120 75}"
+STORESHOT_WAIT="${STORESHOT_WAIT:-45}"
 
 mkdir -p "$OUT/logs" "$OUT/raw"
 OUT_ABS="$(cd "$OUT" && pwd)"
@@ -203,6 +214,20 @@ wait_first_render() {
   log "WARN no 'frame 120' line after ${max}s; continuing"; return 1
 }
 
+# Wait for the app's "SQUISH-T storeshot <angle> ok|failed" line, at most $3 seconds.
+wait_storeshot() {
+  local logf="$1" a="$2" max="$3" t=0
+  while (( t < max )); do
+    if grep -qE "SQUISH-T storeshot $a (ok|failed)" "$logf" 2>/dev/null; then
+      log "storeshot $a: $(grep -E "SQUISH-T storeshot $a (ok|failed)" "$logf" | tail -1)"; return 0
+    fi
+    sleep 1; t=$((t + 1))
+  done
+  log "WARN no 'SQUISH-T storeshot $a' line after ${max}s"; FAILURES=$((FAILURES+1)); return 1
+}
+
+app_data() { to 30 xcrun simctl get_app_container "$UDID" "$BUNDLE" data 2>/dev/null || true; }
+
 # ---- main -------------------------------------------------------------------------------------------
 log "UDID=$UDID driver=$DRIVER objects=[$OBJECTS] angles=[$ANGLES] timeout=${TIMEOUT_BIN:-perl-alarm}"
 to 60 xcrun simctl bootstatus "$UDID" -b >>"$RUNLOG" 2>&1 || log "WARN bootstatus timed out"
@@ -222,8 +247,17 @@ for obj in $OBJECTS; do
   [[ "$DRIVER" != none ]] && { drv_set "$DRIVER" 180 >>"$RUNLOG" 2>&1; CUR=180; fsleep "$SETTLE"; }
   applog="$OUT_ABS/logs/$obj.txt"; : >"$applog"
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  store=""
+  if [[ "$DRIVER" != none && -n "$STORESHOT_ANGLES" && " $STORESHOT_OBJECTS " == *" $obj "* ]]; then
+    store=";storeshot=$(echo $STORESHOT_ANGLES | tr ' ' ',')"
+    DATA="$(app_data)"
+    [[ -n "$DATA" ]] && rm -f "$DATA"/Documents/storeshot-*.png
+    for a in $STORESHOT_ANGLES; do
+      [[ " $ANGLES " == *" $a "* ]] || log "WARN storeshot angle $a is not in ANGLES; the hinge never stops there"
+    done
+  fi
   to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
-    "$UDID" "$BUNDLE" -squishDemo "object=$obj;duo" >>"$RUNLOG" 2>&1 || { log "launch failed: $obj"; FAILURES=$((FAILURES+1)); continue; }
+    "$UDID" "$BUNDLE" -squishDemo "object=$obj;duo$store" >>"$RUNLOG" 2>&1 || { log "launch failed: $obj"; FAILURES=$((FAILURES+1)); continue; }
   wait_first_render "$applog" 45
   fsleep 1.5
 
@@ -233,7 +267,20 @@ for obj in $OBJECTS; do
     hinge_to "$a"
     fsleep "$SETTLE"
     shoot "$obj-$a" inner          # closing from flat, the inner panel stays lit down to ~20°
+    # Hold the hinge until the app has written its store shot for this angle (it shoots ~0.8 s after the hinge stops).
+    if [[ -n "$store" && " $STORESHOT_ANGLES " == *" $a "* ]]; then wait_storeshot "$applog" "$a" "$STORESHOT_WAIT"; fi
   done
+  if [[ -n "$store" ]]; then
+    DATA="$(app_data)"; n=0
+    if [[ -n "$DATA" ]]; then
+      for f in "$DATA"/Documents/storeshot-*.png; do
+        [[ -e "$f" ]] || continue
+        cp "$f" "$OUT_ABS/$obj-$(basename "$f")"; n=$((n + 1))
+      done
+    fi
+    log "$obj: copied $n store shot file(s)"
+    (( n > 0 )) || FAILURES=$((FAILURES+1))
+  fi
   hinge_to 0;   fsleep "$SETTLE"; fsleep 1; shoot "$obj-closed" cover
   hinge_to 170; fsleep "$SETTLE"; fsleep 1.5; shoot "$obj-reveal" inner   # reopening past ~150° wakes the inner panel
   grep -c "SQUISH-H" "$applog" >/dev/null 2>&1 \

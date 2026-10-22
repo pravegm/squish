@@ -110,8 +110,17 @@ struct SpecimenRecord: Codable, Identifiable, Equatable, Sendable {
     var isPerfect: Bool
     var wasSlammed: Bool
     var reversals: Int = 0
+    /// Seconds of *engaged* pressing: the longest stretch of this press in which the hinge (or finger) moved at
+    /// least every 10 s (docs/appstore/achievements.md #4, Patience). nil when unknown (older records, or a press
+    /// recorded without its input trace), which never earns Patience.
+    var engagedDuration: Double? = nil
     /// File name (not path) of the specimen thumbnail PNG in the collection folder, once captured.
     var thumbnailFile: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, number, kind, date, variant, fractureCount, maxCompression, failureAngle, duration
+        case isPerfect, wasSlammed, reversals, engagedDuration, thumbnailFile
+    }
 
     /// Fun, deterministic "tonnage" for the label.
     var tons: Int {
@@ -123,6 +132,28 @@ struct SpecimenRecord: Codable, Identifiable, Equatable, Sendable {
     var flavourLine: String {
         let lines = kind.flavourLines
         return lines[Int(variant.seed % UInt64(lines.count))]
+    }
+}
+
+extension SpecimenRecord {
+    /// Backward-compatible decoding: fields added after v1.0 (`reversals`, `engagedDuration`) may be missing from
+    /// older collection.json files. Declared in an extension so the memberwise initializer is kept.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        number = try container.decode(Int.self, forKey: .number)
+        kind = try container.decode(ObjectKind.self, forKey: .kind)
+        date = try container.decode(Date.self, forKey: .date)
+        variant = try container.decode(PressVariant.self, forKey: .variant)
+        fractureCount = try container.decode(Int.self, forKey: .fractureCount)
+        maxCompression = try container.decode(Double.self, forKey: .maxCompression)
+        failureAngle = try container.decodeIfPresent(Double.self, forKey: .failureAngle)
+        duration = try container.decode(Double.self, forKey: .duration)
+        isPerfect = try container.decode(Bool.self, forKey: .isPerfect)
+        wasSlammed = try container.decodeIfPresent(Bool.self, forKey: .wasSlammed) ?? false
+        reversals = try container.decodeIfPresent(Int.self, forKey: .reversals) ?? 0
+        engagedDuration = try container.decodeIfPresent(Double.self, forKey: .engagedDuration)
+        thumbnailFile = try container.decodeIfPresent(String.self, forKey: .thumbnailFile)
     }
 }
 

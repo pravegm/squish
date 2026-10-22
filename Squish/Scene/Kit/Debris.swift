@@ -18,10 +18,17 @@ struct DebrisBody {
     var settled = false
     /// True when the transform changed since the last sync.
     var dirty = true
+    /// Cap on the sideways spread a flattened piece gets (1 = it never grows: glass, FOLD-REVIEW-3 N5).
+    var maxSpread: Float = 1.8
+    /// Optional walls (x, z) for this piece's centre alone, inside the world's (glass stays on its strike plate).
+    var boundsMin: SIMD2<Float>?
+    var boundsMax: SIMD2<Float>?
+    /// A frozen piece never moves, flattens or spreads again (the sealed pile, FOLD-REVIEW-3 N5).
+    var frozen = false
 
     /// Scale multiplier (relative to the piece's base scale): flattened along the up axis, spread on the others.
     var scaleFactor: SIMD3<Float> {
-        let spread = min(1 / max(flat, 0.05).squareRoot(), 1.8)
+        let spread = min(1 / max(flat, 0.05).squareRoot(), max(maxSpread, 1))
         var s = SIMD3<Float>(repeating: spread)
         s[upAxis] = flat
         return s
@@ -69,7 +76,52 @@ struct DebrisWorld {
         abs(p.x) <= ceilingHalfExtent.x && abs(p.z) <= ceilingHalfExtent.y
     }
 
+    /// The (lo, hi) walls on one horizontal axis (0 = x, 1 = z) for this piece: the world's, tightened by its own.
+    func walls(for b: DebrisBody, axis: Int) -> (lo: Float, hi: Float) {
+        var lo = minXZ[axis]
+        var hi = maxXZ[axis]
+        if let own = b.boundsMin { lo = max(lo, own[axis]) }
+        if let own = b.boundsMax { hi = min(hi, own[axis]) }
+        if hi < lo {
+            let mid = (lo + hi) / 2
+            return (mid, mid)
+        }
+        return (lo, hi)
+    }
+
+    /// The piece with its centre moved inside its walls (a piece adopted off its plate starts on it).
+    func contained(_ body: DebrisBody) -> DebrisBody {
+        var b = body
+        for axis in 0..<2 {
+            let index = axis == 0 ? 0 : 2
+            let w = walls(for: b, axis: axis)
+            let inside = min(max(b.position[index], w.lo), w.hi)
+            if inside != b.position[index] {
+                b.position[index] = inside
+                b.dirty = true
+            }
+        }
+        return b
+    }
+
+    /// Stops piece `i` for good where it lies: no velocity, dropped onto the floor if it was still moving, and no
+    /// more flattening or spreading under the ceiling (FOLD-REVIEW-3 N5: the reveal pile is the sealed pile).
+    mutating func freeze(_ i: Int) {
+        guard bodies.indices.contains(i) else { return }
+        var b = bodies[i]
+        b.velocity = .zero
+        b.angularVelocity = .zero
+        if !b.settled {
+            b.position.y = floorY + b.support
+            b.settled = true
+        }
+        b.frozen = true
+        b.dirty = true
+        bodies[i] = b
+    }
+
     private func integrate(_ b: inout DebrisBody, h: Float) {
+        if b.frozen { return }
         let gap = ceiling - floorY
         let covered = underCeiling(b.position)
 
@@ -116,10 +168,10 @@ struct DebrisWorld {
         }
         b.dirty = true
 
-        // Walls keep the mess on the anvil.
+        // Walls keep the mess on the anvil (and a piece with its own bounds inside them).
         for axis in 0..<2 {
             let index = axis == 0 ? 0 : 2
-            let lo = minXZ[axis], hi = maxXZ[axis]
+            let (lo, hi) = walls(for: b, axis: axis)
             if b.position[index] < lo {
                 b.position[index] = lo
                 b.velocity[index] = abs(b.velocity[index]) * 0.3
@@ -238,8 +290,12 @@ final class DebrisSystem {
     }
 
     /// Takes over an existing entity (keeps its world transform).
+    /// - Parameters:
+    ///   - maxSpread: cap on the sideways growth when the ceiling flattens it (1 = never grows).
+    ///   - bounds: optional (x, z) box for this piece's centre, in `root` space, inside the anvil walls.
     func adopt(_ entity: Entity, velocity: SIMD3<Float>, spin: SIMD3<Float>,
-               bounciness: Float = 0.25, friction: Float = 0.6) {
+               bounciness: Float = 0.25, friction: Float = 0.6, maxSpread: Float = 1.8,
+               bounds: (min: SIMD2<Float>, max: SIMD2<Float>)? = nil) {
         guard entities.count < Self.maxPieces else { return }
         entity.setParent(root, preservingWorldTransform: true)
         let local = entity.visualBounds(relativeTo: entity)
@@ -247,10 +303,19 @@ final class DebrisSystem {
         let scale = entity.scale
         let body = DebrisBody(position: entity.position, velocity: velocity, orientation: entity.orientation,
                               angularVelocity: spin, halfExtents: simd_max(extent * scale, SIMD3(repeating: 0.0008)),
-                              bounciness: bounciness, friction: friction)
-        world.bodies.append(body)
+                              bounciness: bounciness, friction: friction, maxSpread: maxSpread,
+                              boundsMin: bounds?.min, boundsMax: bounds?.max)
+        world.bodies.append(world.contained(body))
         entities.append(entity)
         baseScales.append(scale)
+    }
+
+    /// Freezes these pieces where they lie (FOLD-REVIEW-3 N5: at seal, so the reveal pile is the sealed pile).
+    func freeze(_ pieces: [Entity]) {
+        for piece in pieces {
+            guard let index = entities.firstIndex(where: { $0 === piece }) else { continue }
+            world.freeze(index)
+        }
     }
 
     /// Removes one adopted entity from the simulation (e.g. a chunk that splits again). Returns its body.

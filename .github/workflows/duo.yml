@@ -18,6 +18,14 @@ on:
         type: choice
         options: [auto, hinge, duo-hinge, foldctl]
         default: auto
+      storeshot_objects:
+        description: "Objects that also get folded-device store shots (FoldStoreShot); empty = none"
+        type: string
+        default: "rubberDuck"
+      storeshot_angles:
+        description: "Hinge angles for store shots (must also be in angles)"
+        type: string
+        default: "120 75"
 
 concurrency:
   group: duo-${{ github.ref }}
@@ -147,6 +155,9 @@ jobs:
           OBJECTS: ${{ inputs.objects }}
           ANGLES: ${{ inputs.angles }}
           HINGE_DRIVER: ${{ inputs.driver }}
+          # Written by the app and copied to duo-screens/<object>-storeshot-<angle>[-eye].png (uploaded below).
+          STORESHOT_OBJECTS: ${{ inputs.storeshot_objects }}
+          STORESHOT_ANGLES: ${{ inputs.storeshot_angles }}
           OUT: duo-screens
         run: bash ci/duo-screenshots.sh
 

@@ -55,6 +55,11 @@ final class FoldPressController {
     private var failureCompression: Double?
     private var printCompression: Double = 0
     private var renderCompression: Double = 0
+    /// The clamshell lean actually applied (radians), eased toward `FoldLean.angle` so it settles to 0 at failure.
+    private var leanAngle: Double = 0
+    /// The hinge angle last frame, and the one the object failed at (the crown readout freezes red on it).
+    private var lastAngle: Double = 180
+    private var failureAngle: Double?
     private var yolkBroke = false
     private var damage = 0
     private var hasFolded = false
@@ -124,7 +129,7 @@ final class FoldPressController {
         let gel = StudioEnvironment.gel(for: kind, golden: variant.isGolden)
         let enamel = FoldTextures.enamel(gel: gel, golden: variant.isGolden, lit: FoldTextures.platenLit)
         platen.setEnamel(enamel)
-        anvil.setGel(gel, golden: variant.isGolden)
+        anvil.setEnamel(enamel)   // FOLD-REVIEW-3 N3: one colour for both fields, the anvil's unlit
         host?.setEnamel(enamel)
     }
 
@@ -145,6 +150,8 @@ final class FoldPressController {
         failureCompression = nil
         printCompression = 0
         renderCompression = 0
+        leanAngle = 0
+        failureAngle = nil
         yolkBroke = false
         damage = 0
         peakTons = 0
@@ -183,6 +190,7 @@ final class FoldPressController {
             printCompression = max(printCompression, renderCompression)
         }
         let angle = engine.angle
+        lastAngle = angle
         let objectPresent = sinceSet > (firstObject ? 0.9 : 1.2) || phase == .pressing
 
         guard let layout else { return }
@@ -192,7 +200,8 @@ final class FoldPressController {
                               printCompression: printCompression, contacted: contacted, tell: tell,
                               failureCompression: failureCompression, objectPresent: objectPresent,
                               tabletop: !layout.isBook, reduceMotion: context.reduceMotion, time: clock, dt: dt,
-                              sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil)
+                              sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil,
+                              failureAngle: failureAngle)
         platen.update(frame)
         bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: dt),
                      frame: frame)
@@ -218,6 +227,7 @@ final class FoldPressController {
             if isFailure {
                 tell = false
                 failureCompression = c
+                if failureAngle == nil { failureAngle = lastAngle }
                 redTimer = 0.6
                 needleVelocity += 5 * 18
             }
@@ -399,14 +409,21 @@ final class FoldPressController {
                                                SIMD3<Float>(-solution.forward)))
         let distance = Float(simd_length(solution.eye) * k)
         let creaseZ = -(FoldMetrics.footprintFromAxisMM - FoldMetrics.creaseHalf / FoldMetrics.pointsPerMM)
-        let lean = contacted ? Float(8 * Double.pi / 180 * renderCompression) : 0
-        let exposure = FoldCurve.exposure(eyeElevation: eye.renderElevation(pose), angle: angle)
+        // Clamshell lean (FOLD-REVIEW-3 N2): 2.5°·c, none for sheets, eased back to 0 once the object has failed.
+        let leanTarget = FoldLean.angle(compression: renderCompression, contacted: contacted,
+                                        failed: failureCompression != nil, kind: kind)
+        leanAngle += (leanTarget - leanAngle) * (1 - pow(0.5, dt / 0.06))
+        if abs(leanAngle) < 1e-5 && leanTarget == 0 { leanAngle = 0 }
+        let exposure = FoldCurve.exposure(eyeElevation: eye.renderElevation(pose))
+        let ppm = FoldMetrics.pointsPerMM
+        let plateHalf = SIMD2<Double>((FoldMetrics.plateLateral / 2 + 8) / ppm, (FoldMetrics.plateDepth / 2 + 8) / ppm) * k
         let stage = FoldStage(cameraPosition: toScene(solution.eye), cameraOrientation: simd_quatf(rotation),
                               verticalFOV: Float(solution.verticalFOV), near: max(0.01, distance * 0.1),
-                              far: distance * 4, lean: lean, flashPosition: toScene(SIMD3<Double>(0, 30, creaseZ)),
+                              far: distance * 4, lean: Float(leanAngle),
+                              flashPosition: toScene(SIMD3<Double>(0, 30, creaseZ)),
                               rimGain: Float(FoldCurve.rimGain(angle: angle)),
                               yaw: Float(stageYaw * .pi / 180), iblOffset: Float(exposure.iblOffset),
-                              keyGain: Float(exposure.keyGain))
+                              keyGain: Float(exposure.keyGain), plateHalfExtent: SIMD2<Float>(plateHalf))
         host?.setCamera(position: stage.cameraPosition, orientation: stage.cameraOrientation,
                         verticalFOV: stage.verticalFOV, near: stage.near, far: stage.far)
         self.scene?.setFoldStage(stage)

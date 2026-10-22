@@ -560,13 +560,13 @@ enum FoldCurve {
 
     /// Fold-mode exposure (FOLD-REVIEW-1 #1): the studio IBL drops 0.5 EV, and a further 0.4 EV as the rendered eye
     /// goes grazing (low eyes see the bright studio mirrored in the clearcoat and steel). Returns (IBL EV offset,
-    /// key-light gain) for a rendered eye elevation in degrees.
-    /// FOLD-REVIEW-2 #4: the flat pose (θ ≥ 160°, faded out by 140°) was then the over-exposed one (the field faces
-    /// the key and the studio head-on): a further −0.3 EV and −8 % key there, so the anvil tone holds across the range.
-    static func exposure(eyeElevation: Double, angle: Double = 120) -> (iblOffset: Double, keyGain: Double) {
+    /// key-light gain) for a rendered eye elevation in degrees. It only lights the plate, bolts, pins and object.
+    /// FOLD-REVIEW-3 N3: the anvil's enamel field is unlit now (the platen's exact colour), so the flat-pose term
+    /// (−0.3 EV, −8 % key at θ ≥ 160°) that fought its blow-out is gone; it was also what left the reveal plate
+    /// 21–28 L darker than the platen's.
+    static func exposure(eyeElevation: Double) -> (iblOffset: Double, keyGain: Double) {
         let grazing = clamp((75 - eyeElevation) / 25, 0, 1)
-        let flat = clamp((angle - 140) / 20, 0, 1)
-        return (-0.5 - 0.4 * grazing - 0.3 * flat, (0.92 - 0.12 * grazing) * (1 - 0.08 * flat))
+        return (-0.5 - 0.4 * grazing, 0.92 - 0.12 * grazing)
     }
 
     /// Print radius as a fraction of the full print: r = R·min(1, 1.1·√c) (§3.2).
@@ -576,5 +576,40 @@ enum FoldCurve {
     static func shadow(gap q: Double) -> (blur: Double, alpha: Double, scale: Double) {
         let q = clamp(q, 0, 1)
         return (4 + 36 * q, 0.08 + 0.27 * (1 - q), 1 + 0.25 * q)
+    }
+}
+
+// MARK: - Clamshell lean (§2.4, §12; FOLD-REVIEW-3 N2)
+
+/// The squash tips the object's top away from the real hinge: a positive angle about the anvil's +x axis turns +y
+/// toward +z, the anvil's front edge (the hinge is at z = −40 mm). It is a rigid tilt of the whole object slot, so it
+/// pivots on the base edge the top tips toward: the footprint stays where it was and no part of the base sinks into
+/// the strike plate. (Pivoting on the slot origin buried the front half of the bubble film under the plate face.)
+enum FoldLean {
+    /// Degrees at full compression. §12 asks for 2–3° (it was 8°·c, 3× spec).
+    static let degreesAtFullCompression: Double = 2.5
+
+    /// Sheets lie flat on the plate (a tilted sheet buries one side); the rigid Unsquishable never deforms.
+    static func leans(_ kind: ObjectKind) -> Bool {
+        switch kind {
+        case .bubbleWrap, .unsquishable: return false
+        default: return true
+        }
+    }
+
+    /// Radians about +x for compression `c`. Zero before contact, for kinds that don't lean, and once the object has
+    /// failed, so its remains and debris lie flat on the plate.
+    static func angle(compression c: Double, contacted: Bool, failed: Bool, kind: ObjectKind) -> Double {
+        guard contacted, !failed, leans(kind) else { return 0 }
+        return degreesAtFullCompression * .pi / 180 * clamp(c, 0, 1)
+    }
+
+    /// The translation that turns a rotation by `lean` about +x through the slot origin into the same rotation about
+    /// the base edge the top tips toward (pivot P = (0, 0, sign(lean)·baseRadius)): P − R·P. Same units as
+    /// `baseRadius`. Every base point then stays at or above the plate (y ≥ 0).
+    static func pivotShift(lean: Float, baseRadius: Float) -> SIMD3<Float> {
+        guard lean != 0, baseRadius > 0 else { return .zero }
+        let z = lean > 0 ? baseRadius : -baseRadius
+        return SIMD3<Float>(0, z * sin(lean), z * (1 - cos(lean)))
     }
 }

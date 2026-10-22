@@ -29,12 +29,44 @@ struct CollectionTests {
     @discardableResult
     private func press(_ store: CollectionStore, _ kind: ObjectKind, perfect: Bool = false, golden: Bool = false,
                        surprise: Bool = false, fractures: Int = 2, duration: Double = 6, reversals: Int = 0,
-                       slammed: Bool = false, seedStart: UInt64 = 1) -> RecordOutcome {
+                       slammed: Bool = false, seedStart: UInt64 = 1,
+                       samples: [PressTrace.Sample]? = nil) -> RecordOutcome {
         let seed = findSeed(for: kind, golden: golden, surprise: surprise, from: seedStart)
         let result = PressResult(kind: kind, seed: seed, failureAngle: 101, fractureCount: fractures,
                                  maxCompression: 0.95, duration: duration, wasSlammed: slammed,
                                  isPerfect: perfect, reversals: reversals)
-        return store.record(result, variant: PressVariant(kind: kind, seed: seed))
+        let variant = PressVariant(kind: kind, seed: seed)
+        let trace = samples.map {
+            PressTrace(kind: kind, variant: variant, samples: $0, usesVirtualHinge: false, config: .standard)
+        }
+        return store.record(result, variant: variant, trace: trace)
+    }
+
+    // MARK: Hinge trace builders (30 Hz, like a Duo hinge stream)
+
+    private static let sampleRate = 30.0
+
+    /// A steady close from `from` to `to` degrees over `seconds`, starting at `start`.
+    private func sweep(from: Double, to: Double, over seconds: Double, at start: Double) -> [PressTrace.Sample] {
+        let count = Int((seconds * Self.sampleRate).rounded())
+        return (1...count).map { step in
+            let t = Double(step) / Double(count)
+            return PressTrace.Sample(time: start + t * seconds, angle: from + (to - from) * t, closed: false)
+        }
+    }
+
+    /// The hinge held still: the same angle reported for `seconds` (a sensor that keeps streaming, the worst case).
+    private func hold(_ angle: Double, for seconds: Double, at start: Double) -> [PressTrace.Sample] {
+        let count = Int((seconds * Self.sampleRate).rounded())
+        return (1...count).map { step in
+            PressTrace.Sample(time: start + Double(step) / Self.sampleRate, angle: angle, closed: false)
+        }
+    }
+
+    /// The engine's arm-to-seal time for a trace: from the first sample 4° below the 168° armed start to the end.
+    private func pressDuration(_ samples: [PressTrace.Sample]) -> Double {
+        let start = samples.first { $0.angle <= 164 }?.time ?? 0
+        return (samples.last?.time ?? 0) - start
     }
 
     private func tinyPNG() -> Data {
@@ -180,15 +212,107 @@ struct CollectionTests {
         #expect(!store.earnedAchievements.contains(.perfectionist))
     }
 
-    @Test func midasWhatsInsideAndPatience() {
+    @Test func midasAndWhatsInside() {
         let (store, _) = makeStore()
         #expect(press(store, .cakeSlice, golden: true).newAchievements.contains(.midas))
         press(store, .jelly, surprise: true)
         #expect(!store.earnedAchievements.contains(.whatsInside))
         #expect(press(store, .cakeSlice, surprise: true).newAchievements.contains(.whatsInside))
-        press(store, .egg, duration: 30)
+    }
+
+    // MARK: Patience (achievements.md #4: > 30 s of engaged pressing, depth changing at least every 10 s)
+
+    @Test func patienceForAGenuinelySlowPress() {
+        let (store, _) = makeStore()
+        // Armed and still for 1 s, then one slow, steady 35 s close from 168° to 40°.
+        let samples = hold(168, for: 1, at: 0) + sweep(from: 168, to: 40, over: 35, at: 1)
+        let duration = pressDuration(samples)
+        #expect(duration > 33)
+        let outcome = press(store, .egg, duration: duration, samples: samples)
+        #expect(outcome.newAchievements.contains(.patience))
+        #expect((outcome.specimen.engagedDuration ?? 0) >= 30)
+        #expect(store.earnedAchievements.contains(.patience))
+    }
+
+    @Test func patienceIgnoresIdleTimeMidPress() {
+        let (store, _) = makeStore()
+        // 35 s from press start to seal, but 25 s of it is the phone left half-open at 110°.
+        let samples = hold(168, for: 2, at: 0)
+            + sweep(from: 168, to: 110, over: 6, at: 2)
+            + hold(110, for: 25, at: 8)
+            + sweep(from: 110, to: 40, over: 5, at: 33)
+        let duration = pressDuration(samples)
+        #expect(duration > 30)   // the old rule (arm-to-seal > 30 s) would have fired here
+        let outcome = press(store, .egg, duration: duration, samples: samples)
+        #expect(!outcome.newAchievements.contains(.patience))
+        #expect((outcome.specimen.engagedDuration ?? 99) < 10)
         #expect(!store.earnedAchievements.contains(.patience))
-        #expect(press(store, .egg, duration: 31).newAchievements.contains(.patience))
+    }
+
+    @Test func patienceBreaksOnStallsLongerThanTenSeconds() {
+        let (store, _) = makeStore()
+        // A staircase: a 15° nudge, then 12 s of nothing, six times (~73 s in all). Never engaged for long.
+        var samples = hold(168, for: 1, at: 0)
+        var angle = 168.0
+        for step in 0..<6 {
+            let start = 1 + Double(step) * 12
+            samples += sweep(from: angle, to: angle - 15, over: 0.5, at: start)
+            angle -= 15
+            samples += hold(angle, for: 11.5, at: start + 0.5)
+        }
+        let outcome = press(store, .egg, duration: pressDuration(samples), samples: samples)
+        #expect(!outcome.newAchievements.contains(.patience))
+        #expect((outcome.specimen.engagedDuration ?? 99) < 2)
+    }
+
+    @Test func patienceToleratesShortPauses() {
+        // Pauses of 8 s keep the press engaged (depth changes at least once every 10 s), so they count.
+        let samples = hold(168, for: 1, at: 0)
+            + sweep(from: 168, to: 120, over: 10, at: 1)
+            + hold(120, for: 8, at: 11)
+            + sweep(from: 120, to: 60, over: 10, at: 19)
+            + hold(60, for: 8, at: 29)
+            + sweep(from: 60, to: 40, over: 5, at: 37)
+        let duration = pressDuration(samples)
+        let engaged = PressEngagement.engagedDuration(samples: samples, pressDuration: duration)
+        #expect(abs(engaged - duration) < 0.01)
+        #expect(engaged >= PressEngagement.patienceSeconds)
+    }
+
+    @Test func patienceNeedsARecordedTrace() {
+        let (store, _) = makeStore()
+        // Without the input trace the engaged time is unknown, so a long press alone never earns it.
+        let outcome = press(store, .egg, duration: 45)
+        #expect(outcome.specimen.engagedDuration == nil)
+        #expect(!outcome.newAchievements.contains(.patience))
+    }
+
+    @Test func engagedTimeExcludesIdleBeforeThePressAndAfterTheSeal() {
+        // 20 s armed and untouched, a 5 s press, then 20 s more samples after the seal (closing and reopening).
+        let samples = hold(168, for: 20, at: 0)
+            + sweep(from: 168, to: 40, over: 5, at: 20)
+            + sweep(from: 40, to: 160, over: 20, at: 25)
+        let start = samples.first { $0.angle <= 164 }?.time ?? 0
+        let engaged = PressEngagement.engagedDuration(samples: samples, pressDuration: 25 - start)
+        #expect(engaged <= 25 - start + 0.001)
+        #expect(engaged < 6)
+    }
+
+    @Test func specimenDecodesWithoutNewerFields() throws {
+        let (store, _) = makeStore()
+        let outcome = press(store, .egg, samples: sweep(from: 168, to: 40, over: 6, at: 0))
+        #expect(outcome.specimen.engagedDuration != nil)
+        // A v1.0 record: no `reversals`, no `engagedDuration`.
+        let data = try JSONEncoder().encode(outcome.specimen)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["reversals"] = nil
+        object["engagedDuration"] = nil
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(SpecimenRecord.self, from: legacy)
+        #expect(decoded.id == outcome.specimen.id)
+        #expect(decoded.reversals == 0)
+        #expect(decoded.engagedDuration == nil)
+        #expect(decoded.duration == outcome.specimen.duration)
     }
 
     @Test func popStarAfterFiveHundredBubbles() {

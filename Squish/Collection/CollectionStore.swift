@@ -24,6 +24,10 @@ final class CollectionStore {
     private var bestsVersion = 0
     private var unlocked: Set<ObjectKind> = []
 
+    /// False in CI demo runs (unless the scenario says `patience`): Patience depends on wall-clock timing, which
+    /// slow simulators and scripted hinge sweeps stretch, so it must never land in a screenshot (FOLD-REVIEW-3 N8).
+    @ObservationIgnored private var awardsPatience = true
+
     let directory: URL
     @ObservationIgnored private var imageCache: [String: UIImage] = [:]
     private let log = Logger(subsystem: "com.pravegm.squish", category: "collection")
@@ -53,6 +57,7 @@ final class CollectionStore {
             let folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("SquishDemo-\(UUID().uuidString)", isDirectory: true)
             self.init(directory: folder)
+            awardsPatience = demo.has("patience")
             seedDemo(for: demo)
             return
         }
@@ -113,8 +118,11 @@ final class CollectionStore {
 
     // MARK: - Recording
 
-    func record(_ result: PressResult, variant: PressVariant) -> RecordOutcome {
+    /// Records a finished press. Pass the press's input `trace` so the engaged time (Patience) can be measured;
+    /// without one the specimen's `engagedDuration` is unknown (nil) and Patience can't be earned by it.
+    func record(_ result: PressResult, variant: PressVariant, trace: PressTrace? = nil) -> RecordOutcome {
         totalPresses += 1
+        let engaged = trace.map { PressEngagement.engagedDuration(of: $0, pressDuration: result.duration) }
         let specimen = SpecimenRecord(
             id: UUID(),
             number: totalPresses,
@@ -128,6 +136,7 @@ final class CollectionStore {
             isPerfect: result.isPerfect,
             wasSlammed: result.wasSlammed,
             reversals: result.reversals,
+            engagedDuration: engaged,
             thumbnailFile: nil
         )
         specimens.insert(specimen, at: 0)
@@ -239,7 +248,8 @@ final class CollectionStore {
         case .perfectionist: stats.perfectKinds.count >= 5
         case .midas: stats.goldenCount >= 1
         case .whatsInside: stats.surprisesFound.count >= 2
-        case .patience: stats.longestPress > 30
+        // One press with ≥ 30 s of engaged pressing; idle time and > 10 s stalls don't count (achievements.md #4).
+        case .patience: awardsPatience && (latest?.engagedDuration ?? 0) >= PressEngagement.patienceSeconds
         case .collector: stats.squishedKinds.count == ObjectKind.allCases.count
         case .theSecret: stats.squishedKinds.contains(.unsquishable)
         case .popStar: stats.bubblesPopped >= 500
@@ -411,4 +421,77 @@ final class CollectionStore {
         return seed
     }
     #endif
+}
+
+// MARK: - Engagement (Patience)
+
+/// How long a press was *actively* pressed, from its recorded hinge (or touch) trace. Patience
+/// (docs/appstore/achievements.md #4) counts time from the start of the press to the seal **with continuous
+/// engagement**: the depth must change at least once every 10 s. Holding still mid-press for longer than that
+/// breaks the streak, so leaving the phone half-open (or armed and untouched) never counts.
+enum PressEngagement {
+    /// Seconds of engaged pressing Patience needs in one press.
+    static let patienceSeconds: Double = 30
+    /// A stall longer than this (no motion) breaks engagement.
+    static let maxGap: Double = 10
+    /// Angle change (degrees) from the last motion that counts as motion. Smaller changes are sensor jitter
+    /// on a resting hinge; a genuinely slow press still moves this far every second or two.
+    static let motionThreshold: Double = 1
+
+    static func engagedDuration(of trace: PressTrace, pressDuration: Double) -> Double {
+        engagedDuration(samples: trace.samples, pressDuration: pressDuration,
+                        armAngleMax: trace.config.armAngleMax, hysteresis: trace.config.hysteresis)
+    }
+
+    /// The longest continuously engaged stretch of the press, in seconds, never more than `pressDuration`.
+    ///
+    /// - The press window starts where the engine starts it (the angle first drops `hysteresis` below the armed
+    ///   start, itself capped at `armAngleMax`) and lasts `pressDuration` (the engine's arm-to-seal time), so idle
+    ///   time before the press and the close / reopen after the seal are left out.
+    /// - Motion events are samples whose angle moved ≥ `motionThreshold` from the previous motion, or whose
+    ///   closed flag changed (a touch press marks the finger lifting that way). The seal closes the last stretch.
+    /// - Consecutive events ≤ `maxGap` apart extend the current stretch; a longer gap ends it.
+    static func engagedDuration(samples: [PressTrace.Sample], pressDuration: Double,
+                                armAngleMax: Double = 168, hysteresis: Double = 4) -> Double {
+        guard pressDuration > 0, let first = samples.first else { return 0 }
+
+        // Where the press began (falls back to the first sample if the trace never crosses the hysteresis).
+        var peak = min(first.angle, armAngleMax)
+        var startIndex = 0
+        for (index, sample) in samples.enumerated() {
+            peak = max(peak, min(sample.angle, armAngleMax))
+            if sample.angle <= peak - hysteresis {
+                startIndex = index
+                break
+            }
+        }
+        let start = samples[startIndex].time
+        let end = start + pressDuration
+
+        // Motion events inside the press window.
+        var events: [Double] = [start]
+        var anchor = samples[startIndex]
+        for sample in samples[(startIndex + 1)...] {
+            if sample.time > end { break }
+            if abs(sample.angle - anchor.angle) >= motionThreshold || sample.closed != anchor.closed {
+                events.append(sample.time)
+                anchor = sample
+            }
+        }
+        events.append(end)
+
+        // Longest run of events with no gap over `maxGap`.
+        var longest = 0.0
+        var run = 0.0
+        for (earlier, later) in zip(events, events.dropFirst()) {
+            let gap = later - earlier
+            if gap > maxGap {
+                run = 0
+            } else {
+                run += gap
+                longest = max(longest, run)
+            }
+        }
+        return min(longest, pressDuration)
+    }
 }

@@ -112,6 +112,92 @@ struct SceneTests {
         #expect(world.bodies[0].flat == flat)
     }
 
+    @Test func perPieceBoundsKeepFastPiecesInsideTheirBox() {
+        // FOLD-REVIEW-3 N5: a glass shard has its own walls inside the anvil's, and starts inside them when adopted.
+        var world = DebrisWorld()
+        let box = GlassDebris.centreBounds(containment: [0.05, 0.04], pieceHalf: [0.01, 0.01])
+        var rng = SplitMix64(seed: 5)
+        for _ in 0..<10 {
+            let body = DebrisBody(position: [0.09, 0.004, -0.07], velocity: Burst.unitDirection(rng: &rng, upBias: 0) * 0.8,
+                                  orientation: simd_quatf(angle: 0, axis: [0, 1, 0]), angularVelocity: .zero,
+                                  halfExtents: [0.006, 0.001, 0.005], boundsMin: box.min, boundsMax: box.max)
+            let start = world.contained(body)
+            #expect(start.position.x <= box.max.x && start.position.z >= box.min.y)
+            world.bodies.append(start)
+        }
+        for _ in 0..<600 { world.step(dt: 1.0 / 120.0) }
+        for b in world.bodies {
+            #expect(b.position.x >= box.min.x - 1e-6 && b.position.x <= box.max.x + 1e-6)
+            #expect(b.position.z >= box.min.y - 1e-6 && b.position.z <= box.max.y + 1e-6)
+        }
+    }
+
+    @Test func frozenPiecesNeverMoveFlattenOrSpread() {
+        var world = DebrisWorld()
+        world.bodies = [
+            DebrisBody(position: [0, 0.02, 0], velocity: [0.3, 0, 0], orientation: simd_quatf(angle: 0, axis: [0, 1, 0]),
+                       angularVelocity: [0, 3, 0], halfExtents: [0.005, 0.004, 0.005]),
+            DebrisBody(position: [0, 0.004, 0], velocity: .zero, orientation: simd_quatf(angle: 0, axis: [0, 1, 0]),
+                       angularVelocity: .zero, halfExtents: [0.005, 0.004, 0.005], maxSpread: 1),
+        ]
+        world.freeze(0)
+        let frozen = world.bodies[0]
+        #expect(frozen.settled && frozen.frozen && abs(frozen.position.y - frozen.support) < 1e-6)
+        world.ceiling = 0.003
+        for _ in 0..<120 { world.step(dt: 1.0 / 120.0) }
+        #expect(world.bodies[0].position == frozen.position && world.bodies[0].flat == 1)
+        // A piece with maxSpread 1 gets thinner under the ceiling but never wider (glass doesn't spread).
+        #expect(world.bodies[1].flat < 1)
+        #expect(world.bodies[1].scaleFactor.x == 1 && world.bodies[1].scaleFactor.z == 1)
+    }
+
+    @Test func glassDebrisStaysOnTheStrikePlate() {
+        // Glass (rest 0.0456 m) is drawn at fold scale 1: plate 300 × 230 pt + 16 pt each side, in metres.
+        let anvil = SIMD2<Float>(0.079, 0.056)
+        let box = GlassDebris.containment(restHeight: 0.060 * 0.76, anvilHalf: SIMD2<Float>(1, 1))
+        let metresPerPoint: Float = 1 / 340 / 6.02
+        #expect(abs(box.x - (150 + 16) * metresPerPoint) < 1e-5)
+        #expect(abs(box.y - (115 + 16) * metresPerPoint) < 1e-5)
+        let clamped = GlassDebris.containment(restHeight: 0.060 * 0.76, anvilHalf: anvil)
+        #expect(clamped.x <= anvil.x && clamped.y <= anvil.y)
+        // Small shards: ≤ 26° arcs on the body, and the whole bottle (plus a message) fits the 64-piece debris cap.
+        #expect(GlassDebris.sectorCounts == [1, 10, 14, 14, 8, 4])
+        #expect(GlassDebris.sectorCounts.reduce(0, +) + 1 <= 64)
+        #expect(GlassDebris.skidSpeed.lowerBound >= 0.04 && GlassDebris.skidSpeed.upperBound <= 0.10)
+        #expect(GlassDebris.dustRadius(0) == 0.022 && abs(GlassDebris.dustRadius(1) - 0.032) < 1e-6)
+        // A piece bigger than the box is pinned to its centre rather than given an inverted box.
+        let tight = GlassDebris.centreBounds(containment: [0.01, 0.01], pieceHalf: [0.02, 0.005])
+        #expect(tight.min.x == 0 && tight.max.x == 0 && abs(tight.max.y - 0.005) < 1e-7)
+    }
+
+    @Test func duckFootprintReadsFromAboveAndCapsOnThePlate() {
+        // FOLD-REVIEW-3 N4: never below volume-preserving, ≥ +30 % by the 75° squash (s ≈ 0.65), 1.7× cap on the Duo.
+        var previous: Float = 0
+        for k in 0...100 {
+            let s = 1 - Float(k) / 100 * 0.82
+            let spread = DuckSquash.spread(heightRatio: s, cap: DuckSquash.foldCap)
+            #expect(spread >= previous)
+            #expect(spread >= min(1 / s.squareRoot(), DuckSquash.foldCap) - 1e-5)
+            #expect(spread <= DuckSquash.foldCap)
+            previous = spread
+        }
+        #expect(DuckSquash.spread(heightRatio: 0.65, cap: DuckSquash.foldCap) > 1.3)
+        #expect(DuckSquash.spread(heightRatio: 0.18, cap: DuckSquash.foldCap) == 1.7)
+        #expect(DuckSquash.spread(heightRatio: 0.18, cap: DuckSquash.machineCap) == 1.2)
+        #expect(DuckSquash.spread(heightRatio: 1.05, cap: DuckSquash.foldCap) == 1)
+        #expect(DuckSquash.skirtRadius(spread: 1.7, t: 1) > DuckSquash.skirtRadius(spread: 1.7, t: 0))
+    }
+
+    @Test func canStrainStartsAtContactAndStaysBounded() {
+        #expect(CanCrush.topStrain(compression: 0.04) == 0)
+        #expect(CanCrush.topStrain(compression: 0.17) > 0.4)
+        #expect(CanCrush.topStrain(compression: 0.31) == 1 && CanCrush.topStrain(compression: 0.9) == 1)
+        #expect(CanCrush.lidDent(topStrain: 1, foldedShare: 1) <= 0.0056)
+        #expect(CanCrush.lidDent(topStrain: 0, foldedShare: 0) == 0)
+        // Five shoves stay a few millimetres: the top never leaves the can's own footprint (r 0.055).
+        #expect(CanCrush.shovePerBand * 5 < 0.015)
+    }
+
     @Test func heightCurvesAreMonotonicAndBrittleObjectsLurch() {
         var previous: Float = .infinity
         for k in 0...100 {

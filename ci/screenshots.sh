@@ -3,7 +3,8 @@
 # Scenarios are listed in ci/scenarios.txt as `name|scenario[|delaySeconds]` and interpreted by the app's
 # DemoMode (DEBUG builds only). Set SCENARIO_FILTER to a regex to run a subset (matched against the name).
 # Each run's app stdout/stderr goes to ci-screens/logs/<name>.txt; a scenario with `exportclip` also
-# copies the rendered share clip to ci-screens/<name>.mp4.
+# copies the rendered share clip to ci-screens/<name>.mp4, and one with `storeshot` copies the folded-device store
+# shots the app wrote (Documents/storeshot-*.png, FoldStoreShot.swift) to ci-screens/<name>-storeshot-*.png.
 set -euo pipefail
 
 DEVICE="${DEVICE:-iPhone 18 Pro}"
@@ -32,6 +33,11 @@ while IFS= read -r line; do
   [[ "$name" =~ $FILTER ]] || continue
   delay="${delay:-${SHOT_DELAY:-11}}"
   xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
+  if [[ "$scenario" == *storeshot* ]]; then
+    # Never upload a stale store shot from an earlier scenario.
+    DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE" data 2>/dev/null || true)
+    if [[ -n "$DATA" ]]; then rm -f "$DATA"/Documents/storeshot-*.png; fi
+  fi
   xcrun simctl launch --terminate-running-process \
     --stdout="$PWD/$OUT/logs/$name.txt" --stderr="$PWD/$OUT/logs/$name.txt" \
     "$UDID" "$BUNDLE" -squishDemo "$scenario" >/dev/null
@@ -42,6 +48,7 @@ while IFS= read -r line; do
   [[ "$scenario" == *depth=* || "$scenario" == *reveal* ]] && marker="SQUISH-T demo press done"
   [[ "$scenario" == *foldsim=* ]] && marker="SQUISH-T foldsim done"
   [[ "$scenario" == *exportclip* ]] && marker="SQUISH-CLIP (ok|failed)"
+  [[ "$scenario" == *storeshot* ]] && marker="SQUISH-T storeshot done"
   if [[ -n "$marker" ]]; then
     for _ in $(seq 1 "$(( delay > 120 ? delay : 120 ))"); do grep -qE "$marker" "$log" 2>/dev/null && break; sleep 1; done
     [[ "$scenario" == *reveal* ]] && sleep 6 || sleep 3
@@ -53,6 +60,19 @@ while IFS= read -r line; do
     DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE" data)
     cp "$DATA/Documents/clip.mp4" "$OUT/$name.mp4" 2>/dev/null || echo "no clip produced for $name"
     grep -h "SQUISH-CLIP" "$OUT/logs/$name.txt" || true
+  fi
+  if [[ "$scenario" == *storeshot* ]]; then
+    DATA=$(xcrun simctl get_app_container "$UDID" "$BUNDLE" data 2>/dev/null || true)
+    found=0
+    if [[ -n "$DATA" ]]; then
+      for f in "$DATA"/Documents/storeshot-*.png; do
+        [[ -e "$f" ]] || continue
+        cp "$f" "$OUT/$name-$(basename "$f")"
+        found=$((found + 1))
+      done
+    fi
+    echo "store shots for $name: $found"
+    grep -h "SQUISH-T storeshot" "$OUT/logs/$name.txt" || true
   fi
   echo "captured $name ($scenario)"
 done < ci/scenarios.txt

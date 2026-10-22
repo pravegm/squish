@@ -5,8 +5,9 @@ import UIKit
 
 /// Rubber Duck (bible §4 #2, VISUAL-TARGET §5.2): the classic bath duck as one smooth SDF blob (body, chest, tail,
 /// head, wings), a two-lobe beak, glossy eyes. The only object with a face, because it survives.
-/// Squashes into a cartoon pancake (volume-preserving), honks (beak pops), the seam "bloops" (a 6% deflate and
-/// an air puff), and springs back with overshoot when the ram lifts (elastic 35% plasticity in Core).
+/// Squashes into a cartoon pancake (spreading faster than volume-preserving, so it reads from above), honks (beak
+/// pops), the seam "bloops" (a 6% deflate and an air puff), and springs back a little with overshoot when the ram lifts
+/// (elastic 35% plasticity in Core; height rebound capped at 15%, footprint latched at its widest).
 @MainActor
 final class DuckView: PressObjectView {
     let entity = Entity()
@@ -32,6 +33,10 @@ final class DuckView: PressObjectView {
     private var seamPopped = false
     private var deepest: Float = 1
     private var popC: Float = 1
+    /// The widest footprint so far and the furthest the skirt has squeezed out: both latched, so the duck never looks
+    /// less pressed on unloading or at the reveal (FOLD-REVIEW-3 N6).
+    private var widest: Float = 1
+    private var skirtT: Float = 0
 
     var shadowSpread: Float { spread }
 
@@ -131,15 +136,18 @@ final class DuckView: PressObjectView {
         }
         beakPop.step(toward: 0, dt: state.dt)
         let s = max(min(height.value, 1.05), 0.05)
-        // Volume-preserving: XZ × 1/√s, clamped so the pancake stays ≤ Ø 0.15.
-        spread = min(1 / s.squareRoot(), 1.2) * deflate
+        // Top-down the only squash cue is the footprint (FOLD-REVIEW-3 N4), so it spreads faster than volume-preserving
+        // (XZ × s^−0.7) up to 1.7× on the Duo's strike plate (the P-48 anvil keeps 1.2×), latched at its widest.
+        widest = max(widest, DuckSquash.spread(heightRatio: s, cap: fx.isFoldPress ? DuckSquash.foldCap : DuckSquash.machineCap))
+        spread = widest * deflate
         squash.scale = SIMD3(spread, s * deflate, spread)
         let pop = 1 + max(beakPop.value, -0.3)
         beak.scale = SIMD3(pop, 1, pop)
         if seamPopped {
-            // The skirt squeezes out from under the pancake with compression past the pop (local units, ×heroScale).
-            let t = clamp((state.compression - popC) / max(1 - popC, 0.05), 0, 1)
-            let radius = 0.040 * spread * (1.1 + 0.45 * t)
+            // The skirt squeezes out from under the pancake with compression past the pop (local units, ×heroScale);
+            // latched, so it never shrinks back when the phone reopens.
+            skirtT = max(skirtT, clamp((state.compression - popC) / max(1 - popC, 0.05), 0, 1))
+            let radius = DuckSquash.skirtRadius(spread: spread, t: skirtT)
             skirt.scale = SIMD3(radius, 0.003, radius * 0.8)
             spread = max(spread, radius / 0.040 * 0.9)
         }
@@ -168,5 +176,25 @@ final class DuckView: PressObjectView {
 
     func handle(_ event: PressEvent, state: PressVisualState) {
         if event == .contact { beakPop.kick(1) }
+    }
+}
+
+/// The duck's top-down squash numbers (FOLD-REVIEW-3 N4/N6), pure so SquishTests can pin them.
+enum DuckSquash {
+    /// Footprint cap on the Duo's strike plate (was 1.2): at 1.7 the pancake and its skirt still fit the plate.
+    static let foldCap: Float = 1.7
+    /// Footprint cap on the P-48 anvil, whose bed is ~30 % smaller relative to the duck.
+    static let machineCap: Float = 1.2
+    /// Cartoon spread: faster than volume-preserving (1/√s) so 120° → 75° reads from above (≈ +35 % at s 0.65).
+    static let exponent: Float = 0.7
+
+    /// XZ scale for the height ratio `s` (1 = rest), never below 1, clamped at `cap`.
+    static func spread(heightRatio s: Float, cap: Float) -> Float {
+        min(max(pow(max(s, 0.05), -exponent), 1), cap)
+    }
+
+    /// The vinyl skirt's radius (duck-local metres) for the body's `spread` and the post-pop progress `t`.
+    static func skirtRadius(spread: Float, t: Float) -> Float {
+        0.040 * spread * (1.05 + 0.25 * clamp(t, 0, 1))
     }
 }

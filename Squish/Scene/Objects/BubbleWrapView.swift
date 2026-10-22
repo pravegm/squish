@@ -33,6 +33,7 @@ final class BubbleWrapView: PressObjectView {
     private var megaStrain = 0
     private var crinkles: [MeshResource] = []
     private let poppedMaterial: PhysicallyBasedMaterial
+    private var lowest: Float = .infinity
 
     private final class Cell {
         let model: ModelEntity
@@ -139,8 +140,10 @@ final class BubbleWrapView: PressObjectView {
     }
 
     func update(_ state: PressVisualState) {
-        let h = surfaceHeight(compression: state.compression)
-        let available = max(h - Self.film, 0.0003)
+        // Latched at the deepest squash (FOLD-REVIEW-3 N6): unpopped domes don't re-inflate on reopening, so the
+        // reveal is at least as pressed as the sealed frame.
+        lowest = min(lowest, surfaceHeight(compression: state.compression))
+        let available = max(lowest - Self.film, 0.0003)
         for cell in cells where !cell.popped {
             apply(cell, available: available)
         }

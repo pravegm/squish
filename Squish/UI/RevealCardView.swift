@@ -348,6 +348,15 @@ struct RevealCardView: View {
 
     // MARK: Choreography (§6.8)
 
+    /// When the card (or, in Fold Press, the print label) has finished appearing, counted from `onAppear`:
+    /// the drop starts at 100 ms and its spring (response 0.5) has visibly settled ~0.9 s later.
+    private static let cardSettledMilliseconds = 1_000
+    /// Reduce Motion: the card fades in with `Theme.fade` (0.22 s).
+    private static let cardFadedMilliseconds = 220
+    /// Toasts are held this long after the reveal has settled, so the first thing the player sees is their
+    /// specimen, not a banner over the lamps and nameplate (FOLD-REVIEW-3 N8).
+    private static let toastHoldMilliseconds = 1_500
+
     private func choreograph() {
         Task { @MainActor in
             if reduceMotion {
@@ -356,16 +365,19 @@ struct RevealCardView: View {
                     cardIn = true
                     actionsIn = true
                 }
+                try? await Task.sleep(for: .milliseconds(Self.cardFadedMilliseconds))
             } else {
                 try? await Task.sleep(for: .milliseconds(100))
                 withAnimation(Theme.cardDrop(reduceMotion)) { cardIn = true }
                 try? await Task.sleep(for: .milliseconds(500))
                 withAnimation(Theme.settle(reduceMotion)) { actionsIn = true }
+                try? await Task.sleep(for: .milliseconds(Self.cardSettledMilliseconds - 600))
             }
-            // Toasts, one at a time; the last one stays.
+            // Toasts wait for the settled reveal, then come one at a time; the last one stays.
+            try? await Task.sleep(for: .milliseconds(Self.toastHoldMilliseconds))
             let count = toasts.count
             for index in 0..<count {
-                try? await Task.sleep(for: .milliseconds(index == 0 ? 300 : 1_800))
+                if index > 0 { try? await Task.sleep(for: .milliseconds(1_800)) }
                 guard !Task.isCancelled, !collecting else { return }
                 withAnimation(Theme.pop(reduceMotion)) { toastIndex = index }
                 if index == 0 { UIFeel.success() }

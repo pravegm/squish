@@ -18,7 +18,8 @@ struct FoldStage {
     var verticalFOV: Float
     var near: Float
     var far: Float
-    /// Radians about +x: the object's top tips away from the hinge (§2.4 clamshell lean).
+    /// Radians about +x: the object's top tips away from the hinge (§2.4 clamshell lean, `FoldLean`). The scene pivots
+    /// it on the base edge it tips toward, never the slot origin (FOLD-REVIEW-3 N2).
     var lean: Float
     /// The failure flash sits at the crease side, 30 mm up (§2.4).
     var flashPosition: SIMD3<Float>
@@ -29,6 +30,9 @@ struct FoldStage {
     /// Fold-mode exposure (FOLD-REVIEW-1 #1): studio IBL EV offset and key-light gain.
     var iblOffset: Float = -0.5
     var keyGain: Float = 1
+    /// Half extents (scene metres; x along the hinge, z across it) of the strike plate + 8 pt, centred on the slot
+    /// origin. The contact-shadow and plate-shade decals are kept inside it (FOLD-REVIEW-3 N13). Zero = no limit.
+    var plateHalfExtent: SIMD2<Float> = .zero
 }
 
 /// The lower plate of the press (§2.1), coplanar with the glass: the enamel field (the whole half plus overscan),
@@ -40,7 +44,8 @@ final class FoldAnvil {
     private let field = ModelEntity()
     private let fieldGroup = Entity()
     private var builtFor: FoldLayout?
-    private var gel: UInt32?
+    /// The field's colour: exactly the platen's enamel (set by the controller from the same value).
+    private var enamel = FoldTextures.enamel(gel: 0xF6E3D3, golden: false, lit: FoldTextures.platenLit)
 
     init() {
         root.addChild(fieldGroup)
@@ -62,7 +67,7 @@ final class FoldAnvil {
         let minX = (xs.min() ?? -60) - 12, maxX = (xs.max() ?? 60) + 12
         let minZ = (zs.min() ?? -40) - 12, maxZ = (zs.max() ?? 40) + 12
         field.model = ModelComponent(mesh: .generatePlane(width: maxX - minX, depth: maxZ - minZ),
-                                     materials: [fieldMaterial(gel ?? 0xF6E3D3, golden: false)])
+                                     materials: [Self.fieldMaterial(enamel)])
         field.position = [(minX + maxX) / 2, -Float(FoldMetrics.plateProudMM), (minZ + maxZ) / 2]
         fieldGroup.addChild(field)
 
@@ -82,19 +87,19 @@ final class FoldAnvil {
         }
     }
 
-    /// The gel wall colour tints the enamel (§2.1, "the gel becomes the appliance's colour").
-    func setGel(_ gel: UInt32, golden: Bool) {
-        let key = golden ? 0xF3E6C4 : gel
-        guard self.gel != key else { return }
-        self.gel = key
-        field.model?.materials = [fieldMaterial(key, golden: golden)]
+    /// The gel-tinted enamel (§2.1, "the gel becomes the appliance's colour"): pass the platen field's colour, so the
+    /// two pages are one material.
+    func setEnamel(_ color: UIColor) {
+        guard !color.isEqual(enamel) else { return }
+        enamel = color
+        field.model?.materials = [Self.fieldMaterial(color)]
     }
 
-    private func fieldMaterial(_ gel: UInt32, golden: Bool) -> PhysicallyBasedMaterial {
-        // FOLD-REVIEW-1 #1: a softer clearcoat and a slightly darker base, so the field stops mirroring the studio
-        // white as the eye goes grazing (it was clipping 28 → 77 %).
-        SceneMaterials.enamel(FoldTextures.enamel(gel: gel, golden: golden, lit: 0.94), roughness: 0.40, clearcoat: 0.35,
-                              clearcoatRoughness: 0.25)
+    /// FOLD-REVIEW-3 N3: the field is unlit, not tone-mapped, in the platen's exact colour. A lit clearcoat mirrored
+    /// the studio head-on at flat (72 % clip on bubble wrap at 180°) and read as a second lamp. Only the plate, bolts,
+    /// pins and object take real light; the AO and soft-shadow decals still ground the object on it.
+    private static func fieldMaterial(_ color: UIColor) -> UnlitMaterial {
+        SceneMaterials.unlit(color)
     }
 
     private func buildPlate() {

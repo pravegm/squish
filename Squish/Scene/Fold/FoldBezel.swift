@@ -12,7 +12,8 @@ struct FoldInstruments {
 
 /// "The phone becomes the press" (§5): the 40 pt graphite crease band, the anvil's back lips, the yellow rails
 /// down both halves (aligned across the crease), the mirrored hazard jaws on both free edges, the crown strip with
-/// the 2D gauge, READY/LOAD lamps and the P-48 nameplate, the console band with its pilot lamp, and the reveal's
+/// the 2D gauge, READY/LOAD lamps and the live hinge-angle plate (FOLD-REVIEW-3 N7: on a Duo the phone is the press,
+/// so the plate shows its angle, not the P-48's model number), the console band with its pilot lamp, and the reveal's
 /// goo strands — the only thing ever allowed across the crease (§3.4.6).
 @MainActor
 final class FoldBezel {
@@ -42,6 +43,10 @@ final class FoldBezel {
     private let readyLabel = CALayer()
     private let loadLabel = CALayer()
     private let nameplate = CALayer()
+    /// The engraved hinge-angle readout on the nameplate ("118°"), re-rendered only when the shown degree changes.
+    private let readout = CALayer()
+    private var readoutImages: [Int: CGImage] = [:]
+    private var readoutKey: Int?
     private var strands: [CAShapeLayer] = []
     private var strandAge: Double?
     private var strandColor = UIColor.white
@@ -57,7 +62,7 @@ final class FoldBezel {
         console.backgroundColor = Palette.graphite.cgColor
         creaseShade.colors = [Palette.graphite.withAlphaComponent(0.22).cgColor, Palette.graphite.withAlphaComponent(0).cgColor]
         for l in [gaugeFace, gaugeRing, needle, hub, gaugeGlass, gaugeCrack, readyLamp, loadLamp, readyLabel, loadLabel,
-                  nameplate, pilotLamp] as [CALayer] {
+                  nameplate, readout, pilotLamp] as [CALayer] {
             layer.addSublayer(l)
         }
         gaugeRing.fillColor = nil
@@ -206,6 +211,8 @@ final class FoldBezel {
         let narrow = !layout.isBook && layout.canvas.width < 500
         nameplate.position = CGPoint(x: layout.isBook ? cr.minX + 258 : (narrow ? cr.minX + 120 : cr.midX),
                                      y: narrow ? cr.maxY - 16 : cr.midY)
+        readout.position = nameplate.position
+        readoutKey = nil
 
         // Book: the platen page's empty foot band mirrors the anvil console (bands mesh when shut).
         if let foot = layout.platenFoot {
@@ -251,7 +258,27 @@ final class FoldBezel {
             pilotLamp.contents = pilotImages[load]
             lampState = (instruments.ready, instruments.load)
         }
+        updateReadout(f)
         updateStrands(f)
+    }
+
+    /// The live hinge angle in whole degrees, ticking with θ; frozen in stamp red at the failure angle until the next
+    /// object (FOLD-REVIEW-3 N7).
+    private func updateReadout(_ f: FoldFrame) {
+        let value = f.failureAngle ?? f.angle
+        guard value.isFinite else { return }
+        let degrees = Int(min(max(value, 0), 180).rounded())
+        let red = f.failureAngle != nil
+        let key = degrees * 2 + (red ? 1 : 0)
+        guard key != readoutKey else { return }
+        readoutKey = key
+        if readoutImages[key] == nil {
+            if readoutImages.count > 96 { readoutImages.removeAll() }
+            readoutImages[key] = FoldTextures.engraved("\(degrees)°", fontSize: 16, red: red)
+        }
+        let image = readoutImages[key]
+        readout.contents = image
+        readout.bounds = CGRect(x: 0, y: 0, width: CGFloat(image?.width ?? 0) / 3, height: CGFloat(image?.height ?? 0) / 3)
     }
 
     /// The Unsquishable cracks the gauge glass (§5).

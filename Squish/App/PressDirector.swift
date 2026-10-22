@@ -328,7 +328,7 @@ final class PressDirector {
         guard let result = engine.lastResult else { return }
         lastTrace = PressTrace(kind: currentKind, variant: variant, samples: traceSamples,
                                usesVirtualHinge: engine.usesVirtualHinge, config: engine.config)
-        let outcome = collection.record(result, variant: variant)
+        let outcome = collection.record(result, variant: variant, trace: lastTrace)
         revealed = outcome
         coachIfSlamming(result)
         lastSpecimenID = outcome.specimen.id
@@ -380,6 +380,9 @@ final class PressDirector {
         if demo.has("duo") {
             // Real iPhone Duo simulator: the CI script moves the actual hinge; we only place the object.
             if let kind = demo.object { load(kind) }
+            #if DEBUG
+            if demo.has("storeshot") { watchStoreShots(demo) }
+            #endif
             return
         }
         if let raw = demo.string("foldsim") {
@@ -401,9 +404,23 @@ final class PressDirector {
                         hingeUpdate(angle: target, closed: false)
                         try? await Task.sleep(for: .milliseconds(16))
                     }
+                    #if DEBUG
+                    // `storeshot` alone: a store shot at every target; `storeshot=120,75`: only at those.
+                    if demo.has("storeshot") {
+                        let wanted = demo.doubles("storeshot")
+                        if wanted.isEmpty || wanted.contains(where: { abs($0 - target) < 0.5 }) {
+                            await self.writeStoreShot(demo, label: Int(target.rounded()), angle: target)
+                        }
+                    }
+                    #endif
                 }
                 print(String(format: "SQUISH-T foldsim done at %.2fs phase=%@ c=%.3f", CACurrentMediaTime() - self.launchTime,
                              self.engine.phase.rawValue, self.engine.measuredCompression))
+                #if DEBUG
+                if demo.has("storeshot") {
+                    print(String(format: "SQUISH-T storeshot done at %.2fs", CACurrentMediaTime() - self.launchTime))
+                }
+                #endif
             }
             return
         }
@@ -464,6 +481,89 @@ final class PressDirector {
             print("SQUISH-CLIP failed: \(error.localizedDescription)")
         }
     }
+
+    #if DEBUG
+    /// CI hook (`duo;storeshot=120,75`, real Duo): the CI script moves the real hinge and holds it at each angle, so
+    /// shoot once the raw hinge has been still (±1.5°) for 0.8 s within 3° of a wanted angle. Each angle once.
+    private func watchStoreShots(_ demo: DemoScenario) {
+        Task { @MainActor [weak self] in
+            var pending = demo.doubles("storeshot")
+            if pending.isEmpty { pending = [115] }
+            var anchor = -1.0
+            var since = CACurrentMediaTime()
+            let deadline = CACurrentMediaTime() + 1200
+            while !pending.isEmpty && CACurrentMediaTime() < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let self else { return }
+                guard let angle = self.hingeLog.samples.last?.angle else { continue }
+                let now = CACurrentMediaTime()
+                if abs(angle - anchor) > 1.5 {
+                    anchor = angle
+                    since = now
+                    continue
+                }
+                guard now - since >= 0.8, let index = pending.firstIndex(where: { abs($0 - angle) <= 3 }) else { continue }
+                let target = pending.remove(at: index)
+                await self.writeStoreShot(demo, label: Int(target.rounded()), angle: angle)
+                since = CACurrentMediaTime()
+            }
+            guard let self else { return }
+            print(String(format: "SQUISH-T storeshot done at %.2fs missing=%@", CACurrentMediaTime() - self.launchTime,
+                         pending.map { String(Int($0.rounded())) }.joined(separator: ",")))
+        }
+    }
+
+    /// CI hook (`storeshot`): snapshot the live Fold Press stage and write the folded-device store shot
+    /// (FoldStoreShot.swift, FOLD-REVIEW-3 N1) to Documents for ci/screenshots.sh and ci/duo-screenshots.sh to collect:
+    ///  • storeshot-<label>.png       1320 × 2868, 3/4 eye (the App Store frame)
+    ///  • storeshot-<label>-land.png  2868 × 1320, with `storeshotsize=landscape|both`
+    ///  • storeshot-<label>-eye.png   1320 × 2868 from the exact design eye, no sheen (the §12 E1/E2 composite)
+    /// The device is modelled at the captured hinge angle (`storeshotfold=<deg>` overrides it, e.g. 115 for art).
+    private func writeStoreShot(_ demo: DemoScenario, label: Int, angle: Double) async {
+        let started = CACurrentMediaTime()
+        guard usesFoldPress, let halves = await FoldStoreShot.capture(scene: scene, fold: fold) else {
+            print(String(format: "SQUISH-T storeshot %ld failed: no Fold Press stage on screen", label))
+            return
+        }
+        var base = FoldStoreShot.Options()
+        base.hingeAngle = clamp(demo.double("storeshotfold") ?? angle, 45, 180)
+        base.eyeModel = fold.eye
+        let sizes = demo.string("storeshotsize") ?? "portrait"
+        var variants: [(file: String, options: FoldStoreShot.Options)] = []
+        if sizes != "landscape" {
+            variants.append((file: "storeshot-\(label).png", options: base))
+        }
+        if sizes == "landscape" || sizes == "both" {
+            var landscape = base
+            landscape.size = FoldStoreShot.landscape
+            variants.append((file: "storeshot-\(label)-land.png", options: landscape))
+        }
+        var eyeView = base
+        eyeView.eye = .design
+        eyeView.glassSheen = false
+        variants.append((file: "storeshot-\(label)-eye.png", options: eyeView))
+
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        var written: [String] = []
+        for variant in variants {
+            guard let image = FoldStoreShot.render(halves, options: variant.options), let png = image.pngData() else {
+                print("SQUISH-T storeshot \(label) render failed: \(variant.file)")
+                continue
+            }
+            do {
+                try png.write(to: documents.appendingPathComponent(variant.file), options: .atomic)
+                written.append(variant.file)
+            } catch {
+                print("SQUISH-T storeshot \(label) write failed: \(variant.file) \(error.localizedDescription)")
+            }
+        }
+        let status = written.isEmpty ? "failed:" : "ok"
+        print(String(format: "SQUISH-T storeshot %ld %@ at %.2fs hinge=%.1f model=%.1f %@ anvil=%@ phase=%@ c=%.3f files=%@ ms=%.0f",
+                     label, status, CACurrentMediaTime() - launchTime, angle, base.hingeAngle,
+                     halves.layout.isBook ? "book" : "tabletop", halves.source, engine.phase.rawValue,
+                     engine.measuredCompression, written.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
+    }
+    #endif
 }
 
 /// The input of one press, kept so the share clip can replay it deterministically.

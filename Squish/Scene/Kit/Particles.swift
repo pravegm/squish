@@ -362,7 +362,14 @@ final class SceneFX {
     /// Scales burst speeds for Reduce Motion.
     var motionScale: Float { reduceMotion ? 0.25 : 1 }
 
+    /// The ceiling's half size (x, z) from the last step: the P-48 ram plate, or the whole anvil on the Duo.
+    private(set) var ceilingHalfExtent = SIMD2<Float>(0.08, 0.057)
+    /// True on the iPhone Duo's Fold Press, whose virtual platen covers the whole anvil (`PressScene` steps it with a
+    /// 1 m half-size ceiling), so spreads may use the full Duo strike plate instead of the P-48's smaller anvil.
+    var isFoldPress: Bool { ceilingHalfExtent.x >= 0.5 }
+
     func step(dt: Float, ceiling: Float, plateHalfExtent: SIMD2<Float>) {
+        ceilingHalfExtent = plateHalfExtent
         debris.step(dt: dt, ceiling: ceiling, plateHalfExtent: plateHalfExtent)
         particles.ceiling = ceiling
         particles.plateHalfExtent = plateHalfExtent

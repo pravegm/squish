@@ -1006,10 +1006,34 @@ final class PressScene {
         objectView.map { (kind, $0.restHeight) }
     }
 
+    /// The lean's pivot correction last added to `objectSlot.position`, and the position that produced, so a frame in
+    /// which `update` did not rewrite the position never stacks a second correction (FOLD-REVIEW-3 N2).
+    private var foldLeanShift: SIMD3<Float> = .zero
+    private var foldLeanPosition: SIMD3<Float>?
+
     func setFoldStage(_ stage: FoldStage) {
         guard framing == .foldAnvil else { return }
-        // Clamshell lean (§2.4): the squash tips away from the real hinge; book pose also turns the object to the eye.
+        // Clamshell lean (§2.4, FOLD-REVIEW-3 N2): the squash tips the top away from the real hinge (+z), pivoting on
+        // the base edge it tips toward, so the footprint stays put and no part of the base sinks into the plate. Book
+        // pose also turns the object to the eye (yaw about the slot origin, applied first).
         objectSlot.orientation = simd_quatf(angle: stage.lean, axis: [1, 0, 0]) * simd_quatf(angle: stage.yaw, axis: [0, 1, 0])
+        let current = objectSlot.position
+        let unshifted = foldLeanPosition == current ? current - foldLeanShift : current
+        let baseRadius = (objectView.map { $0.footprint * $0.shadowSpread } ?? 0) * objectSlot.scale.z
+        foldLeanShift = FoldLean.pivotShift(lean: stage.lean, baseRadius: baseRadius)
+        objectSlot.position = unshifted + foldLeanShift
+        foldLeanPosition = objectSlot.position
+        // Wedge shadow (FOLD-REVIEW-3 N13): the soft contact shadow (1.8× footprint) and the plate shade spilled past
+        // the strike plate onto the enamel on the crease side. Runs after `updateDecals` each frame, which resets
+        // their size, so this clamp never accumulates.
+        if stage.plateHalfExtent.x > 0 && stage.plateHalfExtent.y > 0 {
+            for decal in [softDecal, ramDecal].compactMap({ $0 }) {
+                let p = decal.entity.position, s = decal.entity.scale
+                let maxX = max(0, 2 * (stage.plateHalfExtent.x - abs(p.x)))
+                let maxZ = max(0, 2 * (stage.plateHalfExtent.y - abs(p.z)))
+                decal.size([min(s.x, maxX), min(s.z, maxZ)])
+            }
+        }
         foldYaw = stage.yaw
         flash.position = stage.flashPosition
         foldRimLight?.light.intensity = style.rimIntensity * stage.rimGain

@@ -167,9 +167,76 @@ struct FoldPressTests {
         #expect(near(shut.blur, 4) && near(shut.alpha, 0.35) && near(shut.scale, 1))
         #expect(near(FoldCurve.platenDimming(angle: 45), 0.55) && near(FoldCurve.platenDimming(angle: 90), 1))
         #expect(near(FoldCurve.rimGain(angle: 180), 0.6) && near(FoldCurve.rimGain(angle: 60), 0.8))
-        // FOLD-REVIEW-1 #1: at least −0.5 EV in fold framing, more as the eye goes grazing.
+        // FOLD-REVIEW-1 #1: at least −0.5 EV in fold framing, more as the eye goes grazing. FOLD-REVIEW-3 N3: no
+        // flat-pose term any more (the anvil field is unlit), so it depends on the eye only.
         let high = FoldCurve.exposure(eyeElevation: 85), low = FoldCurve.exposure(eyeElevation: 47.5)
         #expect(near(high.iblOffset, -0.5) && low.iblOffset < high.iblOffset && low.keyGain < high.keyGain)
+        #expect(near(high.keyGain, 0.92) && near(low.iblOffset, -0.9) && near(low.keyGain, 0.80))
+    }
+
+    // MARK: Clamshell lean (§2.4, FOLD-REVIEW-3 N2)
+
+    @Test func leanIsTwoAndAHalfDegreesTimesCompression() {
+        let full = FoldLean.angle(compression: 1, contacted: true, failed: false, kind: .rubberDuck)
+        #expect(near(full * 180 / .pi, 2.5, 1e-9))
+        #expect(near(FoldLean.angle(compression: 0.4, contacted: true, failed: false, kind: .sodaCan) * 180 / .pi, 1.0, 1e-9))
+        #expect(FoldLean.angle(compression: 1.6, contacted: true, failed: false, kind: .jelly) == full)
+        // None before contact, none for sheets or the rigid ball, none once the object has failed (debris lies flat).
+        #expect(FoldLean.angle(compression: 1, contacted: false, failed: false, kind: .rubberDuck) == 0)
+        #expect(FoldLean.angle(compression: 1, contacted: true, failed: false, kind: .bubbleWrap) == 0)
+        #expect(FoldLean.angle(compression: 1, contacted: true, failed: false, kind: .unsquishable) == 0)
+        #expect(FoldLean.angle(compression: 1, contacted: true, failed: true, kind: .glassBottle) == 0)
+    }
+
+    @Test func leanPivotsOnTheBaseEdgeItTipsToward() {
+        let r: Float = 17   // the largest fold footprint radius (mm; the maths is unit-free)
+        for lean in [Float(2.5 * Double.pi / 180), Float(-2.5 * Double.pi / 180), Float(0.4 * Double.pi / 180)] {
+            let rotation = simd_quatf(angle: lean, axis: [1, 0, 0])
+            let shift = FoldLean.pivotShift(lean: lean, baseRadius: r)
+            func placed(_ p: SIMD3<Float>) -> SIMD3<Float> { rotation.act(p) + shift }
+            // No point of a round base sinks below the plate face (the bubble-film cut).
+            for i in 0..<72 {
+                let a = Float(i) / 72 * 2 * .pi
+                let p = placed(SIMD3<Float>(r * cos(a), 0, r * sin(a)))
+                #expect(p.y >= -1e-4, "lean \(lean): base point \(p) under the plate")
+            }
+            // The edge it tips toward stays exactly where it was.
+            let edge: Float = lean > 0 ? r : -r
+            let pivot = placed(SIMD3<Float>(0, 0, edge))
+            #expect(abs(pivot.y) < 1e-4 && abs(pivot.z - edge) < 1e-4)
+            // The footprint centre stays within ±6 pt of where it was (N2's CI assert).
+            let centre = placed(.zero)
+            #expect(Double(abs(centre.z)) * FoldMetrics.pointsPerMM <= 6)
+            // The top goes the way the lean says: +z (the anvil's front edge, away from the hinge at −40 mm) for > 0.
+            let top = placed(SIMD3<Float>(0, 24, 0))
+            #expect(lean > 0 ? top.z > 0.1 : top.z < -0.1)
+        }
+        #expect(FoldLean.pivotShift(lean: 0, baseRadius: r) == .zero)
+    }
+
+    // MARK: Reveal stamp (FOLD-REVIEW-3 N12)
+
+    @Test func pressedStampIsSeededAndStaysOnThePlate() {
+        for book in [false, true] {
+            let layout = FoldLayout(canvas: book ? CGSize(width: 951, height: 669) : CGSize(width: 669, height: 951))
+            let plate = layout.strikePlate(platen: true)
+            var poses: Set<String> = []
+            for seed in UInt64(1)...40 {
+                let a = FoldPlaten.pressedPose(seed: seed, book: book)
+                let b = FoldPlaten.pressedPose(seed: seed, book: book)
+                #expect(a.offset == b.offset && a.angle == b.angle)
+                let degrees = Double(a.angle) * 180 / .pi
+                #expect(degrees >= -14.1 && degrees <= -1.9)
+                // The landed stamp (150 × 57 at 85 %), rotated, stays on the strike plate.
+                let scale = FoldPlaten.pressedScale
+                let stamp = CGRect(x: -75, y: -28.5, width: 150, height: 57)
+                    .applying(CGAffineTransform(rotationAngle: a.angle).scaledBy(x: scale, y: scale))
+                    .offsetBy(dx: layout.printCentre.x + a.offset.x, dy: layout.printCentre.y + a.offset.y)
+                #expect(plate.contains(stamp), "book \(book) seed \(seed): \(stamp) outside \(plate)")
+                poses.insert(String(format: "%.1f %.1f %.3f", Double(a.offset.x), Double(a.offset.y), Double(a.angle)))
+            }
+            #expect(poses.count > 30)
+        }
     }
 
     // MARK: Eye model (§2.2)
