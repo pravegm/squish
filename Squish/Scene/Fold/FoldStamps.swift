@@ -287,30 +287,36 @@ enum FoldStamps {
         return ctx.makeImage()
     }
 
-    /// The wet ink of a full print: the outline filled, lighter at the apex, with a darker rim and interior lines.
+    /// The wet ink of a full print: one soft pressing of the union outline (never the construction ellipses), ink
+    /// pooled a little darker just inside the edge, lighter and wetter at the apex.
     static func inkImage(_ stamp: FoldStamp, scale: CGFloat = 2) -> CGImage? {
-        image(rect: FoldPrintCanvas.rect, scale: scale) { ctx in
-            ctx.addPath(stamp.silhouette)
+        let outline = stamp.silhouette.normalized(using: .winding)
+        return image(rect: FoldPrintCanvas.rect, scale: scale) { ctx in
+            ctx.addPath(outline)
             ctx.saveGState()
             ctx.clip()
             ctx.setFillColor(stamp.ink.withAlphaComponent(stamp.inkAlpha).cgColor)
             ctx.fill(FoldPrintCanvas.rect)
-            let wet = [UIColor(white: 1, alpha: 0.28).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray
+            // Pooled rim: a wide, blurred stroke of the outline, clipped inside, so the edge reads soft but clean.
+            ctx.setShadow(offset: .zero, blur: 5 * scale, color: stamp.inkEdge.withAlphaComponent(0.55).cgColor)
+            ctx.addPath(outline)
+            ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.55 : 0.30).cgColor)
+            ctx.setLineWidth(stamp.kind == .glassBottle ? 3 : 4)
+            ctx.strokePath()
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            let wet = [UIColor(white: 1, alpha: 0.24).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray
             if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: wet, locations: [0, 1]) {
                 ctx.drawRadialGradient(gradient, startCenter: stamp.apex, startRadius: 0, endCenter: stamp.apex,
-                                       endRadius: stamp.fullRadius * 0.55, options: [])
+                                       endRadius: stamp.fullRadius * 0.6, options: [])
             }
-            if let details = stamp.details {
+            // Only bubble wrap keeps interior marks: each dome really does touch the plate as its own circle.
+            if stamp.kind == .bubbleWrap, let details = stamp.details {
                 ctx.addPath(details)
-                ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(0.55).cgColor)
-                ctx.setLineWidth(1.4)
+                ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(0.30).cgColor)
+                ctx.setLineWidth(1)
                 ctx.strokePath()
             }
             ctx.restoreGState()
-            ctx.addPath(stamp.silhouette)
-            ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.85 : 0.65).cgColor)
-            ctx.setLineWidth(stamp.kind == .glassBottle ? 1.6 : 1.2)
-            ctx.strokePath()
         }
     }
 

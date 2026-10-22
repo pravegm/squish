@@ -182,7 +182,10 @@ final class FoldBezel {
             label.position = CGPoint(x: x, y: lampY + 16)
         }
         nameplate.bounds = CGRect(x: 0, y: 0, width: 92, height: 23)
-        nameplate.position = CGPoint(x: layout.isBook ? cr.minX + 232 : cr.midX, y: cr.midY)
+        // Narrow (non-Duo) canvases: keep the nameplate beside the gauge, clear of a centred camera cut-out.
+        let narrow = !layout.isBook && layout.canvas.width < 500
+        nameplate.position = CGPoint(x: layout.isBook ? cr.minX + 232 : (narrow ? cr.minX + 116 : cr.midX),
+                                     y: narrow ? cr.maxY - 16 : cr.midY)
         nameplate.cornerRadius = 2
         nameplate.masksToBounds = true
 

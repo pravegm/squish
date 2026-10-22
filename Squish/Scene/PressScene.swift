@@ -75,6 +75,9 @@ final class PressScene {
     private(set) var isStudioReady = false
     private var iblReady = false
     private var sweepReady = false
+    /// Assets are in; now wait for a few smooth frames (first-draw shader compiles happen while still transparent).
+    private var assetsReady = false
+    private var smoothFrames = 0
     private let createdAt = CACurrentMediaTime()
     private var objectRequest = 0
     private var warmedKinds: Set<ObjectKind> = []
@@ -92,6 +95,7 @@ final class PressScene {
     private var framedPose: Pose?
 
     init() {
+        SceneTrace.mark("init begin")
         root.addChild(sweep)
         root.addChild(rig.root)
         root.addChild(objectSlot)
@@ -107,6 +111,7 @@ final class PressScene {
         frame(size: CGSize(width: 402, height: 874))
         if DemoScenario.current?.has("calib") == true { buildCalibrationCards() }
         loadStudioLight()
+        SceneTrace.mark("init end")
     }
 
     // MARK: - Contract
@@ -122,7 +127,7 @@ final class PressScene {
         }
         Task { @MainActor [weak self] in
             let results = await Task.detached(priority: .userInitiated) { () -> [(String, MeshData)] in
-                ObjectMeshes.build(kind)
+                SceneTrace.measure("meshes \(kind.rawValue) (off main)") { ObjectMeshes.build(kind) }
             }.value
             guard let self else { return }
             for (key, data) in results { MeshCache.store(key, data) }
@@ -145,7 +150,9 @@ final class PressScene {
             fx.clear()
             rig.repair()
         }
-        let view = PressObjectFactory.make(kind, variant: variant, fx: fx)
+        let view = SceneTrace.measure("object view \(kind.rawValue) (main)") {
+            PressObjectFactory.make(kind, variant: variant, fx: fx)
+        }
         objectSlot.addChild(view.entity)
         ShadowCasting.offForTranslucent(in: view.entity)
         objectView = view
@@ -180,10 +187,15 @@ final class PressScene {
     func update(engine: PressEngine, context: FeedbackContext, dt: Float) {
         guard let view = objectView else { return }
         let dt = min(max(dt, 0), 1.0 / 20.0)
+        if assetsReady && !isStudioReady {
+            // A stalled frame clamps to 0.05 s, so "smooth" means comfortably under that.
+            smoothFrames = dt < 0.045 ? smoothFrames + 1 : 0
+            if smoothFrames >= 4 { markStudioReady(timedOut: false) }
+        }
         clock += dt
         // The placement / power-on timeline starts once the studio is visible.
         if isStudioReady { sinceSet += dt }
-        if !isStudioReady && CACurrentMediaTime() - createdAt > 3 { markStudioReady(timedOut: true) }
+        if !isStudioReady && CACurrentMediaTime() - createdAt > 4 { markStudioReady(timedOut: true) }
         fx.reduceMotion = context.reduceMotion
         updateFraming(engine: engine)
         updateRestBeat(engine: engine, context: context, dt: dt)
@@ -336,6 +348,12 @@ final class PressScene {
         // Must live in the window to render; parked just outside the visible bounds.
         offscreen.frame = CGRect(x: -size.width - 64, y: 0, width: size.width, height: size.height)
         if offscreen.superview !== container { container.addSubview(offscreen) }
+        if framing == .foldAnvil {
+            // FOLD PRESS: on screen (so it renders) but behind the opaque Duo stage layers.
+            offscreen.frame = CGRect(origin: .zero, size: size)
+            offscreen.alpha = 1
+            container.sendSubviewToBack(offscreen)
+        }
         offscreen.isHidden = false
         offscreen.environment.background = .color(Palette.gaugePaper)
 
@@ -385,6 +403,8 @@ final class PressScene {
         }
         offscreen.scene.removeAnchor(anchor)
         offscreen.isHidden = true
+        // FOLD PRESS: a blank (never-rendered) shot returns nil so the director / UI fall back.
+        if let image, FoldSnapshot.isBlank(image) { return nil }
         return image
     }
 
@@ -413,6 +433,7 @@ final class PressScene {
                 entity.components.set(receiver)
             }
             self.iblReady = true
+            SceneTrace.mark("ibl ready")
             self.checkStudioReady()
         }
     }
@@ -421,7 +442,8 @@ final class PressScene {
 
     private func checkStudioReady() {
         guard !isStudioReady, iblReady, sweepReady, objectView != nil else { return }
-        markStudioReady(timedOut: false)
+        if !assetsReady { SceneTrace.mark("assets ready (waiting for smooth frames)") }
+        assetsReady = true
     }
 
     /// Fades the scene in (the ARView was transparent) and starts background pre-baking for later objects.
@@ -430,13 +452,22 @@ final class PressScene {
         isStudioReady = true
         if DemoScenario.current != nil {
             let seconds = CACurrentMediaTime() - createdAt
-            print("SQUISH-T studio ready at \(String(format: "%.2f", seconds)) s\(timedOut ? " (timed out)" : "")")
+            let pending = [iblReady ? "" : "ibl", sweepReady ? "" : "sweep", objectView == nil ? "object" : "",
+                           assetsReady ? "smooth frames" : ""]
+                .filter { !$0.isEmpty }.joined(separator: ", ")
+            let note = timedOut ? " (timed out; pending: \(pending))" : ""
+            print("SQUISH-T studio ready at \(String(format: "%.2f", seconds)) s\(note)")
+            SceneTrace.mark("studio ready\(note)")
         }
         if let view = arView {
             UIView.animate(withDuration: fx.reduceMotion ? 0.1 : 0.25) { view.alpha = 1 }
         }
-        prebakeRemainingSweeps()
-        prewarmRemainingObjects()
+        // Background pre-baking waits until the first frames have settled (CPU contention slowed early frames on CI).
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            self?.prebakeRemainingSweeps()
+            self?.prewarmRemainingObjects()
+        }
     }
 
     /// Every other gel wall, baked once in the background so object switches never wait.
@@ -803,9 +834,20 @@ final class PressScene {
         let flip = style.sweepFlipV
         Task { @MainActor [weak self] in
             let box = await Task.detached(priority: .userInitiated) { () -> ImageBox in
-                ImageBox(image: StudioEnvironment.sweepImage(gel: gel, golden: golden, flipV: flip))
+                ImageBox(image: SceneTrace.measure("sweep image (off main)") {
+                    StudioEnvironment.sweepImage(gel: gel, golden: golden, flipV: flip)
+                })
             }.value
-            guard let self, let texture = StudioEnvironment.texture(box.image, name: "sweep.\(gel)") else { return }
+            guard let self else { return }
+            guard let texture = SceneTrace.measure("sweep texture (main)", {
+                StudioEnvironment.texture(box.image, name: "sweep.\(gel)")
+            }) else {
+                // Never block readiness on a missing texture: the tone-free floor-colour placeholder stays.
+                SceneTrace.mark("sweep texture FAILED")
+                self.sweepReady = true
+                self.checkStudioReady()
+                return
+            }
             self.sweepTextures[gel] = texture
             if request == self.sweepRequest { self.setSweep(texture) }
         }
@@ -815,6 +857,7 @@ final class PressScene {
         var material = UnlitMaterial(applyPostProcessToneMap: false)
         material.color = .init(tint: .white, texture: .init(texture))
         sweep.model?.materials = [material]
+        if !sweepReady { SceneTrace.mark("sweep applied") }
         sweepReady = true
         checkStudioReady()
     }
@@ -870,6 +913,8 @@ final class PressScene {
         let fold = mode == .foldAnvil
         rig.root.isEnabled = !fold
         sweep.isEnabled = !fold
+        // The Duo stage brings its own camera (a camera moved in from the P-48 ARView's scene isn't picked up).
+        camera.isEnabled = !fold
         if foldAnvil !== anvil || !fold {
             foldAnvil?.removeFromParent()
             foldAnvil = fold ? anvil : nil
@@ -890,14 +935,6 @@ final class PressScene {
 
     func setFoldStage(_ stage: FoldStage) {
         guard framing == .foldAnvil else { return }
-        camera.position = stage.cameraPosition
-        camera.orientation = stage.cameraOrientation
-        camera.camera.fieldOfViewInDegrees = stage.verticalFOV
-        camera.camera.near = stage.near
-        camera.camera.far = stage.far
-        baseFieldOfView = stage.verticalFOV
-        fovScale = 1
-        fovTarget = 1
         // Clamshell lean (§2.4): the squash tips away from the real hinge.
         objectSlot.orientation = simd_quatf(angle: stage.lean, axis: [1, 0, 0])
         flash.position = stage.flashPosition

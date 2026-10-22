@@ -270,7 +270,9 @@ final class PressEngine {
         }
 
         // Sealed on the inner display and then left alone (e.g. stopped at 58°): reveal after a beat.
-        if phase == .sealed && !isClosed && now - lastSampleTime > 0.25 {
+        // Only when the phone is clearly open (≥ 100°): a press sealed at ~48° and left there is still mid-fold,
+        // and the card would be unreadable. The user will close it (ka-chunk) or reopen it (reveal).
+        if phase == .sealed && !isClosed && angle >= 100 && now - lastSampleTime > 0.25 {
             if let start = sealedRestStart {
                 if now - start >= config.sealedRestReveal { beginReveal() }
             } else {

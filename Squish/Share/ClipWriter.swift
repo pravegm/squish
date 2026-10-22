@@ -3,12 +3,12 @@ import CoreMedia
 import CoreVideo
 import UIKit
 
-/// Encodes the share clip (bible §10): H.264 High, 1080 × 1920, 30 fps, plus a mono 48 kHz AAC track,
-/// into an MP4 with the movie header up front (plays while it uploads).
+/// Encodes the share clip's picture (bible §10): H.264 High, 1080 × 1920, 30 fps, into a video-only MP4.
 ///
-/// Frames are drawn with CoreGraphics straight into pooled BGRA pixel buffers. Audio is pre-rendered PCM, appended
-/// in step with the video so the writer can interleave (it stalls one input if the other falls too far behind).
-/// Main-actor bound: it is fed from the export loop, which already suspends between frames.
+/// Video only on purpose: one AVAssetWriter fed both H.264 frames and AAC audio from a polling loop stalled in CI
+/// (the writer withholds `isReadyForMoreMediaData` from one input while it waits to interleave the other). The sound
+/// is written separately by `ClipMuxer.writeAudio` and joined losslessly by `ClipMuxer.mux`, so nothing here can
+/// starve. Frames are drawn with CoreGraphics straight into pooled BGRA pixel buffers.
 @MainActor
 final class ClipWriter {
     enum WriterError: LocalizedError {
@@ -26,7 +26,6 @@ final class ClipWriter {
     }
 
     static let fps: Int32 = 30
-    static let audioChunk = 1024
 
     let url: URL
     let width: Int
@@ -36,13 +35,12 @@ final class ClipWriter {
     private let writer: AVAssetWriter
     private let videoInput: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
-    private let audioInput: AVAssetWriterInput
-    private var audioFormat: CMAudioFormatDescription?
-    private var audio: [Float] = []
-    private var audioCursor = 0
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
     init(url: URL, width: Int = 1080, height: Int = 1920, videoBitRate: Int) throws {
+        // H.264 needs even dimensions.
+        let width = width & ~1
+        let height = height & ~1
         self.url = url
         self.width = width
         self.height = height
@@ -57,11 +55,11 @@ final class ClipWriter {
 
         let compression: [String: Any] = [
             AVVideoAverageBitRateKey: videoBitRate,
-            AVVideoExpectedSourceFrameRateKey: Int(ClipWriter.fps),
-            AVVideoMaxKeyFrameIntervalKey: Int(ClipWriter.fps) * 2,
+            AVVideoExpectedSourceFrameRateKey: Int(Self.fps),
+            AVVideoMaxKeyFrameIntervalKey: Int(Self.fps) * 2,
             AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
         ]
-        let videoSettings: [String: Any] = [
+        let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
@@ -72,7 +70,11 @@ final class ClipWriter {
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
         ]
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
+            throw WriterError.setup("H.264 \(width)×\(height) unsupported")
+        }
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        // Offline render: the writer may hold us back (we wait), it never drops frames.
         videoInput.expectsMediaDataInRealTime = false
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -83,45 +85,9 @@ final class ClipWriter {
         ])
         guard writer.canAdd(videoInput) else { throw WriterError.setup("video track") }
         writer.add(videoInput)
-
-        let audioSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: OfflineAudio.sampleRate,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 128_000,
-        ]
-        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-        audioInput.expectsMediaDataInRealTime = false
-        guard writer.canAdd(audioInput) else { throw WriterError.setup("audio track") }
-        writer.add(audioInput)
-
-        var description = AudioStreamBasicDescription(
-            mSampleRate: OfflineAudio.sampleRate,
-            mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-            mBytesPerPacket: 4,
-            mFramesPerPacket: 1,
-            mBytesPerFrame: 4,
-            mChannelsPerFrame: 1,
-            mBitsPerChannel: 32,
-            mReserved: 0
-        )
-        var format: CMAudioFormatDescription?
-        let status = CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &description, layoutSize: 0,
-                                                    layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil,
-                                                    formatDescriptionOut: &format)
-        guard status == noErr, let format else { throw WriterError.setup("audio format \(status)") }
         self.writer = writer
         self.videoInput = videoInput
         self.adaptor = adaptor
-        self.audioInput = audioInput
-        audioFormat = format
-    }
-
-    /// The whole clip's PCM (mono Float32, 48 kHz). Set before the first frame.
-    func setAudio(_ samples: [Float]) {
-        audio = samples
-        audioCursor = 0
     }
 
     func start() throws {
@@ -134,7 +100,7 @@ final class ClipWriter {
     /// Draws the next frame and appends it. The context is plain CoreGraphics (bottom-left origin); a bitmap
     /// context stores rows top-first, so `context.draw(cgImage, in: bounds)` comes out upright.
     func appendFrame(_ draw: (CGContext, CGSize) -> Void) async throws {
-        try await waitUntilReady(videoInput)
+        try await waitUntilReady()
         guard let pool = adaptor.pixelBufferPool else { throw WriterError.encoding("no pixel buffer pool") }
         var created: CVPixelBuffer?
         let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &created)
@@ -160,27 +126,15 @@ final class ClipWriter {
 
         let time = CMTime(value: CMTimeValue(framesWritten), timescale: Self.fps)
         guard adaptor.append(buffer, withPresentationTime: time) else {
-            throw WriterError.encoding(writer.error?.localizedDescription ?? "append video")
+            throw WriterError.encoding(writer.error?.localizedDescription ?? "append")
         }
         framesWritten += 1
-        // Keep the audio about half a second ahead of the video, never blocking on it.
-        try appendAudio(upTo: Double(framesWritten) / Double(Self.fps) + 0.5)
     }
 
-    /// Finishes both tracks; the clip ends exactly at `totalFrames`.
+    /// Finishes the file; the clip ends exactly at `totalFrames` (the last frame keeps its full duration).
     func finish(totalFrames: Int) async throws {
         videoInput.markAsFinished()
-        let end = Double(totalFrames) / Double(Self.fps)
-        let deadline = ContinuousClock.now + .seconds(10)
-        while audioCursor < min(audio.count, Int(end * OfflineAudio.sampleRate)) {
-            try Task.checkCancellation()
-            try appendAudio(upTo: end)
-            if writer.status == .failed { throw WriterError.encoding(writer.error?.localizedDescription ?? "audio") }
-            if ContinuousClock.now > deadline { throw WriterError.stalled }
-            if !audioInput.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(4)) }
-        }
-        audioInput.markAsFinished()
-        writer.endSession(atSourceTime: CMTime(value: CMTimeValue(totalFrames), timescale: Self.fps))
+        writer.endSession(atSourceTime: CMTime(value: CMTimeValue(max(totalFrames, framesWritten)), timescale: Self.fps))
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             writer.finishWriting {
                 continuation.resume()
@@ -197,62 +151,102 @@ final class ClipWriter {
         try? FileManager.default.removeItem(at: url)
     }
 
-    // MARK: - Internals
-
-    private func waitUntilReady(_ input: AVAssetWriterInput) async throws {
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !input.isReadyForMoreMediaData {
+    private func waitUntilReady() async throws {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while !videoInput.isReadyForMoreMediaData {
             try Task.checkCancellation()
             if writer.status == .failed { throw WriterError.encoding(writer.error?.localizedDescription ?? "failed") }
             if ContinuousClock.now > deadline { throw WriterError.stalled }
-            // The writer may be waiting for audio to interleave with; feed it while we wait.
-            try appendAudio(upTo: Double(framesWritten) / Double(Self.fps) + 1.0)
-            try await Task.sleep(for: .milliseconds(4))
+            try await Task.sleep(for: .milliseconds(2))
         }
         if writer.status == .failed { throw WriterError.encoding(writer.error?.localizedDescription ?? "failed") }
     }
+}
 
-    /// Appends PCM chunks up to `seconds` while the audio input accepts them.
-    private func appendAudio(upTo seconds: Double) throws {
-        guard let audioFormat else { return }
-        let target = min(audio.count, Int(seconds * OfflineAudio.sampleRate))
-        while audioCursor < target, audioInput.isReadyForMoreMediaData {
-            let count = min(Self.audioChunk, target - audioCursor)
-            guard let buffer = makeAudioBuffer(from: audioCursor, count: count, format: audioFormat) else {
-                throw WriterError.encoding("audio buffer")
+/// The clip's sound and the final lossless join.
+enum ClipMuxer {
+    enum MuxError: LocalizedError {
+        case audio(String)
+        case mux(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .audio(let detail): "Couldn't write the clip's sound (\(detail))."
+            case .mux(let detail): "Couldn't join picture and sound (\(detail))."
             }
-            guard audioInput.append(buffer) else {
-                throw WriterError.encoding(writer.error?.localizedDescription ?? "append audio")
-            }
-            audioCursor += count
         }
     }
 
-    private func makeAudioBuffer(from start: Int, count: Int, format: CMAudioFormatDescription) -> CMSampleBuffer? {
-        let bytes = count * MemoryLayout<Float>.size
-        var block: CMBlockBuffer?
-        var status = CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil,
-                                                        blockLength: bytes, blockAllocator: kCFAllocatorDefault,
-                                                        customBlockSource: nil, offsetToData: 0, dataLength: bytes,
-                                                        flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block)
-        guard status == kCMBlockBufferNoErr, let block else { return nil }
-        status = audio.withUnsafeBytes { raw -> OSStatus in
-            guard let base = raw.baseAddress else { return -1 }
-            return CMBlockBufferReplaceDataBytes(with: base + start * MemoryLayout<Float>.size, blockBuffer: block,
-                                                 offsetIntoDestination: 0, dataLength: bytes)
+    /// Writes mono Float32 PCM as a 128 kbit/s AAC `.m4a` (AVAudioFile does the encoding; no interleaving involved).
+    static func writeAudio(_ samples: [Float], sampleRate: Double, to url: URL) throws {
+        try? FileManager.default.removeItem(at: url)
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 128_000,
+        ]
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32,
+                                       interleaved: false)
+            let chunk = 4096
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(chunk)),
+                  let channel = buffer.floatChannelData?[0] else {
+                throw MuxError.audio("PCM buffer")
+            }
+            var cursor = 0
+            while cursor < samples.count {
+                let count = min(chunk, samples.count - cursor)
+                samples.withUnsafeBufferPointer { source in
+                    guard let base = source.baseAddress else { return }
+                    channel.update(from: base + cursor, count: count)
+                }
+                buffer.frameLength = AVAudioFrameCount(count)
+                try file.write(from: buffer)
+                cursor += count
+            }
+        } catch let error as MuxError {
+            throw error
+        } catch {
+            throw MuxError.audio(error.localizedDescription)
         }
-        guard status == kCMBlockBufferNoErr else { return nil }
-        var sampleBuffer: CMSampleBuffer?
-        status = CMAudioSampleBufferCreateReadyWithPacketDescriptions(
-            allocator: kCFAllocatorDefault,
-            dataBuffer: block,
-            formatDescription: format,
-            sampleCount: count,
-            presentationTimeStamp: CMTime(value: CMTimeValue(start), timescale: CMTimeScale(OfflineAudio.sampleRate)),
-            packetDescriptions: nil,
-            sampleBufferOut: &sampleBuffer
-        )
-        guard status == noErr else { return nil }
-        return sampleBuffer
+        // `file` is closed when it goes out of scope above.
+    }
+
+    /// Joins the video and audio files into `output` without re-encoding (passthrough export).
+    @MainActor static func mux(video: URL, audio: URL, to output: URL) async throws {
+        try? FileManager.default.removeItem(at: output)
+        let composition = AVMutableComposition()
+        let videoAsset = AVURLAsset(url: video)
+        let audioAsset = AVURLAsset(url: audio)
+        do {
+            guard let sourceVideo = try await videoAsset.loadTracks(withMediaType: .video).first,
+                  let sourceAudio = try await audioAsset.loadTracks(withMediaType: .audio).first else {
+                throw MuxError.mux("missing track")
+            }
+            let videoRange = try await sourceVideo.load(.timeRange)
+            let audioRange = try await sourceAudio.load(.timeRange)
+            guard let videoTrack = composition.addMutableTrack(withMediaType: .video,
+                                                               preferredTrackID: kCMPersistentTrackID_Invalid),
+                  let audioTrack = composition.addMutableTrack(withMediaType: .audio,
+                                                               preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                throw MuxError.mux("composition tracks")
+            }
+            try videoTrack.insertTimeRange(videoRange, of: sourceVideo, at: .zero)
+            let audioDuration = CMTimeMinimum(audioRange.duration, videoRange.duration)
+            try audioTrack.insertTimeRange(CMTimeRange(start: audioRange.start, duration: audioDuration),
+                                           of: sourceAudio, at: .zero)
+            guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+                throw MuxError.mux("export session")
+            }
+            session.shouldOptimizeForNetworkUse = true
+            try await session.export(to: output, as: .mp4)
+        } catch let error as MuxError {
+            throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw MuxError.mux(error.localizedDescription)
+        }
     }
 }

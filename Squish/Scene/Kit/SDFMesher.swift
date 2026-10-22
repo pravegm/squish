@@ -56,11 +56,15 @@ struct SDFBlob {
 
     func distance(_ p: SIMD3<Float>) -> Float {
         var d: Float = 1
-        for (i, part) in parts.enumerated() {
-            let offset = p - part.centre
-            let local = part.rotates ? part.rotation.act(offset) : offset
-            let e = Self.ellipsoid(local, part.radii)
-            d = i == 0 ? e : Self.smin(d, e, part.k)
+        // Indexed loop over the raw buffer: this is the hot path of SDF meshing (Debug builds run it at startup).
+        parts.withUnsafeBufferPointer { buffer in
+            for i in 0..<buffer.count {
+                let part = buffer[i]
+                let offset = p - part.centre
+                let local = part.rotates ? part.rotation.act(offset) : offset
+                let e = Self.ellipsoid(local, part.radii)
+                d = i == 0 ? e : Self.smin(d, e, part.k)
+            }
         }
         if let floor {
             d = Self.smax(d, floor - p.y, floorRound)
@@ -72,12 +76,14 @@ struct SDFBlob {
     }
 
     func gradient(_ p: SIMD3<Float>) -> SIMD3<Float> {
+        // Tetrahedral differences: 4 evaluations instead of 6.
         let e: Float = 0.0004
-        let g = SIMD3<Float>(
-            distance(p + SIMD3(e, 0, 0)) - distance(p - SIMD3(e, 0, 0)),
-            distance(p + SIMD3(0, e, 0)) - distance(p - SIMD3(0, e, 0)),
-            distance(p + SIMD3(0, 0, e)) - distance(p - SIMD3(0, 0, e))
-        )
+        let k0 = SIMD3<Float>(1, -1, -1), k1 = SIMD3<Float>(-1, -1, 1), k2 = SIMD3<Float>(-1, 1, -1), k3 = SIMD3<Float>(1, 1, 1)
+        let g0: SIMD3<Float> = k0 * distance(p + k0 * e)
+        let g1: SIMD3<Float> = k1 * distance(p + k1 * e)
+        let g2: SIMD3<Float> = k2 * distance(p + k2 * e)
+        let g3: SIMD3<Float> = k3 * distance(p + k3 * e)
+        let g: SIMD3<Float> = (g0 + g1) + (g2 + g3)
         let length = simd_length(g)
         return length > 1e-9 ? g / length : SIMD3(0, 1, 0)
     }

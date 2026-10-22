@@ -179,7 +179,7 @@ final class FoldPrintStack {
             weights = [0, 1 - t, t]
         }
         let presence = f.objectPresent ? 1.0 : 0
-        let under = f.contacted ? 0.55 : 1
+        let under = f.contacted ? 0.22 : 1
         for (layer, w) in zip(shadows, weights) {
             layer.opacity = Float(shadow.alpha * w * presence * under)
             layer.setAffineTransform(CGAffineTransform(scaleX: CGFloat(shadow.scale), y: CGFloat(shadow.scale)))
@@ -222,8 +222,8 @@ final class FoldPrintStack {
             pulse *= pow(0.5, f.dt / 0.12)
             let ball = stamp.contact == .fixedRing
             let alpha = ball ? 0.55 + 0.45 * min(1, f.printCompression * 2) + 0.4 * pulse
-                : (fraction < 1 ? 0.06 + 0.10 * f.printCompression : 0.04)
-            rings.opacity = Float(min(alpha * (stamp.contact == .uniform ? 0.5 : 1), 1))
+                : (fraction < 1 ? (0.06 + 0.10 * f.printCompression) * 0.6 : 0)
+            rings.opacity = Float(min(alpha * (stamp.contact == .uniform ? 0 : 1), 1))
             let k = ball ? 1.25 + 0.5 * pulse : 1 / 0.82
             rings.bounds = CGRect(x: 0, y: 0, width: 2 * rx * k, height: 2 * ry * k)
             rings.position = stamp.apex

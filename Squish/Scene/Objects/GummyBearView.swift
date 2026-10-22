@@ -90,8 +90,8 @@ final class GummyBearView: PressObjectView {
     private func build() {
         let core = look.golden ? SceneMaterials.gold : SceneMaterials.pbr(UIColor(hex: 0xC8203A), roughness: 0.3)
         let shell = shellMaterial(glow: 0.22)
-        Part.add(cached: "gummy.full.core", { ObjectMeshes.gummy(side: nil, coreScale: 0.82) }, core, to: welded)
-        shells.append(Part.add(cached: "gummy.full.shell", { ObjectMeshes.gummy(side: nil, coreScale: 1) }, shell, to: welded))
+        Part.add(cached: "gummy.core.full", { ObjectMeshes.gummy(side: nil, coreScale: 0.82) }, core, to: welded)
+        shells.append(Part.add(cached: "gummy.shell.full", { ObjectMeshes.gummy(side: nil, coreScale: 1) }, shell, to: welded))
         bear.addChild(welded)
         for side: Float in [1, -1] {
             // side = clip normal: +1 keeps x ≤ 0 (left half), −1 keeps x ≥ 0 (right half).

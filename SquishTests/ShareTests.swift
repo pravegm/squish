@@ -151,32 +151,41 @@ struct ShareTests {
         #expect(end.width == 1080 && end.height == 1920)
     }
 
-    @Test func writerProducesAnMP4WithVideoAndAudio() async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ShareTests-\(UUID().uuidString).mp4")
-        defer { try? FileManager.default.removeItem(at: url) }
-        var produced = false
-        // Encoder availability differs between simulator images; a failure here is surfaced, not fatal.
-        await withKnownIssue("Simulator video encoder unavailable", isIntermittent: true) {
-            let writer = try ClipWriter(url: url, width: 360, height: 640, videoBitRate: 1_000_000)
-            let omega = 2 * Double.pi * 440 / 48_000
-            writer.setAudio((0..<48_000).map { index -> Float in Float(0.2 * sin(Double(index) * omega)) })
-            try writer.start()
-            for i in 0..<30 {
-                try await writer.appendFrame { context, size in
-                    context.setFillColor(UIColor(hue: CGFloat(i) / 30, saturation: 0.6, brightness: 0.9, alpha: 1).cgColor)
-                    context.fill(CGRect(origin: .zero, size: size))
-                }
+    @Test func writerAndMuxerProduceAnMP4WithVideoAndAudio() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ShareTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let video = directory.appendingPathComponent("video.mp4")
+        let audio = directory.appendingPathComponent("audio.m4a")
+        let output = directory.appendingPathComponent("clip.mp4")
+
+        // Picture: 1 s at the clip's own resolution and bitrate.
+        let writer = try ClipWriter(url: video, width: ClipExporter.width, height: ClipExporter.height,
+                                    videoBitRate: ClipExporter.videoBitRate)
+        try writer.start()
+        for i in 0..<30 {
+            try await writer.appendFrame { context, size in
+                context.setFillColor(UIColor(hue: CGFloat(i) / 30, saturation: 0.6, brightness: 0.9, alpha: 1).cgColor)
+                context.fill(CGRect(origin: .zero, size: size))
             }
-            try await writer.finish(totalFrames: 30)
-            produced = true
         }
-        guard produced else { return }
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        try await writer.finish(totalFrames: 30)
+        #expect(writer.framesWritten == 30)
+
+        // Sound: 1 s of A4 through AVAudioFile's AAC encoder.
+        let omega = 2 * Double.pi * 440 / OfflineAudio.sampleRate
+        let pcm = (0..<Int(OfflineAudio.sampleRate)).map { index -> Float in Float(0.2 * sin(Double(index) * omega)) }
+        try ClipMuxer.writeAudio(pcm, sampleRate: OfflineAudio.sampleRate, to: audio)
+
+        try await ClipMuxer.mux(video: video, audio: audio, to: output)
+        let attributes = try FileManager.default.attributesOfItem(atPath: output.path)
         #expect(((attributes[.size] as? NSNumber)?.intValue ?? 0) > 1000)
-        let asset = AVURLAsset(url: url)
+        let asset = AVURLAsset(url: output)
         let duration = try await asset.load(.duration)
         #expect(abs(duration.seconds - 1) < 0.1)
-        let tracks = try await asset.load(.tracks)
-        #expect(tracks.count == 2)
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        #expect(videoTracks.count == 1)
+        #expect(audioTracks.count == 1)
     }
 }

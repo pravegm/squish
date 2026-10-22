@@ -24,10 +24,10 @@ struct CoverView: View {
     /// The one-time safety line (bible §3.2), when it's due.
     var showsSafetyLine = false
 
-    /// Outer display (466 × 678 pt): symmetric 84 pt side insets keep the clock column clear *and* the layout
-    /// centred; 34 pt bottom inset. Elsewhere (CI demo on a slab iPhone) a normal 24 pt margin.
-    private var sideInset: CGFloat { reservesClockColumn ? 84 : Theme.s5 }
-    private var bottomInset: CGFloat { reservesClockColumn ? 34 : 0 }
+    /// The outer display's safe area already excludes the clock column and the bottom inset (seen on the Duo
+    /// simulator), so the content just takes a normal margin and centres in what's left, both ways.
+    private var sideInset: CGFloat { Theme.s5 }
+    private var bottomInset: CGFloat { 0 }
 
     var body: some View {
         GeometryReader { proxy in
@@ -303,9 +303,19 @@ private struct IdleCover: View {
 
     var body: some View {
         VStack(spacing: Theme.s5) {
-            trophyCard
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(shelfDescription)
+            Group {
+                if recent.isEmpty {
+                    // No empty tiles on a first run: one friendly line instead.
+                    Text("Your pressed specimens land here.")
+                        .font(Theme.footnote)
+                        .foregroundStyle(Theme.paper.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                } else {
+                    trophyCard
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(shelfDescription)
 
             VStack(spacing: Theme.s1) {
                 Text("ON THE ANVIL")
@@ -335,7 +345,7 @@ private struct IdleCover: View {
                         } label: {
                             HStack(spacing: 6) {
                                 TintDot(kind: kind)
-                                Text(kind.chipName)
+                                Text(kind.coverName)
                                 Spacer(minLength: 0)
                             }
                         }
@@ -391,5 +401,23 @@ private struct IdleCover: View {
         let names = recent.prefix(3).map(\.kind.displayName)
         let shelf = names.isEmpty ? "Nothing pressed yet." : "Recently pressed: \(names.joined(separator: ", "))."
         return "Squish. \(shelf)"
+    }
+}
+
+extension ObjectKind {
+    /// One-word names for the cover's chip grid, so nothing ever truncates on the 466 pt outer display.
+    var coverName: String {
+        switch self {
+        case .bubbleWrap: "BUBBLES"
+        case .rubberDuck: "DUCK"
+        case .jelly: "JELLY"
+        case .crayon: "CRAYON"
+        case .egg: "EGG"
+        case .cakeSlice: "CAKE"
+        case .sodaCan: "CAN"
+        case .gummyBear: "GUMMY"
+        case .glassBottle: "BOTTLE"
+        case .unsquishable: "BALL"
+        }
     }
 }

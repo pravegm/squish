@@ -223,7 +223,9 @@ struct FoldLayout: Equatable, Sendable {
     /// Guide pins (platen) and their bushings (anvil): 28 pt in from each side, 60 pt from the crease band edge.
     func guidePins(platen: Bool) -> [CGPoint] {
         let d = (FoldMetrics.creaseHalf + FoldMetrics.pinFromCrease) * (platen ? -1 : 1)
-        return [FoldMetrics.pinFromSide, lateralLength - FoldMetrics.pinFromSide].map { point(lateral: $0, depth: d) }
+        // Book: the crown and console bands run along the page edges, so the pins move in to stay visible on both.
+        let side = isBook ? FoldMetrics.rail + FoldMetrics.crownDepth + FoldMetrics.pinFromSide : FoldMetrics.pinFromSide
+        return [side, lateralLength - side].map { point(lateral: $0, depth: d) }
     }
 
     // MARK: Canvas ↔ anvil frame (millimetres)

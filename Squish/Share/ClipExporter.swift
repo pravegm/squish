@@ -13,7 +13,8 @@ import UIKit
 ///    temporary `ClipStudio` window, exactly as the director drives it (engine step → events → `scene.handle`,
 ///    then `scene.update`). After each frame's step: wait for RealityKit to render, snapshot, encode.
 ///    Title and end cards are SwiftUI compositions rendered with `ImageRenderer`.
-/// 4. **Mux.** `ClipWriter` (AVAssetWriter) interleaves H.264 frames with AAC audio into one MP4 in tmp/SquishClips.
+/// 4. **Mux.** `ClipWriter` encodes H.264 picture only; `ClipMuxer` writes the sound as AAC with AVAudioFile and joins
+///    both with a passthrough export (no re-encode) into tmp/SquishClips. No single writer has to interleave two inputs.
 ///
 /// The engine is deterministic for identical inputs and step times, so the audio and video passes see the same
 /// events on the same frames.
@@ -75,24 +76,37 @@ final class ClipExporter {
         try Task.checkCancellation()
         progress(0.02)
 
-        // 2. Audio: score on the main actor (engine + cue book), synthesis off it.
+        let files = try Self.workFiles(for: specimen)
+        var finished = false
+        defer {
+            try? FileManager.default.removeItem(at: files.work)
+            if !finished { try? FileManager.default.removeItem(at: files.output) }
+        }
+
+        // 2. Audio: score on the main actor (engine + cue book), synthesis and AAC encoding off it.
+        //    A sound failure degrades to a silent clip rather than no clip.
         let score = Self.score(trace: trace, timeline: timeline, steps: steps, style: style, reduceMotion: reduceMotion)
         let totalSamples = timeline.totalFrames * Int(OfflineAudio.sampleRate) / ClipTimeline.fps
-        let pcm = await Task.detached(priority: .userInitiated) {
-            OfflineAudio.render(score, frames: totalSamples)
+        let audioURL = files.audio
+        let audioWritten = await Task.detached(priority: .userInitiated) { () -> Bool in
+            let pcm = OfflineAudio.render(score, frames: totalSamples)
+            do {
+                try ClipMuxer.writeAudio(pcm, sampleRate: OfflineAudio.sampleRate, to: audioURL)
+                return true
+            } catch {
+                print("SQUISH-CLIP audio skipped: \(error.localizedDescription)")
+                return false
+            }
         }.value
         try Task.checkCancellation()
         progress(0.06)
 
-        // 3. Writer and studio.
-        let url = try Self.outputURL(for: specimen)
+        // 3. Picture: writer and studio.
         let writer: ClipWriter
         do {
-            writer = try ClipWriter(url: url, width: Self.width, height: Self.height, videoBitRate: Self.videoBitRate)
-            writer.setAudio(pcm)
+            writer = try ClipWriter(url: files.video, width: Self.width, height: Self.height, videoBitRate: Self.videoBitRate)
             try writer.start()
         } catch {
-            try? FileManager.default.removeItem(at: url)
             throw ExportError.writer(error.localizedDescription)
         }
         let studio: ClipStudio
@@ -114,14 +128,30 @@ final class ClipExporter {
                                    reduceMotion: reduceMotion, studio: studio, writer: writer, report: report)
             studio.model.stage = "Developing…"
             try await writer.finish(totalFrames: timeline.totalFrames)
+            try Task.checkCancellation()
+            // 4. Join picture and sound losslessly; without sound, the picture alone is the clip.
+            if audioWritten {
+                do {
+                    try await ClipMuxer.mux(video: files.video, audio: files.audio, to: files.output)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    print("SQUISH-CLIP mux failed, sharing picture only: \(error.localizedDescription)")
+                    try? FileManager.default.removeItem(at: files.output)
+                    try FileManager.default.moveItem(at: files.video, to: files.output)
+                }
+            } else {
+                try FileManager.default.moveItem(at: files.video, to: files.output)
+            }
         } catch {
             writer.cancel()
             if error is CancellationError { throw error }
             if let known = error as? ExportError { throw known }
             throw ExportError.writer(error.localizedDescription)
         }
+        finished = true
         report(1)
-        return url
+        return files.output
     }
 
     private func renderFrames(trace: PressTrace, specimen: SpecimenRecord, timeline: ClipTimeline,
@@ -132,6 +162,22 @@ final class ClipExporter {
         let bounds = CGRect(x: 0, y: 0, width: width, height: height)
         let backdrop = UIColor(Theme.gel(for: specimen.kind, golden: specimen.variant.isGolden)).cgColor
         let totalFrames = Double(max(timeline.totalFrames, 1))
+
+        // Set the scene up first, so its studio light, sweep and object build while the title card encodes.
+        let scene = studio.scene
+        scene.isFirstPress = false
+        let replay = PressReplay(trace: trace)
+        let engine = replay.engine
+        let feedback = { () -> FeedbackContext in
+            FeedbackContext(kind: trace.kind, variant: trace.variant, compression: Float(engine.measuredCompression),
+                            closingSpeed: Float(engine.closingSpeed), soundStyle: style, reduceMotion: reduceMotion)
+        }
+        replay.onEvent = { event, _ in
+            scene.handle(event, context: feedback())
+        }
+        replay.load()
+        scene.setObject(trace.kind, variant: trace.variant)
+        scene.update(engine: engine, context: feedback(), dt: 0)
 
         // Title card, with a slow 4 % push-in. Degrades to the plain gel colour if it can't be drawn.
         studio.model.stage = "Setting the stage…"
@@ -149,23 +195,15 @@ final class ClipExporter {
             report(0.06 + 0.04 * Double(writer.framesWritten) / totalFrames)
         }
 
-        // The press, re-rendered.
-        let scene = studio.scene
-        scene.isFirstPress = false
-        let replay = PressReplay(trace: trace)
-        let engine = replay.engine
-        let feedback = { () -> FeedbackContext in
-            FeedbackContext(kind: trace.kind, variant: trace.variant, compression: Float(engine.measuredCompression),
-                            closingSpeed: Float(engine.closingSpeed), soundStyle: style, reduceMotion: reduceMotion)
+        // Studio ready, then stage the object: the first object's power-on beat and drop play on scene time, so run
+        // them (engine idle at source 0) until it has landed — off camera, no frames captured.
+        try await studio.warmUp(engine: engine, context: feedback())
+        let staging = max(0, Self.stagingTime - timeline.sourceStart)
+        for _ in 0..<Int((staging * 20).rounded(.up)) {
+            scene.update(engine: engine, context: feedback(), dt: 1.0 / 20)
         }
-        replay.onEvent = { event, _ in
-            scene.handle(event, context: feedback())
-        }
-        replay.load()
-        scene.setObject(trace.kind, variant: trace.variant)
-        scene.update(engine: engine, context: feedback(), dt: 0)
-        try await studio.warmUp()
 
+        // The press, re-rendered: one engine/scene step per drive step; capture on frame steps.
         studio.model.stage = "Re-pressing it frame by frame…"
         var lastFrame: CGImage?
         var misses = 0
@@ -176,8 +214,7 @@ final class ClipExporter {
             scene.update(engine: engine, context: feedback(), dt: Float(dt))
             guard step.frame != nil else { continue }
 
-            await studio.waitForFrames(2)
-            if let image = await studio.snapshot()?.cgImage {
+            if let image = await studio.captureFrame()?.cgImage {
                 lastFrame = image
                 misses = 0
             } else {
@@ -194,9 +231,11 @@ final class ClipExporter {
             report(0.10 + 0.84 * Double(writer.framesWritten) / totalFrames)
         }
 
-        // End card: crossfade in from the final press frame, then a gentle push-in.
+        // End card: the scene's clean top-down specimen shot (FOLD-PRESS §9.6), else a crop of the last frame;
+        // crossfade in from the final press frame, then a gentle push-in.
         studio.model.stage = "Pressing the specimen card…"
-        let still = lastFrame.flatMap(ClipCards.specimenCrop(of:))
+        var still = await scene.specimenSnapshot()
+        if still == nil { still = lastFrame.flatMap(ClipCards.specimenCrop(of:)) }
         let end = ClipCards.end(for: specimen, still: still)
         for frame in 0..<timeline.endFrames {
             try Task.checkCancellation()
@@ -217,6 +256,10 @@ final class ClipExporter {
             report(0.94 + 0.04 * Double(frame + 1) / Double(max(timeline.endFrames, 1)))
         }
     }
+
+    /// Scene seconds from placement until a first object has powered on, dropped and settled (PressScene: drop at
+    /// 0.8 s after the studio is ready, ~0.3 s fall, ~0.35 s squash).
+    static let stagingTime = 1.7
 
     /// Draws `image` aspect-filled into `bounds`, scaled about the centre by `zoom`.
     nonisolated private static func draw(_ image: CGImage, in context: CGContext, bounds: CGRect, zoom: CGFloat) {
@@ -272,16 +315,26 @@ final class ClipExporter {
 
     // MARK: - Files
 
-    /// tmp/SquishClips/Squish-Rubber-Duck-0042.mp4. Earlier clips are cleared first, so only one is ever kept.
-    private static func outputURL(for specimen: SpecimenRecord) throws -> URL {
+    struct WorkFiles {
+        var work: URL
+        var video: URL
+        var audio: URL
+        var output: URL
+    }
+
+    /// tmp/SquishClips/Squish-Rubber-Duck-0042.mp4 (+ a work folder for the picture and sound before the join).
+    /// Earlier clips are cleared first, so only one is ever kept.
+    private static func workFiles(for specimen: SpecimenRecord) throws -> WorkFiles {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SquishClips", isDirectory: true)
         try? FileManager.default.removeItem(at: directory)
+        let work = directory.appendingPathComponent("work", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         } catch {
             throw ExportError.writer("no space for a temporary file")
         }
         let name = "Squish-\(specimen.kind.displayName.replacingOccurrences(of: " ", with: "-"))-\(String(format: "%04ld", specimen.number)).mp4"
-        return directory.appendingPathComponent(name)
+        return WorkFiles(work: work, video: work.appendingPathComponent("video.mp4"),
+                         audio: work.appendingPathComponent("audio.m4a"), output: directory.appendingPathComponent(name))
     }
 }

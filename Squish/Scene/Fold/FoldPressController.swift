@@ -378,6 +378,20 @@ final class FoldPressController {
                               verticalFOV: Float(solution.verticalFOV), near: max(0.01, distance * 0.1),
                               far: distance * 4, lean: lean, flashPosition: toScene(SIMD3<Double>(0, 30, creaseZ)),
                               rimGain: Float(FoldCurve.rimGain(angle: angle)))
+        host?.setCamera(position: stage.cameraPosition, orientation: stage.cameraOrientation,
+                        verticalFOV: stage.verticalFOV, near: stage.near, far: stage.far)
         self.scene?.setFoldStage(stage)
+    }
+
+    /// One line for CI logs (demo runs): layout, view size, eye, projected corners and the warp.
+    var diagnostics: String {
+        guard let layout, let s = solution else { return "fold: no layout/solution (viewSize \(viewSize))" }
+        let corners = s.viewCorners.map { String(format: "(%.0f,%.0f)", Double($0.x), Double($0.y)) }.joined(separator: " ")
+        let h = s.homography.m.map { String(format: "%.4g", $0) }.joined(separator: " ")
+        return String(format: "fold %@ canvas=%.0fx%.0f view=%.0fx%.0f k=%.6f eye=(%.1f,%.1f,%.1f)mm fov=%.2f ",
+                      layout.isBook ? "book" : "tabletop", Double(layout.canvas.width), Double(layout.canvas.height),
+                      Double(viewSize.width), Double(viewSize.height), appliedMetresPerMM,
+                      s.eye.x, s.eye.y, s.eye.z, s.verticalFOV)
+            + "corners=\(corners) H=[\(h)] object=\(scene?.foldObject.map { $0.kind.rawValue } ?? "none") stamp=\(stampKey ?? "none")"
     }
 }

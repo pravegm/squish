@@ -155,17 +155,79 @@ enum StudioEnvironment {
                        provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
+    /// The same recipe painted with CoreGraphics (native speed, a few ms even in Debug builds): base gradient by
+    /// elevation, then each shape as a blurred rounded rectangle in lat-long space (additive shapes in plus-lighter,
+    /// flags/back wall replace). Widths are divided by cos(elevation) so high shapes keep their angular size.
+    /// This is the runtime path; `hdriImage` is the exact per-pixel reference (tests).
+    static func hdriImageFast(width: Int = hdriWidth, height: Int = hdriHeight) -> CGImage? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let W = CGFloat(width), H = CGFloat(height)
+        context.translateBy(x: 0, y: H)
+        context.scaleBy(x: 1, y: -1) // y = 0 is the zenith row
+        func cgColor(_ linear: SIMD3<Float>) -> CGColor {
+            let c = linear / 5
+            return CGColor(colorSpace: space, components: [CGFloat(encode(c.x)) / 255, CGFloat(encode(c.y)) / 255,
+                                                           CGFloat(encode(c.z)) / 255, 1]) ?? CGColor(gray: 1, alpha: 1)
+        }
+        // Base gradient (stops top → bottom).
+        let stops = gradientStops.reversed()
+        let colors = stops.map { cgColor($0.colour * $0.value) } as CFArray
+        let locations = stops.map { CGFloat(0.5 - $0.phi / 180) }
+        if let gradient = CGGradient(colorsSpace: space, colors: colors, locations: locations) {
+            context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: H), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
+        for s in shapes {
+            let colour = cgColor(s.colour * s.value)
+            let stretch = 1 / max(CGFloat(cos(s.elevation * .pi / 180)), 0.3)
+            let w = min(W * CGFloat(s.width) / 360 * stretch, W)
+            let h = H * CGFloat(s.height) / 180
+            let cx = W * CGFloat(0.5 + s.azimuth / 360), cy = H * CGFloat(0.5 - s.elevation / 180)
+            let corner = min(H * 6 / 180, w / 2, h / 2)
+            let blur = H * CGFloat(s.feather) / 180
+            context.saveGState()
+            context.setBlendMode(s.replace ? .normal : .plusLighter)
+            context.setFillColor(colour)
+            context.setShadow(offset: .zero, blur: blur, color: colour)
+            // Draw wrapped copies so shapes crossing the ±180° seam stay continuous.
+            for shift in [-W, 0, W] {
+                let rect = CGRect(x: cx + shift - w / 2 + blur / 2, y: cy - h / 2 + blur / 2,
+                                  width: max(w - blur, 1), height: max(h - blur, 1))
+                guard rect.maxX > -blur, rect.minX < W + blur else { continue }
+                context.addPath(CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil))
+                context.fillPath()
+            }
+            context.restoreGState()
+        }
+        return context.makeImage()
+    }
+
     /// Builds the IBL entity (an `ImageBasedLightComponent` holder). The HDRI is painted off the main thread;
     /// the first frames render with the key and rim lights only.
     @MainActor
     static func makeLight(exponent: Float) async -> Entity? {
         let box = await Task.detached(priority: .userInitiated) { () -> ImageBox in
-            ImageBox(image: hdriImage())
+            ImageBox(image: SceneTrace.measure("hdri image") { hdriImageFast() })
         }.value
-        guard let image = box.image else { return nil }
-        guard let environment = try? await EnvironmentResource(equirectangular: image, withName: "squish.studio") else {
+        guard let image = box.image else {
+            SceneTrace.mark("hdri image FAILED")
             return nil
         }
+        SceneTrace.mark("environment resource start")
+        let environment: EnvironmentResource?
+        if #available(iOS 27.0, *) {
+            // Fast sampling and a small specular cube: the studio is soft, and this is on the startup path.
+            environment = try? await EnvironmentResource(equirectangular: image,
+                                                         options: .init(samplingQuality: .fast, specularCubeDimension: 128))
+        } else {
+            environment = try? await EnvironmentResource(equirectangular: image, withName: "squish.studio")
+        }
+        guard let environment else {
+            SceneTrace.mark("environment resource FAILED")
+            return nil
+        }
+        SceneTrace.mark("environment resource done")
         let holder = Entity()
         var ibl = ImageBasedLightComponent(source: .single(environment), intensityExponent: exponent)
         ibl.inheritsRotation = true
@@ -274,54 +336,73 @@ enum StudioEnvironment {
 
     /// Bakes the sweep texture (sRGB values written directly: the material is unlit with no tone map).
     /// Row 0 is v = 1 (wall top) when `flipV` is false. Pure; safe off the main thread.
+    /// Separable: every term is a row factor times a column factor, so the inner loop is a few multiply-adds
+    /// (Debug builds run this at startup; it used to be the slowest per-pixel loop in the app).
     static func sweepImage(gel: UInt32, golden: Bool, width: Int = 256, height: Int = 512, flipV: Bool = false,
                            seed: UInt64 = 0x5EE9) -> CGImage? {
-        var pixels = [UInt8](repeating: 255, count: width * height * 4)
-        var rng = SplitMix64(seed: seed)
         let total = sweepLength
         let floorNear = rgb(0xF1E9DC), floorPool = rgb(0xF8F3EA), backFloor = rgb(0xEEE5D7)
         let bend = rgb(0xEAE0D0), wallBase = rgb(0xEDE5D8), wallTop = rgb(gel)
         let ink = rgb(0x3B2F25)
-        for row in 0..<height {
-            let vImage = (Float(row) + 0.5) / Float(height)
-            let v = flipV ? vImage : 1 - vImage
-            let p = sweepPoint(arc: v * total)
-            for col in 0..<width {
-                let u = (Float(col) + 0.5) / Float(width)
-                let x = -halfWidth + 2 * halfWidth * u
-                var c: SIMD3<Float>
+        // Column factors.
+        var vignette = [Float](repeating: 1, count: width)
+        var poolX = [Float](repeating: 0, count: width)
+        var shadowX = [Float](repeating: 0, count: width)
+        var glowX = [Float](repeating: 0, count: width)
+        let sigma: Float = 0.12 / 0.15
+        for col in 0..<width {
+            let u = (Float(col) + 0.5) / Float(width)
+            let x = -halfWidth + 2 * halfWidth * u
+            let h = (u - 0.5) / 0.5
+            vignette[col] = 1 - 0.06 * h * h
+            poolX[col] = exp(-(x * x) / (2 * 0.16 * 0.16))
+            let dx = (x - 0.10) / 0.15
+            shadowX[col] = exp(-(dx * dx) / (2 * sigma * sigma))
+            glowX[col] = exp(-(x * x) / (2 * 0.2 * 0.2))
+        }
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        var rng = SplitMix64(seed: seed)
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            for row in 0..<height {
+                let vImage = (Float(row) + 0.5) / Float(height)
+                let v = flipV ? vImage : 1 - vImage
+                let p = sweepPoint(arc: v * total)
+                // Row terms: c(col) = base + (target − base)·poolX·poolY, then darkened toward ink·shadowX·shadowY.
+                var base: SIMD3<Float>
+                var poolTarget = SIMD3<Float>.zero
+                var poolY: Float = 0
+                var shadowY: Float = 0
+                var glowY: Float = 0
                 if p.y <= floorY + 1e-4 {
-                    // Floor: near → pool under the press → back floor.
-                    let pool = exp(-((x * x) / (2 * 0.16 * 0.16) + (p.z * p.z) / (2 * 0.14 * 0.14)))
                     let back = smooth(clamp((-p.z - 0.05) / 0.2, 0, 1))
                     let near = smooth(clamp((p.z - 0.12) / 0.3, 0, 1))
-                    c = floorNear + (backFloor - floorNear) * back
-                    c = c + (floorPool - c) * pool
-                    c *= 1 - 0.035 * near
+                    base = (floorNear + (backFloor - floorNear) * back) * (1 - 0.035 * near)
+                    poolTarget = floorPool * (1 - 0.035 * near)
+                    poolY = exp(-(p.z * p.z) / (2 * 0.14 * 0.14))
                 } else if p.z > floorBackZ - bendRadius + 1e-4 && p.y < floorY + bendRadius {
                     let t = smooth(clamp((p.y - floorY) / bendRadius, 0, 1))
-                    c = backFloor + (bend - backFloor) * min(t * 2, 1)
-                    c = c + (wallBase - c) * max(t * 2 - 1, 0)
+                    let c = backFloor + (bend - backFloor) * min(t * 2, 1)
+                    base = c + (wallBase - c) * max(t * 2 - 1, 0)
                 } else {
                     let t = smooth(clamp((p.y - (floorY + bendRadius) - 0.05) / 0.55, 0, 1))
-                    c = wallBase + (wallTop - wallBase) * t
-                    if golden {
-                        let glow = exp(-((x * x) / (2 * 0.2 * 0.2) + pow(p.y - 0.12, 2) / (2 * 0.25 * 0.25)))
-                        c *= 1 + 0.05 * glow
-                    }
-                    // Baked press shadow on the wall (offset right: the key is from the left).
-                    let dx = (x - 0.10) / 0.15, dy = (p.y - 0.20) / 0.21
-                    let sigma: Float = 0.12 / 0.15
-                    let a = 0.07 * exp(-(dx * dx + dy * dy) / (2 * sigma * sigma))
-                    c = c + (ink - c) * a
+                    base = wallBase + (wallTop - wallBase) * t
+                    let dy = (p.y - 0.20) / 0.21
+                    shadowY = 0.07 * exp(-(dy * dy) / (2 * sigma * sigma))
+                    if golden { glowY = 0.05 * exp(-((p.y - 0.12) * (p.y - 0.12)) / (2 * 0.25 * 0.25)) }
                 }
-                // Horizontal vignette.
-                let h = (u - 0.5) / 0.5
-                c *= 1 - 0.06 * h * h
-                let i = (row * width + col) * 4
-                for k in 0..<3 {
-                    let dither = Float(Int(rng.next() % 3) - 1)
-                    pixels[i + k] = UInt8(clamp(c[k] * 255 + dither + 0.5, 0, 255))
+                let poolDelta = poolTarget - base
+                let inkDelta = ink - base
+                for col in 0..<width {
+                    var c = base
+                    if poolY > 0 { c += poolDelta * (poolX[col] * poolY) }
+                    if glowY > 0 { c *= 1 + glowX[col] * glowY }
+                    if shadowY > 0 { c += inkDelta * (shadowX[col] * shadowY) }
+                    c *= vignette[col] * 255
+                    let i = (row * width + col) * 4
+                    let noise = rng.next()
+                    buffer[i] = UInt8(clamp(c.x + Float(Int(noise % 3) - 1) + 0.5, 0, 255))
+                    buffer[i + 1] = UInt8(clamp(c.y + Float(Int((noise >> 8) % 3) - 1) + 0.5, 0, 255))
+                    buffer[i + 2] = UInt8(clamp(c.z + Float(Int((noise >> 16) % 3) - 1) + 0.5, 0, 255))
                 }
             }
         }

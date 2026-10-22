@@ -59,43 +59,68 @@ final class ClipStudio {
 
         updates = view.scene.subscribe(to: SceneEvents.Update.self) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.renderedFrames &+= 1
+                self?.frameDidStart()
             }
         }
     }
 
-    /// Waits until RealityKit has rendered `count` more frames, or `timeout` passes (a paused renderer never hangs us).
-    func waitForFrames(_ count: Int, timeout: Duration = .milliseconds(500)) async {
-        let target = renderedFrames &+ count
-        let deadline = ContinuousClock.now + timeout
-        while renderedFrames < target, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(3))
+    private var frameWaiters: [CheckedContinuation<Void, Never>] = []
+    private var timeoutTask: Task<Void, Never>?
+
+    private func frameDidStart() {
+        renderedFrames &+= 1
+        resumeWaiters()
+    }
+
+    private func resumeWaiters() {
+        let waiters = frameWaiters
+        frameWaiters.removeAll()
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// Resumes at the start of RealityKit's next frame (its update event), which renders everything changed before
+    /// it, or after `timeout` so a paused renderer can't hang the export.
+    func nextFrame(timeout: Duration = .milliseconds(250)) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            frameWaiters.append(continuation)
+            if timeoutTask == nil {
+                timeoutTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    guard !Task.isCancelled else { return }
+                    self?.resumeWaiters()
+                }
+            }
         }
     }
 
-    /// The scene builds its studio light and gel sweep asynchronously; give them time to land before frame one.
-    func warmUp() async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !scene.root.children.contains(where: { $0.components.has(ImageBasedLightComponent.self) }),
-              ContinuousClock.now < deadline {
+    /// Waits for the scene's studio-ready gate (IBL, gel sweep and object built; the scene times out at 3 s itself),
+    /// and makes sure it is in the neutral P-48 product framing, never the Fold Press anvil (FOLD-PRESS §9.6).
+    func warmUp(engine: PressEngine, context: FeedbackContext) async throws {
+        if scene.framing != .machine { scene.setFraming(.machine) }
+        let deadline = ContinuousClock.now + .seconds(6)
+        while !scene.isStudioReady, ContinuousClock.now < deadline {
             try Task.checkCancellation()
-            try await Task.sleep(for: .milliseconds(20))
+            // The scene's own 3 s readiness timeout runs from `update`.
+            scene.update(engine: engine, context: context, dt: 0)
+            await nextFrame()
         }
-        // The sweep texture has no completion signal; it bakes in well under this.
-        try await Task.sleep(for: .milliseconds(350))
-        await waitForFrames(3)
+        await nextFrame()
     }
 
-    /// One frame of the scene as rendered (retried once: the first snapshot after a layout can come back empty).
-    func snapshot() async -> UIImage? {
+    /// The frame RealityKit renders next: wait for its update event, then snapshot (retried once on an empty result).
+    func captureFrame() async -> UIImage? {
+        await nextFrame()
         if let image = await scene.snapshot() { return image }
-        await waitForFrames(1)
+        await nextFrame()
         return await scene.snapshot()
     }
 
     func close() {
         updates?.cancel()
         updates = nil
+        resumeWaiters()
         arView.scene.anchors.removeAll()
         let window = self.window
         UIView.animate(withDuration: 0.2, animations: { window.alpha = 0 }, completion: { _ in

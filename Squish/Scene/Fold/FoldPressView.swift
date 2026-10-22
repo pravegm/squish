@@ -49,6 +49,9 @@ final class FoldStageHostView: UIView {
     private weak var controller: FoldPressController?
     private var updates: Cancellable?
     private var laidOut: CGSize = .zero
+    private let anchor = AnchorEntity(world: .zero)
+    private let camera = PerspectiveCamera()
+    private var frames = 0
     var onFrame: ((Double) -> Void)?
 
     init(scene: PressScene, controller: FoldPressController) {
@@ -79,19 +82,81 @@ final class FoldStageHostView: UIView {
         platenView.layer.addSublayer(controller.platen.layer)
         bezelView.layer.addSublayer(controller.bezel.layer)
 
-        // An Entity lives in one scene only: move the press scene's root here from the P-48 view.
-        let anchor = AnchorEntity(world: .zero)
-        anchor.addChild(scene.root)
+        // The Duo stage's own camera (the scene's P-48 camera is disabled in fold framing): a camera that was
+        // rendered by another ARView's scene is not reliably picked up after the move.
+        camera.camera.near = 0.05
+        camera.camera.far = 5
+        anchor.addChild(camera)
         arView.scene.addAnchor(anchor)
-        scene.attach(to: arView)
-        scene.setFraming(.foldAnvil, anvil: controller.anvil.root)
+        claimScene()
         controller.attach(host: self, scene: scene)
 
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             let dt = event.deltaTime
             MainActor.assumeIsolated {
-                self?.onFrame?(dt)
+                guard let self else { return }
+                self.frames &+= 1
+                // Self-heal: if anything else took the press scene, take it back before this frame renders.
+                if let scene = self.scene, scene.root.parent !== self.anchor || scene.arView !== self.arView {
+                    self.log("reclaim (root parent was \(scene.root.parent.map { String(describing: type(of: $0)) } ?? "nil"))")
+                    self.claimScene()
+                }
+                self.onFrame?(dt)
+                if self.frames == 3 || self.frames % 240 == 0 { self.logState() }
             }
+        }
+    }
+
+    /// An Entity lives in one scene only: detach the press scene's root (and its old anchor) from the P-48 view's
+    /// scene completely, then anchor it here.
+    private func claimScene() {
+        guard let scene, let controller else { return }
+        let root = scene.root
+        if let old = root.parent, old !== anchor {
+            if let oldAnchor = old as? AnchorEntity, let oldScene = oldAnchor.scene {
+                oldScene.removeAnchor(oldAnchor)
+            }
+            root.removeFromParent()
+        }
+        // Fold framing first (disables the scene's own camera), so this view only ever sees the stage camera.
+        scene.attach(to: arView)
+        scene.setFraming(.foldAnvil, anvil: controller.anvil.root)
+        if root.parent !== anchor { anchor.addChild(root) }
+    }
+
+    // MARK: - Camera (§9.3 Tier B: a symmetric camera at the eye; the warp does the rest)
+
+    func setCamera(position: SIMD3<Float>, orientation: simd_quatf, verticalFOV: Float, near: Float, far: Float) {
+        camera.position = position
+        camera.orientation = orientation
+        camera.camera.fieldOfViewInDegrees = verticalFOV
+        camera.camera.near = near
+        camera.camera.far = far
+    }
+
+    // MARK: - CI diagnostics (demo runs only)
+
+    private func log(_ message: String) {
+        guard DemoScenario.current != nil else { return }
+        print("SQUISH-F \(message)")
+    }
+
+    private func logState() {
+        guard DemoScenario.current != nil else { return }
+        let t = arView.layer.transform
+        let root = scene?.root
+        let flags = "hidden=\(arView.isHidden ? 1 : 0) window=\(window != nil ? 1 : 0) rootInAnchor=\(root?.parent === anchor ? 1 : 0)"
+            + " camEnabled=\(camera.isEnabled ? 1 : 0) framing=\(String(describing: scene?.framing ?? .machine))"
+        log("frame \(frames) clip=\(NSCoder.string(for: anvilClip.frame)) ar.bounds=\(NSCoder.string(for: arView.bounds)) "
+            + String(format: "alpha=%.2f ", Double(arView.alpha)) + flags
+            + String(format: " cam=(%.4f,%.4f,%.4f) fov=%.2f near=%.3f far=%.2f",
+                     Double(camera.position.x), Double(camera.position.y), Double(camera.position.z),
+                     Double(camera.camera.fieldOfViewInDegrees), Double(camera.camera.near), Double(camera.camera.far))
+            + String(format: " H=[%.3f %.3f %.6f | %.3f %.3f %.6f | %.1f %.1f %.3f]",
+                     Double(t.m11), Double(t.m12), Double(t.m14), Double(t.m21), Double(t.m22), Double(t.m24),
+                     Double(t.m41), Double(t.m42), Double(t.m44)))
+        if let controller {
+            log(controller.diagnostics)
         }
     }
 
@@ -131,6 +196,7 @@ final class FoldStageHostView: UIView {
 
     func setEnamel(_ color: UIColor) {
         anvilClip.backgroundColor = color
+        arView.environment.background = .color(color)
     }
 
     func teardown() {

@@ -14,7 +14,7 @@ enum ObjectMeshes {
             return [("duck.body", duckBody), ("duck.beak", duckBeak)]
         case .gummyBear:
             return [
-                ("gummy.full.shell", { gummy(side: nil, coreScale: 1) }), ("gummy.full.core", { gummy(side: nil, coreScale: 0.82) }),
+                ("gummy.shell.full", { gummy(side: nil, coreScale: 1) }), ("gummy.core.full", { gummy(side: nil, coreScale: 0.82) }),
                 ("gummy.shell.L", { gummy(side: 1, coreScale: 1) }), ("gummy.shell.R", { gummy(side: -1, coreScale: 1) }),
                 ("gummy.core.L", { gummy(side: 1, coreScale: 0.82) }), ("gummy.core.R", { gummy(side: -1, coreScale: 0.82) }),
             ]
@@ -30,7 +30,27 @@ enum ObjectMeshes {
     }
 
     static func build(_ kind: ObjectKind) -> [(String, MeshData)] {
-        jobs(for: kind).map { ($0.key, $0.build()) }
+        if kind == .gummyBear {
+            // Three SDF meshings instead of six: each core is its shell scaled about the same centre.
+            var results: [(String, MeshData)] = []
+            for (name, side) in [("full", Float?.none), ("L", Float?.some(1)), ("R", Float?.some(-1))] {
+                let shell = gummy(side: side, coreScale: 1)
+                results.append(("gummy.shell.\(name)", shell))
+                results.append(("gummy.core.\(name)", scaled(shell, about: gummyCentre(side), by: 0.82)))
+            }
+            return results
+        }
+        return jobs(for: kind).map { ($0.key, $0.build()) }
+    }
+
+    static func gummyCentre(_ side: Float?) -> SIMD3<Float> {
+        SIMD3(-(side ?? 0) * 0.015, 0.046, 0.004)
+    }
+
+    static func scaled(_ mesh: MeshData, about centre: SIMD3<Float>, by k: Float) -> MeshData {
+        var copy = mesh
+        copy.positions = mesh.positions.map { centre + ($0 - centre) * k }
+        return copy
     }
 
     // MARK: Duck (VISUAL-TARGET §5.2), unit scale; the view scales it ×1.25 (VISUAL-REVIEW-1 fix 6)
@@ -47,7 +67,7 @@ enum ObjectMeshes {
                 * simd_quatf(angle: -15 * .pi / 180, axis: [0, 0, 1])
             blob.add([-0.002, 0.030, 0.026 * side], [0.020, 0.011, 0.006], k: 0.004, rotation: rotation)
         }
-        return blob.mesh(centre: [0.0, 0.036, 0], reach: 0.1)
+        return blob.mesh(centre: [0.0, 0.036, 0], reach: 0.1, rings: 36, segments: 52)
     }
 
     static func duckBeak() -> MeshData {
@@ -81,8 +101,8 @@ enum ObjectMeshes {
 
     /// side +1 keeps x ≤ 0 (left half), −1 keeps x ≥ 0 (right half), nil = the whole bear.
     static func gummy(side: Float?, coreScale: Float) -> MeshData {
-        let centre = SIMD3<Float>(-(side ?? 0) * 0.015, 0.046, 0.004)
-        var mesh = gummyBlob(side: side).mesh(centre: centre, reach: 0.11, rings: 40, segments: 48)
+        let centre = gummyCentre(side)
+        var mesh = gummyBlob(side: side).mesh(centre: centre, reach: 0.11, rings: 34, segments: 44)
         if coreScale != 1 {
             mesh.positions = mesh.positions.map { centre + ($0 - centre) * coreScale }
         }
