@@ -411,9 +411,18 @@ All state lives in one `@Observable` model **above** any size-class-dependent vi
 
 ---
 
-## 15. Open decisions for the founder
-1. **Age rating:** target **9+** (wider reach, keeps the teen/adult tone in the copy), or deliberately **13+** for edgier humour?
-2. **Platform:** **universal iPhone** with Pinch Press (recommended), or Duo-only?
-3. **Name:** go with **Squish / "Squish: Fold-to-Crush Press"** and reserve it in App Store Connect now?
-4. **Spend:** approve ~$160–250 of sound libraries? Optionally £150–300 for one freelance sound designer to review a TestFlight build in Week 3.
-5. **Teaser:** post a teaser clip on X / r/iPhoneDuo this week to claim the idea (you post it; I prepare the clip and copy)?
+## 15. Founder decisions (22 Oct 2026)
+1. **Age rating: 9+.** Cartoon object-crushing; the teen/adult tone lives in names and flavour text only.
+2. **Platform: universal iPhone.** The Duo is the hero; Pinch Press on every other iPhone.
+3. **Name: Squish**, with App Store name "Squish: Fold-to-Crush Press". Founder to reserve it in App Store Connect.
+4. **Sound sourcing: free first, paid later.** Ship v1 on Sonniss GDC bundles, Freesound CC0 and code-synthesised sounds. The pipeline must make paid packs a drop-in upgrade (see §8.1).
+5. **Still open:** post a teaser clip on X / r/iPhoneDuo this week to claim the idea? The founder posts it; I prepare the clip and copy.
+
+### 8.1 Free-first sound pipeline (upgrade-ready)
+- Every sound is referenced by **slot ID** (e.g. `glass.failure.body`, `duck.strain.loop`), never by file name. `audio/manifest.json` maps each slot to its files, gain, pitch range and source licence.
+- **v1 sources:**
+  - Sonniss GDC 2015–2026 bundles (royalty-free, no attribution)
+  - Freesound filtered to **CC0 only**
+  - Brand sounds and press beds synthesised in code (ticks, ka-chunk, sting, chime, hiss, hum, creak)
+- **Upgrade:** buy a pack → run the same asset pipeline (trim, normalise, slice grains, harshness check) → repoint the slots in the manifest. No code changes.
+- **Upgrade priority if quality falls short:** glass (biggest climax) → squish/goo → squeaky toys.
