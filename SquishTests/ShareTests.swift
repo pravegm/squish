@@ -117,7 +117,8 @@ struct ShareTests {
     @Test func offlineAudioIsAudibleBoundedAndRepeatable() {
         let trace = touchTrace(.rubberDuck)
         let first = renderAudio(trace)
-        #expect(first.allSatisfy(\.isFinite))
+        let allFinite = first.allSatisfy { $0.isFinite }
+        #expect(allFinite)
         let peak = first.map { abs($0) }.max() ?? 0
         #expect(peak > 0.01)
         #expect(peak <= 0.9)
