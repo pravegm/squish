@@ -1,0 +1,59 @@
+# XcodeGen spec. Generate the Xcode project on a Mac with:
+#   brew install xcodegen && xcodegen generate
+name: Squish
+options:
+  bundleIdPrefix: com.pravegm
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""   # set your team in Xcode > Signing & Capabilities
+targets:
+  Squish:
+    type: application
+    platform: iOS
+    sources:
+      - path: Squish
+    info:
+      path: Squish/Info.plist
+      properties:
+        CFBundleDisplayName: Squish
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        CADisableMinimumFrameDurationOnPhone: true
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pravegm.squish
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_PREVIEWS: YES
+  SquishTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: SquishTests
+    dependencies:
+      - target: Squish
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Squish:
+    build:
+      targets:
+        Squish: all
+        SquishTests: [test]
+    test:
+      targets:
+        - SquishTests
