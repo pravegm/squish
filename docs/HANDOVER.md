@@ -17,7 +17,7 @@ Read this first when you have the Mac and the Duo in hand. It covers what exists
   - Game Center achievements;
   - the cover-display card when the phone is closed.
 - **Sound and haptics:** all sound is synthesised in real time; there are no audio files. Core Haptics recipes per object. Soft style in Settings.
-- **87 unit tests** (Swift Testing). All passing on CI.
+- **About 160 unit tests** (Swift Testing). All passing on CI.
 
 ## 2. Build and run
 
@@ -45,14 +45,14 @@ Open the **Tuning Lab**: Settings → long-press the **Version** row. Then work 
 
 1. **Display-off angle.** Close the phone slowly and note the raw angle at which the inner screen goes dark. `endAngle` (default 48°) must sit a few degrees above it, or the press never seals.
 2. **Sample rate.** Watch *Hinge updates / s* while folding. The simulator gave about 72 updates per sweep. The One-Euro filter is tuned for that.
-3. **Hinge log.** Make a few slow folds and a few slams, tap *Copy hinge log CSV*, and paste it to me. I tune smoothing, contact and the slam coach from it.
+3. **Hinge log.** Make a few slow folds and a few slams, tap *Copy hinge log CSV*, and paste it to Claude (whichever account owns the project). Smoothing, contact and the slam coach are tuned from it.
 4. **Cover display.** Close fully. Does the sealed card appear on the outer screen? Do hinge samples still arrive while it's closed?
 5. **Feel.** Press the bubble wrap and the duck at three speeds. Are the haptic grains per degree crisp or mushy? Is the strain bed too loud?
 6. **Frame time.** The warped anvil should hold 120 Hz. If it stutters near contact, note the object.
 7. **Both poses.** Try book pose (phone upright, fold vertical) and tabletop (bottom half flat on a table). Note which one people pick up naturally.
 8. Then work through the rest of `design/FOLD-PRESS.md` §9.8 (pt/mm ruler, IMU half, eye position).
 
-Once it feels right, tap *Copy config JSON* and send it to me. Those values become the defaults.
+Once it feels right, tap *Copy config JSON* and send it to Claude. Those values become the defaults.
 
 ## 4. Only you can do these (dated, from `docs/appstore/launch-checklist.md`)
 
@@ -70,25 +70,25 @@ Once it feels right, tap *Copy config JSON* and send it to me. Those values beco
 - **Real-device timing is unverified.** The CI simulator renders slowly. Startup took up to 8 s before the studio lighting loaded; the slow texture work has since been moved off the main thread. Please time a cold launch on the Duo.
 - **Book-pose vs tabletop framing** was tuned on the simulator only. Eye position (FOLD-PRESS §9.4) needs real people.
 - **App icon:** CI renders `AppIcon-1024.png` from `AppIconArt.swift` and it gets committed into the asset catalog. Check it on the home screen.
-- **Gauge scales differ.** The P-48 gauge reads 0–60 tons; the Fold Press bezel reads 0–80. Pick one.
+- **One gauge scale:** both presses read 0/40/80 tons, and every needle stops at the tonnage printed on the card.
 - **Share clip render** takes about 80–130 s on CI. It should be much faster on the device. If not, the offscreen studio needs to be lighter.
   - The CI simulator's video encoder sometimes stops responding for a whole run. `ShareTests` tolerates only that specific error; please confirm a share clip on the Duo.
 - **Store shots.** `FoldStoreShot.swift` renders a modelled folded Duo for App Store frames. CI writes them as `*-storeshot-*.png`.
   - They are good for layout and captions. A real hand-held Duo video from you will sell the fold better than any render.
 - **Patience achievement** needs 30 s of engaged pressing. It is suppressed in CI demo runs.
-- **The design-critic score** after round 6 was 7.8 for the app and 7.0 for the store set. The target before submission is 8. The reviews are in `design/FOLD-REVIEW-*.md`.
+- **The design-critic score** after round 9 is 8.7 for the app and 8.6 for the store set, and the launch call is yes. The reviews are in `design/FOLD-REVIEW-*.md`.
 - **Hinge status vs angle.** The Duo simulator sometimes keeps reporting `.closed` while the phone reopens to about 150°. Two places now trust the angle instead when it reads above 90°: the engine (`PressEngine.staleClosedAngle`) and the reveal gate (`RevealCollectGate`). Check what the real Duo reports in the Tuning Lab hinge log.
 - **Two press bugs fixed in round 7, with tests:**
   - Opening the app with the phone shut no longer seals a press you never made.
   - A stray `closed` sample no longer dismisses the reveal before you see it.
 
-## 7. App Store screenshots
+## 6. App Store screenshots
 
 Actions → **App Store screenshots** (`store.yml`, manual dispatch) builds the whole set in about an hour:
 - **Duo inner display**, 7 frames, 2007×2853.
 - **Duo outer display**, 2 frames, 1398×2034.
-- **6.9"**, 6 frames, 1320×2868.
-- **6.1"**, 6 frames, 1206×2622.
+- **6.9"**, 5 frames, 1320×2868.
+- **6.1"**, 5 frames, 1206×2622.
 
 The artifacts are `store-duo`, `store-69` and `store-61`. `store/MANIFEST.txt` lists each frame's source and any frame refused as MISSING or FLAGGED. A frame is refused when its reveal didn't hold, its settings state didn't apply, or its variant was Golden.
 
@@ -99,7 +99,7 @@ How the set is made, and the order of the frames, is in `docs/appstore/screensho
 - whether App Store Connect offers the Duo screenshot slots yet;
 - the subtitle.
 
-## 8. Launch status (design critique round 9, `design/FOLD-REVIEW-9.md`)
+## 7. Launch status (design critique round 9, `design/FOLD-REVIEW-9.md`)
 
 - **Scores:** store set 8.6/10, app 8.7/10.
 - **Launch call:** the code and art can be submitted as 1.0.
@@ -113,7 +113,9 @@ How the set is made, and the order of the frames, is in `docs/appstore/screensho
   - `V4`
   - `-eye` composites
   - anything from the iPhone 18 Pro folded scenarios (`9A–9D`, `90–99`). That phone doesn't fold.
-- **Before Submit:** look at the achievement toast frame in `verify/duo-reveal-toasts.png`. It is the last thing never yet seen on screen.
+- **Latest green set:** "App Store screenshots" run 39952047687 (23 Oct). It reports 0 missing and 0 flagged, and P5 reads "No ads. No upsells. Just the press."
+- **Achievement toasts are verified on screen:** see `verify/duo-reveal-toast-app.png` in that run's `store-duo` artifact. "PERFECT SQUISH" sits below the print label, clear of the gauge and the fold.
+- Artifacts expire after 90 days. To get a fresh set, run Actions → App Store screenshots.
 - **Ranked 1.0.1 list:** in the review. It includes the orange hero can on the shelf, the cake top clipping to white, and the P2 photo framing.
 
 **Only you can do:**
@@ -138,7 +140,29 @@ How the set is made, and the order of the frames, is in `docs/appstore/screensho
 
 Start with §3 above.
 
-## 6. Where things are
+## 8. Handing the project to another Claude account
+
+Everything the work depends on is in this repo. The previous account's private memory has been copied into `CLAUDE.md` and `docs/PROJECT-LOG.md`, so nothing lives outside GitHub.
+
+**The founder does this once:**
+1. **Give the new account access to GitHub.** Either sign in to `gh` on the new machine as `pravegm` (`gh auth login`), or invite the account's own GitHub user as a collaborator with **Write** access: Settings → Collaborators. It needs to push to `main` and run workflows.
+2. **Clone the repo:** `git clone https://github.com/pravegm/squish.git`. Open the folder in Claude Code; `CLAUDE.md` loads automatically.
+3. **Tell it the standing rules,** or let it read them in `CLAUDE.md`: push straight to `main` without asking; Duo-first is the bar; it is the whole studio.
+4. **Give it your real-Duo findings.** Paste the Tuning Lab hinge log CSV and config JSON (Settings → long-press Version), and describe what felt off. That is the most valuable input it can get now.
+
+**The new account's first steps:**
+1. Read `CLAUDE.md`, then `design/FOLD-REVIEW-9.md` (the latest critique, the launch call and the 1.0.1 list), then this file.
+2. Run `gh run list -R pravegm/squish -L 5` to check that CI is green on `main`.
+3. Tune from the founder's device data. Keep the critique loop going (`CLAUDE.md`, "The round loop") for 1.0.1.
+
+**Nothing external besides GitHub:**
+- no secrets in the repo, no API keys, no paid services;
+- CI uses GitHub's own macOS runners (`xcode-27`);
+- the only third-party tool is the open-source `hinge` simulator CLI, installed by Homebrew inside the Duo workflow.
+
+Signing (team, certificates) and App Store Connect access stay with the founder.
+
+## 9. Where things are
 
 - **Design:**
   - `design/SQUISH-DESIGN-BIBLE.md` is the product.
