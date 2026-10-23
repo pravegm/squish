@@ -94,7 +94,11 @@ enum Captions {
     var specimens: [SpecimenRecord] { get }      // newest first
     var totalPresses: Int { get }
     func isUnlocked(_ kind: ObjectKind) -> Bool
-    func record(_ result: PressResult, variant: PressVariant) -> RecordOutcome  // unlocks + achievements
+    func record(_ result: PressResult, variant: PressVariant, trace: PressTrace? = nil,
+                onHinge: Bool? = nil) -> RecordOutcome  // unlocks + achievements
+    // The trace sets SpecimenRecord.engagedDuration (Patience: ≥ 30 s engaged, gaps > 10 s break it) and
+    // SpecimenRecord.madeOnHinge (!trace.usesVirtualHinge). Cards show degrees only when madeOnHinge, else tons.
+    // Both fields decode with defaults, so older collection.json files still load.
     func attachThumbnail(_ png: Data, to id: UUID)
     func thumbnailURL(for specimen: SpecimenRecord) -> URL?
     func best(for kind: ObjectKind) -> SpecimenRecord?    // Golden > Perfect > newest

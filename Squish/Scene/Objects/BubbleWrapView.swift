@@ -3,20 +3,20 @@ import RealityKit
 import simd
 import UIKit
 
-/// Bubble Wrap (bible §4 #1, VISUAL-TARGET §5.1): a clear film sheet with a grid of glossy domes.
-/// Unpopped domes squash and spread under the plate; each pops at its own seeded threshold (one fracture per
-/// bubble, no single failure) with a soft puff, and stays a flat, stress-whitened crinkle. Never holes.
-/// Grid is 6 × 4 to match `BubbleWrapLayout` (Core; the art spec's 6 × 6 needs 36 thresholds).
-/// Surprise `megaBubble`: the four centre cells are one 2.2× dome that strains three times and pops on the fourth.
+/// Bubble Wrap (bible §4 #1, VISUAL-TARGET §5.1), rebuilt for FOLD-REVIEW-5 N10: from above it must read as a sheet of
+/// real bubble wrap. A clear film (barely tinted, glossy) with a milky heat-sealed margin and a crisp cut edge carries
+/// a regular hex grid of glossy, translucent domes; each dome has a blue-grey crease where it meets the film and a hot
+/// specular glint, so it reads on a white-hot strike plate, on the mid-grey platen and under the P-48's key.
+/// As the press closes the domes squash and bulge, then pop one by one in the order of the press's pressure map
+/// (`BubbleWrapGrid`: a ripple from the front rows to the back, seeded so no two presses pop alike); each pop leaves a
+/// flat, crinkled, stress-whitened crater with radial creases and a ragged rim. Never holes.
+/// Grid: 6 columns × 4 cells, columns staggered half a cell (a true hex packing), to match `BubbleWrapLayout`'s 24
+/// fracture thresholds. Performance: every dome shares one shell mesh, one crease-ring mesh and one glint mesh, and
+/// every crater one of three crinkle meshes (two slots), so RealityKit batches them: ≤ 3 × 25 + 2 × 25 small models,
+/// squashed by entity scale only (no CPU deformation, no per-frame mesh upload).
+/// Surprise `megaBubble`: the four centre cells are one 2× dome that strains three times and pops on the fourth.
 @MainActor
 final class BubbleWrapView: PressObjectView {
-    private static let film: Float = 0.0008
-    private static let radius: Float = 0.0075
-    private static let domeHeight: Float = 0.0070
-    private static let pitch = SIMD2<Float>(0.0175, 0.0195)
-    private static let sheetSize = SIMD2<Float>(0.110, 0.090)
-    private static let megaScale: Float = 2.2
-
     let entity = Entity()
     let restHeight: Float
     let footprint: Float = 0.055
@@ -26,28 +26,31 @@ final class BubbleWrapView: PressObjectView {
     private var rng = SplitMix64(seed: 0)
     private let look: Look
     private var cells: [Cell] = []
-    /// Fracture index → cell index (seeded ripple order).
+    /// Fracture index → cell index (the pressure-map order, `BubbleWrapGrid.popOrder`).
     private let popOrder: [Int]
     private var mega: Cell?
-    private var megaCells: Set<Int> = []
     private var megaStrain = 0
-    private var crinkles: [MeshResource] = []
-    private let poppedMaterial: PhysicallyBasedMaterial
-    /// Crater tells (FOLD-REVIEW-3 N9 / FOLD-REVIEW-4 F8): a 1 pt blue rim at 0.6 round each pop and a tiny bright
-    /// pinhole, so popped cells read as craters on grey steel instead of grey on grey.
-    private let craterRimMaterial: PhysicallyBasedMaterial
-    private let pinholeMaterial: UnlitMaterial
+    private var craterMeshes: [[MeshResource]] = []
+    private let craterFilm: any Material
+    private let craterCrease: any Material
     private var lowest: Float = .infinity
+    /// Craters still snapping flat after their pop, with their settled radius (metres).
+    private var snapping: [(crater: Entity, radius: Float, age: Float)] = []
 
     private final class Cell {
-        let model: ModelEntity
-        let scale: Float
+        /// Carries the squash: (R·spread, H·squash, R·spread) of the unit dome.
+        let root: Entity
+        let centre: SIMD2<Float>
+        /// Radius and full height (metres) of this dome.
+        let radius: Float
+        let height: Float
         var popped = false
-        var tilt = simd_quatf(angle: 0, axis: [0, 1, 0])
         var strain: Float = 0
-        init(model: ModelEntity, scale: Float) {
-            self.model = model
-            self.scale = scale
+        init(root: Entity, centre: SIMD2<Float>, radius: Float, height: Float) {
+            self.root = root
+            self.centre = centre
+            self.radius = radius
+            self.height = height
         }
     }
 
@@ -55,94 +58,113 @@ final class BubbleWrapView: PressObjectView {
         self.fx = fx
         let look = Look(variant)
         self.look = look
-        var rng = SplitMix64(seed: variant.seed ^ 0xB0BB1E)
         let hasMega = variant.surprise == .megaBubble
-        restHeight = Self.film + Self.domeHeight * (hasMega ? Self.megaScale : 1)
-        popOrder = Array(0..<BubbleWrapLayout.count).shuffled(using: &rng)
-        // Popped: stress-whitened, the crater centre a further ~15 L down (#C6DCE7 → #B8CDD7, FOLD-REVIEW-3 N9) so pops
-        // read against the film.
-        poppedMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xB8CDD7), roughness: 0.24, clearcoat: 0.6, clearcoatRoughness: 0.12,
-                                    specular: 0.6, opacity: 0.82)
-        craterRimMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0x6FAED0), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.15, opacity: 0.6)
-        pinholeMaterial = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF), opacity: 0.9)
-        self.rng = rng
-        build(variant: variant, hasMega: hasMega)
+        restHeight = BubbleWrapGrid.film + BubbleWrapGrid.domeHeight * (hasMega ? BubbleWrapGrid.megaHeightScale : 1)
+        popOrder = BubbleWrapGrid.popOrder(seed: variant.seed)
+        rng = SplitMix64(seed: variant.seed ^ 0xB0BB1E)
+        if look.golden {
+            craterFilm = SceneMaterials.gold
+            craterCrease = SceneMaterials.pbr(UIColor(hex: 0xB98A1E), roughness: 0.3, metallic: 1)
+        } else {
+            // Popped film: stress-whitened and crinkled (lit, so the folds catch the light), with blue-grey creases.
+            craterFilm = SceneMaterials.enamel(UIColor(hex: 0xE3EFF5), roughness: 0.32, clearcoat: 0.5,
+                                               clearcoatRoughness: 0.2, specular: 0.7, opacity: 0.62)
+            craterCrease = SceneMaterials.enamel(UIColor(hex: 0x6E9FBC), roughness: 0.3, clearcoat: 0.4,
+                                                 clearcoatRoughness: 0.2, opacity: 0.82)
+        }
+        build(hasMega: hasMega)
     }
 
-    private func build(variant: PressVariant, hasMega: Bool) {
-        for k in 0..<3 {
-            if let crinkle = MeshCache.resource("bubble.crinkle.\(k)", {
-                MeshKit.spreadDisc(seed: 0xC41 &+ UInt64(k) &* 977, height: 1, segments: 24, wobble: 0.24)
-            }) { crinkles.append(crinkle) }
+    private func build(hasMega: Bool) {
+        let golden = look.golden
+        for k in 0..<BubbleWrapGrid.craterVariants {
+            let slots = Self.slotResources("bubble.crater.\(k)", slots: 2) { BubbleWrapGrid.craterMesh(seed: 0xC41 &+ UInt64(k) &* 977) }
+            if slots.count == 2 { craterMeshes.append(slots) }
         }
         entity.orientation = Part.yaw(12)
         // Lifted 0.6 mm so the 0.8 mm film never z-fights the strike plate (FOLD-REVIEW-2 #8).
         entity.position = [0, 0.0006, 0]
-        // Film base 6 % darker (#DDEFF8 → #D0E1E9, FOLD-REVIEW-4 F8): it was the brightest thing on the anvil at 180°.
-        let filmMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xD0E1E9), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
-                                    specular: 0.6, opacity: 0.55)
-        let domeMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xB9DCEE), roughness: 0.12, clearcoat: 0.6, clearcoatRoughness: 0.08,
-                                    specular: 0.6, opacity: 0.52)
-        let sheet = Part.add(cached: "bubble.sheet", {
-            MeshKit.roundedBox([Self.sheetSize.x, Self.film, Self.sheetSize.y], radius: 0.006, bevel: 0.0004)
-        }, filmMaterial, at: [0, Self.film / 2, 0], to: entity)
-        _ = sheet
-        // A 1 mm blue edge so the clear sheet reads on pale steel (FOLD-REVIEW-1 #10).
-        let edgeMaterial = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0x6FAED0), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.15)
-        let w = Self.sheetSize.x, d = Self.sheetSize.y, t: Float = 0.0012
-        for side: Float in [-1, 1] {
-            Part.add(cached: "bubble.edge.x", { MeshKit.roundedBox([w - 0.008, Self.film + 0.0002, t], radius: 0.0005, bevel: 0.0002) },
-                     edgeMaterial, at: [0, Self.film / 2, side * (d / 2 - t / 2)], to: entity)
-            Part.add(cached: "bubble.edge.z", { MeshKit.roundedBox([t, Self.film + 0.0002, d - 0.008], radius: 0.0005, bevel: 0.0002) },
-                     edgeMaterial, at: [side * (w / 2 - t / 2), Self.film / 2, 0], to: entity)
+
+        // The film: clear and glossy (FOLD-REVIEW-5 N10: at 0.55 it read as a white card), with the milky seal margin
+        // and a crisp blue-grey cut line so the sheet's edge is always visible.
+        let size = BubbleWrapGrid.sheetSize, film = BubbleWrapGrid.film
+        let filmMaterial = golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(UIColor(hex: 0xCFE3EE), roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.04,
+                                    specular: 1, opacity: 0.2)
+        Part.add(cached: "bubble.sheet", {
+            MeshKit.roundedBox([size.x, film, size.y], radius: BubbleWrapGrid.sheetCorner, bevel: 0.0003)
+        }, filmMaterial, at: [0, film / 2, 0], to: entity)
+        let sealMaterial = golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(UIColor(hex: 0xC6DCE8), roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.1,
+                                    opacity: 0.45)
+        Part.add(cached: "bubble.seal", {
+            BubbleWrapGrid.ring(size: size, corner: BubbleWrapGrid.sheetCorner, inset: BubbleWrapGrid.sealWidth)
+        }, sealMaterial, at: [0, film + BubbleWrapGrid.layerStep * 3, 0], to: entity)
+        let cutMaterial: any Material
+        if golden {
+            cutMaterial = SceneMaterials.pbr(UIColor(hex: 0xB98A1E), roughness: 0.3, metallic: 1)
+        } else {
+            cutMaterial = SceneMaterials.unlit(UIColor(hex: 0x5E90AE), opacity: 0.85)
+        }
+        Part.add(cached: "bubble.cut", {
+            BubbleWrapGrid.ring(size: size, corner: BubbleWrapGrid.sheetCorner, inset: BubbleWrapGrid.cutWidth)
+        }, cutMaterial, at: [0, film + BubbleWrapGrid.layerStep * 4, 0], to: entity)
+
+        // The domes: one shared shell (slot 0), crease ring (slot 1) and glint for all of them.
+        let shellMaterial = golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(UIColor(hex: 0xD6EBF5), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03,
+                                    specular: 1, opacity: 0.36)
+        let creaseMaterial: any Material = golden ? SceneMaterials.pbr(UIColor(hex: 0xB98A1E), roughness: 0.3, metallic: 1)
+            : SceneMaterials.enamel(UIColor(hex: 0x7AAAC6), roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.1,
+                                    opacity: 0.6)
+        let glintMaterial = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF), opacity: 0.92)
+        let dome = Self.slotResources("bubble.dome", slots: 2) { BubbleWrapGrid.domeMesh() }
+        let glintMesh = MeshCache.resource("bubble.glint") { MeshKit.ellipsoid(radii: [1, 0.3, 0.62], segments: 16, rings: 8) }
+        let glint = BubbleWrapGrid.glint
+
+        func makeDome(centre: SIMD2<Float>, radius: Float, height: Float) -> Cell {
+            let root = Entity()
+            root.position = [centre.x, film + BubbleWrapGrid.layerStep, centre.y]
+            if dome.count > 0 { root.addChild(ModelEntity(mesh: dome[0], materials: [shellMaterial])) }
+            if dome.count > 1 { root.addChild(ModelEntity(mesh: dome[1], materials: [creaseMaterial])) }
+            if let glintMesh {
+                let spot = ModelEntity(mesh: glintMesh, materials: [glintMaterial])
+                spot.position = glint.position
+                spot.orientation = simd_quatf(from: [0, 1, 0], to: glint.normal)
+                spot.scale = SIMD3(repeating: glint.size)
+                root.addChild(spot)
+            }
+            entity.addChild(root)
+            let cell = Cell(root: root, centre: centre, radius: radius, height: height)
+            apply(cell, available: .infinity)
+            return cell
         }
 
-        let domeMesh = MeshCache.resource("bubble.dome", { Self.dome() }) ?? MeshResource.generateSphere(radius: 1)
-        let columns = BubbleWrapLayout.columns, rows = BubbleWrapLayout.rows
-        if hasMega {
-            megaCells = [1 * columns + 2, 1 * columns + 3, 2 * columns + 2, 2 * columns + 3]
-        }
-        for row in 0..<rows {
-            for column in 0..<columns {
-                let index = row * columns + column
-                let model = ModelEntity(mesh: domeMesh, materials: [domeMaterial])
-                model.position = [Self.pitch.x * (Float(column) - Float(columns - 1) / 2), Self.film,
-                                  Self.pitch.y * (Float(row) - Float(rows - 1) / 2)]
-                let cell = Cell(model: model, scale: 1)
-                let axis = simd_normalize(SIMD3<Float>(Float.random(in: -1...1, using: &rng), 0.15,
-                                                       Float.random(in: -1...1, using: &rng)))
-                cell.tilt = simd_quatf(angle: Float.random(in: -0.18...0.18, using: &rng), axis: axis)
-                if megaCells.contains(index) {
-                    model.isEnabled = false
-                    cell.popped = true
-                }
-                entity.addChild(model)
-                cells.append(cell)
+        let ranks = BubbleWrapGrid.ranks(popOrder)
+        for index in 0..<BubbleWrapGrid.count {
+            let height = BubbleWrapGrid.domeHeight * BubbleWrapGrid.heightScale(rank: ranks[index])
+            let cell = makeDome(centre: BubbleWrapGrid.centre(index), radius: BubbleWrapGrid.radius, height: height)
+            if hasMega && BubbleWrapGrid.megaCells.contains(index) {
+                cell.root.isEnabled = false
+                cell.popped = true
             }
+            cells.append(cell)
         }
         if hasMega {
-            let model = ModelEntity(mesh: domeMesh, materials: [domeMaterial])
-            model.position = [0, Self.film, 0]
-            entity.addChild(model)
-            mega = Cell(model: model, scale: Self.megaScale)
+            mega = makeDome(centre: .zero, radius: BubbleWrapGrid.radius * BubbleWrapGrid.megaScale,
+                            height: BubbleWrapGrid.domeHeight * BubbleWrapGrid.megaHeightScale)
         }
     }
 
-    /// A closed dome of unit radius and `domeHeight / radius` height (flat base, quarter-ellipse cap).
-    static func dome() -> MeshData {
-        let h = domeHeight / radius
-        var profile: [SIMD2<Float>] = [SIMD2(0, 0)]
-        for k in 0...12 {
-            let a = Float.pi / 2 * Float(k) / 12
-            profile.append(SIMD2(cos(a), h * sin(a)))
+    /// Cached resources for each material slot of one mesh (`key.slot`); empty slots are dropped.
+    private static func slotResources(_ key: String, slots: Int, _ build: () -> MeshData) -> [MeshResource] {
+        let mesh = MeshCache.mesh(key, build)
+        var result: [MeshResource] = []
+        for slot in 0..<slots {
+            let part = mesh.splitByMaterial().first { $0.slot == slot }?.mesh ?? MeshData()
+            if let resource = MeshCache.resource("\(key).\(slot)", { part }) { result.append(resource) }
         }
-        profile[profile.count - 1].x = 0
-        return MeshKit.lathe(profile: profile, segments: 24)
+        return result
     }
 
     func surfaceHeight(compression c: Float) -> Float {
@@ -153,32 +175,41 @@ final class BubbleWrapView: PressObjectView {
         // Latched at the deepest squash (FOLD-REVIEW-3 N6): unpopped domes don't re-inflate on reopening, so the
         // reveal is at least as pressed as the sealed frame.
         lowest = min(lowest, surfaceHeight(compression: state.compression))
-        let available = max(lowest - Self.film, 0.0003)
+        let available = max(lowest - BubbleWrapGrid.film, 0.0003)
         for cell in cells where !cell.popped {
             apply(cell, available: available)
         }
         if let mega, !mega.popped {
             apply(mega, available: available)
         }
+        // A popped dome snaps flat in ~0.12 s: the film overshoots a little wide, then settles.
+        if !snapping.isEmpty {
+            for k in snapping.indices {
+                snapping[k].age += state.dt
+                let scale = snapping[k].radius * BubbleCrater.snapScale(age: snapping[k].age)
+                snapping[k].crater.scale = SIMD3(repeating: scale)
+            }
+            snapping.removeAll { $0.age >= BubbleCrater.snapDuration }
+        }
     }
 
     private func apply(_ cell: Cell, available: Float) {
-        let full = Self.domeHeight * cell.scale
-        let squashY = min(available / full, 1) * (1 - 0.05 * cell.strain)
-        let spread = 1 + 0.42 * (1 - squashY)
-        let r = Self.radius * cell.scale
-        cell.model.scale = SIMD3(r * spread, r * squashY, r * spread)
+        let squash = BubbleWrapGrid.squash(available: available, height: cell.height) * (1 - 0.05 * cell.strain)
+        let spread = BubbleWrapGrid.spread(squash: squash)
+        cell.root.scale = SIMD3(cell.radius * spread, cell.height / BubbleWrapGrid.unitHeight * squash, cell.radius * spread)
     }
 
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
+        guard !popOrder.isEmpty else { return }
         let cellIndex = popOrder[index % popOrder.count]
-        if megaCells.contains(cellIndex), let mega {
+        if let mega, BubbleWrapGrid.megaCells.contains(cellIndex) {
             // One of the mega bubble's cells: strain three times, then the big pop.
             megaStrain += 1
             mega.strain = Float(min(megaStrain, 3))
-            if megaStrain >= 4 { pop(mega, big: true) }
+            if megaStrain >= 4 && !mega.popped { pop(mega, big: true) }
             return
         }
+        guard cellIndex < cells.count else { return }
         let cell = cells[cellIndex]
         guard !cell.popped else { return }
         pop(cell, big: false)
@@ -186,32 +217,20 @@ final class BubbleWrapView: PressObjectView {
 
     private func pop(_ cell: Cell, big: Bool) {
         cell.popped = true
-        if !crinkles.isEmpty {
-            cell.model.model?.mesh = crinkles[Int(rng.next() % UInt64(crinkles.count))]
+        cell.root.isEnabled = false
+        if !craterMeshes.isEmpty {
+            let meshes = craterMeshes[Int(rng.next() % UInt64(craterMeshes.count))]
+            let crater = Entity()
+            crater.addChild(ModelEntity(mesh: meshes[0], materials: [craterFilm]))
+            crater.addChild(ModelEntity(mesh: meshes[1], materials: [craterCrease]))
+            crater.position = [cell.centre.x, BubbleWrapGrid.film + BubbleWrapGrid.layerStep * 2, cell.centre.y]
+            crater.orientation = Part.yaw(Float.random(in: 0...360, using: &rng))
+            let radius = cell.radius * BubbleCrater.radius
+            crater.scale = SIMD3(repeating: radius * BubbleCrater.snapScale(age: 0))
+            entity.addChild(crater)
+            snapping.append((crater: crater, radius: radius, age: 0))
         }
-        cell.model.model?.materials = [poppedMaterial]
-        let r = Self.radius * cell.scale
-        cell.model.scale = SIMD3(r * 1.25, 0.0006, r * 1.25)
-        cell.model.orientation = cell.tilt
-        cell.model.position.y = Self.film + 0.0002
-        // The crater rim (a thin #6FAED0 ring at 0.6, ≈ 1 pt on the Duo) and a pinhole glint, tilted with the crinkle.
-        if let rimMesh = MeshCache.resource("bubble.crater.rim", { MeshKit.torus(major: 1, minor: 0.03, segments: 40, sides: 6) }) {
-            let rim = ModelEntity(mesh: rimMesh, materials: [craterRimMaterial])
-            let ring = r * BubbleCrater.rimRadius
-            rim.scale = SIMD3(ring, 0.0006, ring)
-            rim.orientation = cell.tilt
-            rim.position = cell.model.position + SIMD3(0, 0.0007, 0)
-            entity.addChild(rim)
-        }
-        if let glintMesh = MeshCache.resource("bubble.crater.pinhole", { MeshKit.ellipsoid(radii: [1, 0.3, 1], segments: 12, rings: 6) }) {
-            let glint = ModelEntity(mesh: glintMesh, materials: [pinholeMaterial])
-            glint.scale = SIMD3(repeating: r * BubbleCrater.pinholeRadius)
-            glint.orientation = cell.tilt
-            // A little off-centre toward the key light (−X, −Z), so it reads as a highlight, not a hole.
-            glint.position = cell.model.position + cell.tilt.act(SIMD3(-0.25 * r, 0.0008, -0.2 * r))
-            entity.addChild(glint)
-        }
-        let puffAt = entity.convert(position: cell.model.position + SIMD3(0, 0.003, 0), to: fx.root)
+        let puffAt = entity.convert(position: SIMD3(cell.centre.x, BubbleWrapGrid.film + 0.003, cell.centre.y), to: fx.root)
         fx.particles.burst(.dust, count: big ? 8 : 2, at: puffAt, speed: big ? 0.12 : 0.05,
                            colors: [look.tint(UIColor(hex: 0xF4FBFE))], size: big ? 0.005...0.009 : 0.003...0.005,
                            spread: big ? 0.012 : 0.003, upBias: 0.2, life: 0.45, rng: &rng)
@@ -222,10 +241,222 @@ final class BubbleWrapView: PressObjectView {
     }
 }
 
-/// Popped-crater sizes as multiples of the dome radius (FOLD-REVIEW-3 N9), pure so SquishTests can pin them.
+/// Popped-crater numbers (multiples of the dome radius), pure so SquishTests can pin them.
 enum BubbleCrater {
-    /// The blue rim ring sits just inside the crinkle's ragged edge (the crinkle is 1.25× the dome).
-    static let rimRadius: Float = 1.2
-    /// The pinhole glint: ≈ 0.75 mm on a normal cell.
-    static let pinholeRadius: Float = 0.1
+    /// The flattened film covers a little more than the dome's footprint (its crease ring is at 1.08).
+    static let radius: Float = 1.14
+    /// How high the crinkled film stands off the sheet (≈ 0.9 mm on a normal cell: flat, under the closed plates).
+    static let rise: Float = 0.11
+    /// The snap: 18 % wide at the pop, settled after `snapDuration`.
+    static let snapOvershoot: Float = 0.18
+    static let snapDuration: Float = 0.12
+
+    static func snapScale(age: Float) -> Float {
+        let t = clamp(age / snapDuration, 0, 1)
+        return 1 + snapOvershoot * (1 - t) * (1 - t)
+    }
+}
+
+/// The sheet's layout, dome shape and the press's pressure map (FOLD-REVIEW-5 N10). Pure and deterministic, so the
+/// platen's print can mirror it (`FoldStamps` should take `centre(_:)`, `radius` and `popOrder(seed:)` from here) and
+/// SquishTests can pin it.
+enum BubbleWrapGrid {
+    static let columns = BubbleWrapLayout.columns
+    static let rows = BubbleWrapLayout.rows
+    static let count = BubbleWrapLayout.count
+    /// Centre-to-centre distance between every pair of neighbours (hex packing).
+    static let pitch: Float = 0.0196
+    /// Column spacing along x: pitch · √3/2.
+    static let columnPitch: Float = 0.0196 * 0.866_025_4
+    static let radius: Float = 0.0080
+    static let domeHeight: Float = 0.0070
+    static let film: Float = 0.0008
+    static let sheetSize = SIMD2<Float>(0.110, 0.090)
+    static let sheetCorner: Float = 0.006
+    /// Height step between the sheet's flat layers (dome feet, craters, seal, cut line) so none z-fights the film.
+    static let layerStep: Float = 0.00007
+    /// The milky heat-sealed margin and the crisp cut line along the sheet's edge.
+    static let sealWidth: Float = 0.0032
+    static let cutWidth: Float = 0.0007
+    /// The mega bubble: the four centre cells (columns 2–3, rows 1–2) as one dome 2× as wide, 1.6× as tall.
+    static let megaCells: Set<Int> = [1 * 6 + 2, 1 * 6 + 3, 2 * 6 + 2, 2 * 6 + 3]
+    static let megaScale: Float = 2.0
+    static let megaHeightScale: Float = 1.6
+    /// The last dome to pop stands this much lower than the first (it is contacted later, as in a real sheet).
+    static let heightSpread: Float = 0.10
+    static let craterVariants = 3
+
+    /// Cell `row · columns + column`'s centre (x, z) on the sheet, metres. Odd columns sit half a cell toward +z.
+    static func centre(_ cell: Int) -> SIMD2<Float> {
+        let column = cell % columns, row = cell / columns
+        let x = columnPitch * (Float(column) - Float(columns - 1) / 2)
+        let stagger: Float = column % 2 == 0 ? -0.25 : 0.25
+        let z = pitch * (Float(row) - Float(rows - 1) / 2 + stagger)
+        return SIMD2(x, z)
+    }
+
+    /// The press's pressure map: how early the plates bite on each cell, 0…1. A ripple from the front rows (+z,
+    /// toward the eye on both presses) to the back, loosened by a seeded per-cell jitter so each press pops its own way.
+    static func pressure(_ cell: Int, seed: UInt64) -> Float {
+        let zMax = pitch * (Float(rows - 1) / 2 + 0.25)
+        let front = (centre(cell).y + zMax) / (2 * zMax)
+        var rng = SplitMix64(seed: (seed ^ 0xB0BB1E) &+ UInt64(cell + 1) &* 0x9E37_79B9_7F4A_7C15)
+        let jitter = Float(rng.next() >> 40) / Float(1 << 24)
+        return 0.7 * front + 0.3 * jitter
+    }
+
+    /// Fracture index → cell: highest pressure first (the fracture thresholds are ascending in compression).
+    static func popOrder(seed: UInt64) -> [Int] {
+        let p = (0..<count).map { pressure($0, seed: seed) }
+        return (0..<count).sorted { p[$0] != p[$1] ? p[$0] > p[$1] : $0 < $1 }
+    }
+
+    /// Cell → its place in `order`.
+    static func ranks(_ order: [Int]) -> [Int] {
+        var result = [Int](repeating: count - 1, count: count)
+        for (rank, cell) in order.enumerated() where cell >= 0 && cell < count { result[cell] = rank }
+        return result
+    }
+
+    /// A dome's height relative to `domeHeight`: the first to pop is the tallest.
+    static func heightScale(rank: Int) -> Float {
+        1 - heightSpread * Float(clamp(rank, 0, count - 1)) / Float(count - 1)
+    }
+
+    /// Height ratio of a dome `height` tall under a plate `available` above the film.
+    static func squash(available: Float, height: Float) -> Float {
+        clamp(available / max(height, 1e-5), 0, 1)
+    }
+
+    /// The bulge as it squashes; capped so squashed neighbours only just meet (pitch / 2r = 1.225).
+    static func spread(squash: Float) -> Float {
+        1 + 0.22 * (1 - clamp(squash, 0, 1))
+    }
+
+    // MARK: Meshes (unit dome radius)
+
+    /// The unit dome's height (`domeHeight / radius`).
+    static var unitHeight: Float { domeHeight / radius }
+
+    /// The dome profile (radius, y), base → apex: a flared foot where the bubble is moulded out of the film (the crease
+    /// ring, slot 1), then a steep wall and a full, slightly flattened crown (slot 0).
+    static var domeProfile: [SIMD2<Float>] {
+        let h = unitHeight, foot: Float = 0.08
+        var profile: [SIMD2<Float>] = [SIMD2(1.08, 0), SIMD2(1.035, 0.03), SIMD2(1.0, foot)]
+        for k in 1...14 {
+            let t = Float.pi / 2 * Float(k) / 14
+            let r = pow(max(cos(t), 0), 0.85)
+            profile.append(SIMD2(k == 14 ? 0 : r, foot + (h - foot) * sin(t)))
+        }
+        return profile
+    }
+
+    /// Open at the base (it sits on the film). Slot 1: the two foot bands; slot 0: the shell.
+    static func domeMesh() -> MeshData {
+        MeshKit.lathe(profile: domeProfile, segments: 32, material: { (band: Int) -> UInt8 in band < 2 ? 1 : 0 })
+    }
+
+    /// The glint on the unit dome: up-left toward the key (−x, −z), lying on the surface.
+    static var glint: (position: SIMD3<Float>, normal: SIMD3<Float>, size: Float) {
+        let t: Float = 1.0
+        let h = unitHeight, foot: Float = 0.08
+        let r = pow(cos(t), 0.85)
+        let y = foot + (h - foot) * sin(t)
+        let dir = simd_normalize(SIMD2<Float>(-0.72, -0.69))
+        // The surface normal there (from the profile's slope), tilted toward `dir`.
+        let dr = -0.85 * pow(cos(t), -0.15) * sin(t), dy = (h - foot) * cos(t)
+        let n2 = simd_normalize(SIMD2<Float>(dy, -dr))
+        let normal = simd_normalize(SIMD3<Float>(n2.x * dir.x, n2.y, n2.x * dir.y))
+        let position = SIMD3<Float>(dir.x * r, y, dir.y * r) + normal * 0.02
+        return (position, normal, 0.2)
+    }
+
+    /// A flat, top-facing band `inset` wide inside the rounded rectangle `size` (x, z) with corner radius `corner`.
+    static func ring(size: SIMD2<Float>, corner: Float, inset: Float, cornerSteps: Int = 6) -> MeshData {
+        let half = size / 2
+        let r = min(corner, min(half.x, half.y))
+        let inner = max(r - inset, 0)
+        let centres: [SIMD2<Float>] = [SIMD2(half.x - r, half.y - r), SIMD2(-(half.x - r), half.y - r),
+                                       SIMD2(-(half.x - r), -(half.y - r)), SIMD2(half.x - r, -(half.y - r))]
+        var mesh = MeshData()
+        var outerRing: [Int] = [], innerRing: [Int] = []
+        let up = SIMD3<Float>(0, 1, 0)
+        for (k, c) in centres.enumerated() {
+            for step in 0...cornerSteps {
+                let a = Float.pi / 2 * (Float(k) + Float(step) / Float(cornerSteps))
+                let d = SIMD2<Float>(cos(a), sin(a))
+                let o = c + d * r, i = c + d * inner
+                outerRing.append(mesh.addVertex(SIMD3(o.x, 0, o.y), up))
+                innerRing.append(mesh.addVertex(SIMD3(i.x, 0, i.y), up))
+            }
+        }
+        let n = outerRing.count
+        for j in 0..<n {
+            let j1 = (j + 1) % n
+            mesh.addTriangle(innerRing[j], outerRing[j], outerRing[j1])
+            mesh.addTriangle(innerRing[j], outerRing[j1], innerRing[j1])
+        }
+        mesh.orientToNormals()
+        return mesh
+    }
+
+    /// A popped crater (unit radius): the collapsed film lying crinkled on the sheet, a little raised in the middle,
+    /// with seeded curving radial creases and a ragged rim (both slot 1) over stress-whitened film (slot 0).
+    static func craterMesh(seed: UInt64, segments: Int = 40) -> MeshData {
+        var rng = SplitMix64(seed: seed)
+        let folds = Float(3 + Int(rng.next() % 2))
+        let phase = Float.random(in: 0...(2 * .pi), using: &rng)
+        let twist = Float.random(in: -0.8...0.8, using: &rng)
+        var wobble: [(k: Float, amp: Float, phase: Float)] = []
+        for k: Float in [3, 5, 7] {
+            let amp = Float.random(in: 0.02...0.06, using: &rng)
+            let wobblePhase = Float.random(in: 0...(2 * .pi), using: &rng)
+            wobble.append((k: k, amp: amp, phase: wobblePhase))
+        }
+        let radii: [Float] = [0.25, 0.5, 0.72, 0.9, 1.0]
+        func ridge(_ theta: Float, _ rho: Float) -> Float {
+            abs(sin(folds * (theta + twist * rho) + phase))
+        }
+        func rim(_ theta: Float) -> Float {
+            wobble.reduce(1) { $0 + $1.amp * sin($1.k * theta + $1.phase) }
+        }
+        var mesh = MeshData()
+        let up = SIMD3<Float>(0, 1, 0)
+        let centre = mesh.addVertex(SIMD3(0, BubbleCrater.rise * 0.55, 0), up)
+        var rings: [[Int]] = []
+        for rho in radii {
+            var ring: [Int] = []
+            for j in 0..<segments {
+                let theta = Float(j) / Float(segments) * 2 * .pi
+                let crinkle = 0.6 * ridge(theta, rho) + 0.4 * Float.random(in: 0...1, using: &rng)
+                let y = BubbleCrater.rise * (0.4 + 0.6 * crinkle * pow(rho, 0.7)) * (1 - pow(rho, 6))
+                let rr = rho * (rho > 0.8 ? rim(theta) : 1)
+                ring.append(mesh.addVertex(SIMD3(cos(theta) * rr, y, sin(theta) * rr), up))
+            }
+            rings.append(ring)
+        }
+        let creaseLevel: Float = 0.93
+        for j in 0..<segments {
+            let j1 = (j + 1) % segments
+            let mid = (Float(j) + 0.5) / Float(segments) * 2 * .pi
+            let slot: UInt8 = ridge(mid, radii[0] / 2) > creaseLevel ? 1 : 0
+            mesh.addTriangle(centre, rings[0][j], rings[0][j1], material: slot)
+        }
+        for b in 0..<(radii.count - 1) {
+            let rho = (radii[b] + radii[b + 1]) / 2
+            for j in 0..<segments {
+                let j1 = (j + 1) % segments
+                let mid = (Float(j) + 0.5) / Float(segments) * 2 * .pi
+                let isRim = b == radii.count - 2
+                let slot: UInt8 = isRim || (rho < 0.9 && ridge(mid, rho) > creaseLevel) ? 1 : 0
+                let lower = rings[b], upper = rings[b + 1]
+                mesh.addTriangle(lower[j], upper[j], upper[j1], material: slot)
+                mesh.addTriangle(lower[j], upper[j1], lower[j1], material: slot)
+            }
+        }
+        // Wind every triangle up (from the analytic up normals), then shade the crinkle from the real facets.
+        mesh.orientToNormals()
+        mesh.recomputeNormals()
+        return mesh
+    }
 }

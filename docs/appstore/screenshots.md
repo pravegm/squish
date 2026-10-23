@@ -42,41 +42,57 @@ The depth values below are **starting points [tune]**. Failure usually lands at 
 
 ---
 
-## A. iPhone Duo, inner display (2007 × 2853): 6 frames
+## A. iPhone Duo, inner display (2007 × 2853): 6 frames (+1 optional)
 
-| # | Scene | Caption (headline / sub-line) | Demo argument |
+The set proposed in design/FOLD-REVIEW-5.md §5. Frames 1–4 and 6 are **store shots**: the live Fold Press halves, captured on the real Duo simulator in tabletop pose, mapped onto a folded Duo model seen from a 3/4 eye (`FoldStoreShot.swift`). A raw inner frame reads as "two flat trays", so it never goes in this set, except the Shelf and Settings, which aren't anamorphic.
+
+| # | Frame | Caption (headline / sub-line) | Source (`duo-screens/…`) |
 |---|---|---|---|
-| **1 (hero)** | Rubber Duck mid-squash on the anvil. The yellow ram is pressing down from the top half, the contact shadow is dark and wide, the duck bulges sideways, and the gauge needle in the ram housing is climbing. This is the poster frame for the whole product | **Close your phone. Feel it *give*.** / *Squish turns the fold into a hydraulic press.* | `object=rubberDuck;depth=0.55` |
-| **2** | Bubble Wrap partway through the ripple: the front rows are popped flat with a few bubbles mid-pop, and the back rows are still domed | **Every bubble *pops* on its own.** / *Close slowly for a ripple. Fast for a rattle.* | `object=bubbleWrap;depth=0.40` |
-| **3** | Egg at the crack. Hairline cracks have spread, the shell is splitting and the yolk is starting to spread. It's the clearest "what will *this* do?" frame | ***Ten* objects. Ten ways to give.** | `object=egg;depth=0.50` |
-| **4** | Glass Bottle at failure: chunky, soft-edged shards mid-burst, with the top-screen white flash visible as a glow on the anvil. **No sharp slivers, and no shot of the glass flying "out" toward the viewer** | **It creaks. Then it *doesn't*.** | `object=glassBottle;depth=0.62` |
-| **5** | The reveal. The ram is lifted with cheese-pull frosting strands, and the Cake Slice is pressed flat on its specimen card with the label `CRUSHED AT 92° · 48 TONS · 112 FRAGMENTS · №0042`, a Perfect Squish mark and the red PRESSED stamp | **Open up. File the *evidence*.** / *Every press becomes a specimen card.* | `object=cakeSlice;reveal` |
-| **6** | The Shelf sheet: a herbarium grid with 7 of 10 slots filled by pressed cards (one Golden). The Glass Bottle slot shows an embossed silhouette and hint. The **secret slot is a "?" silhouette only**. Quiet "7/10 pressed" | **A shelf of pressed *specimens*.** / *No ads. No in-app purchases. No timers.* | `shelf` *(dev: seed a 7/10 collection with one Golden card; see requests below)* |
-| 7 *(optional)* | Settings sheet: Sound style Workshop/Soft, Haptics Off/Soft/Full, **Press without folding** switched on, Reduce Motion | **Press without folding. Hear it softer.** / *Accessibility built in.* | `settings` |
+| **1** | Rubber Duck hero: the failure freeze at the 62° hold, 32° eye turn so the V of the fold shows, the lid's shadow over the flattened duck | **Close your phone. Feel it *give*.** / *Squish turns the fold into a hydraulic press.* | `rubberDuck-storeshot-hero.png` |
+| **2** | Soda Can before/after: small device at 112°, large at the squish. Each label quotes its own crown readout ("111°" → "AT 71°") beside a side-profile V | **Fold it shut. Open to *see*.** | `sodaCan-storeshot-pair.png` |
+| **3** | Glass Bottle hero. **If the pile doesn't read on the strike plate, use the can hero here** | **It creaks. Then it *doesn't*.** | `glassBottle-storeshot-hero.png` |
+| **4** | Tabletop reveal, reopened to ~155°: flat duck on the anvil, the PRESSED print and its "AT 64°" label on the lid, Again · Share · Next in the console | **Open up. File the *evidence*.** / *Every press becomes a specimen.* | `rubberDuck-storeshot-reveal.png` |
+| **5** | The Shelf, raw portrait inner frame (seeded 7/10, one Golden), framed under its caption | **A shelf of pressed *specimens*.** / *No ads. No in-app purchases.* | `duo-shelf.png` → `ci/store-set.sh` |
+| **6** | Variety: the heroes of four objects on one sweep, each labelled with its object and frozen readout ("EGG · AT 97°") | ***Ten* objects. Ten ways to give.** | `duo-storeshot-grid.png` (fallback `egg-storeshot-hero.png`) |
+| 7 *(optional)* | Settings sheet, raw, framed | **Press without folding. Hear it *softer*.** / *Accessibility built in.* | `duo-settings.png` → `ci/store-set.sh` |
 
-Order rationale: feel (1), then rhythm (2), variety (3), spectacle (4), payoff (5) and the reason to come back plus the purchase promise (6). The "no ads" promise sits on frame 6 because the description and price already carry it above the fold.
+Per-object hero captions (`heroCaption(for:)` in PressDirector.swift): duck as frame 1, glass as frame 3, can "Cans buckle *ring* by ring.", bubble "Every bubble *pops* on its own.", everything else the variety line.
+
+**Never upload:** `*-eye` composites, `*-book-storeshot-*`, raw `*-tabletop-*` frames, the `-112` singles, and any `9A–9D` / `90–99` frame (an iPhone 18 Pro drawn folded, Guideline 2.3). A pair whose label disagrees with its readout can't be produced any more: both labels come from the readout.
 
 ## B. iPhone Duo, outer display (1398 × 2034): 2 frames
 
+| # | Frame | Caption | Source |
+|---|---|---|---|
+| **O1** | The cover right after the press: PRESS SEALED card, print teaser, tonnage. Caption drawn in off-white over the empty graphite top band | **Ka-chunk. Now *open* it.** | `rubberDuck-tabletop-closed.png` (tabletop pass) or `rubberDuck-closed.png` (book pass) |
+| **O2** | Launched with the phone shut (7 seeded specimens): the cover's picker, framed | **Pick on the cover. Press *inside*.** | `duo-cover-launch.png` |
+
+## C. iPhone 6.9" (1320 × 2868) and 6.1" (1206 × 2622): 6 frames (Pinch Press)
+
+Captured on the newest "… Pro Max" simulator (6.9") and on the iPhone 18 Pro (6.1" slot, heads-up c). Because there's no hinge, Pinch Press is on automatically. Scenarios `P1`–`P6` in ci/scenarios.txt; the 4th column is the caption.
+
 | # | Scene | Caption | Demo argument |
 |---|---|---|---|
-| **O1** | The cover display right after a press: the "PRESS SEALED · 48 TONS · OPEN TO SEE" card, gauge needle settling, and a teaser silhouette of the flattened duck | **Ka-chunk. Now *open* it.** | `object=rubberDuck;depth=1;cover` |
-| **O2** | The cover display launched closed: a trophy shelf with an object picker and the looping "open to press" glyph | **Pick on the cover. Press *inside*.** | `cover;shelf` *(dev: confirm this combination shows the closed-launch trophy shelf)* |
+| **P1** | Rubber Duck mid-squash, ram handle visible | **Drag it down. Feel it *give*.** / *A hydraulic press for every iPhone.* | `object=rubberDuck;depth=0.55;notoasts` |
+| **P2** | Bubble Wrap ripple | **Every bubble *pops* on its own.** | `object=bubbleWrap;depth=0.40;notoasts` |
+| **P3** | Soda Can buckling | **Cans buckle *ring* by ring.** | `object=sodaCan;depth=0.55;notoasts` |
+| **P4** | Duck reveal. **Flag:** until AchievementInfo prints tons on non-hinged phones (FOLD-REVIEW-5 N6), the card says "CRUSHED AT 65°" on a phone with no hinge; don't upload it before that's fixed | **Open up. File the *evidence*.** | `object=rubberDuck;reveal;notoasts` |
+| **P5** | The Shelf (seeded 7/10) | **Collect every pressed *specimen*.** | `shelf;notoasts` |
+| **P6** | The Settings sheet | **No ads. No purchases. *Just* the press.** / *Sound styles, haptic levels, Reduce Motion.* | `settings;notoasts` |
 
-## C. iPhone 6.9" (1320 × 2868): 6 frames (Pinch Press)
+Check P1 for the ram handle before upload (request 4 below). Never a folded device in these sets.
 
-Capture on an iPhone 17 Pro Max-class device or Simulator. Because there's no hinge, Pinch Press is on automatically. The **ram handle must be visible** in frame 1 so the gesture is obvious.
+## Rendering the set (CI)
 
-| # | Scene | Caption | Demo argument |
-|---|---|---|---|
-| **P1** | Rubber Duck mid-squash with the Pinch Press ram handle and a subtle drag hint | **Drag it down. Feel it *give*.** / *A hydraulic press for every iPhone.* | `object=rubberDuck;depth=0.55` |
-| **P2** | Bubble Wrap ripple | **Every bubble *pops* on its own.** | `object=bubbleWrap;depth=0.40` |
-| **P3** | Soda Can buckling: two concertina rings folded, the third starting, and a hint of fizz at the seam | **Cans buckle *ring* by ring.** | `object=sodaCan;depth=0.55` |
-| **P4** | Gummy Bear reveal: split into lobes, rainbow layers in the cross-section, with the specimen card and PRESSED stamp | **Open up. File the *evidence*.** | `object=gummyBear;reveal` |
-| **P5** | The Shelf (same seeded 7/10 state as frame 6) | **Collect every pressed *specimen*.** | `shelf` |
-| **P6** | The Settings sheet | **No ads. No purchases. *Just* the press.** / *Sound styles, haptic levels, Reduce Motion.* | `settings` |
+Run **Actions → App Store screenshots** (`.github/workflows/store.yml`, manual). It produces three artifacts:
 
-**6.5" set:** re-capture P1–P6 on a 6.5"-class Simulator (1284 × 2778) and re-lay out the captions. Don't stretch the 6.9" files.
+- **store-69**: P1–P6 on the 6.9" simulator, raw (`P*.png`) and captioned (`store/P*.png`), each checked to be 1320 × 2868 (the job fails with exit 4 if the simulator is the wrong class). `DEVICE=auto:Pro Max` picks the newest available Pro Max and creates one if the image has none; the step log lists the device types found.
+- **store-61**: the same on the iPhone 18 Pro (1206 × 2622).
+- **store-duo**: duo.yml called with the store settings (no book pass; tabletop passes for duck, glass, can, egg, cake with `storeshot=112,fail,reveal`; the Shelf, Settings and closed-launch cover; the grid), assembled by `ci/store-set.sh` into `duo-screens/store/duo-inner/01…07` and `duo-outer/O1, O2`, with `MANIFEST.txt` (source and caption per frame, size and alpha checks).
+
+Captions on raw frames are drawn on the Mac runner by `ci/store-frame.swift` (`framed`: studio sweep, caption band, the unaltered screenshot on a black screen card; `overlay`: caption straight over the frame's top band). Store shots are captioned in the app by `FoldStoreShot`. Both use the same band and shrink rule.
+
+Locally, with a booted simulator: `DEVICE="auto:Pro Max" OUT=store-69 SCENARIO_FILTER='^P[0-9]-' EXPECT_SIZE=1320x2868 STORE_FRAMES=1 bash ci/screenshots.sh`, and `bash ci/store-set.sh duo-screens` after a Duo run.
 
 ---
 
@@ -94,9 +110,9 @@ Capture on an iPhone 17 Pro Max-class device or Simulator. Because there's no hi
 
 ## Requests for dev (open questions)
 
-1. **Freeze the seed:** add `seed=<int>` to `-squishDemo`. Without it, the crack pattern and failure threshold change between captures, so depth=0.62 might land before the glass breaks.
+1. **Freeze the seed:** *(done: `seed=<int>`)* add `seed=<int>` to `-squishDemo`. Without it, the crack pattern and failure threshold change between captures, so depth=0.62 might land before the glass breaks.
 2. **Freeze a moment in time:** add `t=<seconds since failure>` (or a `freeze` flag) so debris can be caught mid-air for frames 3 and 4. `depth` alone defines the static deformation but not where the particles are.
-3. **Seeded collection:** add `collection=7` (or a demo fixture) so `shelf` shows 7/10 filled with one Golden card.
+3. **Seeded collection:** *(done: `shelf`, `settings`, `detail` and `cover` seed 7/10 with one Golden; `specimens=N` seeds N without opening a sheet)* add `collection=7` (or a demo fixture) so `shelf` shows 7/10 filled with one Golden card.
 4. **Pinch Press handle:** confirm the handle is visible in a frozen `depth` state on non-Duo devices.
 5. **Combined flags:** confirm that `cover;shelf` gives the closed-launch trophy shelf and that `object=…;depth=1;cover` gives the sealed card.
 

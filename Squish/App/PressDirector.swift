@@ -52,6 +52,11 @@ final class PressDirector {
     @ObservationIgnored private var consecutiveSlams = 0
     /// Demo store shots (CI only, see `writeStoreShot`): the halves of each angle shot, kept for the before/after frame.
     @ObservationIgnored private var storeShotHalves: [String: FoldStoreShot.Halves] = [:]
+    /// Demo store shots (FOLD-REVIEW-5 §3 a): `engine.angle` as of the last Fold Press update, which is what the
+    /// crown readout shows, and the value it froze on at this object's failure (FoldPressController takes the same
+    /// `lastAngle`), so the pair labels quote the screen instead of the model angle.
+    @ObservationIgnored private var storeShotReadoutAngle: Double = 180
+    @ObservationIgnored private var storeShotFrozen: (seed: UInt64, angle: Double)?
     private static let lastObjectKey = "squish.lastObject"
     private static let slamHintsKey = "squish.slamHintsShown"
 
@@ -244,6 +249,9 @@ final class PressDirector {
                 fold.setObject(currentKind, variant: variant)
             }
             fold.update(engine: engine, context: context, dt: Float(dt))
+            #if DEBUG
+            if DemoScenario.current != nil { storeShotReadoutAngle = engine.angle }   // demo store shots only
+            #endif
         }
         haptics.update(engine: engine, context: context)
         audio.update(engine: engine, context: context)
@@ -305,6 +313,13 @@ final class PressDirector {
         let context = feedbackContext
         scene.handle(event, context: context)
         if usesFoldPress && foldVariantSeed == variant.seed { fold.handle(event, context: context) }
+        #if DEBUG
+        // Demo store shots only: the angle the crown readout freezes on (see `storeShotReadout`).
+        if DemoScenario.current != nil, case .fracture(_, true) = event, usesFoldPress, foldVariantSeed == variant.seed,
+           storeShotFrozen?.seed != variant.seed {
+            storeShotFrozen = (seed: variant.seed, angle: storeShotReadoutAngle)
+        }
+        #endif
         haptics.handle(event, context: context)
         audio.handle(event, context: context)
 
@@ -387,6 +402,7 @@ final class PressDirector {
             if let kind = demo.object { load(kind) }
             #if DEBUG
             if demo.has("storeshot") { watchStoreShots(demo) }
+            if demo.has("storegrid") { writeStoreGrid(demo) }
             #endif
             return
         }
@@ -504,10 +520,26 @@ final class PressDirector {
         }
     }
 
-    /// The hero's caption (FOLD-REVIEW-4 #2: the failure freeze) and the before/after frame's (§3.3 C frame 2), from
-    /// docs/appstore/screenshots.md; " / " starts the sub-line. Override with `storeshotcaption=` / `paircaption=`.
-    private static let heroCaption = "It creaks. Then it *doesn't*. / Squish turns the fold into a hydraulic press."
-    private static let pairCaption = "Close your phone. Feel it *give*."
+    /// Store-frame captions (docs/appstore/screenshots.md, FOLD-REVIEW-5 N3 and §5); " / " starts the sub-line.
+    /// Override with `storeshotcaption=` (hero), `paircaption=`, `revealcaption=` and `gridcaption=`.
+    /// The hero's is per object: the duck carries the product line (frame 1), glass and can their own beats.
+    private static func heroCaption(for kind: ObjectKind) -> String {
+        switch kind {
+        case .rubberDuck: return "Close your phone. Feel it *give*. / Squish turns the fold into a hydraulic press."
+        case .glassBottle: return "It creaks. Then it *doesn't*."
+        case .sodaCan: return "Cans buckle *ring* by ring."
+        case .bubbleWrap: return "Every bubble *pops* on its own."
+        default: return "*Ten* objects. Ten ways to give."
+        }
+    }
+    private static let pairCaption = "Fold it shut. Open to *see*."
+    private static let revealCaption = "Open up. File the *evidence*. / Every press becomes a specimen."
+    private static let gridCaption = "*Ten* objects. Ten ways to give."
+    /// FOLD-REVIEW-5 §3 d: the eye turn for frames whose object is already flat (hero, the pair's large device, the
+    /// grid), so the device's end shows the fold in profile; and for the pair's small device, whose object still
+    /// stands (anamorphic lean grows with the turn). Override with `storeshotazimuth=` / `storepairazimuth=`.
+    private static let squishAzimuth: Double = 32
+    private static let standingAzimuth: Double = 24
 
     private static func storeLabel(_ angle: Double) -> String { String(Int(angle.rounded())) }
 
@@ -522,26 +554,36 @@ final class PressDirector {
     /// shoot once the raw hinge has been still (±1.5°) for 0.8 s within 3° of a wanted angle, each angle once. `fail`
     /// shoots the hero (FOLD-REVIEW-4 #2) at the first such hold after the object failed and at or below
     /// `storeshotfailangle` (default 62°, so a glass bottle failing at 81° still waits for the 62° hold), then the
-    /// before/after pair with the angle shot nearest `storepair` (default 112°).
+    /// before/after pair with the angle shot nearest `storepair` (default 112°). `reveal` (FOLD-REVIEW-5 N4) shoots
+    /// the tabletop reveal once the reveal card is up (2.5 s, so its label and console keys have faded in) and the
+    /// hinge has been still for 0.8 s at 120° or more: the script closes to 0° after the last hold and reopens.
     private func watchStoreShots(_ demo: DemoScenario) {
         Task { @MainActor [weak self] in
             let tokens = demo.tokens("storeshot")
             var pending = tokens.compactMap { Double($0) }
             var wantsHero = tokens.contains("fail")
-            if pending.isEmpty && !wantsHero { pending = [115] }
+            var wantsReveal = tokens.contains("reveal")
+            if pending.isEmpty && !wantsHero && !wantsReveal { pending = [115] }
             let failHold = demo.double("storeshotfailangle") ?? 62
             let failuresAtStart = self?.failureFlashCount ?? 0
             var failureLogged = false
+            var revealSeen: Double?
             var anchor = -1.0
             var since = CACurrentMediaTime()
             let deadline = CACurrentMediaTime() + 1200
-            while (!pending.isEmpty || wantsHero) && CACurrentMediaTime() < deadline {
+            while (!pending.isEmpty || wantsHero || wantsReveal) && CACurrentMediaTime() < deadline {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let self else { return }
                 let failed = self.failureFlashCount > failuresAtStart
                 if wantsHero, failed, !failureLogged {
                     failureLogged = true
-                    print(String(format: "SQUISH-T storeshot failure seen at %.2fs hinge=%.1f",
+                    print(String(format: "SQUISH-T storeshot failure seen at %.2fs hinge=%.1f readout=%ld",
+                                 CACurrentMediaTime() - self.launchTime, self.hingeLog.samples.last?.angle ?? -1,
+                                 self.storeShotReadout().degrees))
+                }
+                if wantsReveal, revealSeen == nil, self.revealed != nil {
+                    revealSeen = CACurrentMediaTime()
+                    print(String(format: "SQUISH-T storeshot reveal seen at %.2fs hinge=%.1f",
                                  CACurrentMediaTime() - self.launchTime, self.hingeLog.samples.last?.angle ?? -1))
                 }
                 guard let angle = self.hingeLog.samples.last?.angle else { continue }
@@ -560,6 +602,12 @@ final class PressDirector {
                     since = CACurrentMediaTime()
                     continue
                 }
+                if wantsReveal, let seen = revealSeen, now - seen >= 2.5, self.revealed != nil, angle >= 120 {
+                    wantsReveal = false
+                    await self.writeStoreShot(demo, label: "reveal", angle: angle, reveal: true)
+                    since = CACurrentMediaTime()
+                    continue
+                }
                 guard let index = pending.firstIndex(where: { abs($0 - angle) <= 3 }) else { continue }
                 let target = pending.remove(at: index)
                 await self.writeStoreShot(demo, label: PressDirector.storeLabel(target), angle: angle)
@@ -568,6 +616,7 @@ final class PressDirector {
             guard let self else { return }
             var missing = pending.map { PressDirector.storeLabel($0) }
             if wantsHero { missing.append("hero") }
+            if wantsReveal { missing.append("reveal") }
             print(String(format: "SQUISH-T storeshot done at %.2fs missing=%@", CACurrentMediaTime() - self.launchTime,
                          missing.joined(separator: ",")))
         }
@@ -694,21 +743,42 @@ final class PressDirector {
     /// `hero` (label "hero"): the failure freeze with the caption (`storeshotcaption=`); the escaped splat is FoldAnvil's
     /// live spray in the capture (the 2D overlay only with `storeshotsplat=overlay`). Angle
     /// shots keep their halves for the before/after frame. Returns the halves, nil when nothing was captured.
+    ///
+    /// FOLD-REVIEW-5: the halves carry the crown readout (`storeShotReadout`) for the pair labels; the hero is seen
+    /// from the 32° turn (`storeshotazimuth=`), captioned per object, and its halves are also saved for the variety
+    /// grid (`saveGridHalves`, Duo only). `reveal` (label "reveal"): the window with its SwiftUI chrome (print label,
+    /// Again · Share · Next), captioned "Open up. File the *evidence*." (`revealcaption=`), at the default 14° turn
+    /// (`revealazimuth=`).
     @discardableResult
     private func writeStoreShot(_ demo: DemoScenario, label: String, angle: Double,
-                                hero: Bool = false) async -> FoldStoreShot.Halves? {
+                                hero: Bool = false, reveal: Bool = false) async -> FoldStoreShot.Halves? {
         let started = CACurrentMediaTime()
-        guard usesFoldPress, var halves = await FoldStoreShot.capture(scene: scene, fold: fold) else {
+        guard usesFoldPress,
+              var halves = await FoldStoreShot.capture(scene: scene, fold: fold, overlays: reveal) else {
             print("SQUISH-T storeshot \(label) failed: no Fold Press stage on screen")
             return nil
         }
         halves.hingeAngle = angle
+        halves.readout = storeShotReadout()
         var base = storeShotOptions(demo, angle: angle)
+        let tabletopContent = !halves.layout.isBook
         if hero {
-            let caption = PressDirector.splitCaption(demo.string("storeshotcaption") ?? PressDirector.heroCaption)
+            let caption = PressDirector.splitCaption(demo.string("storeshotcaption")
+                                                     ?? PressDirector.heroCaption(for: currentKind))
             base.caption = caption.headline
             base.subcaption = caption.subline
             base.escapedSplat = escapedSplat(demo)
+            if tabletopContent { base.azimuthDegrees = demo.double("storeshotazimuth") ?? PressDirector.squishAzimuth }
+            if demo.has("duo") { saveGridHalves(halves) }
+            if let readout = halves.readout, readout.frozen, abs(Double(readout.degrees) - base.hingeAngle) > 2 {
+                print(String(format: "SQUISH-T storeshot hero note: readout %@ on a %.1f° model; pair label follows the readout",
+                             readout.label, base.hingeAngle))
+            }
+        } else if reveal {
+            let caption = PressDirector.splitCaption(demo.string("revealcaption") ?? PressDirector.revealCaption)
+            base.caption = caption.headline
+            base.subcaption = caption.subline
+            if tabletopContent, let turn = demo.double("revealazimuth") { base.azimuthDegrees = turn }
         }
         let sizes = storeShotSizes(demo)
         let stem = "storeshot-\(label)"
@@ -730,6 +800,7 @@ final class PressDirector {
         eyeView.eye = .design
         eyeView.model = .asLaid
         eyeView.glassSheen = false
+        eyeView.lidShading = false
         eyeView.caption = nil
         eyeView.subcaption = nil
         eyeView.escapedSplat = nil
@@ -745,10 +816,11 @@ final class PressDirector {
                 written.append(variant.file)
             }
         }
-        if !hero { storeShotHalves[label] = halves }
+        if !hero && !reveal { storeShotHalves[label] = halves }
         let status = written.isEmpty ? "failed:" : "ok"
-        print(String(format: "SQUISH-T storeshot %@ %@ at %.2fs hinge=%.1f model=%.1f content=%@ pose=%@ anvil=%@ phase=%@ c=%.3f splat=%ld files=%@ ms=%.0f",
+        print(String(format: "SQUISH-T storeshot %@ %@ at %.2fs hinge=%.1f model=%.1f readout=%@ az=%@ content=%@ pose=%@ anvil=%@ phase=%@ c=%.3f splat=%ld files=%@ ms=%.0f",
                      label, status, CACurrentMediaTime() - launchTime, angle, base.hingeAngle,
+                     halves.readout?.label ?? "-", base.azimuthDegrees.map { String(format: "%.0f", $0) } ?? "default",
                      halves.layout.isBook ? "book" : "tabletop", base.model.rawValue, halves.source,
                      engine.phase.rawValue, engine.measuredCompression, base.escapedSplat == nil ? 0 : 1,
                      written.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
@@ -771,6 +843,12 @@ final class PressDirector {
         options.before = storeShotOptions(demo, angle: before.hingeAngle ?? wanted)
         options.after = storeShotOptions(demo, angle: after.hingeAngle ?? 62)
         options.after.escapedSplat = escapedSplat(demo)
+        if !before.layout.isBook {
+            options.before.azimuthDegrees = demo.double("storepairazimuth") ?? PressDirector.standingAzimuth
+        }
+        if !after.layout.isBook {
+            options.after.azimuthDegrees = demo.double("storeshotazimuth") ?? PressDirector.squishAzimuth
+        }
         options.backdrop = options.after.backdrop
         let caption = PressDirector.splitCaption(demo.string("paircaption") ?? PressDirector.pairCaption)
         options.caption = caption.headline
@@ -794,10 +872,115 @@ final class PressDirector {
                 written.append(variant.file)
             }
         }
-        print(String(format: "SQUISH-T storeshot pair %@ at %.2fs before=%.1f after=%.1f files=%@ ms=%.0f",
+        print(String(format: "SQUISH-T storeshot pair %@ at %.2fs before=%.1f after=%.1f labels=%@|%@ files=%@ ms=%.0f",
                      written.isEmpty ? "failed:" : "ok", CACurrentMediaTime() - launchTime,
-                     options.before.hingeAngle, options.after.hingeAngle, written.joined(separator: ","),
+                     options.before.hingeAngle, options.after.hingeAngle,
+                     before.readout?.label ?? "model", after.readout?.label ?? "model", written.joined(separator: ","),
                      (CACurrentMediaTime() - started) * 1000))
+    }
+
+    /// What the crown readout shows now (FoldBezel.updateReadout): whole degrees of the last Fold Press update's
+    /// angle, or the angle it froze on at this object's failure.
+    private func storeShotReadout() -> FoldStoreShot.Readout {
+        func degrees(_ angle: Double) -> Int { Int(min(max(angle, 0), 180).rounded()) }
+        if let frozen = storeShotFrozen, frozen.seed == variant.seed {
+            return FoldStoreShot.Readout(degrees: degrees(frozen.angle), frozen: true)
+        }
+        return FoldStoreShot.Readout(degrees: degrees(storeShotReadoutAngle), frozen: false)
+    }
+
+    // MARK: Variety grid (FOLD-REVIEW-5 §5 A6)
+
+    /// Each hero's halves, kept in Documents (`storehalves-<kind>-platen|anvil|crease.png` + `.json`) so a later
+    /// launch can put several objects on one frame. ci/duo-screenshots.sh only clears `storeshot-*.png` between
+    /// objects, so these survive until the grid launch.
+    private func saveGridHalves(_ halves: FoldStoreShot.Halves) {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let stem = "storehalves-\(currentKind.rawValue)"
+        func save(_ image: CGImage?, _ part: String) {
+            guard let image, let png = UIImage(cgImage: image).pngData() else { return }
+            try? png.write(to: documents.appendingPathComponent("\(stem)-\(part).png"), options: .atomic)
+        }
+        save(halves.platen, "platen")
+        save(halves.anvil, "anvil")
+        save(halves.crease, "crease")
+        let layout = halves.layout
+        var meta: [String: Any] = [
+            "kind": currentKind.rawValue,
+            "canvasWidth": Double(layout.canvas.width),
+            "canvasHeight": Double(layout.canvas.height),
+            "axisPosition": layout.axisPosition,
+            "hingeAngle": halves.hingeAngle ?? 62,
+        ]
+        if let readout = halves.readout {
+            meta["readout"] = readout.degrees
+            meta["frozen"] = readout.frozen
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: meta, options: [.prettyPrinted]) {
+            try? data.write(to: documents.appendingPathComponent("\(stem).json"), options: .atomic)
+        }
+    }
+
+    private func loadGridHalves(_ kind: ObjectKind) -> FoldStoreShot.Halves? {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let stem = "storehalves-\(kind.rawValue)"
+        func image(_ part: String) -> CGImage? {
+            UIImage(contentsOfFile: documents.appendingPathComponent("\(stem)-\(part).png").path)?.cgImage
+        }
+        guard let data = try? Data(contentsOf: documents.appendingPathComponent("\(stem).json")),
+              let meta = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let width = (meta["canvasWidth"] as? NSNumber)?.doubleValue,
+              let height = (meta["canvasHeight"] as? NSNumber)?.doubleValue,
+              let platen = image("platen"), let anvil = image("anvil") else { return nil }
+        let axis = (meta["axisPosition"] as? NSNumber)?.doubleValue
+        let layout = FoldLayout(canvas: CGSize(width: width, height: height), foldLine: axis)
+        var halves = FoldStoreShot.Halves(platen: platen, crease: image("crease"), anvil: anvil, layout: layout,
+                                          source: "saved")
+        halves.hingeAngle = (meta["hingeAngle"] as? NSNumber)?.doubleValue
+        if let degrees = (meta["readout"] as? NSNumber)?.intValue {
+            halves.readout = FoldStoreShot.Readout(degrees: degrees, frozen: (meta["frozen"] as? NSNumber)?.boolValue ?? false)
+        }
+        return halves
+    }
+
+    /// CI hook (`duo;storegrid=rubberDuck,egg,cakeSlice,sodaCan`): the variety frame, storeshot-grid.png, from the
+    /// heroes saved by earlier tabletop passes, each at its own hold angle from the 32° turn, labelled
+    /// "EGG · AT 97°" (its frozen readout), captioned "*Ten* objects. Ten ways to give." (`gridcaption=`). Objects
+    /// with no saved hero are skipped (logged as missing). Logs `SQUISH-T storeshot grid ok|failed` and `… done`.
+    private func writeStoreGrid(_ demo: DemoScenario) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard let self else { return }
+            let started = CACurrentMediaTime()
+            var items: [FoldStoreShot.GridItem] = []
+            var missing: [String] = []
+            for token in demo.tokens("storegrid") {
+                guard let kind = ObjectKind(rawValue: token), let halves = self.loadGridHalves(kind) else {
+                    missing.append(token)
+                    continue
+                }
+                var device = self.storeShotOptions(demo, angle: halves.hingeAngle ?? 62)
+                if !halves.layout.isBook {
+                    device.azimuthDegrees = demo.double("storeshotazimuth") ?? PressDirector.squishAzimuth
+                }
+                let name = kind.displayName.uppercased()
+                let label = halves.readout.map { "\(name) · \($0.label)" } ?? name
+                items.append(FoldStoreShot.GridItem(halves: halves, options: device, label: label))
+            }
+            var options = FoldStoreShot.GridOptions()
+            options.size = FoldStoreShot.duoInner
+            if demo.string("storeshotbackdrop") == "sweep" { options.backdrop = .duoSweep }
+            let caption = PressDirector.splitCaption(demo.string("gridcaption") ?? PressDirector.gridCaption)
+            options.caption = caption.headline
+            options.subcaption = caption.subline
+            let image = items.isEmpty ? nil : FoldStoreShot.renderGrid(items, options: options)
+            let ok = self.writePNG(label: "grid", file: "storeshot-grid.png", image: image)
+            print(String(format: "SQUISH-T storeshot grid %@ at %.2fs objects=%ld missing=%@ ms=%.0f",
+                         ok ? "ok" : "failed:", CACurrentMediaTime() - self.launchTime, items.count,
+                         missing.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
+            print(String(format: "SQUISH-T storeshot done at %.2fs missing=%@", CACurrentMediaTime() - self.launchTime,
+                         ok ? "" : "grid"))
+        }
     }
 
     /// Write one rendered store shot to Documents; false (and a log line) when it didn't render or write.

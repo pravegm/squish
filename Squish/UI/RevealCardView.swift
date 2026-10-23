@@ -184,8 +184,9 @@ struct RevealCardView: View {
 
     private var foldLabelText: String {
         var parts = [specimen.kind.displayName.uppercased(), specimen.kind.breaksLine(fractureCount: specimen.fractureCount)]
-        // "AT 66°", not a bare "66°": the number is the hinge angle it gave at (FOLD-REVIEW-4 F13).
-        if specimen.kind != .unsquishable, let angle = specimen.failureAngle { parts.append("AT \(Int(angle.rounded()))°") }
+        // "AT 66°", not a bare "66°": the number is the hinge angle it gave at (FOLD-REVIEW-4 F13). Degrees only when a
+        // real hinge made the press; a touch press says "AT 48 TONS" (FOLD-REVIEW-5 N6).
+        if let tag = specimen.gaveAtTag { parts.append(tag) }
         return parts.joined(separator: " · ")
     }
 

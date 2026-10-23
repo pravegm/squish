@@ -53,6 +53,8 @@ struct RootView: View {
                 if !director.usesFoldPress {
                     // Fold Press teaches with its own sheen sweep and grip glows (FOLD-REVIEW-1 #14).
                     PressHints(director: director)
+                    // P-48 touch press: the ram handle on the crosshead, at rest (FOLD-REVIEW-5 N6, screenshots.md P1).
+                    PinchHandle(director: director, suppressed: revealVisible || collecting || isCoverUp || bands.isLandscape)
                 }
 
                 if director.settings.showCaptions && director.revealed == nil {
@@ -543,12 +545,15 @@ struct RootView: View {
             return
         }
         if director.hingeAvailable { hingeArrived() }
-        if !TipCenter.hasShown(.dragDown) { scheduleDragHint(after: .seconds(8)) }
+        // The crosshead's Pinch Press handle says "drag down" from the first frame (`PinchHandle`), so the toast is
+        // only a late fallback for someone who still hasn't touched anything.
+        if !TipCenter.hasShown(.dragDown) { scheduleDragHint(after: .seconds(20)) }
     }
 
     /// UI demo keys for CI screenshots (see ci/scenarios.txt): `shelf[=squished]`, `detail`, `settings`, `cover[=sealed]`.
+    /// `launch` no longer raises the DRAG DOWN toast: frame 01 shows the handle on the machine instead, with the
+    /// anvil clear (FOLD-REVIEW-5 N6: "`01` has a coach card and no visible handle").
     private func runDemo(_ demo: DemoScenario) {
-        if demo.name == "launch" { scheduleDragHint(after: .seconds(1.5)) }
         if demo.has("cover") {
             demoCover = demo.string("cover") == "sealed" ? .sealed(kind: demo.object ?? .rubberDuck, tons: 48) : .idle
             return

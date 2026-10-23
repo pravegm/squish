@@ -8,8 +8,10 @@ import UIKit
 /// Fracture 0 (skin split, ~0.30): droplets squirt from a side and a small overflow spreads.
 /// Fracture 1 (failure splat, ~0.55): the body splorts — a glossy spread disc grows to Ø 0.15 with 6–10 blobs out
 /// at the sides, droplets land and stay. Surprise `fruitPieces`: candy cubes between core and shell; some pop out.
-/// On the Duo the shell's bulge, the disc and the splorts stay inside the strike plate + 24 pt, and the gloss mattes in
-/// steps as it flattens (FOLD-REVIEW-4 F14).
+/// On the Duo the shell's bulge, the disc and the splorts stay inside the strike plate + 16 pt *as seen* (FOLD-REVIEW-5
+/// N11: the anamorphic eye throws everything with height toward the crease, so a squashed shell that was contained
+/// on the glass still drew ~70 pt past the plate once it re-inflated to the plastic ratchet at the reveal). Once it
+/// has splatted the jelly never re-gels (the height is latched), and the gloss mattes in steps as it flattens (F14).
 @MainActor
 final class JellyView: PressObjectView {
     let entity = Entity()
@@ -33,9 +35,13 @@ final class JellyView: PressObjectView {
     private var splatC: Float = 1
     private var lastKey = SIMD4<Float>(repeating: -1)
     private var spread: Float = 1
+    /// The lowest height ratio reached since the splat (1 until then): a splatted jelly stays splatted.
+    private var latchedS: Float = 1
+    /// The spread's progress past the split/splat, latched at its widest.
+    private var spreadT: Float = 0
     private let dropColors: [UIColor]
-    /// The Duo strike plate + 24 pt (fx metres): on the Fold Press the shell, the splat disc and the splorts are
-    /// softly contained inside it (FOLD-REVIEW-4 F14: the splat overran the plate by ~60 px on both sides).
+    /// The Duo strike plate + 16 pt (fx metres): on the Fold Press the shell, the splat disc and the splorts are
+    /// softly contained inside it (FOLD-REVIEW-4 F14, FOLD-REVIEW-5 N11).
     private let containment: SIMD2<Float>
     /// Gloss level 0…`JellySpread.mattSteps`: the flattened top and the splat lose their mirror finish as the jelly
     /// spreads, so a hard studio-light edge can't read as a straight "shading seam" across the blob (F14).
@@ -125,21 +131,29 @@ final class JellyView: PressObjectView {
         if state.loaded && !state.reduceMotion {
             wobbleX.kick(sin(state.time * 13) * 0.002 * state.compression)
         }
-        let h = surfaceHeight(compression: state.compression)
+        // After the splat the height never comes back up (the plastic ratchet re-inflated the shell at the reveal,
+        // FOLD-REVIEW-5 N11); before it the gel still springs back.
+        var h = surfaceHeight(compression: state.compression)
+        if splat {
+            latchedS = min(latchedS, h / restHeight)
+            h = min(h, latchedS * restHeight)
+        }
         let s = clamp(h / restHeight * (1 + 0.04 * bounce.value), 0.05, 1.04)
         let lean = state.reduceMotion ? SIMD2<Float>.zero : SIMD2(wobbleX.value, wobbleZ.value) * 0.004 * s
         let bulge: Float = splat ? 0.55 : (split ? 0.42 : 0.32)
         let maxSpread: Float = splat ? 1.75 : 1.55
         let key = SIMD4<Float>(s, lean.x, lean.y, bulge)
-        // On the Duo the barrel bulge (up to ~0.11 m at full press) is softly held inside the strike plate + 24 pt.
+        // On the Duo the barrel bulge (up to ~0.11 m at full press) is softly held inside the strike plate + 16 pt as
+        // seen from the eye: the higher a point, the further in it is held, once the jelly is flattening.
         let cap: SIMD2<Float>? = fx.isFoldPress ? containment : nil
+        let lift = JellySpread.lift(heightRatio: s)
         if simd_length(key - lastKey) > 0.0004 {
             lastKey = key
             let rest = restHeight
             shell.update { p in
                 let q = Deform.squash(p, s: s, restHeight: rest, bulge: bulge, maxSpread: maxSpread, shear: lean)
                 guard let cap else { return q }
-                return JellySpread.contain(q, half: cap)
+                return JellySpread.contain(q, half: cap, lift: lift)
             }
         }
         // Matt the gloss in steps as it flattens (and once more at the splat).
@@ -154,18 +168,26 @@ final class JellyView: PressObjectView {
         }
         spread = min(1 / s.squareRoot(), maxSpread) * (1 + bulge * (1 - s) * 0.5)
         let coreSpread = min(1 / s.squareRoot(), maxSpread) * 0.97
-        core.scale = SIMD3(coreSpread, s, coreSpread)
+        if let cap {
+            // The opaque core never pokes through the contained shell (it is round; the shell is held to an ellipse).
+            let room = JellySpread.coreRoom(half: cap, lift: lift, coreTop: JellySpread.coreTopRatio * restHeight * s)
+            core.scale = SIMD3(min(coreSpread, room.x), s, min(coreSpread, room.y))
+        } else {
+            core.scale = SIMD3(coreSpread, s, coreSpread)
+        }
         core.position = SIMD3(lean.x * 0.5, 0, lean.y * 0.5)
         for piece in fruit where piece.entity.parent === entity {
-            piece.entity.position = SIMD3(piece.rest.x * coreSpread * 1.05 + lean.x * piece.rest.y / restHeight,
+            piece.entity.position = SIMD3(piece.rest.x * core.scale.x * 1.05 + lean.x * piece.rest.y / restHeight,
                                           piece.rest.y * s,
-                                          piece.rest.z * coreSpread * 1.05 + lean.y * piece.rest.y / restHeight)
+                                          piece.rest.z * core.scale.z * 1.05 + lean.y * piece.rest.y / restHeight)
             piece.entity.scale = SIMD3(1, max(s, 0.35), 1)
         }
 
         // Spread (overflow → splat) grows with compression past the split, up to Ø 0.15.
         if split {
-            let t = clamp((state.compression - splatC) / max(1 - splatC, 0.05), 0, 1)
+            // Latched too: the spread never shrinks back as the plates part.
+            spreadT = max(spreadT, clamp((state.compression - splatC) / max(1 - splatC, 0.05), 0, 1))
+            let t = spreadT
             var radius: Float = splat ? 0.05 + 0.015 * t : 0.045 // capped near plate + 40 pt (FOLD-REVIEW-2 #7)
             if let cap { radius = min(radius, JellySpread.maxDiscRadius(half: cap)) }
             let thickness: Float = 0.004 * (splat ? 1 : 0.6)
@@ -224,6 +246,7 @@ final class JellyView: PressObjectView {
             split = true
             splat = true
             splatC = state.compression
+            spreadT = 0
             wobbleX.kick(4)
             wobbleZ.kick(-3)
             bounce.kick(-6)
@@ -261,10 +284,38 @@ final class JellyView: PressObjectView {
     }
 }
 
-/// The jelly's plate containment and gloss steps (FOLD-REVIEW-4 F14), pure so SquishTests can pin them.
+/// The jelly's plate containment and gloss steps (FOLD-REVIEW-4 F14, FOLD-REVIEW-5 N11), pure so SquishTests can pin
+/// them.
 enum JellySpread {
-    /// How far past the Duo strike plate the jelly may reach, in canvas points (round 3's rule: mess inside plate + 40).
-    static let platePadding: Double = 24
+    /// How far past the Duo strike plate the jelly may reach, in canvas points (FOLD-REVIEW-5 N11: plate + 16, as the
+    /// glass pile; was 24).
+    static let platePadding: Double = 16
+    /// The anamorphic lean of height (FOLD-REVIEW-5 N11). The Fold eye is rendered at ≥ 47.5° elevation
+    /// (`FoldEyeModel.minRenderElevationDegrees`), so a point `y` above the glass is drawn up to y·cot 47.5° ≈ 0.92 y
+    /// further out on the glass; 0.95 covers the finite eye distance. The direction depends on the pose (tabletop:
+    /// toward the crease; book: toward the page's top), so the hold is applied all round.
+    static let projectionSlope: Float = 0.95
+    /// Only a flattening jelly is held by its projection: a tall jelly at rest legitimately leans past the plate
+    /// (§2.3, like every tall object), and squeezing it there would dent its mould.
+    static func lift(heightRatio s: Float) -> Float {
+        projectionSlope * clamp((1 - s) / 0.55, 0, 1)
+    }
+
+    /// The containment half extents for a point at height `y`: the plate + padding, pulled in by its projected lean,
+    /// never below 55 % of the plate (so the squeeze stays smooth and monotonic).
+    static func heldHalf(_ half: SIMD2<Float>, lift: Float, y: Float) -> SIMD2<Float> {
+        simd_max(half - SIMD2<Float>(repeating: lift * max(y, 0)), half * 0.55)
+    }
+
+    /// The opaque core (`ObjectMeshes.jellyMould(scale: 0.8)`) is this tall and this wide, relative to the shell.
+    static let coreTopRatio: Float = 0.8
+    static let coreRestRadius: Float = 0.049 * 0.8 * 1.07
+
+    /// The largest core spread (x, z) that keeps the round core inside the shell's held ellipse at the core's top.
+    static func coreRoom(half: SIMD2<Float>, lift: Float, coreTop: Float) -> SIMD2<Float> {
+        heldHalf(half, lift: lift, y: coreTop) * (knee / coreRestRadius)
+    }
+
     /// Inside this share of the containment ellipse nothing moves; beyond it the reach is squeezed (tanh) so it
     /// approaches the edge but never crosses it.
     static let knee: Float = 0.78
@@ -279,10 +330,12 @@ enum JellySpread {
         return (u.x * u.x + u.y * u.y).squareRoot()
     }
 
-    /// Softly pulls a deformed point inside the ellipse of half extents `half` (height untouched). Monotonic and
-    /// continuous, so the surface stays smooth; points inside `knee` are unchanged.
-    static func contain(_ p: SIMD3<Float>, half: SIMD2<Float>) -> SIMD3<Float> {
-        let e = norm(SIMD2(p.x, p.z), half: half)
+    /// Softly pulls a deformed point inside the ellipse of half extents `half` (height untouched), pulled in further the
+    /// higher the point by `lift` (`heldHalf`), so its projection stays on the plate too. Monotonic and continuous, so
+    /// the surface stays smooth; points inside `knee` are unchanged.
+    static func contain(_ p: SIMD3<Float>, half: SIMD2<Float>, lift: Float = 0) -> SIMD3<Float> {
+        let held = lift > 0 ? heldHalf(half, lift: lift, y: p.y) : half
+        let e = norm(SIMD2(p.x, p.z), half: held)
         guard e > knee else { return p }
         let span = 1 - knee
         let squeezed = knee + span * tanh((e - knee) / span)

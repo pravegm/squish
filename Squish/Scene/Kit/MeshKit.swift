@@ -609,8 +609,10 @@ enum MeshKit {
     /// Slot 0: the top face inside a `rimInset` band, and the bottom face. Slot `rimMaterial`: the top rim band and
     /// the side walls (the bright edge of a glass shard, FOLD-REVIEW-4 F5). `rimInset` ≤ 0 draws no band and puts the
     /// walls in slot 0 (one slot).
+    /// `outlineInset` > 0 (with a rim) splits the outermost `outlineInset` of the rim band, and the side walls, into slot
+    /// `outlineMaterial`: a two-tone edge (FOLD-REVIEW-5 N5: a dark refraction hairline outside the bright bevel).
     static func polygonSlab(_ polygon: [SIMD2<Float>], thickness: Float, rimInset: Float = 0,
-                            rimMaterial: UInt8 = 1) -> MeshData {
+                            rimMaterial: UInt8 = 1, outlineInset: Float = 0, outlineMaterial: UInt8 = 2) -> MeshData {
         var mesh = MeshData()
         let count = polygon.count
         guard count >= 3 else { return mesh }
@@ -620,28 +622,39 @@ enum MeshKit {
         let up = SIMD3<Float>(0, 1, 0)
         let down = SIMD3<Float>(0, -1, 0)
         let hasRim = rimInset > 0
-        let edgeSlot: UInt8 = hasRim ? rimMaterial : 0
-        let inner: [SIMD2<Float>] = polygon.map { p in
-            let toCentre = centre - p
-            let d = simd_length(toCentre)
-            guard hasRim, d > 1e-6 else { return p }
-            return p + toCentre / d * min(rimInset, d * 0.45)
+        let hasOutline = hasRim && outlineInset > 0
+        let edgeSlot: UInt8 = hasOutline ? outlineMaterial : (hasRim ? rimMaterial : 0)
+        func inset(_ amount: Float, share: Float) -> [SIMD2<Float>] {
+            polygon.map { p in
+                let toCentre = centre - p
+                let d = simd_length(toCentre)
+                guard amount > 0, d > 1e-6 else { return p }
+                return p + toCentre / d * min(amount, d * share)
+            }
         }
+        let inner = hasRim ? inset(rimInset + (hasOutline ? outlineInset : 0), share: 0.45) : polygon
+        let middle = hasOutline ? inset(outlineInset, share: 0.15) : polygon
         // Top face: a fan over the inner outline.
         let topCentre = mesh.addVertex(SIMD3(centre.x, top, centre.y), up)
         let topRing = inner.map { mesh.addVertex(SIMD3($0.x, top, $0.y), up) }
         for i in 0..<count {
             mesh.addTriangle(topCentre, topRing[i], topRing[(i + 1) % count])
         }
-        // Top rim band (own vertices, so the slot split stays clean).
-        if hasRim {
-            let outerRing = polygon.map { mesh.addVertex(SIMD3($0.x, top, $0.y), up) }
+        /// A flat band on the top face between two rings (own vertices, so the slot split stays clean).
+        func band(outer: [SIMD2<Float>], inner: [SIMD2<Float>], slot: UInt8) {
+            let outerRing = outer.map { mesh.addVertex(SIMD3($0.x, top, $0.y), up) }
             let innerRing = inner.map { mesh.addVertex(SIMD3($0.x, top, $0.y), up) }
             for i in 0..<count {
                 let j = (i + 1) % count
-                mesh.addTriangle(innerRing[i], outerRing[i], outerRing[j], material: edgeSlot)
-                mesh.addTriangle(innerRing[i], outerRing[j], innerRing[j], material: edgeSlot)
+                mesh.addTriangle(innerRing[i], outerRing[i], outerRing[j], material: slot)
+                mesh.addTriangle(innerRing[i], outerRing[j], innerRing[j], material: slot)
             }
+        }
+        if hasRim {
+            band(outer: middle, inner: inner, slot: rimMaterial)
+        }
+        if hasOutline {
+            band(outer: polygon, inner: middle, slot: outlineMaterial)
         }
         // Bottom face.
         let bottomCentre = mesh.addVertex(SIMD3(centre.x, bottom, centre.y), down)

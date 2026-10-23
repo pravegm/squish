@@ -128,6 +128,109 @@ private struct EdgeGlow: View {
     }
 }
 
+// MARK: - Pinch Press handle (non-folding iPhones)
+
+/// The touch press's affordance (bible §2 "drag on the ram handle"; screenshots.md §C P1; FOLD-REVIEW-5 N6): a
+/// graphite grip plate mounted on the front of the P-48's crosshead, with knurled grips and a yellow chevron, so the
+/// idle machine shows what to grab. Until the third press it reads "DRAG DOWN TO PRESS". It sits on the crosshead
+/// (≈ 39–44 % of the screen height, preset P framing), above the 45–80 % stage, so it keeps VISUAL-TARGET §6.1's
+/// "nothing in the stage" rule, and it nudges down with the scene's teaching pulse rhythm (1.6 s).
+///
+/// Only at rest: it fades out as the press starts (zero UI during a press) and never shows on the Fold Press, in book
+/// pose or on a Duo-shaped screen, where the crosshead isn't at these fractions. Never hit-testable: the whole stage
+/// is the drag target, and the handle only tells you so.
+struct PinchHandle: View {
+    let director: PressDirector
+    /// Hidden while the reveal card, cover or a collect is on screen.
+    var suppressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Crosshead front face at rest, as fractions of the full screen height (r5 `01-launch`, 18 Pro: y 0.39–0.44).
+    static let restCentreY: CGFloat = 0.414
+    /// Tall portrait phones only (aspect ≤ 0.58): the scene uses camera preset P there, so the crosshead sits at the
+    /// same height fraction on every modern iPhone. Wider screens (Duo inner, landscape) are framed differently.
+    static let maxAspect: CGFloat = 0.58
+
+    private var atRest: Bool {
+        !suppressed && director.usesTouchPress && !director.usesFoldPress && !director.isShowingCover
+            && director.revealed == nil && director.canChooseObject
+    }
+
+    private var showsWords: Bool { director.completedPresses < 3 }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let fits = size.height > 0 && size.width / size.height <= Self.maxAspect
+            if fits && atRest {
+                // ~270 pt on a 6.1"/6.9" phone: inside the crosshead's ~330 pt front face.
+                let width = min(size.width * 0.68, size.height * 0.31)
+                plate(width: width)
+                    // A 3 pt downward nudge every 1.6 s ("this way"); static under Reduce Motion.
+                    .phaseAnimator(reduceMotion ? [false] : [false, true]) { content, lowered in
+                        content.offset(y: lowered ? 3 : 0)
+                    } animation: { _ in
+                        .easeInOut(duration: 0.8)
+                    }
+                    .position(x: size.width / 2, y: size.height * Self.restCentreY)
+                    .transition(.opacity)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true) // the stage's own label and hint say "swipe up to press down"
+        .animation(Theme.fade, value: atRest)
+    }
+
+    private func plate(width: CGFloat) -> some View {
+        HStack(spacing: Theme.s2) {
+            Grip()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 13, weight: .black))
+                .foregroundStyle(Theme.yellow)
+            if showsWords {
+                Text("DRAG DOWN TO PRESS")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .tracking(Theme.microTracking)
+                    .foregroundStyle(Theme.paper)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(Theme.yellow)
+            }
+            Grip()
+        }
+        .padding(.horizontal, Theme.s3)
+        .frame(width: showsWords ? width : width * 0.55, height: 32)
+        .background {
+            // A raised graphite plate with a lip, like the console keycaps (§6.6), and a yellow keyline.
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.rgb(0x16171A))
+                    .offset(y: 3)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(LinearGradient(colors: [Theme.rgb(0x3A3D43), Theme.graphite],
+                                         startPoint: .top, endPoint: .bottom))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.yellow.opacity(0.55), lineWidth: 1)
+            }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.large) // painted on the machine: a fixed composition
+    }
+
+    /// Three knurled ridges at each end of the plate: "grab here".
+    private struct Grip: View {
+        var body: some View {
+            HStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { _ in
+                    Capsule().fill(Theme.paper.opacity(0.55)).frame(width: 2, height: 14)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Captions (§6.10)
 
 /// Comic onomatopoeia when Captions are on: Rounded Black 40/52/64 in the object's tint with a 4 pt graphite

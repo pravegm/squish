@@ -1011,6 +1011,18 @@ final class PressScene {
         objectView.map { (kind, $0.restHeight) }
     }
 
+    /// The flattened specimen's top-down extent in `frame`'s space (the Duo anvil's root, millimetres): the x/z centre
+    /// and half extents of its visual bounds. The anvil's escaped droplets land clear of it (FOLD-REVIEW-5). Nil off
+    /// the Duo stage, before the object lands, or if its bounds are empty.
+    func foldSpecimenExtent(relativeTo frame: Entity) -> (centre: SIMD2<Float>, half: SIMD2<Float>)? {
+        guard framing == .foldAnvil, let view = objectView, view.entity.isEnabled else { return nil }
+        let bounds = view.entity.visualBounds(relativeTo: frame, excludeInactive: true)
+        guard !bounds.isEmpty else { return nil }
+        let centre = bounds.center, extents = bounds.extents
+        guard centre.x.isFinite, centre.z.isFinite, extents.x.isFinite, extents.z.isFinite else { return nil }
+        return (SIMD2(centre.x, centre.z), SIMD2(extents.x, extents.z) / 2)
+    }
+
     /// The lean's pivot correction last added to `objectSlot.position`, and the position that produced, so a frame in
     /// which `update` did not rewrite the position never stacks a second correction (FOLD-REVIEW-3 N2).
     private var foldLeanShift: SIMD3<Float> = .zero

@@ -116,10 +116,15 @@ struct SpecimenRecord: Codable, Identifiable, Equatable, Sendable {
     var engagedDuration: Double? = nil
     /// File name (not path) of the specimen thumbnail PNG in the collection folder, once captured.
     var thumbnailFile: String?
+    /// True when a real hinge drove this press (Fold Press on iPhone Duo), so `failureAngle` is a hinge angle worth
+    /// showing in degrees. False for the touch press (P-48, "Press without folding"), whose angle is only the engine's
+    /// virtual θ: cards then show tonnage instead (FOLD-REVIEW-5 N6). Older records decode as false, so a card never
+    /// claims a hinge it can't prove.
+    var madeOnHinge: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case id, number, kind, date, variant, fractureCount, maxCompression, failureAngle, duration
-        case isPerfect, wasSlammed, reversals, engagedDuration, thumbnailFile
+        case isPerfect, wasSlammed, reversals, engagedDuration, thumbnailFile, madeOnHinge
     }
 
     /// Fun, deterministic "tonnage" for the label.
@@ -137,7 +142,7 @@ struct SpecimenRecord: Codable, Identifiable, Equatable, Sendable {
 }
 
 extension SpecimenRecord {
-    /// Backward-compatible decoding: fields added after v1.0 (`reversals`, `engagedDuration`) may be missing from
+    /// Backward-compatible decoding: fields added after v1.0 (`reversals`, `engagedDuration`, `madeOnHinge`) may be missing from
     /// older collection.json files. Declared in an extension so the memberwise initializer is kept.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -155,6 +160,7 @@ extension SpecimenRecord {
         reversals = try container.decodeIfPresent(Int.self, forKey: .reversals) ?? 0
         engagedDuration = try container.decodeIfPresent(Double.self, forKey: .engagedDuration)
         thumbnailFile = try container.decodeIfPresent(String.self, forKey: .thumbnailFile)
+        madeOnHinge = try container.decodeIfPresent(Bool.self, forKey: .madeOnHinge) ?? false
     }
 }
 

@@ -153,24 +153,25 @@ enum FoldStamps {
 
         switch kind {
         case .bubbleWrap:
-            path.addRoundedRect(in: CGRect(x: -0.055, y: -0.045, width: 0.110, height: 0.090),
-                                cornerWidth: 0.006, cornerHeight: 0.006, transform: t)
+            // The sheet and its hex grid of domes are BubbleWrapView's own (`BubbleWrapGrid`, FOLD-REVIEW-5 N10), so
+            // every pop prints exactly over its 3D crater, in the same pressure-map order.
+            let sheet = BubbleWrapGrid.sheetSize
+            let corner = CGFloat(BubbleWrapGrid.sheetCorner)
+            path.addRoundedRect(in: CGRect(x: -CGFloat(sheet.x) / 2, y: -CGFloat(sheet.y) / 2,
+                                           width: CGFloat(sheet.x), height: CGFloat(sheet.y)),
+                                cornerWidth: corner, cornerHeight: corner, transform: t)
             let rings = CGMutablePath()
-            for row in 0..<BubbleWrapLayout.rows {
-                for column in 0..<BubbleWrapLayout.columns {
-                    let x = 0.0175 * (Double(column) - Double(BubbleWrapLayout.columns - 1) / 2)
-                    let z = 0.0195 * (Double(row) - Double(BubbleWrapLayout.rows - 1) / 2)
-                    ellipse(x, z, 0.0075, 0.0075, into: rings)
-                    features.append(map(x, z))
-                }
+            let dome = Double(BubbleWrapGrid.radius)
+            for cell in 0..<BubbleWrapGrid.count {
+                let c = BubbleWrapGrid.centre(cell)
+                ellipse(Double(c.x), Double(c.y), dome, dome, into: rings)
+                features.append(map(Double(c.x), Double(c.y)))
             }
             details = rings
-            featureRadius = CGFloat(0.0075 * k)
+            featureRadius = CGFloat(dome * k)
             radii = (0.074, 0.074)
             contact = .uniform
-            // Mirrors BubbleWrapView: the pop order is the first use of SplitMix64(seed ^ 0xB0BB1E).
-            var rng = SplitMix64(seed: variant.seed ^ 0xB0BB1E)
-            popOrder = Array(0..<BubbleWrapLayout.count).shuffled(using: &rng)
+            popOrder = BubbleWrapGrid.popOrder(seed: variant.seed)
         case .rubberDuck:
             ellipse(0, 0, 0.038, 0.029, into: path)
             ellipse(0.019, 0, 0.021, 0.021, into: path)
@@ -424,16 +425,17 @@ enum FoldStamps {
         }
     }
 
-    /// Sheets (bubble wrap) cast a soft-cornered shadow (FOLD-REVIEW-3 N15): the film's rectangle with corners of at
-    /// least 24 pt, so the approach shadow never reads as a box. Everything else casts its silhouette.
+    /// Everything casts its silhouette except sheets (bubble wrap). FOLD-REVIEW-3 N15 gave the film's rectangle soft
+    /// (≥ 24 pt) corners so it never read as a box; FOLD-REVIEW-5 F8: even soft-cornered, the film's rectangle still printed a plate-sized grey ghost at 180°. The
+    /// film lies flat; only its domes stand up into the light, so only they cast: the union of the domes (r × 1.15),
+    /// which the 28–40 pt blur melts into one soft, round-shouldered patch.
     static func shadowOutline(_ stamp: FoldStamp) -> CGPath {
-        guard stamp.kind == .bubbleWrap, stamp.pointsPerMetre > 0 else { return stamp.silhouette }
-        let k = Double(stamp.pointsPerMetre)
-        let film = CGRect(x: -0.055, y: -0.045, width: 0.110, height: 0.090)
-        let corner = CGFloat(min(max(24 / k, 0.006), 0.044))
+        guard stamp.kind == .bubbleWrap, !stamp.features.isEmpty, stamp.featureRadius > 0 else { return stamp.silhouette }
+        let r = stamp.featureRadius * 1.15
         let path = CGMutablePath()
-        path.addRoundedRect(in: film, cornerWidth: corner, cornerHeight: corner,
-                            transform: LocalMap(k: k, yaw: stamp.yawRadians).transform)
+        for p in stamp.features {
+            path.addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
+        }
         return path
     }
 
@@ -509,19 +511,43 @@ enum FoldStamps {
             guard cell < stamp.features.count else { return .none }
             let p = stamp.features[cell]
             let r = stamp.featureRadius
-            // FOLD-REVIEW-3 N9: a pop prints by how hard it was. The burst dome spreads a little past its patch, its
-            // rim weight and ink follow the compression, and the split it let the air out of shows as a short slit.
+            // FOLD-REVIEW-3 N9: a pop prints by how hard it was. FOLD-REVIEW-5 F8: not a diagram (a stroked circle with
+            // a tick through it, ×24). The burst dome flattens into a lobed, slightly uneven patch a little past its
+            // cell; its rim crinkles in two or three broken arcs where the film folded, never a closed ring; and where
+            // the air got out the film creased into one short curved fold near the edge. Weight and ink follow the
+            // compression.
             let hard = CGFloat(clamp(compression, 0, 1))
             let fill = stamp.golden ? Palette.gold : UIColor(hex: 0x9CCBE6)
             let rim = stamp.golden ? UIColor(hex: 0xB98A1E) : UIColor(hex: 0x3E93C2)
             let spread = r * (0.95 + 0.12 * hard + CGFloat.random(in: -0.06...0.06, using: &rng))
-            fillDisc(ctx, p, spread, fill.withAlphaComponent(0.40 + 0.25 * hard))
-            ring(ctx, p, spread, 1.0 + 1.4 * hard, rim.withAlphaComponent(0.55 + 0.40 * hard))
-            let a = CGFloat.random(in: 0...(.pi), using: &rng)
-            let half = spread * CGFloat.random(in: 0.40...0.65, using: &rng)
-            crack(ctx, from: CGPoint(x: p.x - cos(a) * half, y: p.y - sin(a) * half),
-                  to: CGPoint(x: p.x + cos(a) * half, y: p.y + sin(a) * half), segments: 3, jitter: 1.2,
-                  width: 0.9 + 0.6 * hard, color: rim.withAlphaComponent(0.75), rng: &rng)
+            // A round core with an uneven, crinkled skirt (the blob's lobes are deep, so it only carries half the ink).
+            fillDisc(ctx, p, spread * 0.84, fill.withAlphaComponent(0.20 + 0.16 * hard))
+            blob(ctx, p, spread * 1.02, lobes: 9, fill.withAlphaComponent(0.16 + 0.12 * hard), rng: &rng)
+            ctx.saveGState()
+            ctx.setLineCap(.round)
+            let arcs = 2 + Int(rng.next() % 2)
+            var start = CGFloat.random(in: 0...(2 * .pi), using: &rng)
+            for _ in 0..<arcs {
+                let sweep = CGFloat.random(in: 0.6...1.3, using: &rng)
+                let rr = spread * CGFloat.random(in: 0.80...0.96, using: &rng)
+                ctx.setStrokeColor(rim.withAlphaComponent(0.30 + 0.35 * hard).cgColor)
+                ctx.setLineWidth(0.8 + 0.9 * hard)
+                ctx.addArc(center: p, radius: rr, startAngle: start, endAngle: start + sweep, clockwise: false)
+                ctx.strokePath()
+                start += sweep + CGFloat.random(in: 0.5...1.2, using: &rng)
+            }
+            // The fold: an arc about a point outside the patch, so it bows like a crease, not a radius.
+            let a = CGFloat.random(in: 0...(2 * .pi), using: &rng)
+            let pivot = CGPoint(x: p.x + cos(a) * spread * 1.25, y: p.y + sin(a) * spread * 1.25)
+            ctx.setStrokeColor(rim.withAlphaComponent(0.45 + 0.30 * hard).cgColor)
+            ctx.setLineWidth(0.8 + 0.5 * hard)
+            ctx.addArc(center: pivot, radius: spread * 0.85, startAngle: a + .pi - 0.38, endAngle: a + .pi + 0.38,
+                       clockwise: false)
+            ctx.strokePath()
+            // A wet glint on the flattened film.
+            fillDisc(ctx, CGPoint(x: p.x - spread * 0.3, y: p.y - spread * 0.32), spread * 0.16,
+                     UIColor(white: 1, alpha: 0.35))
+            ctx.restoreGState()
             return .none
         case .rubberDuck:
             if isFailure {
@@ -814,18 +840,63 @@ enum FoldStamps {
         }
     }
 
-    /// Whether a droplet, scaled about the footprint centre by `scale`, lies inside the strike plate + `sprayMargin`
-    /// (a rounded rectangle, print space).
-    static func sprayContained(_ d: FoldDroplet, scale: CGFloat) -> Bool {
-        let hx = CGFloat(FoldMetrics.plateLateral / 2) + sprayMargin
-        let hy = CGFloat(FoldMetrics.plateDepth / 2) + sprayMargin
+    /// Whether a droplet, scaled about the footprint centre by `scale`, lies inside the strike plate + `margin`
+    /// (`sprayMargin` unless given; a rounded rectangle, print space).
+    static func sprayContained(_ d: FoldDroplet, scale: CGFloat, margin: CGFloat = FoldStamps.sprayMargin) -> Bool {
+        let hx = CGFloat(FoldMetrics.plateLateral / 2) + margin
+        let hy = CGFloat(FoldMetrics.plateDepth / 2) + margin
         let p = CGPoint(x: abs(d.centre.x * scale), y: abs(d.centre.y * scale))
         guard p.x + d.radius <= hx, p.y + d.radius <= hy else { return false }
-        let corner = CGFloat(FoldMetrics.plateRadius) + sprayMargin
+        let corner = CGFloat(FoldMetrics.plateRadius) + margin
         let cx = hx - corner, cy = hy - corner
         guard p.x > cx, p.y > cy else { return true }
         let dx = p.x - cx, dy = p.y - cy
         return (dx * dx + dy * dy).squareRoot() + d.radius <= corner
+    }
+
+    // MARK: Landing clear of the specimen (FOLD-REVIEW-5)
+
+    /// An escaped droplet may land this far past the strike plate (the print canvas's own spread clamp, §2.3) when
+    /// the flattened specimen covers the plate + `sprayMargin` in its direction.
+    static let sprayEscapeMargin: CGFloat = 40
+    /// The specimen's top-down bounding box is treated as an ellipse this much larger than the one it inscribes, so a
+    /// droplet that clears it also clears a rounded-rectangle pancake's shoulders.
+    static let sprayClearScale: CGFloat = 1.25
+    /// Gap between a landed droplet's edge and the specimen ellipse (points).
+    static let sprayClearGap: CGFloat = 3
+
+    /// Where an escaped droplet lands so the flattened 3D specimen doesn't hide it. All print space (points about the
+    /// footprint centre): `p` and `radius` are the droplet's, `specimenCentre` / `specimenHalf` the specimen's top-down
+    /// bounding box. A droplet already clear of the specimen ellipse (`specimenHalf × sprayClearScale`, grown by the
+    /// droplet's radius + `sprayClearGap`) and inside the plate + `sprayEscapeMargin` stays put. Otherwise it is pushed
+    /// out along the ray from the specimen's centre to just past that ellipse; if that lands outside the plate +
+    /// `sprayEscapeMargin`, the ray turns in 15° steps, alternating sides, up to ±90°, to the nearest direction where it
+    /// fits. Nil when nothing fits (the specimen covers everything round that side). Deterministic and pure.
+    static func sprayLanding(_ p: CGPoint, radius: CGFloat, specimenCentre c: CGPoint, specimenHalf h: CGSize) -> CGPoint? {
+        let ex = max(h.width, 0) * sprayClearScale + radius + sprayClearGap
+        let ey = max(h.height, 0) * sprayClearScale + radius + sprayClearGap
+        func fits(_ q: CGPoint) -> Bool {
+            sprayContained(FoldDroplet(centre: q, radius: radius), scale: 1, margin: sprayEscapeMargin)
+        }
+        let v = CGPoint(x: p.x - c.x, y: p.y - c.y)
+        let inside = (v.x / ex) * (v.x / ex) + (v.y / ey) * (v.y / ey) < 1
+        if !inside && fits(p) { return p }
+        let length = (v.x * v.x + v.y * v.y).squareRoot()
+        // A droplet dead on the centre heads the way its own print-space spot points (or straight away from the hinge).
+        let a0: CGFloat = length > 1e-6 ? atan2(v.y, v.x)
+            : ((p.x * p.x + p.y * p.y) > 1e-6 ? atan2(p.y, p.x) : .pi / 2)
+        for step in 0...12 {
+            let k = CGFloat((step + 1) / 2) * (step % 2 == 0 ? -1 : 1)
+            let a = a0 + k * .pi / 12
+            let dx = cos(a), dy = sin(a)
+            // Distance from the centre to the ellipse along (dx, dy).
+            let t = 1 / max(((dx / ex) * (dx / ex) + (dy / ey) * (dy / ey)).squareRoot(), 1e-9)
+            // Never pull a droplet that was already outside back in toward the specimen.
+            let reach = step == 0 && !inside ? max(t, length) : t
+            let q = CGPoint(x: c.x + dx * (reach + 0.5), y: c.y + dy * (reach + 0.5))
+            if fits(q) { return q }
+        }
+        return nil
     }
 
     static func mix(_ a: UIColor, _ b: UIColor, _ t: CGFloat) -> UIColor {

@@ -164,7 +164,6 @@ struct SceneTests {
         #expect(GlassDebris.sectorCounts == [1, 10, 14, 14, 8, 4])
         #expect(GlassDebris.sectorCounts.reduce(0, +) + 1 <= 64)
         #expect(GlassDebris.skidSpeed.lowerBound >= 0.04 && GlassDebris.skidSpeed.upperBound <= 0.10)
-        #expect(GlassDebris.dustRadius(0) == 0.022 && abs(GlassDebris.dustRadius(1) - 0.032) < 1e-6)
         // A piece bigger than the box is pinned to its centre rather than given an inverted box.
         let tight = GlassDebris.centreBounds(containment: [0.01, 0.01], pieceHalf: [0.02, 0.005])
         #expect(tight.min.x == 0 && tight.max.x == 0 && abs(tight.max.y - 0.005) < 1e-7)
@@ -230,7 +229,23 @@ struct SceneTests {
             let box = pair.bounds()
             #expect(box.min.x >= -0.5 && box.max.x <= 0.5 && box.min.z >= -0.5 && box.max.z <= 0.5)
             #expect(GlassDebris.fragmentSlot(pair, slot: 0).isValid && GlassDebris.fragmentSlot(pair, slot: 1).isValid)
+            // FOLD-REVIEW-5 N5: a two-tone edge, the dark hairline (and walls) in their own slot.
+            #expect(pair.materialSlots == 3 && GlassDebris.fragmentSlot(pair, slot: 2).isValid)
         }
+        // A rimmed slab with an outline keeps every triangle: face + bevel + hairline/walls.
+        let square: [SIMD2<Float>] = [[-0.2, -0.4], [0.2, -0.4], [0.2, 0.4], [-0.2, 0.4]]
+        let twoTone = MeshKit.polygonSlab(square, thickness: 0.001, rimInset: 0.035, outlineInset: 0.03)
+        expectValid(twoTone, "two-tone slab")
+        #expect(twoTone.splitByMaterial().reduce(0) { $0 + $1.mesh.triangleCount } == twoTone.triangleCount)
+        // The shards are darker than the steel (round 4's tint was lighter than #5CC8B8, and read as paper), and the
+        // label scraps are ×1.4 of round 4's 0.7.
+        func luma(_ hex: UInt32) -> Float {
+            0.2126 * Float((hex >> 16) & 0xFF) + 0.7152 * Float((hex >> 8) & 0xFF) + 0.0722 * Float(hex & 0xFF)
+        }
+        #expect(luma(GlassDebris.shardTint) < luma(0x5CC8B8) - 15)
+        #expect(luma(GlassDebris.seaGlassTint) < luma(0x5CC8B8))
+        #expect(luma(GlassDebris.outlineTint) < 100)
+        #expect(GlassDebris.shardOpacity >= 0.65 && abs(GlassDebris.scrapScale - 0.98) < 1e-6)
         for v in 0..<GlassDebris.scrapVariants {
             expectValid(GlassDebris.scrap(seed: GlassDebris.scrapSeed(v)), "scrap \(v)")
         }
@@ -320,7 +335,7 @@ struct SceneTests {
         #expect(CanCrush.chevronsPerBuckle * 5 == 10)
     }
 
-    @Test func jellyStaysOnItsPlateAndBubbleCratersAreRimmed() {
+    @Test func jellyStaysOnItsPlate() {
         let half = SIMD2<Float>(0.092, 0.074)
         // Inside the knee nothing moves; far points are squeezed inside the edge, monotonically along a ray.
         let near = SIMD3<Float>(0.03, 0.01, 0.02)
@@ -338,8 +353,105 @@ struct SceneTests {
         #expect(JellySpread.mattLevel(heightRatio: 1, splat: false) == 0)
         #expect(JellySpread.mattLevel(heightRatio: 0.13, splat: false) < JellySpread.mattSteps)
         #expect(JellySpread.mattLevel(heightRatio: 0.6, splat: true) == JellySpread.mattSteps)
-        // Popped bubble: the rim sits inside the 1.25× crinkle, the pinhole glint is tiny.
-        #expect(BubbleCrater.rimRadius < 1.25 && BubbleCrater.pinholeRadius <= 0.15)
+    }
+
+    @Test func flattenedJellyStaysOnThePlateAsSeen() {
+        // FOLD-REVIEW-5 N11: plate + 16 pt, and a point with height is held in by its anamorphic lean, so what the eye
+        // sees stays on the plate too. A tall jelly at rest is not squeezed.
+        #expect(JellySpread.platePadding == 16)
+        let half = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1),
+                                           padding: JellySpread.platePadding)
+        #expect(JellySpread.lift(heightRatio: 1) == 0)
+        let lift = JellySpread.lift(heightRatio: 0.2)
+        #expect(lift >= JellySpread.projectionSlope - 1e-6)
+        let atRest = SIMD3<Float>(0.03, 0.06, 0.02)
+        #expect(JellySpread.contain(atRest, half: half, lift: JellySpread.lift(heightRatio: 1)) == atRest)
+        for y in [Float(0), 0.004, 0.008, 0.012, 0.016] {
+            for k in 1...60 {
+                let a = Float(k) * 0.37
+                let p = JellySpread.contain(SIMD3(cos(a) * 0.12, y, sin(a) * 0.12), half: half, lift: lift)
+                let held = JellySpread.heldHalf(half, lift: lift, y: y)
+                #expect(JellySpread.norm(SIMD2(p.x, p.z), half: held) < 1)
+                #expect(p.y == y)
+                // Leaned by its height in any direction, the point still lands inside plate + 16.
+                #expect(abs(p.x) + lift * y <= half.x + 1e-5 && abs(p.z) + lift * y <= half.y + 1e-5)
+            }
+            // Monotonic along a ray at a fixed height.
+            var last: Float = 0
+            for k in 1...40 {
+                let p = JellySpread.contain(SIMD3(0, y, Float(k) * 0.003), half: half, lift: lift)
+                #expect(p.z > last)
+                last = p.z
+            }
+        }
+        // The round core fits inside the held shell at its top.
+        let room = JellySpread.coreRoom(half: half, lift: lift, coreTop: 0.012)
+        let held = JellySpread.heldHalf(half, lift: lift, y: 0.012)
+        #expect(room.x * JellySpread.coreRestRadius <= held.x * JellySpread.knee + 1e-6)
+        #expect(room.y * JellySpread.coreRestRadius <= held.y * JellySpread.knee + 1e-6)
+    }
+
+    @Test func bubbleWrapIsAHexSheetThatPopsFrontToBack() {
+        // FOLD-REVIEW-5 N10: a regular hex grid of 24 domes on the film, inside its sealed margin.
+        let n = BubbleWrapGrid.count
+        #expect(n == BubbleWrapLayout.count)
+        let centres = (0..<n).map { BubbleWrapGrid.centre($0) }
+        var nearest = [Float](repeating: .infinity, count: n)
+        for i in 0..<n {
+            for j in 0..<n where j != i {
+                nearest[i] = min(nearest[i], simd_distance(centres[i], centres[j]))
+            }
+        }
+        for d in nearest { #expect(abs(d - BubbleWrapGrid.pitch) < 1e-5) }
+        let half = BubbleWrapGrid.sheetSize / 2
+        let foot = BubbleWrapGrid.radius * 1.08
+        for c in centres {
+            #expect(abs(c.x) + foot <= half.x && abs(c.y) + foot <= half.y)
+        }
+        // Squashed neighbours never more than just meet.
+        #expect(2 * BubbleWrapGrid.radius * BubbleWrapGrid.spread(squash: 0) <= BubbleWrapGrid.pitch * 1.01)
+        // The mega bubble covers exactly its four cells' room.
+        for i in 0..<n where !BubbleWrapGrid.megaCells.contains(i) {
+            #expect(simd_length(centres[i]) >= (BubbleWrapGrid.megaScale + 1) * BubbleWrapGrid.radius)
+        }
+        // Pop order: a permutation, deterministic from the seed, front rows (+z) first, seeds differ.
+        for seed in UInt64(1)...30 {
+            let order = BubbleWrapGrid.popOrder(seed: seed)
+            #expect(Set(order).count == n && order.count == n)
+            #expect(order == BubbleWrapGrid.popOrder(seed: seed))
+            let first = order.prefix(6).map { centres[$0].y }.reduce(0, +) / 6
+            let last = order.suffix(6).map { centres[$0].y }.reduce(0, +) / 6
+            #expect(first > last + 0.02)
+            let ranks = BubbleWrapGrid.ranks(order)
+            for (rank, cell) in order.enumerated() { #expect(ranks[cell] == rank) }
+        }
+        #expect(BubbleWrapGrid.popOrder(seed: 1) != BubbleWrapGrid.popOrder(seed: 2))
+        // The first to pop is the tallest; the tallest is the rest height.
+        #expect(BubbleWrapGrid.heightScale(rank: 0) == 1)
+        for rank in 1..<n { #expect(BubbleWrapGrid.heightScale(rank: rank) < BubbleWrapGrid.heightScale(rank: rank - 1)) }
+        #expect(BubbleWrapGrid.squash(available: 1, height: 0.007) == 1)
+        #expect(abs(BubbleWrapGrid.squash(available: 0.0035, height: 0.007) - 0.5) < 1e-5)
+        // Meshes: the dome (shell + crease foot), the flat seal/cut bands and three crinkled craters (film + creases).
+        let dome = BubbleWrapGrid.domeMesh()
+        expectValid(dome, "dome")
+        #expect(dome.materialSlots == 2)
+        #expect(abs((dome.bounds().max.y) - BubbleWrapGrid.unitHeight) < 1e-4)
+        let ring = BubbleWrapGrid.ring(size: BubbleWrapGrid.sheetSize, corner: BubbleWrapGrid.sheetCorner,
+                                       inset: BubbleWrapGrid.sealWidth)
+        expectValid(ring, "seal")
+        #expect(ring.normals.allSatisfy { $0.y > 0.99 })
+        for k in 0..<BubbleWrapGrid.craterVariants {
+            let crater = BubbleWrapGrid.craterMesh(seed: 0xC41 &+ UInt64(k) &* 977)
+            expectValid(crater, "crater \(k)")
+            #expect(crater.materialSlots == 2)
+            let box = crater.bounds()
+            // Flat: under 0.12 of the radius tall, and it never sinks into the film.
+            #expect(box.min.y >= -1e-6 && box.max.y <= BubbleCrater.rise + 1e-6)
+            #expect(box.max.x <= 1.2 && box.min.x >= -1.2)
+        }
+        let glint = BubbleWrapGrid.glint
+        #expect(glint.position.x < 0 && glint.position.z < 0 && glint.position.y > 0.5 * BubbleWrapGrid.unitHeight)
+        #expect(BubbleCrater.snapScale(age: 0) > 1 && BubbleCrater.snapScale(age: BubbleCrater.snapDuration) == 1)
     }
 
     @Test func canStrainStartsAtContactAndStaysBounded() {

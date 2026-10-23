@@ -120,9 +120,13 @@ final class CollectionStore {
 
     /// Records a finished press. Pass the press's input `trace` so the engaged time (Patience) can be measured;
     /// without one the specimen's `engagedDuration` is unknown (nil) and Patience can't be earned by it.
-    func record(_ result: PressResult, variant: PressVariant, trace: PressTrace? = nil) -> RecordOutcome {
+    ///
+    /// `onHinge` says whether a real hinge drove the press (cards then show its failure angle in degrees). When nil it
+    /// comes from the trace (`!usesVirtualHinge`); with neither, the press counts as a touch press (tonnage only).
+    func record(_ result: PressResult, variant: PressVariant, trace: PressTrace? = nil, onHinge: Bool? = nil) -> RecordOutcome {
         totalPresses += 1
         let engaged = trace.map { PressEngagement.engagedDuration(of: $0, pressDuration: result.duration) }
+        let madeOnHinge = onHinge ?? trace.map { !$0.usesVirtualHinge } ?? false
         let specimen = SpecimenRecord(
             id: UUID(),
             number: totalPresses,
@@ -137,7 +141,8 @@ final class CollectionStore {
             wasSlammed: result.wasSlammed,
             reversals: result.reversals,
             engagedDuration: engaged,
-            thumbnailFile: nil
+            thumbnailFile: nil,
+            madeOnHinge: madeOnHinge
         )
         specimens.insert(specimen, at: 0)
         pruneIfNeeded()
@@ -378,7 +383,9 @@ final class CollectionStore {
         } else {
             return
         }
-        seedDemo(count: count)
+        // Seeded cards show hinge angles only on a real Duo run (`duo`); elsewhere they carry tonnage, like a real
+        // touch press would (FOLD-REVIEW-5 N6: no "CRUSHED AT 104°" on a phone with no hinge).
+        seedDemo(count: count, onHinge: demo.has("duo"))
     }
 
     /// (kind, perfect, golden, surprise, fractures, duration, failure angle, days ago)
@@ -392,14 +399,14 @@ final class CollectionStore {
         (.sodaCan, false, false, false, 5, 7.2, 92, 0.1),
     ]
 
-    func seedDemo(count: Int) {
+    func seedDemo(count: Int, onHinge: Bool = false) {
         for (index, entry) in Self.demoPresses.prefix(max(0, count)).enumerated() {
             let (kind, perfect, golden, surprise, fractures, duration, angle, daysAgo) = entry
             let seed = Self.demoSeed(for: kind, golden: golden, surprise: surprise, salt: UInt64(index))
             let result = PressResult(kind: kind, seed: seed, failureAngle: angle, fractureCount: fractures,
                                      maxCompression: 0.96, duration: duration, wasSlammed: false,
                                      isPerfect: perfect, reversals: 0)
-            let outcome = record(result, variant: PressVariant(kind: kind, seed: seed))
+            let outcome = record(result, variant: PressVariant(kind: kind, seed: seed), onHinge: onHinge)
             if let i = specimens.firstIndex(where: { $0.id == outcome.specimen.id }) {
                 specimens[i].date = Date().addingTimeInterval(-daysAgo * 86_400)
                 if bests[kind]?.id == outcome.specimen.id { bests[kind] = specimens[i] }

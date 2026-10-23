@@ -66,17 +66,35 @@
 #    for each `SQUISH-T storeshot <label> ok|failed` line, then copies Documents/storeshot-*.png to
 #    <object>-storeshot-*.png: rubberDuck-storeshot-hero.png, rubberDuck-storeshot-112.png, rubberDuck-storeshot-pair.png
 #    (+ -eye E-check composites; -land / -69 with STORESHOT_SIZE=both|all).
+#  - The pair labels quote each device's crown readout ("111°" → "AT 83°"), never the model angle (FOLD-REVIEW-5 §3 a),
+#    so the hero is held at FAIL_HOLD (the deepest squeeze) whatever angle the object failed at.
+#  - `reveal` in STORESHOT_SHOTS (FOLD-REVIEW-5 N4): after the last hold the hinge closes to 0° (<object>-tabletop-closed
+#    .png, the cover's sealed card: the O1 source) and reopens to REVEAL_ANGLE (<object>-tabletop-reveal.png raw); the
+#    app writes storeshot-reveal.png (the reveal on the tabletop model, with its print label and console keys).
+#  - Every hero's halves are also kept in Documents (storehalves-<kind>-*) for pass 4.
+#
+# PASS 3, DUO UI FRAMES (DUO_UI, default "shelf settings cover"; empty = none): raw inner/cover frames for the store set,
+# captioned later by ci/store-set.sh. shelf / settings: portrait launch at 180° with the seeded 7/10 collection
+# (one Golden) and the sheet open → duo-shelf.png / duo-settings.png. cover: launch with the hinge shut and 7 seeded
+# specimens → duo-cover-launch.png (outer display, the closed-launch picker, O2).
+#
+# PASS 4, VARIETY GRID (STOREGRID_OBJECTS, default "rubberDuck egg cakeSlice sodaCan"; empty = none): one launch with
+# `duo;storegrid=…` renders the saved heroes side by side → duo-storeshot-grid.png. Objects without a hero this run
+# are skipped, so list only objects in STORESHOT_OBJECTS.
 #
 # Env: UDID (required), OBJECTS, ANGLES, HINGE_DRIVER, SWEEP_SECS_PER_30 (1.5), SWEEP_STEP (10),
 #      SETTLE (2.5), OUT (duo-screens), APP, BUNDLE, DUO_HINGE (path to the duo-hinge binary),
 #      BOOK_STORESHOT_OBJECTS (rubberDuck; empty = none), STORESHOT_ANGLES (120 75; book pass),
-#      STORESHOT_OBJECTS (rubberDuck glassBottle sodaCan; empty = no tabletop pass), STORESHOT_SHOTS (112,fail),
+#      STORESHOT_OBJECTS (rubberDuck glassBottle sodaCan egg cakeSlice; empty = no tabletop pass),
+#      STORESHOT_SHOTS (112,fail,reveal),
 #      TABLETOP_ANGLES (150 112 90 75 62 45), FAIL_HOLD (62), STORESHOT_SIZE (portrait), STORESHOT_WAIT (60 s per shot),
-#      ORIENT (portrait), ORIENT_WAIT (40 s), ORIENT_FALLBACK (none|applescript), SIM_APP (Simulator).
+#      ORIENT (portrait), ORIENT_WAIT (40 s), ORIENT_FALLBACK (none|applescript), SIM_APP (Simulator),
+#      REVEAL_ANGLE (155), DUO_UI (shelf settings cover), STOREGRID_OBJECTS (rubberDuck egg cakeSlice sodaCan).
+#      OBJECTS, STORESHOT_OBJECTS, DUO_UI and STOREGRID_OBJECTS may be set empty to skip that pass.
 set -uo pipefail
 
 UDID="${UDID:?set UDID to the iPhone Duo simulator}"
-OBJECTS="${OBJECTS:-rubberDuck bubbleWrap glassBottle sodaCan}"
+OBJECTS="${OBJECTS-rubberDuck bubbleWrap glassBottle sodaCan}"
 ANGLES="${ANGLES:-180 150 120 100 90 75 60 45}"
 DRIVER="${HINGE_DRIVER:-auto}"
 SECS_PER_30="${SWEEP_SECS_PER_30:-1.5}"
@@ -88,8 +106,8 @@ BUNDLE="${BUNDLE:-com.pravegm.squish}"
 DUO_HINGE="${DUO_HINGE:-$HOME/duo-fold-control/tools/duo-hinge}"
 BOOK_STORESHOT_OBJECTS="${BOOK_STORESHOT_OBJECTS-rubberDuck}"
 STORESHOT_ANGLES="${STORESHOT_ANGLES-120 75}"
-STORESHOT_OBJECTS="${STORESHOT_OBJECTS-rubberDuck glassBottle sodaCan}"
-STORESHOT_SHOTS="${STORESHOT_SHOTS-112,fail}"
+STORESHOT_OBJECTS="${STORESHOT_OBJECTS-rubberDuck glassBottle sodaCan egg cakeSlice}"
+STORESHOT_SHOTS="${STORESHOT_SHOTS-112,fail,reveal}"
 TABLETOP_ANGLES="${TABLETOP_ANGLES:-150 112 90 75 62 45}"
 FAIL_HOLD="${FAIL_HOLD:-62}"
 STORESHOT_SIZE="${STORESHOT_SIZE-portrait}"
@@ -98,6 +116,9 @@ ORIENT="${ORIENT:-portrait}"
 ORIENT_WAIT="${ORIENT_WAIT:-40}"
 ORIENT_FALLBACK="${ORIENT_FALLBACK:-none}"
 SIM_APP="${SIM_APP:-Simulator}"
+REVEAL_ANGLE="${REVEAL_ANGLE:-155}"
+DUO_UI="${DUO_UI-shelf settings cover}"
+STOREGRID_OBJECTS="${STOREGRID_OBJECTS-rubberDuck egg cakeSlice sodaCan}"
 
 mkdir -p "$OUT/logs" "$OUT/raw"
 OUT_ABS="$(cd "$OUT" && pwd)"
@@ -306,7 +327,7 @@ clear_store_shots() {
 # Pass 2 for one object: tabletop (portrait) launch, sweep TABLETOP_ANGLES, wait for the angle shots, the hero and the
 # pair, copy them out.
 tabletop_pass() {
-  local obj="$1" applog scen a n hero=0 wants_hero=0 nums
+  local obj="$1" applog scen a n hero=0 wants_hero=0 wants_reveal=0 nums
   applog="$OUT_ABS/logs/$obj-tabletop.txt"; : >"$applog"
   log "=== $obj tabletop store shots (storeshot=$STORESHOT_SHOTS, angles [$TABLETOP_ANGLES])"
   drv_set "$DRIVER" 180 >>"$RUNLOG" 2>&1; CUR=180; fsleep "$SETTLE"
@@ -330,8 +351,9 @@ tabletop_pass() {
 
   nums=" $(echo "$STORESHOT_SHOTS" | tr ',' ' ') "
   [[ "$nums" == *" fail "* ]] && wants_hero=1
+  [[ "$nums" == *" reveal "* ]] && wants_reveal=1
   for a in $(echo "$STORESHOT_SHOTS" | tr ',' ' '); do
-    [[ "$a" == fail ]] && continue
+    [[ "$a" == fail || "$a" == reveal ]] && continue
     [[ " $TABLETOP_ANGLES " == *" $a "* ]] || log "WARN storeshot angle $a is not in TABLETOP_ANGLES; the hinge never stops there"
   done
   for a in $TABLETOP_ANGLES; do
@@ -352,10 +374,61 @@ tabletop_pass() {
     fi
     (( hero == 1 )) && wait_storeshot "$applog" pair "$STORESHOT_WAIT"
   fi
+  if (( wants_reveal == 1 )); then
+    # Seal (the cover shows the sealed card: the O1 source), then reopen past the inner panel's wake (~150°): the
+    # engine reveals on the first open sample after a close, and the app shoots once the card is up and the hinge
+    # has settled.
+    hinge_to 0; fsleep "$SETTLE"; fsleep 1; shoot "$obj-tabletop-closed" cover
+    hinge_to "$REVEAL_ANGLE"; fsleep "$SETTLE"; fsleep 1.5; shoot "$obj-tabletop-reveal" inner
+    wait_storeshot "$applog" reveal "$STORESHOT_WAIT"
+  fi
   for _ in $(seq 1 10); do grep -q "SQUISH-T storeshot done" "$applog" 2>/dev/null && break; sleep 1; done
   log "$obj: $(grep -E 'SQUISH-T storeshot done' "$applog" 2>/dev/null | tail -1)"
   n=$(copy_store_shots "$obj-")
   log "$obj: copied $n tabletop store shot file(s)"
+  (( n > 0 )) || FAILURES=$((FAILURES+1))
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+}
+
+clear_store_halves() {
+  local data
+  data="$(app_data)"
+  [[ -n "$data" ]] && rm -f "$data"/Documents/storehalves-*
+  return 0
+}
+
+# Pass 3: one raw Duo UI frame. ui_frame <name> <hinge> <display: inner|cover> <scenario>
+ui_frame() {
+  local name="$1" deg="$2" display="$3" scen="$4" applog
+  applog="$OUT_ABS/logs/$name.txt"; : >"$applog"
+  log "=== UI frame $name (hinge ${deg}°, $display): $scen"
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  if [[ "$DRIVER" != none ]]; then hinge_to "$deg"; fsleep "$SETTLE"; fi
+  to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
+    "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 \
+    || { log "launch failed: $name"; FAILURES=$((FAILURES+1)); return; }
+  wait_first_render "$applog" 45
+  [[ "$scen" == *orient=* ]] && { wait_orient "$applog" "$ORIENT_WAIT" || log "WARN $name: interface not $ORIENT"; }
+  fsleep 4   # the demo sheet opens 1.2 s after launch, then animates in
+  shoot "$name" "$display"
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+}
+
+# Pass 4: the variety grid from the heroes saved in pass 2.
+grid_pass() {
+  local applog n csv
+  applog="$OUT_ABS/logs/grid.txt"; : >"$applog"
+  csv="$(echo $STOREGRID_OBJECTS | tr ' ' ',')"
+  log "=== variety grid ($csv)"
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  if [[ "$DRIVER" != none ]]; then hinge_to 180; fsleep "$SETTLE"; fi
+  clear_store_shots
+  to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
+    "$UDID" "$BUNDLE" -squishDemo "duo;notoasts;storegrid=$csv" >>"$RUNLOG" 2>&1 \
+    || { log "launch failed: grid"; FAILURES=$((FAILURES+1)); return; }
+  wait_storeshot "$applog" grid "$STORESHOT_WAIT"
+  n=$(copy_store_shots "duo-")
+  log "grid: copied $n file(s)"
   (( n > 0 )) || FAILURES=$((FAILURES+1))
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 }
@@ -419,8 +492,27 @@ if [[ -n "$STORESHOT_OBJECTS" && -n "$STORESHOT_SHOTS" ]]; then
   if [[ "$DRIVER" == none ]]; then
     log "skip tabletop store shots: no hinge driver"
   else
+    clear_store_halves
     for obj in $STORESHOT_OBJECTS; do tabletop_pass "$obj"; done
   fi
+fi
+
+# ---- pass 3: Duo UI frames (shelf, settings, closed-launch cover) -----------------------------------
+for ui in $DUO_UI; do
+  case "$ui" in
+    shelf)    ui_frame duo-shelf 180 inner "object=rubberDuck;duo;notoasts;orient=$ORIENT;shelf" ;;
+    settings) ui_frame duo-settings 180 inner "object=rubberDuck;duo;notoasts;orient=$ORIENT;settings" ;;
+    cover)
+      if [[ "$DRIVER" == none ]]; then log "skip cover launch: no hinge driver"; continue; fi
+      ui_frame duo-cover-launch 0 cover "object=rubberDuck;duo;notoasts;specimens=7" ;;
+    *) log "WARN unknown DUO_UI frame '$ui' (shelf|settings|cover)" ;;
+  esac
+done
+[[ "$DRIVER" != none && -n "$DUO_UI" ]] && { hinge_to 180; fsleep "$SETTLE"; }
+
+# ---- pass 4: variety grid ---------------------------------------------------------------------------
+if [[ -n "$STOREGRID_OBJECTS" && -n "$STORESHOT_OBJECTS" && "$DRIVER" != none ]]; then
+  grid_pass
 fi
 
 to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true

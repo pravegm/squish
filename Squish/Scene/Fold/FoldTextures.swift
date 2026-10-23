@@ -50,24 +50,7 @@ enum FoldTextures {
             ctx.addPath(shape)
             ctx.saveGState()
             ctx.clip()
-            ctx.setFillColor(platenSteel.cgColor)
-            ctx.fill(rect)
-            var rng = SplitMix64(seed: 0x57EE2)
-            var t: CGFloat = 0
-            let length = streaksAlongX ? size.height : size.width
-            while t < length {
-                let shade = CGFloat(Int(rng.next() % 17) - 8) / 255
-                let h = CGFloat(1 + Int(rng.next() % 2)) * 0.5
-                ctx.setFillColor(UIColor(white: 0.76 + shade, alpha: 0.4).cgColor)
-                ctx.fill(streaksAlongX ? CGRect(x: 0, y: t, width: size.width, height: h)
-                                       : CGRect(x: t, y: 0, width: h, height: size.height))
-                t += h
-            }
-            let light = [UIColor(white: 1, alpha: 0.16).cgColor, UIColor(white: 1, alpha: 0).cgColor,
-                         UIColor(white: 0, alpha: 0.06).cgColor] as CFArray
-            if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: light, locations: [0, 0.55, 1]) {
-                ctx.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
-            }
+            steel(ctx, size: size, streaksAlongX: streaksAlongX)
             ctx.restoreGState()
             // Chamfer: a bright line just inside the edge, a darker one on the edge.
             ctx.addPath(shape)
@@ -79,6 +62,39 @@ enum FoldTextures {
             ctx.setStrokeColor(UIColor(white: 1, alpha: 0.75).cgColor)
             ctx.setLineWidth(1)
             ctx.strokePath()
+        }
+    }
+
+    /// The platen plate's steel: base, brushed streaks, the soft key-light gradient from the image's upper left.
+    private static func steel(_ ctx: CGContext, size: CGSize, streaksAlongX: Bool) {
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.setFillColor(platenSteel.cgColor)
+        ctx.fill(rect)
+        var rng = SplitMix64(seed: 0x57EE2)
+        var t: CGFloat = 0
+        let length = streaksAlongX ? size.height : size.width
+        while t < length {
+            let shade = CGFloat(Int(rng.next() % 17) - 8) / 255
+            let h = CGFloat(1 + Int(rng.next() % 2)) * 0.5
+            ctx.setFillColor(UIColor(white: 0.76 + shade, alpha: 0.4).cgColor)
+            ctx.fill(streaksAlongX ? CGRect(x: 0, y: t, width: size.width, height: h)
+                                   : CGRect(x: t, y: 0, width: h, height: size.height))
+            t += h
+        }
+        let light = [UIColor(white: 1, alpha: 0.16).cgColor, UIColor(white: 1, alpha: 0).cgColor,
+                     UIColor(white: 0, alpha: 0.06).cgColor] as CFArray
+        if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: light, locations: [0, 0.55, 1]) {
+            ctx.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+        }
+    }
+
+    /// The anvil strike plate's face in tabletop pose (FOLD-REVIEW-5 N2), shown unlit: exactly the platen plate's
+    /// steel (`steel`, streaks along x = along the hinge) edge to edge, without its rounded clip and chamfer lines (the
+    /// 3D plate has a real chamfer round it). Image x = anvil x, image top = the crease side, which is the screen's
+    /// top-left in tabletop, so the key gradient falls the same way on screen as the platen's.
+    static func anvilFace(size: CGSize, scale: CGFloat = 2) -> CGImage? {
+        FoldStamps.image(rect: CGRect(origin: .zero, size: size), scale: scale) { ctx in
+            steel(ctx, size: size, streaksAlongX: true)
         }
     }
 

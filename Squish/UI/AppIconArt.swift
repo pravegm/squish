@@ -2,9 +2,11 @@ import simd
 import SwiftUI
 
 /// The App Store icon (FOLD-REVIEW-3 N17, FOLD-REVIEW-4 F11): the phone *is* the press. A graphite foldable, seen
-/// 3/4 from the front and above, bites down at ~24° on a raspberry gummy; the squish bulges out of the mouth and
-/// drips over the front edge, and the hazard jaws (FOLD-PRESS §5) run along both free edges. It replaces the P-48
-/// ram, the category's stock "hydraulic press" look, so the icon itself says "fold your phone".
+/// 3/4 from the front and above, bites down at ~24° on a yellow rubber duck (FOLD-REVIEW-5 N8: the old magenta jelly
+/// read as a tongue). The duck's body is flattened into a lobed splat between the halves, its squashed head flops out
+/// over the front edge with one big eye and the orange beak poking out, and yellow drips run off the edge. The head,
+/// eye and beak are sized to survive at 40 px. The hazard jaws (FOLD-PRESS §5) run along both free edges. It replaces
+/// the P-48 ram, the category's stock "hydraulic press" look, so the icon itself says "fold your phone".
 ///
 /// The slab is deliberately generic (one lens, no Apple camera layout, no Dynamic Island): HIG asks icons not to
 /// replicate Apple hardware. The clamshell is drawn with a tiny pinhole camera (`IconCamera`), so every face, jaw
@@ -82,19 +84,30 @@ private struct AppIconPainter {
     private static let jaw = 40.0
     /// Degrees between the halves: shut enough to be squeezing, open enough to see into the mouth.
     private static let opening = 24.0
-    /// The gummy's centre, measured from the hinge across the base (toward the mouth, so it bulges out of it).
-    private static let footprint = 330.0
+    /// The duck's centre, measured from the hinge across the base (toward the mouth, so it bulges out of it).
+    private static let footprint = 300.0
+    /// The squashed head's centre on the base: just past the free edge, flopped over it (x, along, h).
+    private static let headCentre = SIMD3<Double>(10, 505, 26)
+    /// Head disc radius (design units), its squash (height / width) and tilt.
+    private static let headRadius: CGFloat = 140
+    private static let headSquash: CGFloat = 0.64
+    private static let headTilt: CGFloat = -10
     /// Where the clamshell's projection lands in design units: its width spans fitX, centred on fitCentreY.
     private static let fitX: ClosedRange<Double> = 60...984
     private static let fitCentreY = 515.0
 
     private static let outline: [SIMD2<Double>] = roundedRect(x0: -width / 2, s0: 0, x1: width / 2, s1: depth, radius: corner)
 
-    // MARK: - Palette (VISUAL-TARGET §6.2 plus the icon's candy ramp)
+    // MARK: - Palette (VISUAL-TARGET §6.2 plus the duck's vinyl, Palette.duckYellow / Palette.beakOrange)
 
     private static let yellow: UInt32 = 0xFFB81C
     private static let graphite: UInt32 = 0x2B2D31
-    private static let gummyRamp: [(UInt32, CGFloat, Double)] = [(0xFF7AA5, 0, 1), (0xF0407A, 0.4, 1), (0xE8336F, 0.65, 1), (0xA8124B, 1, 1)]
+    /// Lit lemon top to a deep ochre underside: lighter than the hazard yellow, so the duck never merges with the jaws.
+    private static let duckRamp: [(UInt32, CGFloat, Double)] = [(0xFFF08A, 0, 1), (0xFFDC4A, 0.35, 1), (0xFFC81E, 0.7, 1), (0xD99A00, 1, 1)]
+    private static let duckRim: UInt32 = 0xB07800
+    private static let drip: UInt32 = 0xE0A200
+    private static let beak: UInt32 = 0xFF8A1F
+    private static let beakShade: UInt32 = 0xE0600A
 
     init(side: CGFloat) {
         s = side / 1024
@@ -120,24 +133,24 @@ private struct AppIconPainter {
     func paint(_ context: GraphicsContext) {
         background(context)
         baseHalf(context)
-        squish(context)
+        duckBody(context)
         lidHalf(context)
         drips(context)
-        gloss(context)
+        duckHead(context)
         rims(context)
         // Key light from the upper left (VISUAL-TARGET §2.3).
         context.fill(rect(0, 0, 1024, 1024),
                      with: linear([(0xFFFFFF, 0, 0.06), (0xFFFFFF, 1, 0)], from: pt(0, 0), to: pt(700, 700)))
     }
 
-    // MARK: - Background: graphite studio with a candy glow behind the mouth, and the device's floor shadow
+    // MARK: - Background: graphite studio with a warm yellow glow behind the mouth, and the device's floor shadow
 
     private func background(_ ctx: GraphicsContext) {
         let full = rect(0, 0, 1024, 1024)
         ctx.fill(full, with: .color(Theme.rgb(0x26282C)))
         ctx.fill(full, with: radial([(0x4D515A, 0, 1), (0x2F3237, 0.55, 1), (0x1B1D20, 1, 1)],
                                     center: pt(470, 380), radius: 820))
-        ctx.fill(full, with: radial([(0xE8336F, 0, 0.45), (0xE8336F, 0.5, 0.12), (0xE8336F, 1, 0)],
+        ctx.fill(full, with: radial([(0xFFC21A, 0, 0.34), (0xFFC21A, 0.5, 0.09), (0xFFC21A, 1, 0)],
                                     center: screen(Self.base(0, 380, 40)), radius: 480))
         let w = Self.width, d = Self.depth
         let floor = Self.roundedRect(x0: -w / 2 + 10, s0: 20, x1: w / 2 + 24, s1: d + 34, radius: Self.corner)
@@ -182,9 +195,9 @@ private struct AppIconPainter {
         }
     }
 
-    // MARK: - The squish: a raspberry gummy pinched between the halves, bulging out of the mouth
+    // MARK: - The duck's body: a yellow splat pinched between the halves, squeezed out across the glass
 
-    private func squish(_ ctx: GraphicsContext) {
+    private func duckBody(_ ctx: GraphicsContext) {
         let d = Self.depth, f = Self.footprint
         let tanOpening = tan(Self.opening * .pi / 180)
         let gap = f * tanOpening
@@ -192,16 +205,16 @@ private struct AppIconPainter {
         // Contact shadow on the glass.
         ctx.drawLayer { layer in
             layer.addFilter(.blur(radius: 12 * s))
-            layer.fill(polygon(Self.blob(cx: 0, cs: f + 40, rx: 200, rs: 140).map { Self.base($0.x, $0.y, 0) }),
-                       with: .color(Theme.rgb(0x46061E, opacity: 0.5)))
+            layer.fill(polygon(Self.blob(cx: 0, cs: f + 40, rx: 230, rs: 150).map { Self.base($0.x, $0.y, 0) }),
+                       with: .color(Theme.rgb(0x5A3A00, opacity: 0.5)))
         }
-        // The goo already squeezed out, running across the glass to the free edge.
-        let tongue: [SIMD2<Double>] = [SIMD2(-150, f), SIMD2(-175, d - 60), SIMD2(-140, d + 2), SIMD2(-80, d + 2),
-                                       SIMD2(-40, d - 12), SIMD2(10, d + 2), SIMD2(105, d + 2), SIMD2(150, d - 60),
-                                       SIMD2(160, f)]
-        ctx.fill(polygon(tongue.map { Self.base($0.x, $0.y, 1) }),
-                 with: linear([(0xD42466, 0, 1), (0xC81F5C, 1, 1)],
-                              from: screen(Self.base(0, f, 0)), to: screen(Self.base(0, d, 0))))
+        // The spill: flattened duck already squeezed out, a five-lobed splat running to the free edge.
+        let spill = Self.splat(cx: 0, cs: f + 60, rx: 250, rs: 175, lobes: 5, amplitude: 0.22, phase: 0.6)
+            .map { SIMD2<Double>($0.x, min($0.y, d + 2)) }
+        let spillPath = polygon(spill.map { Self.base($0.x, $0.y, 1) })
+        ctx.fill(spillPath, with: linear([(0xFFCF2E, 0, 1), (0xF0B000, 1, 1)],
+                                         from: screen(Self.base(0, f, 0)), to: screen(Self.base(0, d, 0))))
+        ctx.stroke(spillPath, with: .color(Theme.rgb(0xA86E00, opacity: 0.55)), lineWidth: 4 * s)
 
         // The body: 18 stacked slices from the glass up to the lid's inner face, widest at mid-height.
         let sliceCount = 18
@@ -209,29 +222,71 @@ private struct AppIconPainter {
         for index in 0..<sliceCount {
             let t = Double(index) / Double(sliceCount - 1)
             let bulge = sin(t * .pi)
-            let outline = Self.blob(cx: 0, cs: f + 10, rx: 200 * (1 + 0.2 * bulge), rs: 105 * (1 + 0.25 * bulge))
+            let outline = Self.splat(cx: 0, cs: f + 10, rx: 215 * (1 + 0.18 * bulge), rs: 120 * (1 + 0.22 * bulge),
+                                     lobes: 4, amplitude: 0.12, phase: 1.1)
             slices.append(polygon(outline.map { Self.base($0.x, $0.y, $0.y * tanOpening * t) }))
         }
-        let body = linear(Self.gummyRamp, from: screen(Self.base(0, f, gap)), to: screen(Self.base(0, f, 0)))
+        let body = linear(Self.duckRamp, from: screen(Self.base(0, f, gap)), to: screen(Self.base(0, f, 0)))
         for slice in slices {
             ctx.fill(slice, with: body)
         }
-        // Translucent candy: a lit core.
+        // Glossy vinyl: a lit core.
         var core = ctx
         core.clip(to: slices[sliceCount / 2])
         core.fill(rect(0, 0, 1024, 1024),
-                  with: radial([(0xFFAAC8, 0, 0.8), (0xFF6E9C, 0.5, 0.28), (0xFF6E9C, 1, 0)],
+                  with: radial([(0xFFF7C0, 0, 0.7), (0xFFE680, 0.5, 0.25), (0xFFE680, 1, 0)],
                                center: screen(Self.base(0, f + 60, gap * 0.4)), radius: 200))
     }
 
-    /// One softbox strip highlight on the bulge where it leaves the mouth (drawn after the lid, as in the proof).
-    private func gloss(_ ctx: GraphicsContext) {
-        let f = Self.footprint
-        let gap = f * tan(Self.opening * .pi / 180)
+    // MARK: - The duck's head: a squashed disc flopped over the front edge, one big eye, the orange beak poking out
+
+    /// Drawn after the lid and drips, in the head's own 2D frame (design units, x right, y down, rotated by
+    /// `headTilt`) around the projected head centre, because it pops out toward the viewer.
+    private func duckHead(_ ctx: GraphicsContext) {
+        let r = Self.headRadius
+        let ry = r * Self.headSquash
+        let tilt = Self.headTilt * .pi / 180
+        let centre = screen(Self.base(Self.headCentre.x, Self.headCentre.y, Self.headCentre.z))
+        let cosT = cos(tilt), sinT = sin(tilt)
+        /// A point in the head frame, in points.
+        func at(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: centre.x + (x * cosT - y * sinT) * s, y: centre.y + (x * sinT + y * cosT) * s)
+        }
+        /// An ellipse in the head frame (sizes in design units, extra rotation in degrees).
+        func blot(_ x: CGFloat, _ y: CGFloat, _ rx: CGFloat, _ ry: CGFloat, _ degrees: CGFloat = 0) -> Path {
+            ellipse(center: at(x, y), rx: rx * s, ry: ry * s, radians: tilt + degrees * .pi / 180)
+        }
+
+        // The beak first, so the head's rim overlaps its root: two flattened lobes pointing left.
+        let bx = -r * 0.88, by = r * 0.18, bl: CGFloat = 165, bw: CGFloat = 70
+        ctx.fill(blot(bx - bl * 0.42, by - bw * 0.18, bl * 0.62, bw * 0.62, 8), with: .color(Theme.rgb(Self.beak)))
+        ctx.fill(blot(bx - bl * 0.30, by + bw * 0.34, bl * 0.48, bw * 0.42, 14), with: .color(Theme.rgb(Self.beakShade)))
+        var mouth = Path()
+        mouth.move(to: at(bx - bl * 0.95, by + bw * 0.12))
+        mouth.addQuadCurve(to: at(bx + 10, by + bw * 0.05), control: at(bx - bl * 0.4, by + bw * 0.2))
+        ctx.stroke(mouth, with: .color(Theme.rgb(0x9A3E00, opacity: 0.8)),
+                   style: StrokeStyle(lineWidth: 5 * s, lineCap: .round))
+        ctx.fill(blot(bx - bl * 0.55, by - bw * 0.42, bl * 0.22, bw * 0.12, 6), with: .color(Theme.rgb(0xFFF0D2, opacity: 0.7)))
+
+        // Contact shadow, ochre rim, then the disc with a lit top.
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: 6 * s))
+            layer.fill(blot(6, 14, r + 8, ry + 10), with: .color(Theme.rgb(0x3A2600, opacity: 0.45)))
+        }
+        ctx.fill(blot(0, 0, r + 5, ry + 5), with: .color(Theme.rgb(Self.duckRim)))
+        ctx.fill(blot(0, 0, r, ry), with: linear([(0xFFF08A, 0, 1), (0xFFD23F, 0.45, 1), (0xE9A800, 1, 1)],
+                                                 from: at(0, -ry), to: at(0, ry)))
+
+        // The eye: big, black, white-ringed, with a glint. It is what says "duck" at 40 px.
+        let ex = -r * 0.30, ey = -ry * 0.22, er: CGFloat = 33
+        ctx.fill(blot(ex, ey, er + 7, er * 1.12 + 7), with: .color(.white))
+        ctx.fill(blot(ex - 3, ey + 2, er, er * 1.12), with: .color(Theme.rgb(0x141518)))
+        ctx.fill(blot(ex - 11, ey - 10, er * 0.32, er * 0.32), with: .color(.white.opacity(0.95)))
+
+        // Softbox highlight on the vinyl.
         ctx.drawLayer { layer in
             layer.addFilter(.blur(radius: 3 * s))
-            layer.fill(ellipse(center: screen(Self.base(-60, f + 100, gap * 0.5)), rx: 70 * s, ry: 12 * s, radians: -0.12),
-                       with: .color(.white.opacity(0.85)))
+            layer.fill(blot(r * 0.28, -ry * 0.55, r * 0.34, r * 0.09, -8), with: .color(.white.opacity(0.8)))
         }
     }
 
@@ -270,12 +325,12 @@ private struct AppIconPainter {
                  with: .color(Theme.rgb(0xAAC3EB, opacity: 0.7)))
     }
 
-    // MARK: - Drips over the base's front edge, flung droplets, rim light
+    // MARK: - Yellow drips over the base's front edge, flung droplets, rim light
 
     private func drips(_ ctx: GraphicsContext) {
         let d = Self.depth
-        let ink = GraphicsContext.Shading.color(Theme.rgb(0xB5134D))
-        for (x, length, half) in [(-110.0, 80.0, 18.0), (-20.0, 140.0, 22.0), (75.0, 60.0, 16.0)] {
+        let ink = GraphicsContext.Shading.color(Theme.rgb(Self.drip))
+        for (x, length, half) in [(-170.0, 70.0, 17.0), (70.0, 130.0, 22.0), (160.0, 58.0, 15.0)] {
             ctx.fill(polygon([Self.base(x - half, d, 0), Self.base(x + half, d, 0),
                               Self.base(x + half * 0.8, d + 3, -length), Self.base(x - half * 0.8, d + 3, -length)]),
                      with: ink)
@@ -283,10 +338,14 @@ private struct AppIconPainter {
             let edge = screen(Self.base(x + half, d + 4, -length))
             let radius = hypot(edge.x - centre.x, edge.y - centre.y)
             ctx.fill(ellipse(center: centre, rx: radius * 0.98, ry: radius * 1.12, radians: 0), with: ink)
+            // A glint on each bead, so the drips read as glossy goo rather than dots.
+            ctx.fill(ellipse(center: CGPoint(x: centre.x - radius * 0.35, y: centre.y - radius * 0.35),
+                             rx: radius * 0.28, ry: radius * 0.2, radians: -0.4),
+                     with: .color(Theme.rgb(0xFFFAE0, opacity: 0.7)))
         }
         let drops = oval(80, 700, 44, 44).union(oval(46, 650, 24, 24))
             .union(oval(950, 720, 36, 36)).union(oval(978, 770, 20, 20))
-        ctx.fill(drops, with: .color(Theme.rgb(0xE8336F)))
+        ctx.fill(drops, with: .color(Theme.rgb(0xFFC81E)))
         let glints = oval(73, 693, 12, 8, -20).union(oval(944, 714, 10, 7, -20))
         ctx.fill(glints, with: .color(.white.opacity(0.75)))
     }
@@ -347,11 +406,23 @@ private struct AppIconPainter {
         return points
     }
 
-    /// A lumpy ellipse (the gummy's ears, arms and feet, squashed into lobes), 72 points.
+    /// A lumpy ellipse (soft contact shadows), 72 points.
     private static func blob(cx: Double, cs: Double, rx: Double, rs: Double) -> [SIMD2<Double>] {
         (0..<72).map { index in
             let t = Double(index) / 72 * 2 * .pi
             let wobble = 1 + 0.09 * cos(3 * t) + 0.05 * sin(5 * t + 1)
+            return SIMD2<Double>(cx + cos(t) * rx * wobble, cs + sin(t) * rs * wobble)
+        }
+    }
+
+    /// A splat: an ellipse with `lobes` rounded bumps (the flattened duck's tail, wings and spill), 96 points.
+    /// `amplitude` is the bump height as a fraction of the radius; the base is pulled in by a quarter of it.
+    private static func splat(cx: Double, cs: Double, rx: Double, rs: Double,
+                              lobes: Double, amplitude: Double, phase: Double) -> [SIMD2<Double>] {
+        (0..<96).map { index in
+            let t = Double(index) / 96 * 2 * .pi
+            let bump = pow(max(0, cos(lobes * t + phase)), 3)
+            let wobble = 1 + amplitude * bump - amplitude * 0.25 + 0.04 * sin(7 * t + 2)
             return SIMD2<Double>(cx + cos(t) * rx * wobble, cs + sin(t) * rs * wobble)
         }
     }

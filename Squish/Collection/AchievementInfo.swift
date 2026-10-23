@@ -53,11 +53,32 @@ extension Achievement {
 extension SpecimenRecord {
     var numberLabel: String { String(format: "№%04ld", number) }
 
-    /// Two SF Mono data lines (VISUAL-TARGET §6.8): `CRUSHED AT 92° · 48 TONS` / `24 POPS · 8.4 S`.
+    /// The hinge angle the object gave at, only when a real hinge made the press (and never for The Unsquishable,
+    /// which doesn't give). A touch press's `failureAngle` is the engine's virtual θ, meaningless on a phone with no
+    /// hinge, so every card shows tonnage instead (FOLD-REVIEW-5 N6).
+    var hingeFailureAngle: Int? {
+        guard madeOnHinge, kind != .unsquishable, let failureAngle else { return nil }
+        return Int(failureAngle.rounded())
+    }
+
+    /// True when the object gave during the press (it has a failure point), whatever drove it.
+    var gaveWay: Bool { kind != .unsquishable && failureAngle != nil }
+
+    /// Short "where it gave" tag for one-line labels: `AT 64°` on a hinge, `AT 48 TONS` on the touch press, nil if
+    /// it never gave.
+    var gaveAtTag: String? {
+        if let angle = hingeFailureAngle { return "AT \(angle)°" }
+        return gaveWay ? "AT \(tons) TONS" : nil
+    }
+
+    /// Two SF Mono data lines (VISUAL-TARGET §6.8): `CRUSHED AT 92° · 48 TONS` / `24 POPS · 8.4 S` on a hinge;
+    /// `CRUSHED AT 48 TONS` on the touch press; `PEAK 48 TONS` when nothing gave.
     var labelLines: [String] {
         let first: String
-        if kind != .unsquishable, let failureAngle {
-            first = "CRUSHED AT \(Int(failureAngle.rounded()))° · \(tons) TONS"
+        if let angle = hingeFailureAngle {
+            first = "CRUSHED AT \(angle)° · \(tons) TONS"
+        } else if gaveWay {
+            first = "CRUSHED AT \(tons) TONS"
         } else {
             first = "PEAK \(tons) TONS"
         }
@@ -94,10 +115,15 @@ extension SpecimenRecord {
         var parts: [String] = ["Specimen number \(number), \(kind.displayName)"]
         if kind == .unsquishable {
             parts.append("press nil, ball one")
-        } else if let failureAngle {
-            parts.append("crushed at \(Int(failureAngle.rounded())) degrees")
+            parts.append("peak \(tons) tons")
+        } else if let angle = hingeFailureAngle {
+            parts.append("crushed at \(angle) degrees")
+            parts.append("peak \(tons) tons")
+        } else if gaveWay {
+            parts.append("crushed at \(tons) tons")
+        } else {
+            parts.append("peak \(tons) tons")
         }
-        parts.append("peak \(tons) tons")
         parts.append(kind.breaksLine(fractureCount: fractureCount).replacingOccurrences(of: " · ", with: ", ").lowercased())
         parts.append(String(format: "pressed in %.1f seconds", duration))
         let traitWords = traits.map { $0.text.lowercased().replacingOccurrences(of: "×", with: "times ") }

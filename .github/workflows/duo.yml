@@ -1,16 +1,16 @@
 name: Duo fold screenshots
 
-# Expensive (iOS 27.1 runtime is ~7.85 GB and the Duo simulator is heavy), so manual only.
-# How it works, costs and limitations: docs/DUO-CI.md
+# Expensive (iOS 27.1 runtime is ~7.85 GB and the Duo simulator is heavy), so manual only, or called by store.yml
+# (the full App Store set). How it works, costs and limitations: docs/DUO-CI.md
 on:
   workflow_dispatch:
     inputs:
       angles:
-        description: "Hinge angles to capture, flat (180) to folded, space-separated"
+        description: "Book pass hinge angles, flat (180) to folded, space-separated"
         type: string
         default: "180 150 120 100 90 75 60 45"
       objects:
-        description: "ObjectKind raw values, space-separated"
+        description: "Book pass objects (ObjectKind raw values); empty = skip the book pass"
         type: string
         default: "rubberDuck bubbleWrap glassBottle sodaCan"
       driver:
@@ -19,13 +19,13 @@ on:
         options: [auto, hinge, duo-hinge, foldctl]
         default: auto
       storeshot_objects:
-        description: "Objects that get the tabletop store-shot pass (hero, 112, pair); empty = none"
+        description: "Objects that get the tabletop store-shot pass (hero, 112, pair, reveal); empty = none"
         type: string
-        default: "rubberDuck glassBottle sodaCan"
+        default: "rubberDuck glassBottle sodaCan egg cakeSlice"
       storeshot_shots:
-        description: "Tabletop store shots: angles (must be in tabletop_angles) and/or fail (hero + before/after pair)"
+        description: "Tabletop store shots: angles (must be in tabletop_angles), fail (hero + pair), reveal (close, reopen)"
         type: string
-        default: "112,fail"
+        default: "112,fail,reveal"
       tabletop_angles:
         description: "Tabletop pass hinge sweep, integers, flat to folded (the hero waits for the hold at 62)"
         type: string
@@ -38,20 +38,42 @@ on:
         description: "Book-pose store-shot angles (must also be in angles)"
         type: string
         default: "120 75"
+      duo_ui:
+        description: "Raw Duo UI frames for the store set: shelf settings cover; empty = none"
+        type: string
+        default: "shelf settings cover"
+      storegrid_objects:
+        description: "Variety grid objects (need a tabletop hero this run); empty = no grid"
+        type: string
+        default: "rubberDuck egg cakeSlice sodaCan"
       orient_fallback:
         description: "If the app can't rotate itself to portrait: none, or applescript (Simulator.app ⌘←, needs Accessibility)"
         type: choice
         options: [none, applescript]
         default: none
+  workflow_call:
+    inputs:
+      angles: { type: string, default: "180 150 120 100 90 75 60 45" }
+      objects: { type: string, default: "rubberDuck bubbleWrap glassBottle sodaCan" }
+      driver: { type: string, default: auto }
+      storeshot_objects: { type: string, default: "rubberDuck glassBottle sodaCan egg cakeSlice" }
+      storeshot_shots: { type: string, default: "112,fail,reveal" }
+      tabletop_angles: { type: string, default: "150 112 90 75 62 45" }
+      book_storeshot_objects: { type: string, default: "rubberDuck" }
+      storeshot_angles: { type: string, default: "120 75" }
+      duo_ui: { type: string, default: "shelf settings cover" }
+      storegrid_objects: { type: string, default: "rubberDuck egg cakeSlice sodaCan" }
+      orient_fallback: { type: string, default: none }
+      artifact_name: { type: string, default: duo-screens }
 
 concurrency:
-  group: duo-${{ github.ref }}
+  group: duo-${{ github.ref }}-${{ inputs.artifact_name || 'duo-screens' }}
   cancel-in-progress: true
 
 jobs:
   duo:
     runs-on: xcode-27
-    timeout-minutes: 110
+    timeout-minutes: 150
     env:
       XCODE_APP: /Applications/Xcode_27.1.app          # symlink to Xcode_27.1_Release_Candidate.app (27A9275)
       RUNTIME_ID: com.apple.CoreSimulator.SimRuntime.iOS-27-1
@@ -166,14 +188,15 @@ jobs:
           gtimeout 30 xcrun simctl io "$UDID" enumerate || true
 
       - name: Capture Duo screenshots
-        timeout-minutes: 60
+        timeout-minutes: 95
         env:
           UDID: ${{ steps.sim.outputs.udid }}
           OBJECTS: ${{ inputs.objects }}
           ANGLES: ${{ inputs.angles }}
           HINGE_DRIVER: ${{ inputs.driver }}
           # Pass 2 (tabletop, portrait): written by the app and copied to duo-screens/<object>-storeshot-hero.png
-          # (failure freeze + caption), -112.png and -pair.png (the before/after frame), each with an -eye E-check twin.
+          # (failure freeze + caption), -112.png, -pair.png (the before/after frame) and -reveal.png (closed, then
+          # reopened), each with an -eye E-check twin; plus raw <object>-tabletop-closed.png (cover) and -reveal.png.
           STORESHOT_OBJECTS: ${{ inputs.storeshot_objects }}
           STORESHOT_SHOTS: ${{ inputs.storeshot_shots }}
           TABLETOP_ANGLES: ${{ inputs.tabletop_angles }}
@@ -181,8 +204,21 @@ jobs:
           # Pass 1 (book pose): duo-screens/<object>-book-storeshot-<angle>[-eye].png, E-check artefacts only.
           BOOK_STORESHOT_OBJECTS: ${{ inputs.book_storeshot_objects }}
           STORESHOT_ANGLES: ${{ inputs.storeshot_angles }}
+          # Pass 3: raw duo-shelf / duo-settings / duo-cover-launch. Pass 4: duo-storeshot-grid.png (variety frame).
+          DUO_UI: ${{ inputs.duo_ui }}
+          STOREGRID_OBJECTS: ${{ inputs.storegrid_objects }}
           OUT: duo-screens
         run: bash ci/duo-screenshots.sh
+
+      - name: Assemble the Duo App Store set
+        if: always()
+        timeout-minutes: 10
+        continue-on-error: true
+        # duo-screens/store/duo-inner (2007 × 2853) and duo-outer (1398 × 2034), with MANIFEST.txt (FOLD-REVIEW-5 §5).
+        run: |
+          [[ -d duo-screens ]] || exit 0
+          bash ci/store-set.sh duo-screens
+          cat duo-screens/store/MANIFEST.txt || true
 
       - name: Simulator diagnostics
         if: failure()
@@ -201,7 +237,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: duo-screens
+          name: ${{ inputs.artifact_name || 'duo-screens' }}
           path: |
             duo-screens/
             build.log

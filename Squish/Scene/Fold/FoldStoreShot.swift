@@ -11,6 +11,12 @@ import UIKit
 ///     capture(scene:fold:)              live stage → platen page, crease band, anvil page (canvas orientation, @screen scale)
 ///     render(_:options:)                → one device, framed for the App Store (Duo inner 2007 × 2853 by default)
 ///     renderPair(before:after:options:) → the before/after frame: a small open device (112°) above a large one at the squish
+///     renderGrid(_:options:)            → the variety frame: several objects' heroes on one sweep (FOLD-REVIEW-5 §5 A6)
+///
+/// FOLD-REVIEW-5 #1 (make the squeeze read): the screens get device lighting (the lid's shadow from an overhead
+/// softbox and wedge occlusion at the crease, `drawWedgeShading`); the squish frames are seen from a 32° turn so the
+/// device's end shows the V; the pair labels quote each device's crown readout (`Halves.readout`) next to a
+/// side-profile glyph of the modelled angle, so no label can contradict the number on the screen.
 ///
 /// The model: the inner display is one panel bent round a thin hinge cylinder (the 40 pt crease band becomes the bend),
 /// each page a rounded slab with a black glass bezel, on a warm studio sweep with a cast and a contact shadow.
@@ -103,7 +109,9 @@ enum FoldStoreShot {
         /// Turn of the 3/4 eye about the vertical through the device, degrees (+ = toward world +x), relative to the
         /// content's design eye. Nil = 14° for tabletop content (FOLD-REVIEW-4 §3.3 B: ≤ 15° keeps the anamorphic
         /// object upright), 0° for book content on the tabletop model (its design eye is already +17–39° round),
-        /// −22° for a standing book.
+        /// −22° for a standing book. The squish frames (hero, the pair's large device, the grid) pass 32°
+        /// (FOLD-REVIEW-5 §3 d): there the object is flat, so the anamorphic lean doesn't show, and the device's +x end
+        /// shows the V of the fold in profile. The pair's small device (object still standing) uses 24°.
         var azimuthDegrees: Double?
         /// Elevation of the 3/4 eye above the anvil page (degrees, from the footprint centre). Nil = 34° for tabletop
         /// content (design 40°), the book design eye clamped to 34–60° for book content on the tabletop model, and the
@@ -114,6 +122,14 @@ enum FoldStoreShot {
         /// Wanted device height as a fraction of the frame height (FOLD-REVIEW-4: ≈ 58 %); only ever grows the width
         /// fit by up to its bleed.
         var targetFill: Double? = 0.58
+        /// Largest device height as a fraction of the frame height, for the width fit (FOLD-REVIEW-5 #1: a 32°
+        /// azimuth makes the device less wide for its height, so without a cap the width fit would push the fill to
+        /// 61–65 % at 64–80°). Nil = no cap.
+        var maxFill: Double? = 0.60
+        /// Device lighting on the screens (FOLD-REVIEW-5 §3 b): the lid's cast shadow from the overhead softbox and
+        /// the wedge occlusion near the crease on the anvil page, a fainter wedge on the lid. Tabletop model only;
+        /// off for the E-check composites.
+        var lidShading = true
         /// The box the device is fitted into, in unit coordinates of the frame. Nil = (0.04, 0.21, 0.92, 0.76) portrait
         /// (the top 21 % is the caption band), (0.06, 0.22, 0.88, 0.75) landscape with a caption, (0.10, 0.07, 0.80,
         /// 0.88) landscape without.
@@ -154,13 +170,46 @@ enum FoldStoreShot {
         var source: String
         /// The hinge angle the halves were captured at (book content's design eye depends on it). Nil = the model's.
         var hingeAngle: Double? = nil
+        /// What the crown readout on the platen showed at capture (FOLD-REVIEW-5 §3 a): the pair labels are written
+        /// from this, never from the model angle, so a label can't disagree with the screen it sits next to. Nil =
+        /// label with the model angle.
+        var readout: Readout? = nil
+    }
+
+    /// The crown readout's value: whole degrees, frozen (red) once the object has failed (FoldBezel.updateReadout).
+    struct Readout: Equatable {
+        var degrees: Int
+        var frozen: Bool
+
+        /// "111°" while live; "AT 83°" once frozen, worded like the reveal label (RevealCardView `foldLabelText`).
+        var label: String { frozen ? "AT \(degrees)°" : "\(degrees)°" }
+    }
+
+    /// One device of the variety frame (`renderGrid`): its halves, its device options (size, captions and fit are
+    /// ignored) and a small mono label under it ("EGG · AT 97°").
+    struct GridItem {
+        var halves: Halves
+        var options: Options
+        var label: String?
+    }
+
+    struct GridOptions {
+        var size = CGSize(width: 2007, height: 2853)
+        var caption: String?
+        var subcaption: String?
+        var backdrop: Backdrop = .studio
     }
 
     // MARK: - Capture
 
     /// Snapshot the Fold Press stage as it is on screen now (platen layers, warped anvil ARView, bezel; none of the
     /// SwiftUI overlays above it) and split it at the crease. Nil when no Fold Press stage is on screen.
-    static func capture(scene: PressScene, fold: FoldPressController) async -> Halves? {
+    ///
+    /// `overlays: true` (the reveal frame, FOLD-REVIEW-5 §5 A4) draws the whole window over the stage's bounds
+    /// instead, so the SwiftUI chrome on the plates comes too: the print label under the platen plate and Again ·
+    /// Share · Next in the console. If the ARView has to be rebuilt from its snapshot, the anvil half loses those
+    /// overlays (the source is logged as "arView.snapshot").
+    static func capture(scene: PressScene, fold: FoldPressController, overlays: Bool = false) async -> Halves? {
         guard let arView = scene.arView,
               let host = arView.superview?.superview as? FoldStageHostView,
               host.arView === arView, host.window != nil,
@@ -178,13 +227,22 @@ enum FoldStoreShot {
         format.scale = scale
         format.opaque = true
         format.preferredRange = .standard
+        let window = overlays ? host.window : nil
         var full = UIGraphicsImageRenderer(bounds: host.bounds, format: format).image { _ in
-            _ = host.drawHierarchy(in: host.bounds, afterScreenUpdates: false)
+            if let window {
+                // The window drawn so that the host's bounds land on this image's bounds.
+                let origin = host.convert(host.bounds.origin, to: window)
+                _ = window.drawHierarchy(in: CGRect(x: host.bounds.minX - origin.x, y: host.bounds.minY - origin.y,
+                                                    width: window.bounds.width, height: window.bounds.height),
+                                         afterScreenUpdates: false)
+            } else {
+                _ = host.drawHierarchy(in: host.bounds, afterScreenUpdates: false)
+            }
         }
 
         // drawHierarchy normally includes the ARView's Metal layer; if it doesn't here (the ARView alone comes out
         // flat), rebuild the anvil half from the ARView's own snapshot, warped exactly as on screen.
-        var source = "drawHierarchy"
+        var source = window == nil ? "drawHierarchy" : "window.drawHierarchy"
         let probeFormat = UIGraphicsImageRendererFormat()
         probeFormat.scale = 1
         probeFormat.opaque = false
@@ -337,12 +395,117 @@ enum FoldStoreShot {
                                       context: context),
               let second = deviceDraws(after, options: large, box: frameRect(afterUnit, in: size), canvas: size,
                                        context: context) else { return nil }
+        // FOLD-REVIEW-5 §3 a: each label says what that device's crown readout says ("111°", then "AT 83°" once it
+        // froze at the failure), so a label never contradicts the red number above it. The profile glyph beside it
+        // draws the modelled pose.
         let marks = PairMarks(before: first.frame, after: second.frame,
-                              beforeLabel: "\(Int(small.hingeAngle.rounded()))°",
-                              afterLabel: "\(Int(large.hingeAngle.rounded()))°",
+                              beforeLabel: pairLabel(before.readout, model: small.hingeAngle),
+                              afterLabel: pairLabel(after.readout, model: large.hingeAngle),
+                              beforeAngle: small.hingeAngle, afterAngle: large.hingeAngle,
                               labels: options.angleLabels)
         return flatten(size: size, backdrop: options.backdrop, devices: [first, second], caption: options.caption,
                        subcaption: options.subcaption, marks: marks)
+    }
+
+    private static func pairLabel(_ readout: Readout?, model: Double) -> String {
+        readout?.label ?? "\(Int(model.rounded()))°"
+    }
+
+    /// The variety frame (FOLD-REVIEW-5 §5 A6): several devices on one sweep under one caption, each with a small
+    /// mono label. 1 device: the hero box; 2: stacked; 3: two above, one larger below; 4+: rows of two.
+    static func renderGrid(_ items: [GridItem], options: GridOptions = GridOptions()) -> UIImage? {
+        let size = options.size
+        guard !items.isEmpty, size.width >= 64, size.height >= 64 else { return nil }
+        let context = CIContext(options: [.cacheIntermediates: false])
+        let cells = gridCells(count: items.count, portrait: size.height >= size.width)
+        // Room under each device for its label.
+        let labelBand: CGFloat = items.contains { $0.label != nil } ? 0.035 : 0
+        var devices: [StoreDevice] = []
+        var labels: [(text: String, frame: CGRect)] = []
+        for (item, cell) in zip(items, cells) {
+            var device = item.options
+            device.size = size
+            device.fit = .contain
+            device.targetFill = nil
+            device.maxFill = nil
+            device.anchor = .bottom(0)
+            device.caption = nil
+            device.subcaption = nil
+            let unit = CGRect(x: cell.minX, y: cell.minY, width: cell.width, height: max(cell.height - labelBand, 0.05))
+            guard let drawn = deviceDraws(item.halves, options: device, box: frameRect(unit, in: size), canvas: size,
+                                          context: context) else { continue }
+            devices.append(drawn)
+            if let label = item.label { labels.append((text: label, frame: drawn.frame)) }
+        }
+        guard !devices.isEmpty else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        format.preferredRange = .standard
+        let pool = CGPoint(x: size.width / 2, y: size.height * 0.62)
+        return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+            let cg = renderer.cgContext
+            drawBackdrop(cg, size: size, pool: pool, style: options.backdrop)
+            cg.setLineJoin(.round)
+            for device in devices {
+                for draw in device.draws { paint(draw, in: cg) }
+            }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedSystemFont(ofSize: size.height * 0.0145, weight: .semibold),
+                .foregroundColor: captionInk.withAlphaComponent(0.78),
+                .kern: size.height * 0.0012,
+                .paragraphStyle: paragraph,
+            ]
+            for label in labels {
+                let text = NSAttributedString(string: label.text, attributes: attributes)
+                let height = ceil(text.size().height)
+                let width = min(size.width * 0.9, max(label.frame.width, text.size().width + 8))
+                text.draw(in: CGRect(x: label.frame.midX - width / 2, y: label.frame.maxY + size.height * 0.008,
+                                     width: width, height: height + 2))
+            }
+            if let caption = options.caption, !caption.isEmpty {
+                drawCaption(caption, subline: options.subcaption, size: size)
+            }
+        }
+    }
+
+    /// Unit cells for `renderGrid`, back row first (so nearer devices are drawn over farther ones' shadows).
+    private static func gridCells(count: Int, portrait: Bool) -> [CGRect] {
+        let top = 0.215, bottom = 0.975
+        let height = bottom - top
+        switch count {
+        case ...1:
+            return [portrait ? CGRect(x: 0.04, y: 0.21, width: 0.92, height: 0.76)
+                             : CGRect(x: 0.06, y: 0.22, width: 0.88, height: 0.75)]
+        case 2:
+            if !portrait {
+                return [CGRect(x: 0.04, y: top, width: 0.45, height: height),
+                        CGRect(x: 0.51, y: top, width: 0.45, height: height)]
+            }
+            return [CGRect(x: 0.10, y: top, width: 0.80, height: height / 2 - 0.01),
+                    CGRect(x: 0.10, y: top + height / 2 + 0.01, width: 0.80, height: height / 2 - 0.01)]
+        case 3 where portrait:
+            let upper = height * 0.44
+            return [CGRect(x: 0.03, y: top, width: 0.46, height: upper),
+                    CGRect(x: 0.51, y: top, width: 0.46, height: upper),
+                    CGRect(x: 0.14, y: top + upper + 0.015, width: 0.72, height: height - upper - 0.015)]
+        default:
+            let columns = portrait ? 2 : min(count, 4)
+            let rows = Int((Double(count) / Double(columns)).rounded(.up))
+            let gap = 0.015
+            let cellWidth = (0.94 - gap * Double(columns - 1)) / Double(columns)
+            let cellHeight = (height - gap * Double(rows - 1)) / Double(rows)
+            return (0..<count).map { i in
+                let row = i / columns, column = i % columns
+                // The last row, if short, is centred.
+                let inRow = row == rows - 1 ? count - row * columns : columns
+                let rowWidth = cellWidth * Double(inRow) + gap * Double(inRow - 1)
+                let x = 0.03 + (0.94 - rowWidth) / 2 + Double(column) * (cellWidth + gap)
+                return CGRect(x: x, y: top + Double(row) * (cellHeight + gap), width: cellWidth, height: cellHeight)
+            }
+        }
     }
 
     private static func defaultHeroBox(_ size: CGSize, captioned: Bool) -> CGRect {
@@ -399,6 +562,9 @@ enum FoldStoreShot {
             if let fill = options.targetFill, fill > 0 {
                 let wanted = fill * Double(size.height) / span.y
                 scale = max(scale, min(wanted, widthScale * (1 + max(bleed, 0))))
+            }
+            if let cap = options.maxFill, cap > 0 {
+                scale = min(scale, cap * Double(size.height) / span.y)
             }
             scale = min(scale, heightScale)
         }
@@ -485,7 +651,8 @@ enum FoldStoreShot {
             let splat = page.panel == .anvil ? options.escapedSplat : nil
             guard simd_dot(normal, eye - page.slab.frontCentroid) > 0,
                   case let (texture, textureRect)? = pageTexture(page.panel, image: page.image, rig: rig,
-                                                                 sheen: options.glassSheen, splat: splat) else { continue }
+                                                                 sheen: options.glassSheen, splat: splat,
+                                                                 shade: options.lidShading && rig.tabletop) else { continue }
             let quad = corners(of: textureRect).map { px(rig.world(canvas: $0, on: page.panel)) }
             if case let (image, rect)? = warp(texture, corners: quad, canvas: size, context: context) {
                 draws.append(StoreDraw.image(image, rect))
@@ -663,8 +830,51 @@ enum FoldStoreShot {
         ]
         let first = NSAttributedString(string: marks.beforeLabel, attributes: attributes)
         let second = NSAttributedString(string: marks.afterLabel, attributes: attributes)
-        first.draw(at: CGPoint(x: start.x, y: start.y - unit * 0.075))
-        second.draw(at: CGPoint(x: end.x + unit * 0.05, y: end.y - unit * 0.065))
+        let firstOrigin = CGPoint(x: start.x, y: start.y - unit * 0.075)
+        let secondOrigin = CGPoint(x: end.x + unit * 0.05, y: end.y - unit * 0.065)
+        first.draw(at: firstOrigin)
+        second.draw(at: secondOrigin)
+        // FOLD-REVIEW-5 §3 c: the V in side profile next to each label, at the modelled angle.
+        let fontSize = unit * 0.045
+        for (origin, text, angle) in [(firstOrigin, first, marks.beforeAngle), (secondOrigin, second, marks.afterAngle)] {
+            drawProfileGlyph(cg, angle: angle, label: CGRect(origin: origin, size: text.size()),
+                             fontSize: fontSize, size: size)
+        }
+    }
+
+    /// A hinge in side profile: the table page as a horizontal stroke to the right of the hinge, the lid a stroke at
+    /// `angle` from it (leaning right, over the page, below 90°), a small yellow arc between them and a hinge dot.
+    /// About 6 % of the frame width, sitting on the label's baseline to its right (or its left if there's no room).
+    private static func drawProfileGlyph(_ cg: CGContext, angle: Double, label: CGRect, fontSize: CGFloat,
+                                         size: CGSize) {
+        let length = size.width * 0.06
+        let theta = CGFloat(clamp(angle, 0, 180) * Double.pi / 180)
+        let lid = CGPoint(x: cos(theta) * length, y: -sin(theta) * length)   // relative to the hinge, y down
+        let left = min(0, lid.x), right = length
+        let gap = fontSize * 0.35
+        var hingeX = label.maxX + gap - left
+        if hingeX + right > size.width - size.width * 0.03 {
+            hingeX = label.minX - gap - right
+        }
+        let hinge = CGPoint(x: hingeX, y: label.minY + fontSize * 0.98)
+        let weight = max(2, fontSize * 0.13)
+        cg.saveGState()
+        cg.setLineCap(.round)
+        cg.setLineJoin(.round)
+        // The arc first, under the strokes: from the page (0) round to the lid (θ), counter-clockwise on screen.
+        cg.setStrokeColor(captionHighlight.cgColor)
+        cg.setLineWidth(weight * 0.8)
+        cg.addArc(center: hinge, radius: length * 0.42, startAngle: 0, endAngle: -theta, clockwise: true)
+        cg.strokePath()
+        cg.setStrokeColor(captionInk.withAlphaComponent(0.85).cgColor)
+        cg.setLineWidth(weight)
+        cg.move(to: CGPoint(x: hinge.x + length, y: hinge.y))
+        cg.addLine(to: hinge)
+        cg.addLine(to: CGPoint(x: hinge.x + lid.x, y: hinge.y + lid.y))
+        cg.strokePath()
+        cg.setFillColor(captionInk.cgColor)
+        cg.fillEllipse(in: CGRect(x: hinge.x - weight, y: hinge.y - weight, width: 2 * weight, height: 2 * weight))
+        cg.restoreGState()
     }
 
     // MARK: - Textures
@@ -677,7 +887,7 @@ enum FoldStoreShot {
     /// to its rounded corners (plus the escaped splat on the anvil), a faint sheen and the rim. The rect includes a
     /// transparent margin so warped edges stay antialiased.
     private static func pageTexture(_ panel: StoreRig.Panel, image: CGImage, rig: StoreRig, sheen: Bool,
-                                    splat: EscapedSplat?) -> (CGImage, CGRect)? {
+                                    splat: EscapedSplat?, shade: Bool) -> (CGImage, CGRect)? {
         let layout = rig.layout
         let b = StoreRig.bezelPt, m = StoreRig.marginPt, c = rig.c
         let reach = rig.reach(panel)
@@ -704,6 +914,7 @@ enum FoldStoreShot {
             cg.clip()
             UIImage(cgImage: image).draw(in: half)
             if let splat { drawEscapedSplat(cg, splat, layout: layout) }
+            if shade { drawWedgeShading(cg, panel: panel, rig: rig) }
             if sheen, let gradient = CGGradient(
                 colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
                 colors: [UIColor(red: 1, green: 1, blue: 1, alpha: 0).cgColor,
@@ -786,6 +997,54 @@ enum FoldStoreShot {
             }
         }
         cg.restoreGState()
+    }
+
+    /// Device lighting on one screen (FOLD-REVIEW-5 §3 b), drawn in canvas points inside the screen clip, so it is
+    /// warped with the page:
+    ///  • anvil: the lid's shadow from the studio's overhead softbox (light straight down, so the shadow is the lid's
+    ///    vertical projection: from the crease to under the lid's free edge, with a penumbra that grows with the lid's
+    ///    height), alpha 0.10 + 0.25·k; plus a wedge occlusion 0.18·k at the crease fading to 0 over 35 % of the page;
+    ///  • lid: a fainter wedge occlusion, 0.12·k over its first 25 %.
+    /// k = 1 − (θ − 45)/135, clamped: 0 flat, 0.86 at 64°. A lid at or past 90° leans behind the crease and casts
+    /// nothing on the anvil, so the 112° frame only gets the faint wedge and the reveal (150°+) almost nothing.
+    private static func drawWedgeShading(_ cg: CGContext, panel: StoreRig.Panel, rig: StoreRig) {
+        let thetaDegrees = rig.theta * 180 / Double.pi
+        let k = clamp(1 - (thetaDegrees - 45) / 135, 0, 1)
+        guard k > 0.01 else { return }
+        let ink = UIColor(hex: 0x1E1812)
+        let l = rig.layout.lateralCentre
+        let space = CGColorSpace(name: CGColorSpace.sRGB)
+        /// A gradient across the page (constant along the hinge) from `a` = 0 at the crease edge, in points.
+        func band(_ stops: [(a: Double, alpha: Double)]) {
+            guard let last = stops.last, last.a > 0.5 else { return }
+            var colours: [CGColor] = []
+            var locations: [CGFloat] = []
+            for stop in stops {
+                let location = CGFloat(clamp(stop.a / last.a, 0, 1))
+                if let previous = locations.last, location <= previous { continue }
+                colours.append(ink.withAlphaComponent(CGFloat(clamp(stop.alpha, 0, 1))).cgColor)
+                locations.append(location)
+            }
+            guard colours.count >= 2,
+                  let gradient = CGGradient(colorsSpace: space, colors: colours as CFArray, locations: locations) else { return }
+            cg.drawLinearGradient(gradient, start: rig.canvas(a: 0, l: l, on: panel),
+                                  end: rig.canvas(a: last.a, l: l, on: panel), options: [])
+        }
+        switch panel {
+        case .anvil:
+            let depth = rig.reach(.anvil)
+            if let shadow = rig.lidShadowOnAnvil() {
+                let ppm = FoldMetrics.pointsPerMM
+                let reach = shadow.reachMM * ppm
+                let penumbra = max(0.03 * depth, 0.18 * shadow.heightMM * ppm)
+                // A lid only just past vertical overhangs a sliver: scale the shadow down rather than spread it.
+                let alpha = (0.10 + 0.25 * k) * clamp(reach / penumbra, 0, 1)
+                band([(a: 0, alpha: alpha), (a: max(0, reach - penumbra), alpha: alpha), (a: reach + penumbra, alpha: 0)])
+            }
+            band([(a: 0, alpha: 0.18 * k), (a: 0.35 * depth, alpha: 0)])
+        case .platen:
+            band([(a: 0, alpha: 0.12 * k), (a: 0.25 * rig.reach(.platen), alpha: 0)])
+        }
     }
 
     /// The crease band (or plain graphite) with bezel black past both lateral ends, in canvas points.
@@ -973,6 +1232,9 @@ private struct PairMarks {
     let after: CGRect
     let beforeLabel: String
     let afterLabel: String
+    /// Modelled hinge angles (degrees) for the side-profile glyphs.
+    let beforeAngle: Double
+    let afterAngle: Double
     let labels: Bool
 }
 
@@ -1105,6 +1367,17 @@ private struct StoreRig {
     /// The screen's facing direction (into the wedge).
     func normal(_ panel: Panel) -> SIMD3<Double> {
         direction(panel == .anvil ? SIMD2<Double>(0, 1) : SIMD2<Double>(sin(theta), -cos(theta)))
+    }
+
+    /// The lid's shadow on the anvil page under a light straight above (tabletop: the anvil page is horizontal, so
+    /// "above" is +v): how far from the anvil's crease edge the shadow of the lid's free edge (bezel included) falls
+    /// and how high that edge is, mm. Nil when the lid leans back behind the crease (θ ≥ ~90°).
+    func lidShadowOnAnvil() -> (reachMM: Double, heightMM: Double)? {
+        guard tabletop, let crease = arc.last else { return nil }
+        let length = (reach(.platen) + StoreRig.bezelPt) / ppm
+        let free = crease + length * away(.platen)
+        guard free.x > 0.5, free.y > 0 else { return nil }
+        return (reachMM: free.x, heightMM: free.y)
     }
 
     /// Crease edge → free edge, pt.

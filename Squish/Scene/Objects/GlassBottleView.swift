@@ -7,9 +7,10 @@ import UIKit
 /// pre-fractured into ~50 small thin shards (2.2 mm lathe patches, ≤ 26° arcs) under one intact paper label band.
 /// Silent rigidity until fracture 0 (~0.22), apart from a slight ovalisation; then bright crack lines that lengthen
 /// toward the failure. Fracture 1 (failure, ~0.40) is the biggest event in the app: the label tears away and each
-/// curved patch breaks into two flat, irregular convex shards of clear teal glass with a bright edge (FOLD-REVIEW-4 F5:
-/// ~100 pieces, 3–9 mm) that fill a disc on the plate, skid a little (fade-and-slump under Reduce Motion) and stay on
-/// the strike plate (+16 pt); 10 small label scraps (6 raspberry, 4 cream) lie on top so the pile is still "a bottle",
+/// curved patch breaks into two flat, irregular convex shards of bottle glass, darker than the steel, with a dark
+/// hairline and a bright bevel on every edge (FOLD-REVIEW-4 F5, FOLD-REVIEW-5 N5: ~100 pieces, 3–9 mm) that fill a disc
+/// on the plate (no pale dust disc under them), skid a little (fade-and-slump under Reduce Motion) and stay on the
+/// strike plate (+16 pt); 10 label scraps (6 raspberry, 4 cream, ~a shard each) lie on top so the pile is still "a bottle",
 /// and 4 glints twinkle until the seal. Fracture 2 (~0.62): the pile crunches into soft "sea glass". The pile freezes
 /// at seal, so the reveal shows exactly the sealed pile (FOLD-REVIEW-3 N5). Surprise `messageInABottle`: a rolled
 /// note that bursts into candy confetti.
@@ -34,7 +35,6 @@ final class GlassBottleView: PressObjectView {
     /// The fragments' glass faces and bright edges (the crunch swaps both to frosted sea glass).
     private var fragmentFaces: [ModelEntity] = []
     private var fragmentEdges: [ModelEntity] = []
-    private var glassDust: ModelEntity?
     /// Four glints on the pile that twinkle from the shatter until the seal (FOLD-REVIEW-4 F5: was a static white dot
     /// on every third shard).
     private var sparkles: [Entity] = []
@@ -49,9 +49,8 @@ final class GlassBottleView: PressObjectView {
     private let failC: Float
     private var failed = false
     private var sealed = false
-    /// Latched pre-failure squash (vertical height ratio) and post-failure dust progress: never un-squash.
+    /// Latched pre-failure squash (vertical height ratio): never un-squash.
     private var squash: Float = 1
-    private var dustT: Float = 0
     /// Half extents (x, z) in fx metres the debris must stay inside: the strike plate + 16 pt.
     private let containment: SIMD2<Float>
     private let seaGlass: PhysicallyBasedMaterial
@@ -81,13 +80,15 @@ final class GlassBottleView: PressObjectView {
         let look = Look(variant)
         self.look = look
         failC = PressObjectFactory.failureThreshold(.glassBottle, variant: variant) ?? 0.4
+        // The crunch frosts the faces but keeps the bottle-glass tint (FOLD-REVIEW-5 N5: the old pale #5CC8B8 at 0.55 was
+        // the "paper" in every reveal, since most presses reach the crunch).
         seaGlass = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0x5CC8B8), roughness: 0.25, clearcoat: 0.8, clearcoatRoughness: 0.2,
-                                    specular: 1, opacity: 0.55)
+            : SceneMaterials.enamel(UIColor(hex: GlassDebris.seaGlassTint), roughness: 0.38, clearcoat: 0.7,
+                                    clearcoatRoughness: 0.25, specular: 1, opacity: GlassDebris.seaGlassOpacity)
         if look.golden {
             seaGlassEdge = SceneMaterials.gold
         } else {
-            seaGlassEdge = SceneMaterials.unlit(UIColor(hex: 0xD6F2EC), opacity: 0.6)
+            seaGlassEdge = SceneMaterials.unlit(UIColor(hex: 0xC9EDE6), opacity: 0.8)
         }
         containment = GlassDebris.containment(restHeight: 0.060 * Self.heroScale, anvilHalf: PressRig.anvilHalf)
         rng = SplitMix64(seed: variant.seed ^ 0x6A55)
@@ -118,24 +119,30 @@ final class GlassBottleView: PressObjectView {
         func ring(at y: Float) -> Int {
             profile.firstIndex { $0.y >= y } ?? profile.count - 1
         }
-        // The flat fragments every patch breaks into (FOLD-REVIEW-4 F5): clear teal glass 20 % toward #8FE0D3 with a
-        // bright unlit edge, so the pile reads as glass, not paper. A few seeded shapes are shared (cached for the
-        // session) and each patch scales and yaws its own.
+        // The flat fragments every patch breaks into (FOLD-REVIEW-4 F5, FOLD-REVIEW-5 N5): bottle glass that is darker
+        // than the steel it lies on (#5CC8B8 taken 35 % toward a deep #2F8F82, at 0.7) under a bright clearcoat, with a
+        // clear two-tone edge: a dark hairline where the thick glass edge refracts, and a bright bevel just inside it
+        // where it catches the light. So each shard reads on a white-hot plate, on the mid-grey platen and under the
+        // P-48's key. A few seeded shapes are shared (cached for the session) and each patch scales and yaws its own.
         let fragmentFace = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: GlassDebris.shardTint), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03,
-                                    specular: 1, opacity: 0.5)
+            : SceneMaterials.enamel(UIColor(hex: GlassDebris.shardTint), roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02,
+                                    specular: 1, opacity: GlassDebris.shardOpacity)
         let fragmentEdge: any Material
+        let fragmentOutline: any Material
         if look.golden {
             fragmentEdge = SceneMaterials.gold
+            fragmentOutline = SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.3, metallic: 1)
         } else {
-            fragmentEdge = SceneMaterials.unlit(UIColor(hex: 0xEAFFFA), opacity: 0.9)
+            fragmentEdge = SceneMaterials.unlit(UIColor(hex: 0xF2FFFC), opacity: 0.95)
+            fragmentOutline = SceneMaterials.unlit(UIColor(hex: GlassDebris.outlineTint), opacity: 0.9)
         }
-        var fragmentResources: [(face: MeshResource?, edge: MeshResource?)] = []
+        var fragmentResources: [(face: MeshResource?, edge: MeshResource?, outline: MeshResource?)] = []
         for v in 0..<GlassDebris.fragmentVariants {
             let seed = GlassDebris.fragmentSeed(v)
             let face = MeshCache.resource("glass.frag.\(v).0") { GlassDebris.fragmentSlot(GlassDebris.fragmentPair(seed: seed), slot: 0) }
             let edge = MeshCache.resource("glass.frag.\(v).1") { GlassDebris.fragmentSlot(GlassDebris.fragmentPair(seed: seed), slot: 1) }
-            fragmentResources.append((face, edge))
+            let outline = MeshCache.resource("glass.frag.\(v).2") { GlassDebris.fragmentSlot(GlassDebris.fragmentPair(seed: seed), slot: 2) }
+            fragmentResources.append((face, edge, outline))
         }
         var scrapResources: [MeshResource] = []
         for v in 0..<GlassDebris.scrapVariants {
@@ -203,6 +210,9 @@ final class GlassBottleView: PressObjectView {
                     fragment.addChild(model)
                     fragmentEdges.append(model)
                 }
+                if let outline = resources.outline {
+                    fragment.addChild(ModelEntity(mesh: outline, materials: [fragmentOutline]))
+                }
                 fragment.scale = SIMD3(size.x, 1, size.y)
                 fragment.position = [0, layer, 0]
                 fragment.isEnabled = false
@@ -218,7 +228,8 @@ final class GlassBottleView: PressObjectView {
             bandShards.append(indices)
         }
 
-        // Label scraps at 70 % of a fragment piece, lying on top of shards: 6 raspberry (stripe band), 4 cream.
+        // Label scraps at ~1 fragment piece (×1.4, FOLD-REVIEW-5 N5), lying on top of shards: 6 raspberry (stripe band),
+        // 4 cream.
         if !scrapResources.isEmpty {
             let wanted = [(band: 3, count: GlassDebris.labelScraps.pink, material: labelStripe),
                           (band: 2, count: GlassDebris.labelScraps.cream, material: label)]
@@ -291,12 +302,6 @@ final class GlassBottleView: PressObjectView {
     func update(_ state: PressVisualState) {
         if failed {
             twinkle(state)
-            // The sea-glass dust under the pile: small and faint, latched at its widest, frozen at seal.
-            guard !sealed, let dust = glassDust else { return }
-            let t = clamp((state.compression - failC) / max(1 - failC, 0.05), 0, 1)
-            dustT = max(dustT, t)
-            let radius = GlassDebris.dustRadius(dustT) / Self.heroScale
-            dust.scale = SIMD3(radius, 0.0008, radius * 0.75)
             return
         }
         squash = min(squash, surfaceHeight(compression: state.compression) / restHeight)
@@ -417,15 +422,8 @@ final class GlassBottleView: PressObjectView {
     /// The big one: the label tears away, small thin shards drop flat, skid a little and stay on the plate.
     private func shatter(state: PressVisualState) {
         failed = true
-        let dustMaterial = look.golden ? SceneMaterials.goldMess
-            : SceneMaterials.enamel(UIColor(hex: 0x8FE0D3), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.3, opacity: 0.18)
-        let dust = ModelEntity(mesh: MeshCache.resource("glass.dust") { MeshKit.spreadDisc(seed: 0x6D, height: 1, segments: 48, wobble: 0.08) }
-                               ?? .generateSphere(radius: 0.01), materials: [dustMaterial])
-        let dustRadius = GlassDebris.dustRadius(0) / Self.heroScale
-        dust.scale = SIMD3(dustRadius, 0.0008, dustRadius * 0.75)
-        dust.position = [0, 0.0002, 0]
-        entity.addChild(dust)
-        glassDust = dust
+        // No dust disc under the pile any more (FOLD-REVIEW-5 N5: the pale translucent "ghost" disc in the centre was
+        // the first thing you saw); the crunch's flakes and the shards themselves carry the "powdered" read.
         // The label tears: the band goes, the flat scraps on top of the pile appear.
         labelBand.isEnabled = false
         for scrap in labelScraps { scrap.isEnabled = true }
@@ -496,10 +494,20 @@ enum GlassDebris {
     static let sparkleCount = 4
     /// Label scraps on top of the pile, so it keeps the bottle's raspberry/cream identity.
     static let labelScraps = (pink: 6, cream: 4)
-    /// A scrap is 70 % of a fragment piece.
-    static let scrapScale: Float = 0.7
-    /// Clear teal shard glass: #5CC8B8 taken 20 % toward #8FE0D3.
-    static let shardTint: UInt32 = 0x66CDBD
+    /// A scrap is ~1 fragment piece: ×1.4 of round 4's 0.7 (FOLD-REVIEW-5 N5), so the pink/cream reads at thumbnail.
+    static let scrapScale: Float = 0.98
+    /// Bottle glass, darker than the steel (FOLD-REVIEW-5 N5): #5CC8B8 taken ~45 % toward a deep #2F8F82 (round 4 took
+    /// it 20 % *lighter*, toward #8FE0D3, and at 0.5 it read as pale paper on a L 235 plate).
+    static let shardTint: UInt32 = 0x47AEA0
+    static let shardOpacity: Float = 0.7
+    /// The crunched "sea glass": frosted, a touch lighter than the clear shards, never paper-pale.
+    static let seaGlassTint: UInt32 = 0x5BB3A6
+    static let seaGlassOpacity: Float = 0.74
+    /// The dark refraction hairline round each shard (outside the bright bevel).
+    static let outlineTint: UInt32 = 0x1F5C54
+    /// Edge bands of a fragment pair, in its unit square: the bright bevel and, outside it, the dark hairline.
+    static let rimInset: Float = 0.035
+    static let outlineInset: Float = 0.03
     /// Fragment slab thickness (bottle-local metres; ≈ 0.9 mm on the plate) and the per-shard height step that keeps
     /// overlapping pieces from z-fighting.
     static let fragmentThickness: Float = 0.0012
@@ -557,7 +565,8 @@ enum GlassDebris {
     }
 
     /// Two irregular flat pieces side by side in the unit square (x −0.5…0.5, z −0.5…0.5), split along x with a
-    /// visible crack between them, `fragmentThickness` tall. Slot 0 glass faces, slot 1 the bright rim and walls.
+    /// visible crack between them, `fragmentThickness` tall. Slot 0 glass faces, slot 1 the bright bevel, slot 2 the
+    /// dark outer hairline and the walls.
     static func fragmentPair(seed: UInt64) -> MeshData {
         var rng = SplitMix64(seed: seed)
         var mesh = MeshData()
@@ -567,7 +576,8 @@ enum GlassDebris {
                                       Float.random(in: -0.04...0.04, using: &rng))
             let radii = SIMD2<Float>(Float.random(in: 0.18...0.21, using: &rng), Float.random(in: 0.38...0.46, using: &rng))
             let polygon = shardPolygon(sides: sides, radii: radii, centre: centre, rng: &rng)
-            mesh.append(MeshKit.polygonSlab(polygon, thickness: fragmentThickness, rimInset: 0.035))
+            mesh.append(MeshKit.polygonSlab(polygon, thickness: fragmentThickness, rimInset: rimInset,
+                                            outlineInset: outlineInset))
         }
         return mesh
     }
@@ -600,10 +610,5 @@ enum GlassDebris {
     static func centreBounds(containment: SIMD2<Float>, pieceHalf: SIMD2<Float>) -> (min: SIMD2<Float>, max: SIMD2<Float>) {
         let room = simd_max(containment - pieceHalf, SIMD2<Float>(repeating: 0))
         return (-room, room)
-    }
-
-    /// Dust disc radius (world metres) at post-failure progress `t`: small and faint, not a bottle-sized bag.
-    static func dustRadius(_ t: Float) -> Float {
-        0.022 + 0.010 * clamp(t, 0, 1)
     }
 }

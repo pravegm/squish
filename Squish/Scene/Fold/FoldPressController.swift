@@ -65,6 +65,8 @@ final class FoldPressController {
     private var hasFolded = false
     private var inviteClock: Double = 1.5
     private var revealAge: Double?
+    /// Seconds to the next read of the specimen's extent for the escaped droplets.
+    private var specimenClock: Double = 0
 
     // Instruments (same feel as the P-48's, VISUAL-TARGET §4.4–4.5)
     private var needleTons: Double = 0
@@ -205,6 +207,16 @@ final class FoldPressController {
                               sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil,
                               failureAngle: failureAngle)
         platen.update(frame)
+        // The escaped droplets land clear of the spreading specimen (FOLD-REVIEW-5): its live extent, 10 Hz.
+        if anvil.hasSpray {
+            specimenClock -= dt
+            if specimenClock <= 0 {
+                specimenClock = 0.1
+                if let extent = scene?.foldSpecimenExtent(relativeTo: anvil.root) {
+                    anvil.setSpecimen(centre: extent.centre, half: extent.half)
+                }
+            }
+        }
         anvil.updateSpray(spread: platen.stack?.splatScale ?? 1, dt: dt, reduceMotion: context.reduceMotion)
         bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: dt),
                      frame: frame)
@@ -236,6 +248,7 @@ final class FoldPressController {
                 // The mess escapes the fold (FOLD-REVIEW-4 F3): the platen splat's droplets also land on the anvil.
                 if let stamp = platen.stack?.stamp {
                     anvil.spray(FoldStamps.anvilSpray(stamp, variant: variant), reduceMotion: context.reduceMotion)
+                    specimenClock = 0
                 }
             }
             if kind == .unsquishable {

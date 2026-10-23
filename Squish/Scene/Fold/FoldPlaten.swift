@@ -58,7 +58,7 @@ final class FoldPrintStack {
     private var ripples: [(centre: CGPoint, radius: CGFloat, age: Double, layer: CAShapeLayer)] = []
     private(set) var wipeProgress: Double?
     private var contactAge: Double = 0
-    private var variant: PressVariant
+    private(set) var variant: PressVariant
 
     init(stamp: FoldStamp, variant: PressVariant, softDisc: CGImage?, rings ringImage: CGImage?) {
         self.stamp = stamp
@@ -203,10 +203,12 @@ final class FoldPrintStack {
         let presence = f.objectPresent ? 1.0 : 0
         let under = f.contacted ? 0.22 : 1
         // Flat (gap 1) the spec's 0.08 is invisible on steel under a small object: start those at 0.14 so the plates
-        // belong together at 180°. A sheet's shadow is as big as the film, so it starts at 0.08 and only reaches 0.20
-        // (it was a 0.35 block at 150°), and it barely grows with the gap (at 1.25× it washed past the whole plate at
-        // 180° and read as no shadow at all).
-        let alpha = sheet ? 0.08 + 0.12 * clamp(1 - gap, 0, 1) : max(shadow.alpha, 0.14)
+        // belong together at 180°. A sheet's shadow (its domes, `FoldStamps.shadowOutline`) barely grows with the gap
+        // (at 1.25× it washed past the whole plate at 180° and read as no shadow at all) and was a 0.35 block at 150°.
+        // FOLD-REVIEW-5 F8: and a flat sheet under an open lid casts nothing (its 0.08 start was the 180° "grey
+        // ghost"); the domes' shadow only gathers as the lid comes down, to 0.22 at contact.
+        let lift = clamp(1 - gap, 0, 1)
+        let alpha = sheet ? 0.22 * lift * lift.squareRoot() : max(shadow.alpha, 0.14)
         let scale = CGFloat(sheet ? 1 + 0.06 * clamp(gap, 0, 1) : shadow.scale)
         for (layer, w) in zip(shadows, weights) {
             layer.opacity = Float(alpha * w * presence * under)
@@ -604,29 +606,121 @@ final class FoldPlaten {
         placePressed()
     }
 
-    /// The PRESSED stamp's pose for one specimen (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F9). Placed from the print's own
-    /// bounding box, not one fixed base: centred under it, with the top ~30 % of the landed stamp over the print's lower
-    /// edge, so each object's stamp sits where its own print ends. Then a seeded ±30 pt along that edge, ±5 pt across it
-    /// and −8° ± 10°, so no two specimens match, and finally kept inside the strike plate (4 pt in; a print that
-    /// reaches the plate's lower edge pushes the stamp up onto itself). `print` and `plate` are canvas offsets from
-    /// the print centre (`printBounds`); so is the returned `offset`.
-    static func pressedPose(seed: UInt64, print: CGRect, plate: CGRect) -> (offset: CGPoint, angle: CGFloat) {
+    /// The PRESSED stamp's pose for one specimen (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F9, FOLD-REVIEW-5 N9).
+    ///
+    /// FOLD-REVIEW-5 found duck, glass and can still stamped over their prints. The R4 pose hung the stamp 30 % over
+    /// the lower edge of the print's *silhouette* box, but what the reveal shows is the silhouette plus the failure
+    /// splat at its spread (up to 1.2×) and its flicked droplets, which reach well past that box; and on the 230 pt
+    /// plate the "below the print" slot was clamped back up onto the print. So the pose now comes from what is
+    /// actually inked (`printCoverage`): with the seeded tilt (−8° ± 10°), every stamp position on the plate (4 pt in,
+    /// 6 pt grid) is scored by how much of the landed stamp (+3 pt) lies on ink, plus a small pull toward the plate's
+    /// edges, so it reads as a stamp in a free corner and never floats mid-plate; positions under the NEW BEST ribbon
+    /// (`ribbonKeepOut`) are out. The seed then picks among the positions within 0.02 of the best, so it varies by
+    /// object (each print leaves different corners free) and by seed. `plate` and the result are canvas offsets from
+    /// the print centre, as `coverage` is.
+    static func pressedPose(seed: UInt64, coverage: FoldPrintCoverage, plate: CGRect,
+                            keepOut: CGRect? = nil) -> (offset: CGPoint, angle: CGFloat) {
         var rng = SplitMix64(seed: seed ^ 0x9E55ED)
-        let dx = CGFloat.random(in: -30...30, using: &rng)
-        let dy = CGFloat.random(in: -5...5, using: &rng)
         let angle = (-8 + CGFloat.random(in: -10...10, using: &rng)) * .pi / 180
         // The landed stamp's footprint, rotated: its half extents on screen.
         let w = pressedSize.width * pressedScale, h = pressedSize.height * pressedScale
         let c = abs(cos(angle)), s = abs(sin(angle))
         let hx = (w * c + h * s) / 2, hy = (w * s + h * c) / 2
-        let box = print.isNull || print.isEmpty || !print.width.isFinite ? CGRect(x: -60, y: -60, width: 120, height: 120) : print
-        // Top edge at maxY − 30 % of the stamp's height: centre = maxY + (1 − 2 · 0.3) · hy.
-        let x = box.midX + dx
-        let y = box.maxY + (1 - 2 * pressedOverlap) * hy + dy
-        func fit(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo <= hi ? min(max(v, lo), hi) : (lo + hi) / 2 }
         let inset: CGFloat = 4
-        return (CGPoint(x: fit(x, plate.minX + inset + hx, plate.maxX - inset - hx),
-                        y: fit(y, plate.minY + inset + hy, plate.maxY - inset - hy)), angle)
+        let lo = CGPoint(x: plate.minX + inset + hx, y: plate.minY + inset + hy)
+        let hi = CGPoint(x: plate.maxX - inset - hx, y: plate.maxY - inset - hy)
+        guard lo.x <= hi.x, lo.y <= hi.y else { return (CGPoint(x: plate.midX, y: plate.midY), angle) }
+        let step: CGFloat = 6
+        var candidates: [(point: CGPoint, score: CGFloat)] = []
+        var best = CGFloat.greatestFiniteMagnitude
+        var y = lo.y
+        while y <= hi.y + 0.001 {
+            var x = lo.x
+            while x <= hi.x + 0.001 {
+                let centre = CGPoint(x: x, y: y)
+                let aabb = CGRect(x: x - hx, y: y - hy, width: 2 * hx, height: 2 * hy)
+                if keepOut.map({ !$0.intersects(aabb) }) ?? true {
+                    let edge = min(aabb.minX - plate.minX, plate.maxX - aabb.maxX, aabb.minY - plate.minY, plate.maxY - aabb.maxY)
+                    let score = pressedInk(at: centre, angle: angle, coverage: coverage)
+                        + 0.05 * min(max((edge - inset) / 40, 0), 1)
+                    candidates.append((point: centre, score: score))
+                    best = min(best, score)
+                }
+                x += step
+            }
+            y += step
+        }
+        let near = candidates.filter { $0.score <= best + 0.02 }
+        guard !near.isEmpty else { return (CGPoint(x: (lo.x + hi.x) / 2, y: hi.y), angle) }
+        let pick = Int(rng.next() % UInt64(near.count))
+        return (near[pick].point, angle)
+    }
+
+    /// The fraction of the landed PRESSED stamp (rotated by `angle`, grown by 3 pt) that lies on ink, sampled on a
+    /// 13 × 5 grid. `centre` is a canvas offset from the print centre, as `coverage` is.
+    static func pressedInk(at centre: CGPoint, angle: CGFloat, coverage: FoldPrintCoverage) -> CGFloat {
+        let w = pressedSize.width * pressedScale + 6, h = pressedSize.height * pressedScale + 6
+        let ca = cos(angle), sa = sin(angle)
+        let columns = 13, rows = 5
+        var inked = 0
+        for j in 0..<rows {
+            let v = (CGFloat(j) / CGFloat(rows - 1) - 0.5) * h
+            for i in 0..<columns {
+                let u = (CGFloat(i) / CGFloat(columns - 1) - 0.5) * w
+                let p = CGPoint(x: centre.x + u * ca - v * sa, y: centre.y + u * sa + v * ca)
+                if coverage.isCovered(p) { inked += 1 }
+            }
+        }
+        return CGFloat(inked) / CGFloat(columns * rows)
+    }
+
+    /// Where the reveal card's NEW BEST ribbon sits on the plate (RevealCardView: centred at the plate's maxX − 36,
+    /// minY + 4), grown to its size and tilt: the stamp keeps out of it. Canvas offsets, as `plate`.
+    static func ribbonKeepOut(plate: CGRect) -> CGRect {
+        CGRect(x: plate.maxX - 36 - 54, y: plate.minY + 4 - 18, width: 108, height: 40)
+    }
+
+    /// What the print has actually inked, as the platen shows it (FOLD-REVIEW-5 N9): the silhouette, plus the
+    /// failure splat (its blob, frost or ring and every flicked droplet) at `splatScale` when it has one (0 = not
+    /// failed). Rendered once into a 2 pt grid of canvas offsets from the print centre; a cell is inked above 15 %
+    /// alpha. Pure CG from the seeded draws, so it matches the platen exactly.
+    static func printCoverage(_ stamp: FoldStamp, variant: PressVariant, layout: FoldLayout,
+                              splatScale: Double) -> FoldPrintCoverage {
+        let transform = layout.platenPrintTransform
+        let bounds = FoldPrintCanvas.rect.applying(transform)
+        let cell: CGFloat = 2
+        let columns = max(1, Int((bounds.width / cell).rounded(.up)))
+        let rows = max(1, Int((bounds.height / cell).rounded(.up)))
+        guard let ctx = CGContext(data: nil, width: columns, height: rows, bitsPerComponent: 8, bytesPerRow: columns * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return FoldPrintCoverage(bounds: bounds, cell: cell, columns: 0, rows: 0, covered: [])
+        }
+        // y-down canvas offsets: bounds.minY lands on memory row 0.
+        ctx.translateBy(x: 0, y: CGFloat(rows))
+        ctx.scaleBy(x: 1 / cell, y: -1 / cell)
+        ctx.translateBy(x: -bounds.minX, y: -bounds.minY)
+        ctx.concatenate(transform)
+        ctx.addPath(stamp.silhouette)
+        ctx.setFillColor(UIColor.white.cgColor)
+        ctx.fillPath()
+        if splatScale > 0 {
+            ctx.saveGState()
+            ctx.scaleBy(x: CGFloat(splatScale), y: CGFloat(splatScale))
+            FoldStamps.drawSplat(stamp, variant: variant, into: ctx)
+            ctx.restoreGState()
+        }
+        var covered = [Bool](repeating: false, count: columns * rows)
+        if let data = ctx.data {
+            let bytes = data.assumingMemoryBound(to: UInt8.self)
+            let rowBytes = ctx.bytesPerRow
+            for r in 0..<rows {
+                for c in 0..<columns where bytes[r * rowBytes + c * 4 + 3] > 38 {
+                    covered[r * columns + c] = true
+                }
+            }
+        }
+        return FoldPrintCoverage(bounds: bounds, cell: cell, columns: columns, rows: rows, covered: covered)
     }
 
     /// The print's ink outline (its full-coverage silhouette) as the platen shows it: a canvas-space bounding box,
@@ -639,8 +733,6 @@ final class FoldPlaten {
     /// lower third at 100 %).
     static let pressedSize = CGSize(width: 150, height: 57)
     static let pressedScale: CGFloat = 0.85
-    /// How much of the landed stamp's height lies over the print (FOLD-REVIEW-4: about 30 %).
-    static let pressedOverlap: CGFloat = 0.30
 
     /// Prints whose ink is within 30° of the stamp's red (jelly, the cherry can, the gummy bear) take the stamp in
     /// paper-white ink with a red keyline (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F14): red-on-magenta disappeared.
@@ -658,8 +750,12 @@ final class FoldPlaten {
         guard let layout else { return }
         let centre = layout.printCentre
         let plate = layout.strikePlate(platen: true).offsetBy(dx: -centre.x, dy: -centre.y)
-        let printBox = stack.map { Self.printBounds($0.stamp, layout: layout) } ?? .null
-        let pose = Self.pressedPose(seed: pressedSeed, print: printBox, plate: plate)
+        // What is inked right now (at the reveal: the silhouette and the splat at its spread), FOLD-REVIEW-5 N9.
+        let coverage = stack.map {
+            Self.printCoverage($0.stamp, variant: $0.variant, layout: layout, splatScale: $0.splatScale)
+        } ?? .empty
+        let pose = Self.pressedPose(seed: pressedSeed, coverage: coverage, plate: plate,
+                                    keepOut: Self.ribbonKeepOut(plate: plate))
         pressed.position = CGPoint(x: centre.x + pose.offset.x, y: centre.y + pose.offset.y)
         pressedAngle = pose.angle
         let paper = stack.map { Self.pressedOnPaper($0.stamp.ink) } ?? false
@@ -772,6 +868,42 @@ final class FoldPlaten {
 
         // Tabletop dimming below 75° (§3.3): the plate has entered the wedge's shade.
         dim.opacity = f.tabletop ? Float(1 - FoldCurve.platenDimming(angle: f.angle)) : 0
+    }
+}
+
+/// Which 2 pt cells of a print are inked, in canvas offsets from the print centre (`FoldPlaten.printCoverage`).
+struct FoldPrintCoverage: Sendable {
+    let bounds: CGRect
+    let cell: CGFloat
+    let columns: Int
+    let rows: Int
+    let covered: [Bool]
+
+    static let empty = FoldPrintCoverage(bounds: .zero, cell: 2, columns: 0, rows: 0, covered: [])
+
+    func isCovered(_ p: CGPoint) -> Bool {
+        guard columns > 0, rows > 0, p.x.isFinite, p.y.isFinite else { return false }
+        let c = Int(((p.x - bounds.minX) / cell).rounded(.down))
+        let r = Int(((p.y - bounds.minY) / cell).rounded(.down))
+        guard c >= 0, r >= 0, c < columns, r < rows else { return false }
+        return covered[r * columns + c]
+    }
+
+    /// The inked fraction of `rect` (sampled at the cell size).
+    func fraction(in rect: CGRect) -> CGFloat {
+        guard rect.width > 0, rect.height > 0 else { return 0 }
+        var inked = 0, total = 0
+        var y = rect.minY + cell / 2
+        while y < rect.maxY {
+            var x = rect.minX + cell / 2
+            while x < rect.maxX {
+                total += 1
+                if isCovered(CGPoint(x: x, y: y)) { inked += 1 }
+                x += cell
+            }
+            y += cell
+        }
+        return total > 0 ? CGFloat(inked) / CGFloat(total) : 0
     }
 }
 

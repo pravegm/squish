@@ -215,50 +215,120 @@ struct FoldPressTests {
         #expect(FoldLean.pivotShift(lean: 0, baseRadius: r) == .zero)
     }
 
-    // MARK: Reveal stamp (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F9)
+    // MARK: Reveal stamp (FOLD-REVIEW-3 N12, FOLD-REVIEW-4 F9, FOLD-REVIEW-5 N9)
 
-    @Test func pressedStampOverlapsThePrintsLowerEdgeAndStaysOnThePlate() {
+    @Test func printCoverageIsWhatThePlatenInks() {
+        for book in [false, true] {
+            let layout = FoldLayout(canvas: book ? CGSize(width: 951, height: 669) : CGSize(width: 669, height: 951))
+            let centre = layout.printCentre
+            let plate = layout.strikePlate(platen: true).offsetBy(dx: -centre.x, dy: -centre.y)
+            for kind in [ObjectKind.rubberDuck, .sodaCan, .jelly, .egg] {
+                let variant = PressVariant(kind: kind, seed: 4)
+                let stamp = FoldStamps.stamp(for: kind, variant: variant, foldScale: 0.8)
+                let rest = FoldPlaten.printCoverage(stamp, variant: variant, layout: layout, splatScale: 0)
+                let failed = FoldPlaten.printCoverage(stamp, variant: variant, layout: layout, splatScale: 1.2)
+                // The footprint centre is inked; the splat only ever adds ink.
+                #expect(rest.isCovered(.zero) && failed.isCovered(.zero), "\(kind) book \(book)")
+                #expect(failed.fraction(in: plate) >= rest.fraction(in: plate), "\(kind) book \(book)")
+                #expect(rest.fraction(in: plate) > 0.02 && rest.fraction(in: plate) < 0.9, "\(kind) book \(book)")
+            }
+            // The duck's print never reaches the plate's corners.
+            let duck = FoldStamps.stamp(for: .rubberDuck, variant: PressVariant(kind: .rubberDuck, seed: 4), foldScale: 0.8)
+            let coverage = FoldPlaten.printCoverage(duck, variant: PressVariant(kind: .rubberDuck, seed: 4), layout: layout,
+                                                    splatScale: 1.2)
+            #expect(!coverage.isCovered(CGPoint(x: plate.minX + 8, y: plate.minY + 8)))
+            #expect(!coverage.isCovered(CGPoint(x: plate.maxX - 8, y: plate.maxY - 8)))
+        }
+    }
+
+    @Test func pressedStampLandsOnTheLeastInkedPartOfThePlate() {
         for book in [false, true] {
             let layout = FoldLayout(canvas: book ? CGSize(width: 951, height: 669) : CGSize(width: 669, height: 951))
             let plate = layout.strikePlate(platen: true)
             let centre = layout.printCentre
             let plateOffsets = plate.offsetBy(dx: -centre.x, dy: -centre.y)
-            var bases: Set<String> = []
+            let keepOut = FoldPlaten.ribbonKeepOut(plate: plateOffsets)
+            var seedOne: Set<String> = []
             for kind in ObjectKind.allCases {
                 var poses: Set<String> = []
                 for seed in UInt64(1)...30 {
                     let variant = PressVariant(kind: kind, seed: seed)
                     let stamp = FoldStamps.stamp(for: kind, variant: variant, foldScale: 0.8,
                                                  extraYaw: book ? FoldPressController.bookYaw(kind) : 0)
-                    let print = FoldPlaten.printBounds(stamp, layout: layout)
-                    let a = FoldPlaten.pressedPose(seed: seed, print: print, plate: plateOffsets)
-                    let b = FoldPlaten.pressedPose(seed: seed, print: print, plate: plateOffsets)
+                    // At the reveal: the silhouette plus the failure splat at its full spread.
+                    let coverage = FoldPlaten.printCoverage(stamp, variant: variant, layout: layout, splatScale: 1.2)
+                    let a = FoldPlaten.pressedPose(seed: seed, coverage: coverage, plate: plateOffsets, keepOut: keepOut)
+                    let b = FoldPlaten.pressedPose(seed: seed, coverage: coverage, plate: plateOffsets, keepOut: keepOut)
                     #expect(a.offset == b.offset && a.angle == b.angle)
                     let degrees = Double(a.angle) * 180 / .pi
                     #expect(degrees >= -18.1 && degrees <= 2.1)
-                    // The landed stamp (150 × 57 at 85 %), rotated, stays on the strike plate.
+                    // The landed stamp (150 × 57 at 85 %), rotated, stays on the strike plate and off the ribbon.
                     let scale = FoldPlaten.pressedScale
                     let size = FoldPlaten.pressedSize
                     let landed = CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height)
                         .applying(CGAffineTransform(rotationAngle: a.angle).scaledBy(x: scale, y: scale))
-                        .offsetBy(dx: centre.x + a.offset.x, dy: centre.y + a.offset.y)
-                    #expect(plate.contains(landed), "\(kind) book \(book) seed \(seed): \(landed) outside \(plate)")
-                    // It sits on the print's lower edge: its top is on the print, and it hangs below the edge unless the
-                    // plate's own edge stopped it.
-                    let printRect = print.offsetBy(dx: centre.x, dy: centre.y)
-                    #expect(landed.minY < printRect.maxY, "\(kind) book \(book) seed \(seed)")
-                    #expect(landed.maxY > printRect.maxY || landed.maxY >= plate.maxY - 4.5, "\(kind) book \(book) seed \(seed)")
+                        .offsetBy(dx: a.offset.x, dy: a.offset.y)
+                    #expect(plateOffsets.insetBy(dx: 3.9, dy: 3.9).contains(landed),
+                            "\(kind) book \(book) seed \(seed): \(landed) outside \(plateOffsets)")
+                    #expect(!keepOut.intersects(landed), "\(kind) book \(book) seed \(seed): under the ribbon")
+                    // As clear of the ink as that tilt allows anywhere on the plate (the same 6 pt grid), give or take
+                    // the seeded pick (0.02) and the pull toward the edges (0.05).
+                    let ink = FoldPlaten.pressedInk(at: a.offset, angle: a.angle, coverage: coverage)
+                    let hx = landed.width / 2, hy = landed.height / 2
+                    var bestInk: CGFloat = 1
+                    var y = plateOffsets.minY + 4 + hy
+                    while y <= plateOffsets.maxY - 4 - hy + 0.001 {
+                        var x = plateOffsets.minX + 4 + hx
+                        while x <= plateOffsets.maxX - 4 - hx + 0.001 {
+                            let box = CGRect(x: x - hx, y: y - hy, width: 2 * hx, height: 2 * hy)
+                            if !keepOut.intersects(box) {
+                                bestInk = min(bestInk, FoldPlaten.pressedInk(at: CGPoint(x: x, y: y), angle: a.angle,
+                                                                             coverage: coverage))
+                            }
+                            x += 6
+                        }
+                        y += 6
+                    }
+                    #expect(ink <= bestInk + 0.0701, "\(kind) book \(book) seed \(seed): ink \(ink), best \(bestInk)")
+                    // FOLD-REVIEW-5 N9: the duck and the can leave free corners, and the stamp takes one. (A lying bottle
+                    // spans the book plate, so glass only gets "as clear as it can".)
+                    if kind == .rubberDuck || kind == .sodaCan {
+                        #expect(ink <= 0.3, "\(kind) book \(book) seed \(seed): \(ink) of the stamp on ink")
+                    }
                     poses.insert(String(format: "%.1f %.1f %.3f", Double(a.offset.x), Double(a.offset.y), Double(a.angle)))
+                    if seed == 1 { seedOne.insert(String(format: "%.0f %.0f", Double(a.offset.x), Double(a.offset.y))) }
                 }
                 #expect(poses.count > 25, "\(kind) book \(book): \(poses.count) distinct poses")
-                // Each object's base follows its own print.
-                let seedOne = FoldStamps.stamp(for: kind, variant: PressVariant(kind: kind, seed: 1), foldScale: 0.8,
-                                               extraYaw: book ? FoldPressController.bookYaw(kind) : 0)
-                let box = FoldPlaten.printBounds(seedOne, layout: layout)
-                bases.insert(String(format: "%.0f %.0f", Double(box.midX), Double(box.maxY)))
             }
-            #expect(bases.count > 5, "book \(book): print bases \(bases)")
+            // Each object's prints leave different corners free, so the stamps move with the object too.
+            #expect(seedOne.count > 4, "book \(book): seed-1 stamp positions \(seedOne)")
         }
+    }
+
+    @Test func escapedDropletsLandClearOfTheSpecimen() {
+        let half = CGSize(width: 135, height: 120)   // a duck-sized pancake, print space (points)
+        let radius: CGFloat = 4.5 * 1.6
+        let ex = half.width * FoldStamps.sprayClearScale + radius + FoldStamps.sprayClearGap
+        let ey = half.height * FoldStamps.sprayClearScale + radius + FoldStamps.sprayClearGap
+        for i in 0..<24 {
+            let a = CGFloat(i) / 24 * 2 * .pi
+            let p = CGPoint(x: 30 * cos(a), y: 30 * sin(a))
+            let landed = FoldStamps.sprayLanding(p, radius: radius, specimenCentre: .zero, specimenHalf: half)
+            let again = FoldStamps.sprayLanding(p, radius: radius, specimenCentre: .zero, specimenHalf: half)
+            #expect(landed == again)
+            guard let q = landed else {
+                Issue.record("droplet \(i) found nowhere to land")
+                continue
+            }
+            #expect((q.x / ex) * (q.x / ex) + (q.y / ey) * (q.y / ey) >= 1 - 1e-6, "droplet \(i) at \(q) under the specimen")
+            #expect(FoldStamps.sprayContained(FoldDroplet(centre: q, radius: radius), scale: 1,
+                                              margin: FoldStamps.sprayEscapeMargin), "droplet \(i) at \(q) off the stage")
+        }
+        // Already clear: stays exactly where the platen put it.
+        let clear = CGPoint(x: 140, y: 100)
+        #expect(FoldStamps.sprayLanding(clear, radius: 3, specimenCentre: .zero, specimenHalf: CGSize(width: 40, height: 40)) == clear)
+        // A specimen over the whole stage leaves nowhere.
+        #expect(FoldStamps.sprayLanding(.zero, radius: 3, specimenCentre: .zero, specimenHalf: CGSize(width: 400, height: 400)) == nil)
     }
 
     @Test func pressedStampTurnsPaperWhiteOnRedPrints() {
@@ -328,15 +398,17 @@ struct FoldPressTests {
             let w = FoldStamps.shadowWeights(blur: blur, stops: stops)
             #expect(near(w.reduce(0, +), 1, 1e-9))
         }
-        // Sheets never sharpen below 28 pt, and their shadow outline has soft (≥ 24 pt) corners.
+        // Sheets never sharpen below 28 pt, and only their domes cast (FOLD-REVIEW-5 F8: no film-sized box).
         #expect(FoldStamps.shadowBlurs(.bubbleWrap).min() ?? 0 >= 28)
         #expect(FoldStamps.shadowBlurs(.rubberDuck) == [4, 16, 40])
         let wrap = FoldStamps.stamp(for: .bubbleWrap, variant: PressVariant(kind: .bubbleWrap, seed: 2), foldScale: 1)
         let outline = FoldStamps.shadowOutline(wrap)
         let box = wrap.silhouette.boundingBoxOfPath
         #expect(FoldPrintCanvas.rect.contains(outline.boundingBoxOfPath))
-        // Rounder corners pull the rotated film's bounding box in a little.
+        // The domes sit inside the film, so their shadow is smaller than the film's outline on both axes.
         #expect(outline.boundingBoxOfPath.width < box.width - 1)
+        #expect(outline.boundingBoxOfPath.height < box.height - 1)
+        #expect(!outline.contains(CGPoint(x: box.minX + 2, y: box.minY + 2)))
     }
 
     // MARK: One gauge on both machines (FOLD-REVIEW-4 F12)

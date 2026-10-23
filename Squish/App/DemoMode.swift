@@ -24,8 +24,20 @@ import Foundation
 /// - `storeshotsize=` comma list of portrait | landscape | both | all | 69 (default portrait). On a Duo portrait and
 ///   landscape are the inner display (2007 × 2853 / 2853 × 2007) and `69` adds a 1320 × 2868 copy; elsewhere they are
 ///   the 6.9" sizes (1320 × 2868 / 2868 × 1320).
+///   The pair's labels quote each device's crown readout ("111°", then "AT 83°" once it froze at the failure), never
+///   the model angle, and each gets a side-profile V glyph at the modelled angle (FOLD-REVIEW-5 §3 a, c).
+/// - `reveal` in the list (`storeshot=112,fail,reveal`, Duo only) shoots the tabletop reveal, label `reveal`: once the
+///   reveal card is up and the hinge is still at ≥ 120° (the script closes to 0° and reopens), with the window's
+///   SwiftUI chrome (print label, Again · Share · Next) and the caption "Open up. File the *evidence*.".
+/// - `storegrid=rubberDuck,egg,cakeSlice,sodaCan` (with `duo`) writes the variety frame storeshot-grid.png from the
+///   heroes earlier tabletop passes saved to Documents (`storehalves-<kind>-*`); no hinge needed. Logs
+///   `SQUISH-T storeshot grid ok|failed` and `SQUISH-T storeshot done`.
 /// - `storeshotfold=<deg>` models the device at a fixed angle instead of the captured one.
-/// - `storeshotcaption=<headline> / <sub-line>` and `paircaption=…` override the captions (`*word*` = highlight).
+/// - `storeshotazimuth=<deg>` turns the eye for the hero, the pair's large device and the grid (default 32°, the V
+///   reads in profile); `storepairazimuth=` for the pair's small device (default 24°); `revealazimuth=` for the
+///   reveal (default 14°). Angle shots keep 14°.
+/// - `storeshotcaption=<headline> / <sub-line>` (hero; default per object, FOLD-REVIEW-5 N3), `paircaption=…`,
+///   `revealcaption=…` and `gridcaption=…` override the captions (`*word*` = highlight).
 /// - `storeshotsplat=overlay` adds the store-shot-only 2D splat overlay (off by default: FoldAnvil sprays the real
 ///   droplets on the device, so the capture already has them); `storeshotbackdrop=sweep` uses the cooler Duo sweep;
 ///   `storeshotmodel=asLaid` stands a book capture like a book instead of laying it down as a laptop.

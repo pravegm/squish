@@ -30,16 +30,17 @@ struct CollectionTests {
     private func press(_ store: CollectionStore, _ kind: ObjectKind, perfect: Bool = false, golden: Bool = false,
                        surprise: Bool = false, fractures: Int = 2, duration: Double = 6, reversals: Int = 0,
                        slammed: Bool = false, seedStart: UInt64 = 1,
-                       samples: [PressTrace.Sample]? = nil) -> RecordOutcome {
+                       samples: [PressTrace.Sample]? = nil, virtualHinge: Bool = false,
+                       onHinge: Bool? = nil, failureAngle: Double? = 101) -> RecordOutcome {
         let seed = findSeed(for: kind, golden: golden, surprise: surprise, from: seedStart)
-        let result = PressResult(kind: kind, seed: seed, failureAngle: 101, fractureCount: fractures,
+        let result = PressResult(kind: kind, seed: seed, failureAngle: failureAngle, fractureCount: fractures,
                                  maxCompression: 0.95, duration: duration, wasSlammed: slammed,
                                  isPerfect: perfect, reversals: reversals)
         let variant = PressVariant(kind: kind, seed: seed)
         let trace = samples.map {
-            PressTrace(kind: kind, variant: variant, samples: $0, usesVirtualHinge: false, config: .standard)
+            PressTrace(kind: kind, variant: variant, samples: $0, usesVirtualHinge: virtualHinge, config: .standard)
         }
-        return store.record(result, variant: variant, trace: trace)
+        return store.record(result, variant: variant, trace: trace, onHinge: onHinge)
     }
 
     // MARK: Hinge trace builders (30 Hz, like a Duo hinge stream)
@@ -389,16 +390,73 @@ struct CollectionTests {
 
     @Test func cardTraitsAndSentence() {
         let (store, _) = makeStore()
-        let outcome = press(store, .egg, perfect: true, golden: true)
+        let outcome = press(store, .egg, perfect: true, golden: true, onHinge: true)
         let texts = outcome.specimen.traits.map(\.text)
         #expect(texts.first == "GOLDEN")
         #expect(texts.contains("PERFECT SQUISH"))
         #expect(outcome.specimen.accessibilitySentence.contains("Egg"))
         #expect(outcome.specimen.labelLines.first?.hasPrefix("CRUSHED AT 101° · ") == true)
         #expect(outcome.specimen.labelLines.count == 2)
+        #expect(outcome.specimen.gaveAtTag == "AT 101°")
         for achievement in Achievement.allCases {
             #expect(!achievement.title.isEmpty && !achievement.detail.isEmpty)
         }
+    }
+
+    // MARK: Hinge angle only where a hinge made the press (FOLD-REVIEW-5 N6)
+
+    @Test func touchPressCardsShowTonsNotDegrees() {
+        let (store, _) = makeStore()
+        let outcome = press(store, .rubberDuck, samples: sweep(from: 168, to: 40, over: 6, at: 0), virtualHinge: true)
+        let specimen = outcome.specimen
+        #expect(!specimen.madeOnHinge)
+        #expect(specimen.hingeFailureAngle == nil)
+        #expect(specimen.labelLines.first == "CRUSHED AT \(specimen.tons) TONS")
+        #expect(specimen.gaveAtTag == "AT \(specimen.tons) TONS")
+        #expect(!specimen.labelLines.joined().contains("°"))
+        #expect(!specimen.accessibilitySentence.contains("degrees"))
+        #expect(specimen.accessibilitySentence.contains("crushed at \(specimen.tons) tons"))
+    }
+
+    @Test func hingeTraceCardsShowDegrees() {
+        let (store, _) = makeStore()
+        let outcome = press(store, .rubberDuck, samples: sweep(from: 168, to: 40, over: 6, at: 0), virtualHinge: false)
+        #expect(outcome.specimen.madeOnHinge)
+        #expect(outcome.specimen.labelLines.first == "CRUSHED AT 101° · \(outcome.specimen.tons) TONS")
+        #expect(outcome.specimen.accessibilitySentence.contains("crushed at 101 degrees"))
+    }
+
+    @Test func pressWithoutTraceOrFlagIsNotClaimedAsHinge() {
+        let (store, _) = makeStore()
+        let outcome = press(store, .egg)
+        #expect(!outcome.specimen.madeOnHinge)
+        #expect(outcome.specimen.labelLines.first?.hasPrefix("CRUSHED AT ") == true)
+        #expect(outcome.specimen.labelLines.first?.contains("°") == false)
+    }
+
+    @Test func nothingGaveShowsPeakTons() {
+        let (store, _) = makeStore()
+        let hinge = press(store, .jelly, onHinge: true, failureAngle: nil)
+        #expect(hinge.specimen.labelLines.first == "PEAK \(hinge.specimen.tons) TONS")
+        #expect(hinge.specimen.gaveAtTag == nil)
+        let ball = press(store, .unsquishable, fractures: 0, onHinge: true)
+        #expect(ball.specimen.labelLines.first == "PEAK \(ball.specimen.tons) TONS")
+        #expect(ball.specimen.gaveAtTag == nil)
+    }
+
+    @Test func hingeFlagRoundTripsAndDefaultsToFalse() throws {
+        let (store, folder) = makeStore()
+        let hinge = press(store, .egg, onHinge: true)
+        let (reloaded, _) = makeStore(at: folder)
+        #expect(reloaded.specimen(withID: hinge.specimen.id)?.madeOnHinge == true)
+
+        // A record written before the flag existed: decodes as a touch press (never claims a hinge).
+        let data = try JSONEncoder().encode(hinge.specimen)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["madeOnHinge"] = nil
+        let legacy = try JSONDecoder().decode(SpecimenRecord.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(!legacy.madeOnHinge)
+        #expect(legacy.failureAngle == 101)
     }
 
     // MARK: Fold Press toast slot (FOLD-REVIEW-4 F4)

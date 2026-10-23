@@ -1,0 +1,130 @@
+name: App Store screenshots
+
+# The full App Store screenshot set (FOLD-REVIEW-5 §5, docs/appstore/screenshots.md), manual only:
+#  • pinch: the Pinch Press set P1–P6 (ci/scenarios.txt) on the 6.9" class (newest "… Pro Max" simulator,
+#    1320 × 2868) and on the iPhone 18 Pro for the 6.1" slot (1206 × 2622), raw + captioned
+#    (artifacts store-69, store-61: <set>/store/P*.png).
+#  • duo: the iPhone Duo inner and outer sets via duo.yml (artifact store-duo: duo-screens/store/duo-inner|duo-outer,
+#    MANIFEST.txt). The book-pose review pass is skipped.
+# No folded device is ever in the 6.9" or 6.1" sets (Guideline 2.3): those are Pinch Press frames only.
+on:
+  workflow_dispatch:
+    inputs:
+      pinch_device:
+        description: "6.9-inch simulator: exact name, or auto:Pro Max (newest available Pro Max)"
+        type: string
+        default: "auto:Pro Max"
+      pinch_filter:
+        description: "Regex of ci/scenarios.txt names for the Pinch Press set"
+        type: string
+        default: "^P[0-9]-"
+      sixone:
+        description: "Also capture the 6.1-inch set (iPhone 18 Pro, 1206 × 2622)"
+        type: boolean
+        default: true
+      duo:
+        description: "Also run the iPhone Duo store set (slow: runtime download + hinge sweeps)"
+        type: boolean
+        default: true
+      storeshot_objects:
+        description: "Duo tabletop store-shot objects"
+        type: string
+        default: "rubberDuck glassBottle sodaCan egg cakeSlice"
+      storegrid_objects:
+        description: "Duo variety grid objects (need a tabletop hero this run)"
+        type: string
+        default: "rubberDuck egg cakeSlice sodaCan"
+
+concurrency:
+  group: store-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinch:
+    runs-on: xcode-27
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          xcodebuild -version
+          xcrun simctl list runtimes
+          # For the record: which 6.9-inch device types and devices this image has.
+          xcrun simctl list devicetypes | grep -i "pro max" || true
+          xcrun simctl list devices available | grep -i "pro max" || true
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Squish.xcodeproj -scheme Squish \
+            -destination "platform=iOS Simulator,name=iPhone 18 Pro" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|warning: .*Squish/|\*\* " || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+
+      - name: Capture the 6.9-inch set
+        env:
+          DEVICE: ${{ inputs.pinch_device }}
+          OUT: store-69
+          SCENARIO_FILTER: ${{ inputs.pinch_filter }}
+          EXPECT_SIZE: "1320x2868"
+          STORE_FRAMES: "1"
+        run: bash ci/screenshots.sh
+
+      - name: Capture the 6.1-inch set
+        if: success() && inputs.sixone
+        env:
+          DEVICE: "iPhone 18 Pro"
+          OUT: store-61
+          SCENARIO_FILTER: ${{ inputs.pinch_filter }}
+          EXPECT_SIZE: "1206x2622"
+          STORE_FRAMES: "1"
+        run: |
+          xcrun simctl shutdown all || true
+          bash ci/screenshots.sh
+
+      - name: Upload the 6.9-inch set
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-69
+          path: store-69/
+          if-no-files-found: ignore
+
+      - name: Upload the 6.1-inch set
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-61
+          path: store-61/
+          if-no-files-found: ignore
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-build-log
+          path: build.log
+          if-no-files-found: ignore
+
+  duo:
+    if: inputs.duo
+    uses: ./.github/workflows/duo.yml
+    with:
+      objects: ""
+      book_storeshot_objects: ""
+      storeshot_objects: ${{ inputs.storeshot_objects }}
+      storeshot_shots: "112,fail,reveal"
+      tabletop_angles: "150 112 90 75 62 45"
+      duo_ui: "shelf settings cover"
+      storegrid_objects: ${{ inputs.storegrid_objects }}
+      artifact_name: store-duo
