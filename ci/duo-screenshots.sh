@@ -193,7 +193,14 @@ hinge_to() {   # hinge_to <deg>: continuous move from CUR to deg, then confirm t
     done
   fi
   # Sweep doesn't confirm its last value; a confirmed set does (hinge -t 3 / foldctl waits).
-  drv_set "$DRIVER" "$target" >>"$RUNLOG" 2>&1 || { log "WARN hinge did not confirm $target"; FAILURES=$((FAILURES+1)); }
+  # The hinge tool occasionally fails a whole move (store run 39902695582: the duck's reopen from 0° never happened).
+  # Retry the confirmed set a few times before counting it as a failure.
+  local attempt
+  for attempt in 1 2 3; do
+    drv_set "$DRIVER" "$target" >>"$RUNLOG" 2>&1 && break
+    log "WARN hinge did not confirm $target (attempt $attempt)"
+    if (( attempt == 3 )); then FAILURES=$((FAILURES+1)); else sleep 2; fi
+  done
   CUR="$target"
 }
 
