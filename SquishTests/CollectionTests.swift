@@ -560,7 +560,7 @@ struct CollectionTests {
     @Test func tabletopLargeShelfSplitsAtTheCrease() {
         let sheet = CGSize(width: 669, height: 909)
         let line = ShelfTabletopLayout.creaseLine(sheet: sheet, creaseAboveSafeBottom: 455, accessibilitySize: false)
-        #expect(line == 909 - 455)
+        #expect(line == CGFloat(909 - 455))   // typed: an untyped literal picked a non-numeric == (run 39911250350)
     }
 
     @Test func shelfDoesNotSplitOffTabletopLarge() {
