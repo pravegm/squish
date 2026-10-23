@@ -147,10 +147,20 @@ Scores so far:
 - **Isolation:** `@MainActor` everywhere in views and controllers. Pure maths lives in nonisolated enums so tests can call it.
 - **This Windows host** (if you run on it): Bash ignores `cd`, so use absolute paths and `git -C`. Expect LF→CRLF warnings (harmless). There is no Python; use Node for quick maths models.
 
-## Status (end of round 9) and what's next
+## Status (23 Oct 2026, after round 9 and the pre-submission pass) and what's next
 
-- **Code and art:** submittable as 1.0. The last green store run (`store.yml` run 39952047687) has 0 missing and 0 flagged.
-  - Achievement toasts have now been seen on screen (`verify/duo-reveal-toast-app.png`).
+- **Code and art:** submittable as 1.0. The final store run is `store.yml` 39996965349: 0 missing and 0 flagged. Its assets are published as the GitHub release `press-kit`: every frame, an upload zip for `asc.swift`, both App Previews, the icon, the press clips and the badges.
+  - Achievement toasts have been seen on screen (`verify/duo-reveal-toast-app.png`).
+- **Pre-submission pass:**
+  - the privacy manifest (`Squish/PrivacyInfo.xcprivacy`; CI checks it is in the app);
+  - the Photos add-usage string;
+  - version 1.0;
+  - the selected-chip outline (accessibility);
+  - the 1.0.1 visual fixes.
+- **Launch desk:**
+  - `docs/appstore/` holds `DECISIONS.md`, `asc-metadata.json` (pushed by `tools/appstore/asc.swift`), `SUBMISSION.md` (the founder's runbook; §0 lists the only founder-only items), and the accessibility and privacy answers.
+  - The website is GitHub Pages from `site/`: https://pravegm.github.io/squish/
+  - App Previews come from `preview.yml`.
 - **The founder now has an iPhone Duo.** Real-device findings outrank everything in the simulator. Ask for the Tuning Lab hinge log (Settings → long-press Version), then tune from the real data:
   - the display-off angle against `endAngle` (48°) and the reveal light threshold (55°);
   - whether `closed` sticks above 90° on hardware;
@@ -158,5 +168,9 @@ Scores so far:
   - book-pose letterboxing;
   - haptics;
   - the share clip.
-- **1.0.1 list:** in `design/FOLD-REVIEW-9.md` §4 (the orange hero can on the shelf, the cake top clipping to white, the P2 photo framing, the cover picker centring, the shelf orientation re-confirm, the icon hash check).
+- **1.0.1 list:** most of `design/FOLD-REVIEW-9.md` §4 was fixed before 1.0. Left:
+  - the icon hash check;
+  - Voice Control and Larger Text support (`docs/appstore/accessibility.md`);
+  - a real-Duo photo for frame 1;
+  - a Duo preview with the cover display.
 - **Founder-only launch tasks:** `docs/HANDOVER.md` §7.

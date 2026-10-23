@@ -99,11 +99,23 @@ How the set is made, and the order of the frames, is in `docs/appstore/screensho
 - whether App Store Connect offers the Duo screenshot slots yet;
 - the subtitle.
 
-## 7. Launch status (design critique round 9, `design/FOLD-REVIEW-9.md`)
+## 7. Launch status (23 Oct 2026)
 
-- **Scores:** store set 8.6/10, app 8.7/10.
-- **Launch call:** the code and art can be submitted as 1.0.
-- **Upload exactly these 19 frames**, from the latest green "App Store screenshots" run:
+- **Design critique round 9:** store set 8.6/10, app 8.7/10, **launch call: yes**.
+- **Since then, before submission:**
+  - the 1.0.1 polish is done: green hero can, cake sponge band, reveal photo framing, cover centring, egg plate;
+  - the privacy manifest is added;
+  - the Photos permission string is added (Share → Save could crash);
+  - the version is 1.0;
+  - selected chips carry a non-colour outline.
+- **Final assets: GitHub release [press-kit](https://github.com/pravegm/squish/releases/tag/press-kit).** It holds:
+  - the 19 App Store frames, from `store.yml` run 39996965349 (0 missing / 0 flagged);
+  - `appstore-screenshots-1.0.zip`, laid out for `tools/appstore/asc.swift`;
+  - both App Previews, 886×1920 with sound: 6.9" (26 s) and iPhone Duo (19 s);
+  - the icon, the press clips and the Game Center badges.
+
+  Release assets don't expire the way Actions artifacts do.
+- **Upload exactly:**
   - Duo inner `01–07`
   - Duo outer `O1–O2`
   - 6.9" `P1–P5`
@@ -112,22 +124,21 @@ How the set is made, and the order of the frames, is in `docs/appstore/screensho
   - `verify/` frames
   - `V4`
   - `-eye` composites
-  - anything from the iPhone 18 Pro folded scenarios (`9A–9D`, `90–99`). That phone doesn't fold.
-- **Latest green set:** "App Store screenshots" run 39952047687 (23 Oct). It reports 0 missing and 0 flagged, and P5 reads "No ads. No upsells. Just the press."
-- **Achievement toasts are verified on screen:** see `verify/duo-reveal-toast-app.png` in that run's `store-duo` artifact. "PERFECT SQUISH" sits below the print label, clear of the gauge and the fold.
-- Artifacts expire after 90 days. To get a fresh set, run Actions → App Store screenshots.
-- **Ranked 1.0.1 list:** in the review. It includes the orange hero can on the shelf, the cake top clipping to white, and the P2 photo framing.
-
-**Only you can do:**
-- sign off the captions and frame list;
-- fill the metadata, privacy, support and press-kit placeholders, and set up the domain;
-- set the release date;
-- enrol in the Small Business Program;
-- create the 10 Game Center achievements (IDs in `achievements.md`);
-- choose the subtitle;
-- write the App Review notes. Reviewers may not have a Duo, so point them to Settings → Press without folding;
-- fill in the Accessibility Nutrition Labels;
-- decide on an App Preview.
+  - the iPhone 18 Pro folded scenarios (`9A–9D`, `90–99`)
+- **Done by Claude** (`docs/appstore/DECISIONS.md` has one line per decision):
+  - website at https://pravegm.github.io/squish/ (support, privacy, press);
+  - every listing decision: subtitle, keywords, categories, price, territories, age rating, release date, previews;
+  - the listing copy, the review notes, and the App Privacy and Accessibility answers;
+  - the frame sign-off;
+  - Game Center achievement data and badges;
+  - the App Store Connect tool;
+  - the press clips and paste-ready social and pitch copy.
+- **Only you can do:** the short list at the top of `docs/appstore/SUBMISSION.md` §0.
+  - your legal name;
+  - a review contact;
+  - the EU trader details, or untick the EU;
+  - Apple-login actions: agreements, tax and banking, Small Business Program, the app record, the API key, archive and upload, Submit;
+  - sending the posts and emails from your accounts.
 
 **Only the real Duo can settle:**
 - the display-off angle against the reveal timing;
