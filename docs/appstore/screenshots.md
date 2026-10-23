@@ -85,7 +85,7 @@ Captured on the newest "… Pro Max" simulator (6.9") and on the iPhone 18 Pro (
 | **P2** | Duck reveal ("CRUSHED AT 56 TONS") | **Open up. File the *evidence*.** | `object=rubberDuck;reveal;seed=3;notoasts` | `kind=rubberDuck,revealed=1,golden=0,surprise=none` |
 | **P3** | Soda Can buckling (green FIZZO) | **Cans buckle *ring* by ring.** | `object=sodaCan;depth=0.55;seed=3;notoasts` | `kind=sodaCan,phase=pressing,fractures>=1` |
 | **P4** | The Shelf (seeded 7/10) | **Collect every pressed *specimen*.** | `shelf;notoasts` | the demo started (no app-side sheet line yet) |
-| **P5** | The Settings sheet, Game Center status hidden | **No ads. No purchases. *Just* the press.** / *Sound styles, haptic levels, Reduce Motion.* | `settings;gamecenter=hidden;notoasts` | the demo started (no app-side sheet line yet) |
+| **P5** | The Settings sheet, Game Center status hidden | **No ads. No in-app purchases. *Just* the press.** / *Sound styles, haptic levels, Reduce Motion.* | `settings;gamecenter=hidden;notoasts` | the demo started (no app-side sheet line yet) |
 | *V4* | *Not uploaded.* Glass Bottle cracking under the ram, still standing (depth 0.52 = c 0.314: cracked at c 0.197, 0.07 of depth short of the seed-3 failure). Kept for the crack fix (N3) | *(none)* | `object=glassBottle;depth=0.52;seed=3;notoasts` | `kind=glassBottle,phase=pressing,fractures>=1,failed=0` |
 
 Every captioned frame gets the same Dynamic Island: `ci/store-frame.swift --island pill` draws it on the screen card (the simulator captured it in some frames and not others, FOLD-REVIEW-6 N13; `STORE_ISLAND=none` turns it off).
