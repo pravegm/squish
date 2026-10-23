@@ -672,7 +672,7 @@ final class PressDirector {
 
     /// Wall-clock seconds (Unix epoch) for a `CACurrentMediaTime()` value. The simulator shares the host's clock, so
     /// ci/preview.sh can line these up with the moment `simctl io recordVideo` started.
-    private static func epoch(_ mediaTime: Double) -> Double {
+    nonisolated private static func epoch(_ mediaTime: Double) -> Double {
         Date().timeIntervalSince1970 - (CACurrentMediaTime() - mediaTime)
     }
 
