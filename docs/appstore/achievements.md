@@ -1,6 +1,6 @@
 # Squish: Game Center achievements (v1.0)
 
-*From bible §11 and research 04 §D. All are earned through normal play, and **all work in Pinch Press / Press without folding**. None rewards speed, slamming, streaks or daily play.*
+*From bible §11 and research 04 §D. All are earned through normal play, and **all work with the drag press (the P-48 on non-folding iPhones, and Settings → Press without folding on iPhone Duo)**. Final copy, 23 Oct 2026; `asc-metadata.json` mirrors it. None rewards speed, slamming, streaks or daily play.*
 
 ## Rules
 
@@ -22,9 +22,9 @@
 |---|---|---|---|---|---|---|---|
 | 1 | `com.pravegm.squish.ach.first_squish` | First Squish | Press your first object. | Pressed. Filed. Ka-chunk. | 25 | No | First completed press that reaches the reveal |
 | 2 | `com.pravegm.squish.ach.pop_star` | Pop Star | Pop 500 bubbles. | 500 bubbles, and not one survivor. | 75 | No | Cumulative bubbles popped across all Bubble Wrap presses ≥ 500 |
-| 3 | `com.pravegm.squish.ach.whats_inside` | What's Inside? | Find a surprise hidden inside an object. | Found something in there. Didn't ask questions. | 75 | No | First press where the seeded surprise roll fires (toy chick, jam centre, second crayon colour, fruit pieces, rainbow layers, message confetti, mega bubble, double yolk) |
-| 4 | `com.pravegm.squish.ach.patience` | Patience | Take more than 30 seconds over a single press. | 30 seconds of pure restraint. | 50 | No | Time from arm (θ0 captured) to seal > 30 s, **excluding** time Paused, and **with continuous engagement**: depth must change at least once every 10 s, so leaving the phone half-open doesn't count |
-| 5 | `com.pravegm.squish.ach.pumped` | Pumped | Ease off and press again during one squish. | Up, down, up, down. Very hydraulic. | 50 | No | One press with ≥ 2 Pressing → Armed (reopen) transitions before seal (bible §2: the plastic ratchet enables "pumping") |
+| 3 | `com.pravegm.squish.ach.whats_inside` | What's Inside? | Find two different surprises hidden inside objects. | Found things in there. Didn't ask questions. | 75 | No | Two **different** surprises found, lifetime (`stats.surprisesFound.count >= 2`, CollectionStore.swift:255). Surprises: the seeded roll fires (toy chick, jam centre, second crayon colour, fruit pieces, rainbow layers, message confetti, mega bubble, double yolk) |
+| 4 | `com.pravegm.squish.ach.patience` | Patience | Keep one press going for more than 30 seconds. | 30 seconds of pure restraint. | 50 | No | Time from arm (θ0 captured) to seal > 30 s, **excluding** time Paused, and **with continuous engagement**: depth must change at least once every 10 s, so leaving the phone half-open doesn't count |
+| 5 | `com.pravegm.squish.ach.pumped` | Pumped | Ease off and press again, twice, in one squish. | Up, down, up, down. Very hydraulic. | 50 | No | One press with ≥ 2 Pressing → Armed (reopen) transitions before seal (bible §2: the plastic ratchet enables "pumping") |
 | 6 | `com.pravegm.squish.ach.perfectionist` | Perfectionist | Earn a Perfect Squish on 5 different objects. | Five objects, five flawless closes. | 100 | No | Distinct objects whose best card has the Perfect trait ≥ 5 |
 | 7 | `com.pravegm.squish.ach.steady_hands` | Steady Hands | Earn 10 Perfect Squishes. | Ten Perfect Squishes. Surgeons are nervous. | 75 | No | Lifetime Perfect Squish count ≥ 10 (any objects, repeats count) |
 | 8 | `com.pravegm.squish.ach.midas` | Midas | Press a Golden object. | Golden. One in fifty, and it was yours. | 100 | No | First Golden variant (1/50 seeded roll) |
@@ -33,9 +33,9 @@
 | | | | | | **700** | | |
 
 **Check the ladder:**
-- Achievements 1 and 3 land in the first minutes.
+- Achievement 1 lands on the first press; 3 usually within the first session or two (cake 1 in 3, jelly 1 in 4).
 - Most players will hit Patience (if they're slow), Pumped and Perfectionist in the first session or two.
-- Pop Star takes about 10 bubble-wrap presses (≈ 48 bubbles each).
+- Pop Star takes about 21 bubble-wrap presses (24 bubbles a sheet, `ObjectCatalog.swift:80`).
 - Midas is luck: expected after ~50 presses.
 - Collector and The Secret come together.
 
@@ -57,7 +57,8 @@
 
 ## Implementation checklist (dev)
 
-- [ ] Create all 10 in App Store Connect → Game Center **before** the build that reports them. IDs are permanent, so copy and paste them exactly from this table.
+- [x] Machine-readable copy for App Store Connect: `asc-metadata.json` → `achievements` (IDs verified against `Achievement.gameCenterID` in `Squish/Shared/Contracts.swift:173-182`, 23 Oct 2026; art from `tools/appstore/badges.swift`, which re-checks the IDs).
+- [ ] Created in App Store Connect → Game Center by `tools/appstore/asc.swift push` (or by hand from this table) **before** the build that reports them, then added to the 1.0 version (`SUBMISSION.md` §4). IDs are permanent.
 - [ ] Localisation: English (UK) and English (US) are identical for v1.0.
 - [ ] Report progress with `GKAchievement.percentComplete` for Pop Star (bubbles / 500), Steady Hands (n / 10), Perfectionist (n / 5) and Collector (n / 10).
 - [ ] Never present the Game Center sign-in sheet repeatedly. Authenticate once at launch, and if the player declines, stay silent.
