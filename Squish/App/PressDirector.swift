@@ -534,11 +534,41 @@ final class PressDirector {
                 virtualPress((180 - targetAngle) / 180)
                 try? await Task.sleep(for: .milliseconds(16))
             }
-            print(String(format: "SQUISH-T demo press done at %.2fs phase=%@ depth=%.3f", CACurrentMediaTime() - launchTime,
-                         engine.phase.rawValue, engine.measuredDepth))
+            // FOLD-REVIEW-7 N2: ci/screenshots.sh checks the P-frames against this line (`expect=` in
+            // ci/scenarios.txt): c = compression, fractures = thresholds crossed, failed = the failure fired.
+            let failureIndex: Int = currentKind.profile.failureIndex ?? -1
+            print(String(format: "SQUISH-T demo press done at %.2fs phase=%@ depth=%.3f c=%.3f fractures=%ld failed=%ld failureIndex=%ld kind=%@",
+                         CACurrentMediaTime() - launchTime, engine.phase.rawValue, engine.measuredDepth,
+                         engine.measuredCompression, engine.firedCount, engine.failureAngle == nil ? 0 : 1,
+                         failureIndex, currentKind.rawValue))
+            if demo.has("reveal") { logDemoReveal() }
             if demo.has("exportclip") {
                 await exportDemoClip()
             }
+        }
+    }
+
+    /// CI hook (`reveal`, FOLD-REVIEW-7 N2): say when the reveal card is up, and for which press, so ci/screenshots.sh
+    /// can wait for it and refuse a reveal frame (P2) captured without one. Runs beside `exportDemoClip`, never
+    /// delaying it.
+    private func logDemoReveal() {
+        let started = CACurrentMediaTime()
+        Task { @MainActor [weak self] in
+            while CACurrentMediaTime() - started < 20 {
+                guard let self else { return }
+                if self.revealed != nil {
+                    let surprise: String = self.variant.surprise?.rawValue ?? "none"
+                    print(String(format: "SQUISH-T demo reveal up at %.2fs phase=%@ revealed=1 kind=%@ fractures=%ld failed=%ld golden=%ld surprise=%@",
+                                 CACurrentMediaTime() - self.launchTime, self.engine.phase.rawValue,
+                                 self.currentKind.rawValue, self.engine.firedCount,
+                                 self.engine.failureAngle == nil ? 0 : 1, self.variant.isGolden ? 1 : 0, surprise))
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard let self else { return }
+            print(String(format: "SQUISH-T demo reveal missing after 20s phase=%@ revealed=0 kind=%@",
+                         self.engine.phase.rawValue, self.currentKind.rawValue))
         }
     }
 
@@ -600,13 +630,19 @@ final class PressDirector {
     ///  • the rest (fallback heroes only): the R5 32° turn.
     /// Every hero leans the key 18° toward the viewer, so the lid's shadow reaches ~55 mm from the crease at 64° and
     /// covers the object at the footprint centre (36.7 mm); under the overhead key it stopped at ~31 mm, short of it.
-    private static func heroCamera(for kind: ObjectKind) -> (azimuth: Double, elevation: Double?, keyTilt: Double) {
+    ///
+    /// FOLD-REVIEW-7 §3 A 04: the glass hero's bleed drops 0.10 → 0.04, so the hinge spine (the one "foldable phone"
+    /// cue at that end) stays in frame: x 2.2–97.8 %, fill ≈ 62 % (framing3.mjs). The others keep the default 0.10.
+    private static func heroCamera(for kind: ObjectKind)
+        -> (azimuth: Double, elevation: Double?, keyTilt: Double, bleed: Double?) {
         switch kind {
-        case .rubberDuck: return (azimuth: 50, elevation: 22, keyTilt: 18)
-        case .glassBottle: return (azimuth: -28, elevation: nil, keyTilt: 18)
-        default: return (azimuth: squishAzimuth, elevation: nil, keyTilt: 18)
+        case .rubberDuck: return (azimuth: 50, elevation: 22, keyTilt: 18, bleed: nil)
+        case .glassBottle: return (azimuth: -28, elevation: nil, keyTilt: 18, bleed: 0.04)
+        default: return (azimuth: squishAzimuth, elevation: nil, keyTilt: 18, bleed: nil)
         }
     }
+    /// FOLD-REVIEW-7 N4: the reveal's eye elevation (34° default for tabletop content); `revealelevation=` overrides.
+    private static let revealElevation: Double = 42
 
     private static func storeLabel(_ angle: Double) -> String { String(Int(angle.rounded())) }
 
@@ -844,7 +880,8 @@ final class PressDirector {
     /// from the 32° turn (`storeshotazimuth=`), captioned per object, and its halves are also saved for the variety
     /// grid (`saveGridHalves`, Duo only). `reveal` (label "reveal"): the window with its SwiftUI chrome (print label,
     /// Again · Share · Next), captioned "Open up. File the *evidence*." (`revealcaption=`), at the default 14° turn
-    /// (`revealazimuth=`).
+    /// (`revealazimuth=`) and a 42° elevation (`revealelevation=`), width-fitted with no bleed and centred
+    /// (FOLD-REVIEW-7 N4).
     @discardableResult
     private func writeStoreShot(_ demo: DemoScenario, label: String, angle: Double,
                                 hero: Bool = false, reveal: Bool = false) async -> FoldStoreShot.Halves? {
@@ -874,6 +911,7 @@ final class PressDirector {
                 base.azimuthDegrees = demo.double("storeshotazimuth") ?? camera.azimuth
                 base.elevationDegrees = demo.double("storeshotelevation") ?? camera.elevation
                 base.keyTiltDegrees = demo.double("storeshotkeytilt") ?? camera.keyTilt
+                if let bleed = demo.double("storeshotbleed") ?? camera.bleed { base.fit = .width(bleed: bleed) }
                 // FOLD-REVIEW-6 #1 b, N12: the readout label and V glyph on the hero, hung from the caption band.
                 base.angleMark = halves.readout?.label ?? "\(Int(base.hingeAngle.rounded()))°"
                 base.anchor = .top(0.03)
@@ -887,8 +925,16 @@ final class PressDirector {
             let caption = PressDirector.splitCaption(demo.string("revealcaption") ?? PressDirector.revealCaption)
             base.caption = caption.headline
             base.subcaption = caption.subline
-            if tabletopContent, let turn = demo.double("revealazimuth") { base.azimuthDegrees = turn }
-            if tabletopContent { base.anchor = .top(0.03) }   // FOLD-REVIEW-6 N12: no dead band under the caption
+            if tabletopContent {
+                if let turn = demo.double("revealazimuth") { base.azimuthDegrees = turn }
+                // FOLD-REVIEW-7 N4: at ~151° the device projects wide and short, so the R6 fit (bleed 0.10, hung from
+                // the caption) cut both side edges and left a 16 % floor. Width fit with no bleed, centred in the box
+                // under the caption, seen from 42° so the near-flat device projects taller: x 4–96 % (80 px clear each
+                // side, hinge spine included), y ≈ 28–90 %, fill ≈ 61 % at 2007 × 2853 (r7tools/framing3.mjs reveal).
+                base.fit = .width(bleed: 0)
+                base.anchor = .centre
+                base.elevationDegrees = demo.double("revealelevation") ?? PressDirector.revealElevation
+            }
         }
         let sizes = storeShotSizes(demo)
         let stem = "storeshot-\(label)"

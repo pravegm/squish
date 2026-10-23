@@ -25,6 +25,8 @@ struct RootView: View {
     @State private var coverPrint: UIImage?
     /// The window's orientation, for `CreaseSafe` inside sheets (FOLD-REVIEW-6 N4: a sheet's own aspect isn't the pose).
     @State private var windowLandscape: Bool?
+    /// Tabletop Duo: the crease's height above the safe bottom, for the Shelf's split layout (FOLD-REVIEW-7 N5).
+    @State private var tabletopCrease: CGFloat?
     /// The Shelf sheet's detent, reset each time it opens (`shelfOpeningDetent`).
     @State private var shelfDetent: PresentationDetent = .medium
     @AppStorage("squish.askedForReview") private var askedForReview = false
@@ -81,6 +83,7 @@ struct RootView: View {
                         flyTarget: flyTarget,
                         hinge: bands.hinge,
                         foldPress: director.usesFoldPress,
+                        revealLit: { await director.fold.revealLit() },
                         onNext: { collect { director.next() } },
                         onAgain: { collect { director.again() } }
                     )
@@ -120,6 +123,9 @@ struct RootView: View {
             .animation(Theme.pop(reduceMotion), value: tips.current)
             .onChange(of: bands.isLandscape, initial: true) { _, landscape in
                 windowLandscape = landscape
+            }
+            .onChange(of: bands.tabletopCreaseAboveSafeBottom, initial: true) { _, crease in
+                tabletopCrease = crease
             }
         }
         .modifier(HingeReader(
@@ -352,7 +358,8 @@ struct RootView: View {
     private var shelfShortDetent: PresentationDetent { hasHinge ? .fraction(0.45) : .medium }
 
     /// Duo: full height (FOLD-REVIEW-6 N4). At 0.45 the Shelf was one ~430 pt strip on the anvil half, with two
-    /// readable cards; at `.large` both halves show the 5-column grid. It can still be dragged down to 0.45.
+    /// readable cards; at `.large` the 5-column grid fills the ram half and the latest prints the anvil half
+    /// (FOLD-REVIEW-7 N5, `ShelfTabletopLayout`). It can still be dragged down to 0.45.
     /// Other iPhones keep opening at medium, over the P-48 (P5 shipped that way).
     private var shelfOpeningDetent: PresentationDetent { hasHinge ? .large : .medium }
 
@@ -369,6 +376,7 @@ struct RootView: View {
                 .sheetTypeCap()
                 .creaseSafe()
                 .environment(\.windowIsLandscape, windowLandscape)
+                .environment(\.tabletopCreaseAboveSafeBottom, tabletopCrease)
         }
     }
 
@@ -381,6 +389,20 @@ struct RootView: View {
             revealVisible = false
             collecting = false
             flyTarget = nil
+            return
+        }
+        if director.usesFoldPress {
+            // FOLD-REVIEW-7 N10, reveal on relight: the stage has already drawn the diptych (print, specimen, frozen
+            // gauge) by the time the inner display lights, often inside the dark 55–20° window. The label and keys go up
+            // at once with no fade, so the panel lights on a finished reveal. There's no ram to wait for, and the
+            // diptych doesn't use the thumbnail. RevealCardView holds its toasts until `revealLit`.
+            guard !Task.isCancelled, director.revealed != nil else { return }
+            tips.dismissAll()
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { revealVisible = true }
+            accessibleStep = 0
+            await askForReviewIfDue()
             return
         }
         try? await Task.sleep(for: .milliseconds(reduceMotion ? 300 : 800))

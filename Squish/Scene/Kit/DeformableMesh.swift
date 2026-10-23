@@ -68,8 +68,14 @@ final class DeformableMesh {
 
     /// Deforms every rest vertex with `deform`, recomputes normals and uploads.
     func update(_ deform: (SIMD3<Float>) -> SIMD3<Float>) {
+        updateIndexed { _, p in deform(p) }
+    }
+
+    /// As `update`, with each rest vertex's index (so a deform can treat the parts of one mesh differently, e.g. the
+    /// cake's filling and sponge layers, which share heights at their seams).
+    func updateIndexed(_ deform: (Int, SIMD3<Float>) -> SIMD3<Float>) {
         for i in rest.positions.indices {
-            current.positions[i] = deform(rest.positions[i])
+            current.positions[i] = deform(i, rest.positions[i])
         }
         MeshKit.computeNormals(positions: current.positions, indices: rest.indices, into: &current.normals)
         weldNormals()

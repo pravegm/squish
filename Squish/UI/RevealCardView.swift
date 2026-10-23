@@ -19,6 +19,9 @@ struct RevealCardView: View {
     /// iPhone Duo Fold Press: the reveal is the FOLD-PRESS §6.3 diptych (print on the platen, specimen on the
     /// anvil), so no card covers them; the card appears only for the collect flight.
     var foldPress = false
+    /// Fold Press: returns once the inner display is lit for this reveal (`FoldPressController.revealLit`). The
+    /// toasts wait for it, so they never play on a dark panel (FOLD-REVIEW-7 N10). Unused off the Fold Press.
+    var revealLit: @MainActor () async -> Void = {}
     let onNext: () -> Void
     let onAgain: () -> Void
 
@@ -365,9 +368,25 @@ struct RevealCardView: View {
     /// The pause between one toast leaving and the next arriving, so the exit transition can play.
     private static let toastGapMilliseconds = 300
 
+    /// Fold Press: the toasts never wait longer than this for the inner display to light (a missed light event, or a
+    /// reveal that began lit, must not hold them for good).
+    private static let lightTimeout: Duration = .seconds(3)
+
     private func choreograph() {
+        if foldPress {
+            // FOLD-REVIEW-7 N10: the print label and keys are up in the same frame as the diptych, with no drop or fade,
+            // so the inner display relights on a finished reveal.
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) {
+                cardIn = true
+                actionsIn = true
+            }
+        }
         Task { @MainActor in
-            if reduceMotion {
+            if foldPress {
+                // Already in (above).
+            } else if reduceMotion {
                 // Shorter reveal (bible §6.4): card and actions together.
                 withAnimation(Theme.fade) {
                     cardIn = true
@@ -384,6 +403,11 @@ struct RevealCardView: View {
             // Toasts wait for the settled reveal, then come one at a time, 3 s each; the last one leaves too.
             let count = toasts.count
             guard count > 0 else { return }
+            if foldPress {
+                // The hold starts when the panel is lit, not while it's dark (at most `lightTimeout`).
+                await Self.waitForLight(revealLit, timeout: Self.lightTimeout)
+                guard !Task.isCancelled, !collecting else { return }
+            }
             try? await Task.sleep(for: .milliseconds(Self.toastHoldMilliseconds))
             for index in 0..<count {
                 if index > 0 { try? await Task.sleep(for: .milliseconds(Self.toastGapMilliseconds)) }
@@ -405,6 +429,43 @@ struct RevealCardView: View {
                 try? await Task.sleep(for: .milliseconds(150))
                 focusNext = true
             }
+        }
+    }
+
+    /// Returns when `lit` returns or after `timeout`, whichever is first. Not a task group: `lit` waits on a
+    /// continuation that ignores cancellation, and a group would wait for it to finish, timeout or not.
+    @MainActor
+    private static func waitForLight(_ lit: @escaping @MainActor () async -> Void, timeout: Duration) async {
+        let latch = RevealLightLatch()
+        Task { @MainActor in
+            await lit()
+            latch.open()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: timeout)
+            latch.open()
+        }
+        await latch.wait()
+    }
+}
+
+/// Opens once; `wait()` returns when it has opened (at once if it already has). Main actor only.
+@MainActor
+private final class RevealLightLatch {
+    private var isOpen = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        waiter?.resume()
+        waiter = nil
+    }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiter = continuation
         }
     }
 }

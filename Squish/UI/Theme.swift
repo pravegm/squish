@@ -201,6 +201,15 @@ struct ScreenBands {
         return CGRect(x: -insets.leading, y: y(0.5) - Self.creaseHalf, width: fullWidth, height: Self.creaseHalf * 2)
     }
 
+    /// Tabletop only (portrait window, horizontal crease): how far the crease's centre line sits above the bottom of
+    /// the safe area. A sheet shares the window's bottom edge and bottom inset, so inside a sheet the crease is at
+    /// `sheetSafeHeight - this`, whatever the sheet's top offset or detent (FOLD-REVIEW-7 N5). Nil without a hinge
+    /// and in book pose.
+    var tabletopCreaseAboveSafeBottom: CGFloat? {
+        guard let crease, !isLandscape else { return nil }
+        return size.height - crease.midY
+    }
+
     /// The Fold Press bezel for this canvas (crown strip, console band, plates), shared with Scene/Fold.
     var foldLayout: FoldLayout { FoldLayout(canvas: CGSize(width: fullWidth, height: fullHeight)) }
 
@@ -989,6 +998,17 @@ extension EnvironmentValues {
         get { self[WindowIsLandscapeKey.self] }
         set { self[WindowIsLandscapeKey.self] = newValue }
     }
+
+    /// `ScreenBands.tabletopCreaseAboveSafeBottom`, handed to the Shelf sheet so it can split its content around the
+    /// crease (FOLD-REVIEW-7 N5). Nil on regular iPhones, in book pose and outside RootView.
+    var tabletopCreaseAboveSafeBottom: CGFloat? {
+        get { self[TabletopCreaseKey.self] }
+        set { self[TabletopCreaseKey.self] = newValue }
+    }
+}
+
+private struct TabletopCreaseKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
 }
 
 /// Where a sheet's content goes on a foldable (FOLD-REVIEW-6 N4). Pure, so it's unit-tested (CollectionTests).

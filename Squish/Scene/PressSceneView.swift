@@ -6,17 +6,17 @@ import UIKit
 /// Hosts the press scene in a non-AR `ARView` (so `PressScene.snapshot()` can use `ARView.snapshot`)
 /// and drives the per-frame loop from RealityKit's update event: `director.frame(dt:)` once per rendered frame.
 /// 120 Hz needs `CADisableMinimumFrameDurationOnPhone` (set in project.yml).
+///
+/// FOLD-REVIEW-7 N10 (P-48 render gate): the ARView sits in a `PressSceneHostView`, which pauses it through an
+/// `InnerRenderGate` while the display can't be seen, wired exactly like `FoldStageHostView`. That happens on a Duo
+/// in the P-48 ("Press without folding") when the hinge reads shut, the window goes, or the scene is inactive or in
+/// the background. On a regular iPhone (no hinge) the gate is never started, and an unstarted gate passes every render
+/// tick straight through. So the P-48 there never pauses: as before, it stops only where RealityKit stops rendering
+/// (no window, background).
 struct PressSceneView: UIViewRepresentable {
     let director: PressDirector
 
-    final class Coordinator {
-        var updates: Cancellable?
-        deinit { updates?.cancel() }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> ARView {
+    func makeUIView(context: Context) -> PressSceneHostView {
         let view = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
         view.environment.background = .color(Palette.backdrop)
         // Nothing camera-like: no motion blur, grain or depth of field; we draw our own contact shadows.
@@ -32,20 +32,146 @@ struct PressSceneView: UIViewRepresentable {
         view.scene.addAnchor(anchor)
         director.scene.attach(to: view)
 
+        let host = PressSceneHostView(arView: view, scene: director.scene)
         let director = self.director
-        context.coordinator.updates = view.scene.subscribe(to: SceneEvents.Update.self) { event in
-            let dt = event.deltaTime
-            MainActor.assumeIsolated {
-                director.frame(dt: dt)
-            }
-        }
-        return view
+        // RootView's `@AppStorage("squish.hasHinge")`: a hinge has reported on this device before.
+        let knownHinge = UserDefaults.standard.bool(forKey: "squish.hasHinge")
+        host.onFrame = { [weak director] dt in director?.frame(dt: dt) }
+        host.startRenderGate(
+            // Only a device with a hinge can have a display that's out of sight while the app runs (the Duo's inner
+            // display while shut). Until one has reported, the gate stays off: a plain pass-through. (Read per frame
+            // until then: one Bool.)
+            hasHinge: { [weak director] in knownHinge || director?.hingeAvailable == true },
+            // Shut = what the engine calls closed: a `closed` flag above 90° is stale (the Duo simulator keeps it set
+            // to ~150° on reopen), and the reopen must never wait for it. The same rule as FoldPressView.
+            shut: { [weak director] in
+                guard let director else { return false }
+                return director.isShowingCover && director.engine.rawAngle <= PressEngine.staleClosedAngle
+            },
+            busy: { [weak director] in director?.engine.phase == .pressing },
+            watch: { [weak director] in _ = director?.hingeClosed })
+        return host
     }
 
-    func updateUIView(_ uiView: ARView, context: Context) {}
+    func updateUIView(_ uiView: PressSceneHostView, context: Context) {}
 
-    static func dismantleUIView(_ uiView: ARView, coordinator: Coordinator) {
-        coordinator.updates?.cancel()
-        coordinator.updates = nil
+    static func dismantleUIView(_ uiView: PressSceneHostView, coordinator: ()) {
+        uiView.teardown()
+    }
+}
+
+/// The P-48's container: the ARView fills it (autoresizing), and leaves it (parked) while the render gate pauses.
+@MainActor
+final class PressSceneHostView: UIView {
+    let arView: ARView
+    private weak var scene: PressScene?
+    private var updates: Cancellable?
+    var onFrame: ((Double) -> Void)?
+    /// FOLD-REVIEW-7 N10: pauses this ARView (out of the window) while the display can't be seen. Hinge devices only.
+    private let gate = InnerRenderGate(name: "p48")
+    /// The ARView is out of the window (paused).
+    private(set) var isParked = false
+    private var gateStarted = false
+    private var hasHinge: (() -> Bool)?
+    /// The hinge reads shut (set by `startRenderGate`).
+    private var isShut: (() -> Bool)?
+    private var pendingBusy: (() -> Bool)?
+    private var pendingWatch: (() -> Void)?
+
+    init(arView: ARView, scene: PressScene) {
+        self.arView = arView
+        self.scene = scene
+        super.init(frame: .zero)
+        backgroundColor = Palette.backdrop
+        isMultipleTouchEnabled = true
+        arView.frame = bounds
+        arView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(arView)
+
+        updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
+            let dt = event.deltaTime
+            MainActor.assumeIsolated {
+                self?.renderTick(dt: dt)
+            }
+        }
+        gate.onFrame = { [weak self] dt, _ in self?.onFrame?(dt) }
+        gate.onPausedChange = { [weak self] paused in self?.setParked(paused) }
+        gate.sample = { [weak self] in
+            guard let self else { return (inWindow: false, canvasOK: false, shut: false) }
+            return (inWindow: self.window != nil,
+                    canvasOK: self.bounds.width > 1 && self.bounds.height > 1,
+                    shut: self.isShut?() ?? false)
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    /// `hasHinge`: the gate only runs on a device with a hinge (checked until one reports); `shut`: the hinge reads
+    /// closed; `busy`: a press is live; `watch`: reads the observable hinge state, so a reopen resumes at once.
+    func startRenderGate(hasHinge: @escaping () -> Bool, shut: @escaping () -> Bool, busy: @escaping () -> Bool,
+                         watch: @escaping () -> Void) {
+        self.hasHinge = hasHinge
+        isShut = shut
+        pendingBusy = busy
+        pendingWatch = watch
+        startGateIfHinged()
+    }
+
+    /// Starts the gate the first time a hinge is known. Before that, ticks go straight to `onFrame`.
+    private func startGateIfHinged() {
+        guard !gateStarted, let hasHinge, hasHinge() else { return }
+        gateStarted = true
+        gate.busy = pendingBusy
+        gate.watch = pendingWatch
+        pendingBusy = nil
+        pendingWatch = nil
+        gate.start()
+    }
+
+    /// From the ARView's `SceneEvents.Update`. An unstarted gate passes the tick through (`onFrame(dt, true)`).
+    private func renderTick(dt: Double) {
+        if !gateStarted { startGateIfHinged() }
+        gate.renderTick(dt: dt)
+    }
+
+    /// Pause = the ARView leaves the window (RealityKit renders only views in a window). On resume it takes the
+    /// container's current bounds (it may have resized while out) and autoresizes from there.
+    private func setParked(_ parked: Bool) {
+        guard parked != isParked else { return }
+        isParked = parked
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if parked {
+            arView.removeFromSuperview()
+        } else if arView.superview !== self {
+            arView.frame = bounds
+            addSubview(arView)
+        }
+        CATransaction.commit()
+        scene?.setRenderPaused(parked)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        gate.evaluate()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gate.evaluate()
+    }
+
+    func teardown() {
+        gate.stop()
+        updates?.cancel()
+        updates = nil
+        onFrame = nil
+        isShut = nil
+        hasHinge = nil
+        pendingBusy = nil
+        pendingWatch = nil
     }
 }

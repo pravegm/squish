@@ -12,6 +12,10 @@ import UIKit
 /// N11: the anamorphic eye throws everything with height toward the crease, so a squashed shell that was contained
 /// on the glass still drew ~70 pt past the plate once it re-inflated to the plastic ratchet at the reveal). Once it
 /// has splatted the jelly never re-gels (the height is latched), and the gloss mattes in steps as it flattens (F14).
+/// Once the plates part after the splat (released, or the reveal) the pressed slab relaxes into a puddle
+/// (`JellyPuddle`, FOLD-REVIEW-7 N9): a glossy, lobed, flat pool ≤ 35 % of the pressed height with a raised rim, held
+/// inside the strike plate, the core flattened inside it, the splorts reduced to beads on its rim and one dark tear
+/// across its skin.
 @MainActor
 final class JellyView: PressObjectView {
     let entity = Entity()
@@ -47,6 +51,17 @@ final class JellyView: PressObjectView {
     /// spreads, so a hard studio-light edge can't read as a straight "shading seam" across the blob (F14).
     private var mattLevel = 0
     private let golden: Bool
+    /// The puddle (FOLD-REVIEW-7 N9): 0 = the pressed slab … 1 = relaxed into a puddle. Starts once the plates part
+    /// after the splat and never goes back.
+    private var relaxing = false
+    private var relax: Float = 0
+    private var lastRelax: Float = -1
+    private var glossed = false
+    private let rim: JellyPuddle.Rim
+    /// The strike plate (no padding) on the Duo: the puddle stays inside it.
+    private let plateHalf: SIMD2<Float>
+    /// The tear across the puddle's skin (shown once it has relaxed).
+    private var tear: [ModelEntity] = []
 
     var shadowSpread: Float { spread }
 
@@ -76,6 +91,8 @@ final class JellyView: PressObjectView {
         golden = look.golden
         containment = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1),
                                               padding: JellySpread.platePadding)
+        plateHalf = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1), padding: 0)
+        rim = JellyPuddle.Rim(seed: variant.seed ^ 0x9D11)
         let shellMaterial = Self.shellMaterial(golden: look.golden, matt: 0)
         let coreMaterial = SceneMaterials.pbr(UIColor(hex: 0xB81E52), roughness: 0.3)
         dropColors = look.golden ? [Palette.goldMessColor] : [Palette.raspberry, UIColor(hex: 0xF0487A)]
@@ -147,18 +164,42 @@ final class JellyView: PressObjectView {
         // seen from the eye: the higher a point, the further in it is held, once the jelly is flattening.
         let cap: SIMD2<Float>? = fx.isFoldPress ? containment : nil
         let lift = JellySpread.lift(heightRatio: s)
-        if simd_length(key - lastKey) > 0.0004 {
+        // The puddle (FOLD-REVIEW-7 N9): once the plates part after the splat, the slab slumps into a puddle.
+        if splat && state.phase == .revealing { relaxing = true }
+        if relaxing && relax < 1 {
+            relax = state.reduceMotion ? 1 : Deform.approach(relax, 1, halfLife: JellyPuddle.relaxHalfLife, dt: dt)
+            if relax > 0.995 { relax = 1 }
+        }
+        let puddleHalf = cap != nil ? plateHalf * JellyPuddle.fill : JellyPuddle.machineHalf
+        if simd_length(key - lastKey) > 0.0004 || abs(relax - lastRelax) > 0.002 {
             lastKey = key
+            lastRelax = relax
             let rest = restHeight
+            let w = relax
+            let puddleRim = rim
             shell.update { p in
-                let q = Deform.squash(p, s: s, restHeight: rest, bulge: bulge, maxSpread: maxSpread, shear: lean)
-                guard let cap else { return q }
-                return JellySpread.contain(q, half: cap, lift: lift)
+                var q = Deform.squash(p, s: s, restHeight: rest, bulge: bulge, maxSpread: maxSpread, shear: lean)
+                if let cap { q = JellySpread.contain(q, half: cap, lift: lift) }
+                guard w > 0 else { return q }
+                var pool = JellyPuddle.shape(p, half: puddleHalf, rim: puddleRim)
+                if let cap { pool = JellySpread.contain(pool, half: cap, lift: lift) }
+                return q + (pool - q) * w
             }
+        }
+        if relax > 0.5 && !glossed {
+            // A puddle is wet: its gloss comes back (the raised rim gives the highlight a ring, not a seam).
+            glossed = true
+            if !golden {
+                shell.setMaterial(Self.shellMaterial(golden: golden, matt: JellyPuddle.gloss), forSlot: 0)
+                let mess = Self.messMaterial(golden: golden, matt: JellyPuddle.gloss)
+                spreadDisc.model?.materials = [mess]
+                for blob in splorts { blob.entity.model?.materials = [mess] }
+            }
+            for line in tear { line.isEnabled = true }
         }
         // Matt the gloss in steps as it flattens (and once more at the splat).
         let level = JellySpread.mattLevel(heightRatio: s, splat: splat)
-        if level > mattLevel && !golden {
+        if level > mattLevel && !golden && !glossed {
             mattLevel = level
             let matt = Float(level) / Float(JellySpread.mattSteps)
             shell.setMaterial(Self.shellMaterial(golden: golden, matt: matt), forSlot: 0)
@@ -175,10 +216,16 @@ final class JellyView: PressObjectView {
         } else {
             core.scale = SIMD3(coreSpread, s, coreSpread)
         }
-        core.position = SIMD3(lean.x * 0.5, 0, lean.y * 0.5)
+        if relax > 0 {
+            // Flattened inside the puddle's flat middle, so it darkens the pool without poking through its skin.
+            let pooled = JellyPuddle.coreScale(half: puddleHalf, rim: rim)
+            let target = SIMD3<Float>(min(core.scale.x, pooled.x), JellyPuddle.coreFlat, min(core.scale.z, pooled.y))
+            core.scale += (target - core.scale) * relax
+        }
+        core.position = SIMD3(lean.x * 0.5, 0, lean.y * 0.5) * (1 - relax)
         for piece in fruit where piece.entity.parent === entity {
             piece.entity.position = SIMD3(piece.rest.x * core.scale.x * 1.05 + lean.x * piece.rest.y / restHeight,
-                                          piece.rest.y * s,
+                                          piece.rest.y * s * (1 - relax) + JellyPuddle.centreHeight * 0.5 * relax,
                                           piece.rest.z * core.scale.z * 1.05 + lean.y * piece.rest.y / restHeight)
             piece.entity.scale = SIMD3(1, max(s, 0.35), 1)
         }
@@ -189,18 +236,27 @@ final class JellyView: PressObjectView {
             spreadT = max(spreadT, clamp((state.compression - splatC) / max(1 - splatC, 0.05), 0, 1))
             let t = spreadT
             var radius: Float = splat ? 0.05 + 0.015 * t : 0.045 // capped near plate + 40 pt (FOLD-REVIEW-2 #7)
+            // Relaxed, the disc is the puddle's thin wet margin, just reaching past its lobes.
+            radius += (puddleHalf.x * JellyPuddle.wetMargin - radius) * relax
             if let cap { radius = min(radius, JellySpread.maxDiscRadius(half: cap)) }
-            let thickness: Float = 0.004 * (splat ? 1 : 0.6)
+            var thickness: Float = 0.004 * (splat ? 1 : 0.6)
+            thickness += (JellyPuddle.filmHeight - thickness) * relax
             spreadDisc.isEnabled = true
             spreadDisc.scale = SIMD3(radius, thickness, radius * JellySpread.discAspect)
             for blob in splorts {
-                let grow = 1 + t * 0.6
+                // Relaxed, the splorts are beads on the puddle's rim.
+                let grow = (1 + t * 0.6) * (1 - relax) + JellyPuddle.beadScale * relax
                 let blobRadius = grow * blob.size * 0.5
                 var d = 0.045 + 0.02 * t
+                if relax > 0 {
+                    let edge = JellyPuddle.edge(theta: atan2(blob.direction.y, blob.direction.x), half: puddleHalf, rim: rim)
+                    d += (simd_length(edge) * 0.97 - d) * relax
+                }
                 if let cap { d = max(min(d, JellySpread.maxReach(direction: blob.direction, half: cap) - blobRadius), 0.02) }
                 let flat = max(0.3, min(1, h / 0.02)) * 0.4
-                blob.entity.position = SIMD3(blob.direction.x * d, blob.size * 0.5 * flat, blob.direction.y * d)
-                blob.entity.scale = SIMD3(grow, flat, grow) * (blob.size * 0.5)
+                let height = blob.size * 0.5 * flat * (1 - relax) + JellyPuddle.beadHeight * relax
+                blob.entity.position = SIMD3(blob.direction.x * d, height, blob.direction.y * d)
+                blob.entity.scale = SIMD3(grow * blob.size * 0.5, height, grow * blob.size * 0.5)
             }
             spread = max(spread, radius / footprint)
         }
@@ -272,13 +328,41 @@ final class JellyView: PressObjectView {
                 fx.debris.adopt(piece.entity, velocity: (dir * 0.25 + SIMD3(0, 0.35, 0)) * fx.motionScale,
                                 spin: Burst.spin(8 * fx.motionScale, rng: &rng), bounciness: 0.2)
             }
+            buildTear()
+        }
+    }
+
+    /// One jagged tear across the puddle's skin (FOLD-REVIEW-7 N9), the dark core showing through; hidden until the
+    /// puddle has relaxed.
+    private func buildTear() {
+        guard tear.isEmpty else { return }
+        let material = golden ? SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.3, metallic: 1)
+            : SceneMaterials.enamel(UIColor(hex: JellyPuddle.tearTint), roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2)
+        let half = fx.isFoldPress ? plateHalf * JellyPuddle.fill : JellyPuddle.machineHalf
+        let path = JellyPuddle.tearPath(angle: Float.random(in: 0...(2 * .pi), using: &rng), half: half, rim: rim, rng: &rng)
+        for k in 0..<(path.count - 1) {
+            let a = path[k], b = path[k + 1]
+            let run = SIMD2<Float>(b.x - a.x, b.z - a.z)
+            let length = simd_length(run)
+            guard length > 1e-4 else { continue }
+            let width = JellyPuddle.tearWidth * (1 - 0.5 * abs(Float(k) / Float(max(path.count - 2, 1)) * 2 - 1))
+            let line = Part.add(MeshKit.roundedBox([length + width, 0.0004, width], radius: width * 0.45, bevel: 0.00015),
+                                material, at: (a + b) / 2, to: entity)
+            line.orientation = simd_quatf(angle: -atan2(run.y, run.x), axis: [0, 1, 0])
+            line.isEnabled = false
+            tear.append(line)
         }
     }
 
     func handle(_ event: PressEvent, state: PressVisualState) {
         switch event {
         case .contact: bounce.kick(-3)
-        case .released: wobbleX.kick(1.5); bounce.kick(2)
+        case .released:
+            wobbleX.kick(1.5)
+            bounce.kick(2)
+            if splat { relaxing = true }
+        case .reveal:
+            if splat { relaxing = true }
         default: break
         }
     }
@@ -359,5 +443,107 @@ enum JellySpread {
         if splat { return mattSteps }
         let flat = clamp((1 - s) / 0.87, 0, 1)
         return min(Int((flat * Float(mattSteps - 1)).rounded(.down)), mattSteps - 1)
+    }
+}
+
+/// The relaxed jelly (FOLD-REVIEW-7 N9: the reveal was a smooth pink dome under "SKIN SPLIT · SPLAT"). Once the plates
+/// part after the splat, every vertex of the mould maps onto a puddle: a lobed outline held inside the strike plate, a
+/// flat glossy middle, a raised rim just inside the edge and a low rounded lip, all ≤ 35 % of the pressed height.
+/// Pure, so SquishTests can pin it. Heights are anvil metres; the mould's rest vertices come in.
+enum JellyPuddle {
+    /// The flat middle, the rim's crest and the outer lip (the pressed slab is 0.0765 × 0.13 ≈ 10 mm tall).
+    static let centreHeight: Float = 0.0017
+    static let rimHeight: Float = 0.0034
+    static let lipHeight: Float = 0.0009
+    /// Where the crest sits (share of the way out) and how wide its inner slope is.
+    static let rimAt: Float = 0.84
+    static let rimInnerWidth: Float = 0.13
+    /// The puddle's reach: this share of the strike plate's half extents (no padding) on the Duo; on the P-48, a fixed
+    /// ellipse a little inside the anvil.
+    static let fill: Float = 0.9
+    static let machineHalf = SIMD2<Float>(0.08, 0.07)
+    /// The mould (`ObjectMeshes.jellyProfile`): widest radius, at the top of its rounded foot.
+    static let mouldRadius: Float = 0.049
+    static let footY: Float = 0.008
+    /// How fast it slumps (half-life, s), and the gloss it gets back (`shellMaterial` matt 0…1).
+    static let relaxHalfLife: Float = 0.16
+    static let gloss: Float = 0.2
+    /// The core's height scale once pooled (its top stays under the middle's skin) and its share of the pool's width.
+    static let coreFlat: Float = 0.02
+    static let coreShare: Float = 0.65
+    /// The splat disc becomes the pool's wet margin; the splorts become beads on its rim.
+    static let wetMargin: Float = 0.98
+    static let filmHeight: Float = 0.0008
+    static let beadScale: Float = 0.55
+    static let beadHeight: Float = 0.0012
+    /// The tear: the core's colour, a little darker, ~1.2 mm wide at its middle.
+    static let tearTint: UInt32 = 0x9A1546
+    static let tearWidth: Float = 0.0012
+
+    /// The seeded lobes of the outline (5, 7 and 9 round), 0.825…1.095 of the base ellipse.
+    struct Rim: Sendable {
+        static let amplitudes: [Float] = [0.07, 0.04, 0.025]
+        static let lobes: [Float] = [5, 7, 9]
+        static let base: Float = 0.96
+        static var minScale: Float { base - amplitudes.reduce(0, +) }
+        static var maxScale: Float { base + amplitudes.reduce(0, +) }
+        let phases: [Float]
+
+        init(seed: UInt64) {
+            var rng = SplitMix64(seed: seed)
+            phases = Self.lobes.map { _ in Float.random(in: 0...(2 * .pi), using: &rng) }
+        }
+
+        func scale(_ theta: Float) -> Float {
+            var r = Self.base
+            for i in phases.indices { r += Self.amplitudes[i] * sin(Self.lobes[i] * theta + phases[i]) }
+            return r
+        }
+    }
+
+    /// The top surface's height `rho` (0 middle … 1 edge) of the way out: flat, then the raised rim, then the lip.
+    static func height(rho: Float) -> Float {
+        let rho = clamp(rho, 0, 1)
+        if rho <= rimAt {
+            let x = (rho - rimAt) / rimInnerWidth
+            return centreHeight + (rimHeight - centreHeight) * exp(-x * x)
+        }
+        let c = cos((rho - rimAt) / (1 - rimAt) * .pi / 2)
+        return lipHeight + (rimHeight - lipHeight) * c * c
+    }
+
+    /// The outline point (x, z) at angle `theta`.
+    static func edge(theta: Float, half: SIMD2<Float>, rim: Rim) -> SIMD2<Float> {
+        SIMD2(cos(theta) * half.x, sin(theta) * half.y) * rim.scale(theta)
+    }
+
+    /// Rest mould vertex `p` on the puddle. The mould's upper surface (above its widest ring) becomes the top, its apex
+    /// the middle; the rounded foot becomes the lip; the base stays on the plate.
+    static func shape(_ p: SIMD3<Float>, half: SIMD2<Float>, rim: Rim) -> SIMD3<Float> {
+        let r = (p.x * p.x + p.z * p.z).squareRoot()
+        let theta: Float = r > 1e-6 ? atan2(p.z, p.x) : 0
+        // Undo the mould's flutes (ObjectMeshes.jellyMould), so they don't ripple the rim.
+        let f = clamp((0.070 - p.y) / 0.010, 0, 1)
+        let r0 = r / (1 + 0.07 * cos(8 * theta) * f)
+        let rho = clamp(r0 / mouldRadius, 0, 1)
+        let y = p.y <= footY ? lipHeight * clamp(p.y / footY, 0, 1) : height(rho: rho)
+        let e = edge(theta: theta, half: half, rim: rim)
+        return SIMD3(e.x * rho, y, e.y * rho)
+    }
+
+    /// The core's (x, z) scale once pooled: its rest radius fits `coreShare` of the pool's narrowest reach.
+    static func coreScale(half: SIMD2<Float>, rim: Rim) -> SIMD2<Float> {
+        half * (Rim.minScale * coreShare / JellySpread.coreRestRadius)
+    }
+
+    /// The tear's jagged path across the skin, from near the middle most of the way to the rim, just above the surface.
+    static func tearPath(angle: Float, half: SIMD2<Float>, rim: Rim, rng: inout SplitMix64) -> [SIMD3<Float>] {
+        let steps = 6
+        return (0..<steps).map { i in
+            let rho = 0.12 + 0.58 * Float(i) / Float(steps - 1)
+            let theta = angle + Float.random(in: -0.16...0.16, using: &rng)
+            let e = edge(theta: theta, half: half, rim: rim) * rho
+            return SIMD3(e.x, height(rho: rho) + 0.0002, e.y)
+        }
     }
 }

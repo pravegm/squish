@@ -160,9 +160,12 @@ struct SceneTests {
         #expect(abs(box.y - (115 + 16) * metresPerPoint) < 1e-5)
         let clamped = GlassDebris.containment(restHeight: 0.060 * 0.76, anvilHalf: anvil)
         #expect(clamped.x <= anvil.x && clamped.y <= anvil.y)
-        // Small shards: ≤ 26° arcs on the body, and the whole bottle (plus a message) fits the 64-piece debris cap.
-        #expect(GlassDebris.sectorCounts == [1, 10, 14, 14, 8, 4])
+        // FOLD-REVIEW-7 #5: fewer, larger shards (45–72° arcs on the body), the base ring and the neck kept whole, and the
+        // whole bottle (plus a message) fits the 64-piece debris cap.
+        #expect(GlassDebris.sectorCounts == [1, 6, 8, 8, 5, 1])
         #expect(GlassDebris.sectorCounts.reduce(0, +) + 1 <= 64)
+        #expect(GlassDebris.intactBands == [0, GlassDebris.sectorCounts.count - 1])
+        for band in GlassDebris.intactBands { #expect(GlassDebris.sectorCounts[band] == 1) }
         #expect(GlassDebris.skidSpeed.lowerBound >= 0.04 && GlassDebris.skidSpeed.upperBound <= 0.10)
         // A piece bigger than the box is pinned to its centre rather than given an inverted box.
         let tight = GlassDebris.centreBounds(containment: [0.01, 0.01], pieceHalf: [0.02, 0.005])
@@ -229,8 +232,34 @@ struct SceneTests {
             let box = pair.bounds()
             #expect(box.min.x >= -0.5 && box.max.x <= 0.5 && box.min.z >= -0.5 && box.max.z <= 0.5)
             #expect(GlassDebris.fragmentSlot(pair, slot: 0).isValid && GlassDebris.fragmentSlot(pair, slot: 1).isValid)
-            // FOLD-REVIEW-5 N5: a two-tone edge, the dark hairline (and walls) in their own slot.
-            #expect(pair.materialSlots == 3 && GlassDebris.fragmentSlot(pair, slot: 2).isValid)
+            // FOLD-REVIEW-5 N5: a two-tone edge, the dark hairline (and walls) in their own slot; FOLD-REVIEW-7 N8: a
+            // specular streak across each face, in a fourth.
+            #expect(pair.materialSlots == 4 && GlassDebris.fragmentSlot(pair, slot: 2).isValid)
+            #expect(GlassDebris.fragmentSlot(pair, slot: 3).isValid)
+        }
+        // The big single pieces: one polygon filling most of the unit square, the same four slots.
+        for v in 0..<GlassDebris.singleVariants {
+            let single = GlassDebris.fragmentSingle(seed: GlassDebris.singleSeed(v))
+            expectValid(single, "single piece \(v)")
+            let box = single.bounds()
+            #expect(box.min.x >= -0.5 && box.max.x <= 0.5 && box.min.z >= -0.5 && box.max.z <= 0.5)
+            #expect(box.max.x - box.min.x >= 0.6 && box.max.z - box.min.z >= 0.6)
+            #expect(single.materialSlots == 4 && GlassDebris.fragmentSlot(single, slot: 3).isValid)
+        }
+        // A streak is a thin chord inside its polygon, a hair above the top face.
+        for seed in UInt64(1)...40 {
+            var rng = SplitMix64(seed: seed)
+            let polygon = GlassDebris.shardPolygon(sides: 4 + Int(seed % 3), radii: [0.2, 0.4], rng: &rng)
+            let streak = GlassDebris.streak(polygon, rng: &rng)
+            if streak.positions.isEmpty { continue }   // a chord too short to draw is skipped, not drawn outside
+            expectValid(streak, "streak \(seed)")
+            for p in streak.positions {
+                #expect(p.y > GlassDebris.fragmentThickness / 2)
+                for i in polygon.indices {
+                    let a = polygon[i], b = polygon[(i + 1) % polygon.count]
+                    #expect((b.x - a.x) * (p.z - a.y) - (b.y - a.y) * (p.x - a.x) > -1e-5, "streak leaves its shard")
+                }
+            }
         }
         // A rimmed slab with an outline keeps every triangle: face + bevel + hairline/walls.
         let square: [SIMD2<Float>] = [[-0.2, -0.4], [0.2, -0.4], [0.2, 0.4], [-0.2, 0.4]]
@@ -243,19 +272,45 @@ struct SceneTests {
             0.2126 * Float((hex >> 16) & 0xFF) + 0.7152 * Float((hex >> 8) & 0xFF) + 0.0722 * Float(hex & 0xFF)
         }
         #expect(luma(GlassDebris.shardTint) < luma(0x5CC8B8) - 15)
+        #expect(luma(GlassDebris.shardTintDeep) < luma(GlassDebris.shardTint) - 10)
         #expect(luma(GlassDebris.seaGlassTint) < luma(0x5CC8B8))
         #expect(luma(GlassDebris.outlineTint) < 100)
         #expect(GlassDebris.shardOpacity >= 0.65 && abs(GlassDebris.scrapScale - 0.98) < 1e-6)
         for v in 0..<GlassDebris.scrapVariants {
             expectValid(GlassDebris.scrap(seed: GlassDebris.scrapSeed(v)), "scrap \(v)")
         }
-        // Each piece is 3–9 mm on the plate (×0.76 hero scale), whatever the patch.
+        // FOLD-REVIEW-7 N8: a pair's piece is ~2.5–16 mm on the plate (×0.76 hero scale) and a single piece up to ~21 mm,
+        // whatever the patch, so no piece is dust and none is a playing card.
         for width in stride(from: Float(0.004), through: 0.2, by: 0.004) {
             for height in [Float(0.006), 0.025, 0.03] {
-                let piece = GlassDebris.pieceSize(GlassDebris.fragmentSize(width: width, height: height)) * Float(0.76)
-                #expect(piece.x >= 0.003 && piece.x <= 0.009 && piece.y >= 0.003 && piece.y <= 0.009)
+                let size = GlassDebris.fragmentSize(width: width, height: height)
+                for grow in [GlassDebris.pairScale.lowerBound, GlassDebris.pairScale.upperBound] {
+                    let piece = GlassDebris.pieceSize(size * grow) * Float(0.76)
+                    #expect(piece.x >= 0.0025 && piece.x <= 0.016 && piece.y >= 0.0025 && piece.y <= 0.016)
+                }
+                for grow in [GlassDebris.singleScale.lowerBound, GlassDebris.singleScale.upperBound] {
+                    let piece = GlassDebris.singlePieceSize(size * grow) * Float(0.76)
+                    #expect(piece.x >= 0.006 && piece.x <= 0.023 && piece.y >= 0.005 && piece.y <= 0.023)
+                }
             }
         }
+        // On the bottle's own patches (a 60° arc of the Ø 60 mm body, ~29 mm tall, and a 45° arc of the label, ~25 mm
+        // tall) the biggest single piece is ≥ 3× the area of the smallest piece of a pair, and ≥ 19 mm across.
+        let body = GlassDebris.fragmentSize(width: 0.030 * 2 * .pi / 6, height: 0.029)
+        let label = GlassDebris.fragmentSize(width: 0.030 * 2 * .pi / 8, height: 0.025)
+        let smallest = GlassDebris.pieceSize(label * GlassDebris.pairScale.lowerBound) * Float(0.76)
+        let biggest = GlassDebris.singlePieceSize(body * GlassDebris.singleScale.upperBound) * Float(0.76)
+        #expect(biggest.x * biggest.y >= 3 * smallest.x * smallest.y)
+        #expect(max(biggest.x, biggest.y) >= 0.019)
+        // One piece in three stays whole and lands in the middle; one in five is propped up, never on its edge.
+        #expect(GlassDebris.singleShare == 3 && GlassDebris.singleInner <= 0.5)
+        #expect(abs(GlassDebris.proppedShare - 0.2) < 1e-6)
+        #expect(GlassDebris.proppedTilt.lowerBound > GlassDebris.heapMaxTilt && GlassDebris.proppedTilt.upperBound <= 0.65)
+        // The intact base ring and neck land inside the pile, on opposite sides of it.
+        let neckSpot = GlassDebris.intactSpot(neck: true, footprint: 0.068 * 0.76, containment: [0.079, 0.056])
+        let baseSpot = GlassDebris.intactSpot(neck: false, footprint: 0.068 * 0.76, containment: [0.079, 0.056])
+        #expect(neckSpot.x > 0 && baseSpot.x < 0)
+        #expect(abs(neckSpot.x) < 0.079 * GlassDebris.pileRoom && abs(baseSpot.y) < 0.056 * GlassDebris.pileRoom)
         // The drop points fill the middle (≈ 1/π of them land in the central half-size box; a ring would put none
         // there) and stay inside the containment box.
         let footprint: Float = 0.068 * 0.76
@@ -365,10 +420,14 @@ struct SceneTests {
         let base = SIMD3<Float>(0.06, 0, -0.06 * tan(CakeSquash.halfAngle))
         #expect(simd_distance(CakeSquash.deform(base, progress: 1, noise: lumpy), base) < 1e-6)
         var last: Float = 0
+        var lastY = side.y
         for k in 0...10 {
             let q = CakeSquash.deform(side, progress: Float(k) / 10, noise: flat)
-            #expect(-q.z >= last - 1e-7 && q.y == side.y && abs(q.x - side.x) < 1e-6)
+            // Outward, never back; the squeezed-out filling only ever sags (toward the plate, never through it).
+            #expect(-q.z >= last - 1e-7 && abs(q.x - side.x) < 1e-6)
+            #expect(q.y <= lastY + 1e-7 && q.y > 0)
             last = -q.z
+            lastY = q.y
         }
         // The long side bows sideways by ≥ 1 cm at full squash, the filling further than the sponge above it, and the
         // cream top further than the sponge under it.
@@ -384,6 +443,177 @@ struct SceneTests {
         #expect(CakeSquash.progress(heightRatio: 1) == 0 && CakeSquash.progress(heightRatio: 0.3) > 0.999)
         #expect(CakeSquash.progress(heightRatio: 0.15) == 1)
         #expect(CakeSquash.progress(heightRatio: 0.385) > 0.8)
+        // The tip blunts: near it the sides spread sideways about as much as forward, not into a longer point.
+        let nearTip = SIMD3<Float>(0.015, 0.03, -0.015 * tan(CakeSquash.halfAngle))
+        let moved = CakeSquash.deform(nearTip, progress: 1, noise: flat) - nearTip
+        #expect(abs(moved.z) > 0.7 * abs(moved.x) && moved.x <= 0)
+    }
+
+    @Test func cakeReadsCrushedFromAbove() {
+        // FOLD-REVIEW-7 #5: from above the squashed slice must not be an intact wedge. Every vertex knows its layer.
+        let mesh = CakeSquash.bodyMesh()
+        let layers = CakeSquash.vertexLayers
+        #expect(layers.count == mesh.vertexCount)
+        #expect(Set(layers) == Set([0, 1, 2, 3, 4].map { UInt8($0) }))
+        // The cream top's vertices are the cream slot's, the filling's the filling slot's.
+        for part in mesh.splitByMaterial() where part.slot == Int(CakeSquash.fillingSlot) {
+            #expect(part.sourceVertex.allSatisfy { layers[$0] == UInt8(CakeSquash.fillingLayer) })
+        }
+        let noise = MeshKit.periodicNoise(seed: 0xCA4E_B01 ^ 3, octaves: 3)
+        let h = CakeSquash.surfaceHeight(compression: 1)
+        let s = CakeSquash.heightRatio(ramFace: h, candleBent: true)
+        let k = CakeSquash.uniformSpread(heightRatio: s)
+        let t = CakeSquash.progress(heightRatio: s)
+        #expect(t == 1 && k > 1.25)
+        func footprint(_ points: [SIMD2<Float>]) -> Float {
+            let hull = MeshKit.convexHull(points)
+            var area: Float = 0
+            for i in hull.indices {
+                let a = hull[i], b = hull[(i + 1) % hull.count]
+                area += a.x * b.y - b.x * a.y
+            }
+            return abs(area) / 2
+        }
+        var restTop: [SIMD2<Float>] = []
+        var crushedTop: [SIMD2<Float>] = []
+        var plateTop: [SIMD3<Float>] = []
+        var reach: [Int: Float] = [:]
+        let even: (Float) -> Float = { _ in 0 }
+        for (i, p) in mesh.positions.enumerated() {
+            let q = CakeSquash.deform(p, layer: Int(layers[i]), progress: t, noise: noise)
+            let root = CakeSquash.toRoot(q, spread: k, heightRatio: s)
+            restTop.append(SIMD2(p.x - CakeSquash.centroidX, p.z))
+            crushedTop.append(SIMD2(root.x, root.z))
+            plateTop.append(CakeSquash.rootToAnvil(root))
+            // How far each layer's long lower side has pushed out (mid-slice, x 0.04…0.09), lumps aside.
+            if p.x > 0.04 && p.x < 0.09 && p.z < -p.x * tan(CakeSquash.halfAngle) + 0.002 {
+                let e = CakeSquash.deform(p, layer: Int(layers[i]), progress: t, noise: even)
+                reach[Int(layers[i]), default: 0] = max(reach[Int(layers[i]), default: 0], -e.z + p.z)
+            }
+        }
+        // A flattened, wider outline: the top-down footprint ≥ 1.9× the wedge's.
+        #expect(footprint(crushedTop) >= 1.9 * footprint(restTop))
+        // The filling squeezes out past the cream, the cream past the sponge under it (so pink frames the white).
+        let filling = reach[CakeSquash.fillingLayer] ?? 0, cream = reach[CakeSquash.creamLayer] ?? 0
+        let sponge = reach[CakeSquash.upperSpongeLayer] ?? 0
+        #expect(filling > cream + 0.004 && cream > sponge)
+        #expect(filling * k >= 0.02)
+        // …and all of it stays on the strike plate (+16 pt), and on the plate floor.
+        let plate = GlassDebris.containment(restHeight: CakeSquash.restHeight, anvilHalf: SIMD2<Float>(repeating: 1))
+        for p in plateTop {
+            #expect(abs(p.x) <= plate.x && abs(p.z) <= plate.y && p.y >= 0)
+        }
+        // The ooze tongues leave the outline, pointing out of it.
+        for k in 0...20 {
+            let spot = CakeSquash.oozeSpot(fraction: Float(k) / 20)
+            #expect(abs(simd_length(spot.normal) - 1) < 1e-4)
+            let inward = spot.point - spot.normal * 0.002, outward = spot.point + spot.normal * 0.002
+            #expect(simd_length(inward - SIMD2(0.07, 0)) < simd_length(outward - SIMD2(0.07, 0)) + 1e-6)
+        }
+    }
+
+    @Test func cakeCandleKeepsItsTrueLengthWhateverTheSquash() {
+        // FOLD-REVIEW-7 N3: the bent candle got the slice's 1/s counter-scale on its (now horizontal) length axis and
+        // stretched into a needle up to ~6.7× past the plate. It is now a child of the unscaled root.
+        let length = CakeSquash.candleLength, r = CakeSquash.candleRadius
+        for bent in [false, true] {
+            for step in 0...100 {
+                let c = Float(step) / 100
+                let pose = CakeSquash.candlePose(compression: c, bent: bent)
+                let worldLength = simd_distance(pose.point(.zero), pose.point(SIMD3(0, length, 0)))
+                #expect(abs(worldLength / length - 1) <= 0.15, "candle length ×\(worldLength / length) at c \(c)")
+                // Its girth across the slice is its own too; only the ram may flatten it (never below 30 %).
+                let across = simd_distance(pose.point(SIMD3(0, 0, -r)), pose.point(SIMD3(0, 0, r)))
+                #expect(abs(across / (2 * r) - 1) <= 0.15)
+                let girth = simd_distance(pose.point(SIMD3(-r, 0, 0)), pose.point(SIMD3(r, 0, 0)))
+                #expect(girth / (2 * r) >= 0.3 - 1e-5 && girth / (2 * r) <= 1.15)
+            }
+        }
+        // At c = 1 the bent candle lies on the slice: inside the strike plate's footprint, on the cream top, under the
+        // ram face.
+        let h = CakeSquash.surfaceHeight(compression: 1)
+        let pose = CakeSquash.candlePose(compression: 1, bent: true)
+        let plate = GlassDebris.containment(restHeight: CakeSquash.restHeight, anvilHalf: SIMD2<Float>(repeating: 1), padding: 0)
+        let top = CakeSquash.heightRatio(ramFace: h, candleBent: true) * CakeSquash.cakeHeight
+        for x in [-r, r] {
+            for y in [Float(0), length + 0.0008] {
+                for z in [-r, r] {
+                    let p = CakeSquash.rootToAnvil(pose.point(SIMD3(x, y, z)))
+                    #expect(abs(p.x) <= plate.x && abs(p.z) <= plate.y)
+                    #expect(p.y >= top - 1e-5 && p.y <= h + 1e-5)
+                }
+            }
+        }
+        // It lies along the slice toward the apex and stays on it (the tip short of the wedge's apex).
+        let tip = pose.point(SIMD3(0, length, 0))
+        #expect(tip.x < pose.position.x - 0.9 * length)
+        let k = CakeSquash.uniformSpread(heightRatio: top / CakeSquash.cakeHeight)
+        #expect(tip.x > -CakeSquash.centroidX * k)
+        // The old composition, for the record: the slice's (k, s, k) × the bend × a (1/k, 1/s, 1/k) counter-scale.
+        let s = top / CakeSquash.cakeHeight
+        let bend = simd_quatf(angle: 1.45, axis: [0, 0, 1])
+        let old = SIMD3<Float>(k, s, k) * bend.act(SIMD3<Float>(1 / k, 1 / s, 1 / k) * SIMD3(0, length, 0))
+        #expect(simd_length(old) > 3 * length)
+    }
+
+    @Test func jellyRelaxesIntoAPuddleOnThePlate() {
+        // FOLD-REVIEW-7 N9: the reveal was a smooth dome. Relaxed, every mould vertex lies on a lobed puddle inside the
+        // strike plate, with a flat middle and a raised rim, ≤ 35 % of the pressed height (0.0765 × 0.13).
+        let plate = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1), padding: 0)
+        let cap = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1),
+                                          padding: JellySpread.platePadding)
+        let half = plate * JellyPuddle.fill
+        let pressed: Float = 0.0765 * 0.13
+        let mould = ObjectMeshes.jellyMould(scale: 1)
+        for seed in [UInt64(3), 77, 1234] {
+            let rim = JellyPuddle.Rim(seed: seed)
+            var maxY: Float = 0
+            for p in mould.positions {
+                let q = JellySpread.contain(JellyPuddle.shape(p, half: half, rim: rim), half: cap, lift: JellySpread.lift(heightRatio: 0.13))
+                #expect(abs(q.x) <= plate.x && abs(q.z) <= plate.y, "puddle leaves the plate")
+                #expect(q.y >= 0 && q.y <= 0.35 * pressed + 1e-6)
+                maxY = max(maxY, q.y)
+            }
+            #expect(maxY >= JellyPuddle.rimHeight - 1e-4)
+            // Lobed, not an ellipse: the outline's reach varies ≥ 1.2× round it.
+            var reaches: [Float] = []
+            for k in 0..<180 {
+                let theta = Float(k) * 2 * .pi / 180
+                reaches.append(JellySpread.norm(JellyPuddle.edge(theta: theta, half: half, rim: rim), half: half))
+            }
+            #expect(reaches.max()! / reaches.min()! >= 1.2)
+            // The tear crosses the skin inside the rim, just above it.
+            var rng = SplitMix64(seed: seed)
+            let tear = JellyPuddle.tearPath(angle: 1, half: half, rim: rim, rng: &rng)
+            #expect(tear.count >= 4)
+            for p in tear {
+                #expect(JellySpread.norm(SIMD2(p.x, p.z), half: half) <= 0.75 * JellyPuddle.Rim.maxScale)
+                #expect(p.y > JellyPuddle.centreHeight && p.y < JellyPuddle.rimHeight + 0.001)
+            }
+            // The pooled core sits inside the flat middle and under its skin.
+            let core = JellyPuddle.coreScale(half: half, rim: rim) * JellySpread.coreRestRadius
+            #expect(core.x <= 0.7 * half.x * JellyPuddle.Rim.minScale && core.y <= 0.7 * half.y * JellyPuddle.Rim.minScale)
+            #expect(JellySpread.coreTopRatio * 0.0765 * JellyPuddle.coreFlat < JellyPuddle.centreHeight)
+        }
+        // The profile: a flat middle, a raised rim, a low lip, continuous.
+        #expect(abs(JellyPuddle.height(rho: 0) - JellyPuddle.centreHeight) < 1e-5)
+        #expect(abs(JellyPuddle.height(rho: 0.4) - JellyPuddle.centreHeight) < 2e-4)
+        #expect(JellyPuddle.height(rho: JellyPuddle.rimAt) >= JellyPuddle.centreHeight + 0.0015)
+        #expect(abs(JellyPuddle.height(rho: 1) - JellyPuddle.lipHeight) < 1e-6)
+        var previous = JellyPuddle.height(rho: 0)
+        for k in 1...200 {
+            let y = JellyPuddle.height(rho: Float(k) / 200)
+            #expect(abs(y - previous) < 0.0004)
+            previous = y
+        }
+        // The mould's apex is the middle, its widest ring the edge, its base stays on the plate.
+        let rim = JellyPuddle.Rim(seed: 3)
+        let apex = JellyPuddle.shape(SIMD3(0, 0.0765, 0), half: half, rim: rim)
+        #expect(simd_length(SIMD2(apex.x, apex.z)) < 1e-6 && abs(apex.y - JellyPuddle.centreHeight) < 1e-6)
+        // (At θ 0 the mould's flutes put its widest ring at 0.049 × 1.07.)
+        let foot = JellyPuddle.shape(SIMD3(0.049 * 1.07, JellyPuddle.footY, 0), half: half, rim: rim)
+        #expect(abs(JellySpread.norm(SIMD2(foot.x, foot.z), half: half) - rim.scale(0)) < 0.02)
+        #expect(JellyPuddle.shape(SIMD3(0.02, 0, 0.01), half: half, rim: rim).y == 0)
     }
 
     @Test func duckHeadFlattensIntoAnEllipseWithTheBody() {

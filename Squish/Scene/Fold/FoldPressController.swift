@@ -68,6 +68,24 @@ final class FoldPressController {
     /// Seconds to the next read of the specimen's extent for the escaped droplets.
     private var specimenClock: Double = 0
 
+    // Inner display (FOLD-REVIEW-7 N10)
+    /// The stage isn't rendering (the inner display can't be seen, `InnerRenderGate`). The press logic keeps running;
+    /// the platen, bezel, spray and camera writes stop, and catch up in one settling step on resume.
+    private(set) var renderPaused = false
+    private var settleOnResume = false
+    /// A reveal whose beats wait for the inner display to light (`FoldRevealLight`).
+    private var revealPending = false
+    /// The current reveal began with the inner display dark (the reopen from closed, ~20°).
+    private(set) var revealBeganDark = false
+    private var revealLight = FoldRevealLight()
+    private var revealEventClock: Double = 0
+    private var revealEventAngle: Double = 180
+    /// The latest raw hinge reading, as of the last update.
+    private var rawAngle: Double = 180
+    private var lightWaiters: [CheckedContinuation<Void, Never>] = []
+    /// One settling step on resume: every transient (ripples, wipe, splat spread, needle, lean) is past its end by then.
+    private static let resumeSettle = 1.0
+
     // Instruments (same feel as the P-48's, VISUAL-TARGET §4.4–4.5)
     private var needleTons: Double = 0
     private var needleVelocity: Double = 0
@@ -90,6 +108,8 @@ final class FoldPressController {
     func attach(host: FoldStageHostView, scene: PressScene) {
         self.host = host
         self.scene = scene
+        renderPaused = host.isParked
+        settleOnResume = false
         cameraDirty = true
         sizeDirty = true
         applyColours()
@@ -100,6 +120,60 @@ final class FoldPressController {
         guard self.host === host else { return }
         self.host = nil
         scene = nil   // no fold side effect ever reaches the scene without a stage on screen
+        renderPaused = false
+        revealPending = false
+        resumeLightWaiters()
+    }
+
+    /// From the stage's render gate (FOLD-REVIEW-7 N10).
+    func setRenderPaused(_ paused: Bool) {
+        guard paused != renderPaused else { return }
+        renderPaused = paused
+        if !paused { settleOnResume = true }
+    }
+
+    // MARK: - Reveal on relight (FOLD-REVIEW-7 N10)
+
+    /// True while the current reveal's beats wait for the inner display to light. The diptych itself (print, specimen,
+    /// frozen gauge) is already drawn: the UI should put its label and keys up at once too, with no fade, so the panel
+    /// lights on a finished reveal; toasts and anything else that animates should wait for `revealLit()`.
+    var isRevealWaitingForLight: Bool { revealPending }
+
+    /// Returns once the current reveal's beats have started (the inner display is lit), at once if none is waiting.
+    func revealLit() async {
+        guard revealPending else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lightWaiters.append(continuation)
+        }
+    }
+
+    private func resumeLightWaiters() {
+        let waiters = lightWaiters
+        lightWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// The reveal's beats (§6.3 steps 2 and 4): the peel shimmer or goo strands, the PRESSED thunk, the anvil glint.
+    /// Runs after this frame's platen update, so the stamp is placed on the settled print.
+    private func startRevealBeats() {
+        revealPending = false
+        revealAge = 0
+        platen.reveal()
+        let strands = strandCount()
+        if strands > 0, let stamp = platen.stack?.stamp {
+            bezel.startStrands(count: strands, color: stamp.ink, seed: variant.seed)
+        }
+        scene?.foldRevealLit()
+        if revealBeganDark {
+            log(String(format: "reveal lit at %.1f° after %.2fs (dark at %.1f°)", rawAngle, clock - revealEventClock,
+                       revealEventAngle))
+        }
+        resumeLightWaiters()
+    }
+
+    private func log(_ message: String) {
+        guard DemoScenario.current != nil else { return }
+        print(String(format: "SQUISH-F %@ at %.2fs", message, CACurrentMediaTime() - SceneTrace.origin))
     }
 
     /// Called once per canvas size (never on division-region activation, §9.2).
@@ -160,6 +234,9 @@ final class FoldPressController {
         redTimer = 0
         blink = 0
         revealAge = nil
+        revealPending = false
+        revealBeganDark = false
+        resumeLightWaiters()
         // The last print wipes off with a squeegee while the next object drops (§6.3 step 6), and the escaped splat
         // goes with it.
         platen.wipe()
@@ -183,7 +260,7 @@ final class FoldPressController {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        resizeAnvilViewIfNeeded()
+        // The print's stamp and the fold scale keep up while paused (an object queued from the cover is ready on open).
         updateObjectScale(engine: engine, reduceMotion: context.reduceMotion)
 
         // Press state, from the same engine fields the 3D scene reads this frame.
@@ -195,21 +272,28 @@ final class FoldPressController {
         }
         let angle = engine.angle
         lastAngle = engine.failureAngle ?? angle
+        rawAngle = engine.rawAngle
+        revealLight.track(angle: rawAngle, clock: clock)
         let objectPresent = sinceSet > (firstObject ? 0.9 : 1.2) || phase == .pressing
 
-        guard let layout else { return }
+        // N10: nothing to draw while the inner display can't be seen. The first frame back settles every transient
+        // in one step, so the relit display shows the finished state, never a ripple or a wipe caught mid-way.
+        guard !renderPaused, let layout else { return }
+        let vdt = settleOnResume ? Self.resumeSettle : dt
+        settleOnResume = false
+        resizeAnvilViewIfNeeded()
         let sweepPosition = sweep(engine: engine, angle: angle, objectPresent: objectPresent,
-                                  reduceMotion: context.reduceMotion, dt: dt)
+                                  reduceMotion: context.reduceMotion, dt: vdt)
         let frame = FoldFrame(angle: angle, approach: approach, compression: renderCompression,
                               printCompression: printCompression, contacted: contacted, tell: tell,
                               failureCompression: failureCompression, objectPresent: objectPresent,
-                              tabletop: !layout.isBook, reduceMotion: context.reduceMotion, time: clock, dt: dt,
-                              sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil,
+                              tabletop: !layout.isBook, reduceMotion: context.reduceMotion, time: clock, dt: vdt,
+                              sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil && !revealPending,
                               failureAngle: failureAngle)
         platen.update(frame)
         // The escaped droplets land clear of the spreading specimen (FOLD-REVIEW-5): its live extent, 10 Hz.
         if anvil.hasSpray {
-            specimenClock -= dt
+            specimenClock -= vdt
             if specimenClock <= 0 {
                 specimenClock = 0.1
                 if let extent = scene?.foldSpecimenExtent(relativeTo: anvil.root) {
@@ -217,10 +301,15 @@ final class FoldPressController {
                 }
             }
         }
-        anvil.updateSpray(spread: platen.stack?.splatScale ?? 1, dt: dt, reduceMotion: context.reduceMotion)
-        bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: dt),
+        anvil.updateSpray(spread: platen.stack?.splatScale ?? 1, dt: vdt, reduceMotion: context.reduceMotion)
+        bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: vdt),
                      frame: frame)
-        updateCamera(layout: layout, angle: angle, dt: dt)
+        updateCamera(layout: layout, angle: angle, dt: vdt)
+
+        // N10: a reveal from the dark plays its beats once the display is lit (after this frame's settled platen).
+        if revealPending && revealLight.isLit(angle: rawAngle, clock: clock) {
+            startRevealBeats()
+        }
     }
 
     func handle(_ event: PressEvent, context: FeedbackContext) {
@@ -256,11 +345,19 @@ final class FoldPressController {
                 if effect == .platenBreaks { bezel.crackGauge(seed: variant.seed) }
             }
         case .reveal:
-            revealAge = 0
-            platen.reveal()
-            let strands = strandCount()
-            if strands > 0, let stamp = platen.stack?.stamp {
-                bezel.startStrands(count: strands, color: stamp.ink, seed: variant.seed)
+            // FOLD-REVIEW-7 N10: the reopen from closed reveals at ~20°, inside the 55–20° window where the inner
+            // display is dark. The stage resumes on that same sample and draws the finished diptych; the beats wait for
+            // the light (`FoldRevealLight`), so none of them starts from zero in the dark. A reveal on an open, lit
+            // display (sealed and left at ≥ 100°, or opened past 120° without closing) plays them at once, as before.
+            revealPending = true
+            revealBeganDark = renderPaused || FoldRevealLight.isDark(angle: rawAngle)
+            revealEventClock = clock
+            revealEventAngle = rawAngle
+            if revealBeganDark {
+                log(String(format: "reveal dark at %.1f° (paused=%d): beats wait for the light", rawAngle,
+                           renderPaused ? 1 : 0))
+            } else {
+                startRevealBeats()
             }
         default:
             break

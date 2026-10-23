@@ -4,13 +4,15 @@ import simd
 import UIKit
 
 /// Glass Bottle (bible §4 #9, VISUAL-TARGET §5.9): a sea-glass bottle lying on its side, neck camera-right,
-/// pre-fractured into ~50 small thin shards (2.2 mm lathe patches, ≤ 26° arcs) under one intact paper label band.
+/// pre-fractured into ~30 thin shards (2.2 mm lathe patches, 45–72° arcs) under one intact paper label band.
 /// Silent rigidity until fracture 0 (~0.22), apart from a slight ovalisation; then bright crack lines that lengthen
-/// toward the failure. Fracture 1 (failure, ~0.40) is the biggest event in the app: the label tears away and each
-/// curved patch breaks into two flat, irregular convex shards of bottle glass, darker than the steel, with a dark
-/// hairline and a bright bevel on every edge (FOLD-REVIEW-4 F5, FOLD-REVIEW-5 N5: ~100 pieces, 3–9 mm) that heap up
-/// in the middle of the plate (FOLD-REVIEW-6 N10; no pale dust disc under them), skid a little (fade-and-slump under
-/// Reduce Motion) and stay on the
+/// toward the failure. Fracture 1 (failure, ~0.40) is the biggest event in the app: the label tears away; the base
+/// ring and the neck stay whole (curved bottle glass on the heap, FOLD-REVIEW-7 #5) and every other curved patch breaks
+/// into two flat, irregular convex shards (or, one in three, stays one big piece) of bottle glass in two tints, darker
+/// than the steel, with a dark hairline and a bright bevel on every edge and a specular streak across the face
+/// (FOLD-REVIEW-4 F5, FOLD-REVIEW-5 N5, FOLD-REVIEW-7 N8: ~45 pieces, ~4–21 mm, ~3× in area) that heap up in the middle
+/// of the plate, the big ones in the centre and one in five propped up on the others (FOLD-REVIEW-6 N10; no pale dust
+/// disc under them), skid a little (fade-and-slump under Reduce Motion) and stay on the
 /// strike plate (+16 pt); 10 label scraps (6 raspberry, 4 cream, ~a shard each) lie on top so the pile is still "a bottle",
 /// and 6 glints twinkle until the seal. Fracture 2 (~0.62): the pile crunches into soft "sea glass". The pile freezes
 /// at seal, so the reveal shows exactly the sealed pile (FOLD-REVIEW-3 N5). Surprise `messageInABottle`: a rolled
@@ -36,9 +38,18 @@ final class GlassBottleView: PressObjectView {
     /// Per shard: the parent of its fragment pair, label scrap and glint, which the shatter lifts and tilts so the pile
     /// heaps up in the middle (FOLD-REVIEW-6 N10). The debris body (the shard) itself stays yaw-only.
     private var poses: [Entity] = []
-    /// The fragments' glass faces and bright edges (the crunch swaps both to frosted sea glass).
+    /// The fragments' glass faces and bright edges (the crunch swaps both to frosted sea glass), and the specular streak
+    /// across each face (the crunch frosts it away).
     private var fragmentFaces: [ModelEntity] = []
     private var fragmentEdges: [ModelEntity] = []
+    private var fragmentStreaks: [ModelEntity] = []
+    /// Per shard: kept whole at the shatter (the base ring and the neck: FOLD-REVIEW-7 #5, curved glass that says
+    /// "bottle"), and for those the rotation that puts their mesh back in the bottle's lathe axes.
+    private var intact: [Bool] = []
+    private var intactNeck: [Bool] = []
+    private var latheAxes: [simd_quatf] = []
+    /// Per shard: one big piece rather than a split pair (they land in the middle of the heap).
+    private var singles: [Bool] = []
     /// Six glints on the pile that twinkle from the shatter until the seal (FOLD-REVIEW-4 F5: was a static white dot
     /// on every third shard).
     private var sparkles: [Entity] = []
@@ -128,25 +139,47 @@ final class GlassBottleView: PressObjectView {
         // clear two-tone edge: a dark hairline where the thick glass edge refracts, and a bright bevel just inside it
         // where it catches the light. So each shard reads on a white-hot plate, on the mid-grey platen and under the
         // P-48's key. A few seeded shapes are shared (cached for the session) and each patch scales and yaws its own.
-        let fragmentFace = look.golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: GlassDebris.shardTint), roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02,
-                                    specular: 1, opacity: GlassDebris.shardOpacity)
+        // Two bottle-glass tints, so neighbouring shards don't read as one flat sheet of the same paper (FOLD-REVIEW-7 #5).
+        var fragmentFaceTints: [any Material] = []
+        if look.golden {
+            fragmentFaceTints.append(SceneMaterials.gold)
+        } else {
+            for tint in [GlassDebris.shardTint, GlassDebris.shardTintDeep] {
+                fragmentFaceTints.append(SceneMaterials.enamel(UIColor(hex: tint), roughness: 0.04, clearcoat: 1,
+                                                               clearcoatRoughness: 0.02, specular: 1,
+                                                               opacity: GlassDebris.shardOpacity))
+            }
+        }
         let fragmentEdge: any Material
         let fragmentOutline: any Material
+        let fragmentStreak: any Material
         if look.golden {
             fragmentEdge = SceneMaterials.gold
             fragmentOutline = SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.3, metallic: 1)
+            fragmentStreak = SceneMaterials.unlit(UIColor(hex: 0xFFF1C4), opacity: GlassDebris.streakOpacity)
         } else {
             fragmentEdge = SceneMaterials.unlit(UIColor(hex: 0xF2FFFC), opacity: 0.95)
             fragmentOutline = SceneMaterials.unlit(UIColor(hex: GlassDebris.outlineTint), opacity: 0.9)
+            fragmentStreak = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF), opacity: GlassDebris.streakOpacity)
         }
-        var fragmentResources: [(face: MeshResource?, edge: MeshResource?, outline: MeshResource?)] = []
+        typealias FragmentResources = (face: MeshResource?, edge: MeshResource?, outline: MeshResource?, streak: MeshResource?)
+        var fragmentResources: [FragmentResources] = []
         for v in 0..<GlassDebris.fragmentVariants {
             let seed = GlassDebris.fragmentSeed(v)
             let face = MeshCache.resource("glass.frag.\(v).0") { GlassDebris.fragmentSlot(GlassDebris.fragmentPair(seed: seed), slot: 0) }
             let edge = MeshCache.resource("glass.frag.\(v).1") { GlassDebris.fragmentSlot(GlassDebris.fragmentPair(seed: seed), slot: 1) }
             let outline = MeshCache.resource("glass.frag.\(v).2") { GlassDebris.fragmentSlot(GlassDebris.fragmentPair(seed: seed), slot: 2) }
-            fragmentResources.append((face, edge, outline))
+            let streak = MeshCache.resource("glass.frag.\(v).3") { GlassDebris.fragmentSlot(GlassDebris.fragmentPair(seed: seed), slot: 3) }
+            fragmentResources.append((face, edge, outline, streak))
+        }
+        var singleResources: [FragmentResources] = []
+        for v in 0..<GlassDebris.singleVariants {
+            let seed = GlassDebris.singleSeed(v)
+            let face = MeshCache.resource("glass.single.\(v).0") { GlassDebris.fragmentSlot(GlassDebris.fragmentSingle(seed: seed), slot: 0) }
+            let edge = MeshCache.resource("glass.single.\(v).1") { GlassDebris.fragmentSlot(GlassDebris.fragmentSingle(seed: seed), slot: 1) }
+            let outline = MeshCache.resource("glass.single.\(v).2") { GlassDebris.fragmentSlot(GlassDebris.fragmentSingle(seed: seed), slot: 2) }
+            let streak = MeshCache.resource("glass.single.\(v).3") { GlassDebris.fragmentSlot(GlassDebris.fragmentSingle(seed: seed), slot: 3) }
+            singleResources.append((face, edge, outline, streak))
         }
         var scrapResources: [MeshResource] = []
         for v in 0..<GlassDebris.scrapVariants {
@@ -196,29 +229,46 @@ final class GlassBottleView: PressObjectView {
                 shard.position = patch.centre
                 shard.orientation = toLocal.inverse
 
-                // The fragment pair (hidden until the shatter), sized to the patch, split along its long side, and
-                // stacked a hair apart in height so overlapping pieces never z-fight.
+                // The base ring and the neck stay whole (curved glass on the pile: FOLD-REVIEW-7 #5). Every other patch
+                // breaks into a fragment pair or, one in `singleShare`, stays one big piece (hidden until the shatter),
+                // sized to the patch (× a seeded 0.75–1.08, so sizes vary ~3× in area), and stacked a hair apart in
+                // height so overlapping pieces never z-fight.
+                let keepWhole = n == 1 && GlassDebris.intactBands.contains(b)
+                let single = !keepWhole && rng.next() % GlassDebris.singleShare == 0
+                intact.append(keepWhole)
+                intactNeck.append(keepWhole && b == bandEdges.count - 2)
+                latheAxes.append(toLocal.inverse)
+                singles.append(single)
                 let width = profile[mid].x * (cuts[k + 1] - cuts[k])
-                let size = GlassDebris.fragmentSize(width: width, height: along)
+                let grow = Float.random(in: single ? GlassDebris.singleScale : GlassDebris.pairScale, using: &rng)
+                let size = GlassDebris.fragmentSize(width: width, height: along) * grow
                 let layer = GlassDebris.layerHeight(shards.count)
                 let pose = Entity()
                 shard.addChild(pose)
                 poses.append(pose)
                 let fragment = Entity()
-                let variant = Int(rng.next() % UInt64(GlassDebris.fragmentVariants))
-                let resources = fragmentResources[variant]
-                if let face = resources.face {
-                    let model = ModelEntity(mesh: face, materials: [fragmentFace])
-                    fragment.addChild(model)
-                    fragmentFaces.append(model)
-                }
-                if let edge = resources.edge {
-                    let model = ModelEntity(mesh: edge, materials: [fragmentEdge])
-                    fragment.addChild(model)
-                    fragmentEdges.append(model)
-                }
-                if let outline = resources.outline {
-                    fragment.addChild(ModelEntity(mesh: outline, materials: [fragmentOutline]))
+                if !keepWhole {
+                    let variant = Int(rng.next() % UInt64(single ? GlassDebris.singleVariants : GlassDebris.fragmentVariants))
+                    let resources = single ? singleResources[variant] : fragmentResources[variant]
+                    let tint = fragmentFaceTints[Int(rng.next() % UInt64(fragmentFaceTints.count))]
+                    if let face = resources.face {
+                        let model = ModelEntity(mesh: face, materials: [tint])
+                        fragment.addChild(model)
+                        fragmentFaces.append(model)
+                    }
+                    if let edge = resources.edge {
+                        let model = ModelEntity(mesh: edge, materials: [fragmentEdge])
+                        fragment.addChild(model)
+                        fragmentEdges.append(model)
+                    }
+                    if let outline = resources.outline {
+                        fragment.addChild(ModelEntity(mesh: outline, materials: [fragmentOutline]))
+                    }
+                    if let streak = resources.streak {
+                        let model = ModelEntity(mesh: streak, materials: [fragmentStreak])
+                        fragment.addChild(model)
+                        fragmentStreaks.append(model)
+                    }
                 }
                 fragment.scale = SIMD3(size.x, 1, size.y)
                 fragment.position = [0, layer, 0]
@@ -244,12 +294,13 @@ final class GlassBottleView: PressObjectView {
                 let picks = bandShards[entry.band].shuffled(using: &rng).prefix(entry.count)
                 for i in picks {
                     let size = fragmentSizes[i]
-                    let piece = GlassDebris.pieceSize(size)
+                    let piece = GlassDebris.scrapPiece(size, single: singles[i])
                     let scrap = ModelEntity(mesh: scrapResources[Int(rng.next() % UInt64(scrapResources.count))],
                                             materials: [entry.material])
                     let side: Float = rng.next() % 2 == 0 ? -1 : 1
                     scrap.scale = SIMD3(piece.x * GlassDebris.scrapScale, 1, piece.y * GlassDebris.scrapScale)
-                    scrap.position = [side * size.x * 0.25, layers[i] + GlassDebris.fragmentThickness / 2 + 0.00035, 0]
+                    scrap.position = [side * size.x * (singles[i] ? 0.12 : 0.25),
+                                      layers[i] + GlassDebris.fragmentThickness / 2 + 0.00035, 0]
                     scrap.orientation = simd_quatf(angle: Float.random(in: -0.5...0.5, using: &rng), axis: [0, 1, 0])
                     scrap.isEnabled = false
                     poses[i].addChild(scrap)
@@ -335,6 +386,7 @@ final class GlassBottleView: PressObjectView {
             // stay near the pile.
             for face in fragmentFaces { face.model?.materials = [seaGlass] }
             for edge in fragmentEdges { edge.model?.materials = [seaGlassEdge] }
+            for streak in fragmentStreaks { streak.isEnabled = false }
             if !failed {
                 for part in patchModels.flatMap({ Self.models(in: $0) }) { part.model?.materials = [seaGlass] }
             }
@@ -447,17 +499,41 @@ final class GlassBottleView: PressObjectView {
         // World size of one bottle-local metre (the hero scale, times any slot scale), so fragments keep their size.
         let pieceScale = max(entity.scale(relativeTo: fx.debris.root).x, 0.01)
         for (i, shard) in shards.enumerated() {
+            if i < intact.count && intact[i] {
+                // The base ring and the neck stay whole: curved bottle glass on the heap (FOLD-REVIEW-7 #5). Their mesh
+                // goes back into the bottle's lathe axes, so the base stands as a ring and the neck lies on its side.
+                if i < patchModels.count, i < latheAxes.count { patchModels[i].orientation = latheAxes[i] }
+                shard.setParent(fx.debris.root)
+                let neck = i < intactNeck.count && intactNeck[i]
+                let spot = GlassDebris.intactSpot(neck: neck, footprint: footprint, containment: containment)
+                let yaw = Part.yaw(Float.random(in: -30...30, using: &rng))
+                shard.orientation = neck ? yaw * simd_quatf(angle: -.pi / 2, axis: [0, 0, 1]) : yaw
+                shard.scale = SIMD3(repeating: pieceScale)
+                shard.position = SIMD3(centre0.x + spot.x, 0.004, centre0.z + spot.y)
+                let size = shard.visualBounds(relativeTo: fx.debris.root).extents
+                let half = SIMD2<Float>(repeating: simd_length(SIMD2(size.x, size.z)) / 2)
+                let a = Float.random(in: 0...(2 * .pi), using: &rng)
+                let v = SIMD3<Float>(cos(a), 0, sin(a)) * GlassDebris.skidSpeed.lowerBound * 0.5 * m
+                fx.debris.adopt(shard, velocity: v, spin: .zero, bounciness: 0.1, friction: 0.9, maxSpread: 1,
+                                bounds: GlassDebris.centreBounds(containment: containment, pieceHalf: half))
+                continue
+            }
             if i < patchModels.count { patchModels[i].removeFromParent() }
             if i < fragments.count { fragments[i].isEnabled = true }
             shard.setParent(fx.debris.root)
             let a = Float.random(in: 0...(2 * .pi), using: &rng)
-            let u = Float.random(in: 0...1, using: &rng)
+            // The big single pieces land in the middle of the heap (FOLD-REVIEW-7 #5: a few 20 mm pieces in the centre).
+            let single = i < singles.count && singles[i]
+            let u = Float.random(in: 0...(single ? GlassDebris.singleInner : 1), using: &rng)
             let rho = GlassDebris.pileRadius(u: u)
             let spot = GlassDebris.pilePoint(angle: a, u: u, footprint: footprint, containment: containment)
             let dir = SIMD3<Float>(cos(a), 0, sin(a))
             if i < poses.count {
                 let lift = GlassDebris.heapLift(rho: rho, jitter: Float.random(in: 0...1, using: &rng))
-                let tilt = GlassDebris.heapTilt(rho: rho, jitter: Float.random(in: 0...1, using: &rng))
+                // One piece in five is propped up on the others, so it catches the light at its own angle.
+                let propped = Float.random(in: 0...1, using: &rng) < GlassDebris.proppedShare
+                let tilt = propped ? Float.random(in: GlassDebris.proppedTilt, using: &rng)
+                    : GlassDebris.heapTilt(rho: rho, jitter: Float.random(in: 0...1, using: &rng))
                 let axis = Float.random(in: 0...(2 * .pi), using: &rng)
                 poses[i].position = [0, lift, 0]
                 poses[i].orientation = simd_quatf(angle: tilt, axis: SIMD3(cos(axis), 0, sin(axis)))
@@ -493,9 +569,28 @@ final class GlassBottleView: PressObjectView {
 
 /// Pure glass-debris numbers (FOLD-REVIEW-3 N5), pinned in SquishTests/SceneTests.swift.
 enum GlassDebris {
-    /// Shards per profile band (base, low body, label low, label high, shoulder, neck): small and flat, ≤ 26° arcs on
-    /// the body (was [1, 6, 6, 6, 5, 3]: 60° arcs that lay like playing cards).
-    static let sectorCounts = [1, 10, 14, 14, 8, 4]
+    /// Shards per profile band (base, low body, label low, label high, shoulder, neck). FOLD-REVIEW-7 #5: ~100 same-size
+    /// 3–9 mm pieces ([1, 10, 14, 14, 8, 4]) read as mint confetti; now fewer, larger pieces (45–60° arcs on the body,
+    /// most split in two, a third kept as one big piece) plus the base ring and the neck kept whole.
+    static let sectorCounts = [1, 6, 8, 8, 5, 1]
+    /// Bands whose single patch stays whole at the shatter: the base ring and the neck.
+    static let intactBands = [0, 5]
+    /// One body patch in `singleShare` stays one big piece (≈ 0.9 of its patch) instead of a split pair.
+    static let singleShare: UInt64 = 3
+    static let singleFill: Float = 0.9
+    static let singleVariants = 6
+    /// Seeded size spread per patch (× the patch's own size): pairs a little smaller, singles a little bigger, so the
+    /// pieces vary ~3× in area (FOLD-REVIEW-7 N8).
+    static let pairScale: ClosedRange<Float> = 0.75...1.0
+    static let singleScale: ClosedRange<Float> = 1.0...1.08
+    /// The big pieces land in this inner share (`u`) of the heap.
+    static let singleInner: Float = 0.45
+    /// One piece in five is propped up on the others at a steeper angle (FOLD-REVIEW-7 N8: tilt ~20 % off the plate).
+    static let proppedShare: Float = 0.2
+    static let proppedTilt: ClosedRange<Float> = 0.42...0.6
+    /// The specular streak across each piece's face: a thin bright chord, so the faces read as glass, not paper.
+    static let streakOpacity: Float = 0.5
+    static let streakWidth: Float = 0.055
     /// How far past the strike plate the pile may reach, in canvas points.
     static let platePadding: Double = 16
     /// Skid speed range (m/s) once a shard lies flat; there is no up component.
@@ -547,6 +642,8 @@ enum GlassDebris {
     /// Bottle glass, darker than the steel (FOLD-REVIEW-5 N5): #5CC8B8 taken ~45 % toward a deep #2F8F82 (round 4 took
     /// it 20 % *lighter*, toward #8FE0D3, and at 0.5 it read as pale paper on a L 235 plate).
     static let shardTint: UInt32 = 0x47AEA0
+    /// A deeper bottle green for about half the pieces (one flat tint read as a sheet of confetti, FOLD-REVIEW-7 N8).
+    static let shardTintDeep: UInt32 = 0x35948A
     static let shardOpacity: Float = 0.7
     /// The crunched "sea glass": frosted, a touch lighter than the clear shards, never paper-pale.
     static let seaGlassTint: UInt32 = 0x5BB3A6
@@ -571,11 +668,12 @@ enum GlassDebris {
         return SIMD2(cos(angle) * half.x, sin(angle) * half.y) * r
     }
 
-    /// The fragment pair's (long, short) size (bottle-local metres) for a lathe patch `width` round × `height` along
-    /// the profile: each of its two pieces is then ≈ 3–9 mm on the plate.
+    /// The fragment's (long, short) size (bottle-local metres) for a lathe patch `width` round × `height` along the
+    /// profile (FOLD-REVIEW-7 #5: up to 30 × 24 mm, was 22 × 14): a pair's pieces are then ≈ 4–15 mm on the plate, a
+    /// single piece up to ≈ 21 mm.
     static func fragmentSize(width: Float, height: Float) -> SIMD2<Float> {
-        let long = clamp(max(width, height) * 0.92, 0.010, 0.022)
-        let short = clamp(min(width, height) * 0.92, 0.006, 0.014)
+        let long = clamp(max(width, height) * 0.92, 0.012, 0.030)
+        let short = clamp(min(width, height) * 0.92, 0.008, 0.024)
         return SIMD2(long, min(short, long))
     }
 
@@ -584,11 +682,29 @@ enum GlassDebris {
         SIMD2(size.x * 0.42, size.y * 0.84)
     }
 
+    /// The size of a single (unsplit) piece of `size`.
+    static func singlePieceSize(_ size: SIMD2<Float>) -> SIMD2<Float> {
+        size * singleFill
+    }
+
+    /// A label scrap lies on one piece: a pair's piece, or half a single piece.
+    static func scrapPiece(_ size: SIMD2<Float>, single: Bool) -> SIMD2<Float> {
+        single ? singlePieceSize(size) * SIMD2(0.5, 0.6) : pieceSize(size)
+    }
+
+    /// Where an intact piece lands, relative to the bottle's centre: the neck at the heap's +x side (where it was),
+    /// the base ring at its −x side, both inside the pile.
+    static func intactSpot(neck: Bool, footprint: Float, containment: SIMD2<Float>) -> SIMD2<Float> {
+        let half = simd_min(SIMD2<Float>(footprint * pileFill, footprint * pileFill * pileAspect), containment * pileRoom)
+        return neck ? SIMD2(half.x * 0.6, -half.y * 0.2) : SIMD2(-half.x * 0.7, half.y * 0.25)
+    }
+
     static func layerHeight(_ index: Int) -> Float {
         Float(index % 5) * layerStep
     }
 
     static func fragmentSeed(_ variant: Int) -> UInt64 { 0x6A55_F7A6 &+ UInt64(variant) &* 0x9E37 }
+    static func singleSeed(_ variant: Int) -> UInt64 { 0x6A55_5146 &+ UInt64(variant) &* 0x7F4B }
     static func scrapSeed(_ variant: Int) -> UInt64 { 0x5C7A_9000 &+ UInt64(variant) &* 0x51ED }
 
     /// An irregular convex polygon of 4–6 sides round an ellipse of half size `radii` at `centre`: corners jittered in
@@ -614,7 +730,7 @@ enum GlassDebris {
 
     /// Two irregular flat pieces side by side in the unit square (x −0.5…0.5, z −0.5…0.5), split along x with a
     /// visible crack between them, `fragmentThickness` tall. Slot 0 glass faces, slot 1 the bright bevel, slot 2 the
-    /// dark outer hairline and the walls.
+    /// dark outer hairline and the walls, slot 3 the specular streak across each face.
     static func fragmentPair(seed: UInt64) -> MeshData {
         var rng = SplitMix64(seed: seed)
         var mesh = MeshData()
@@ -626,7 +742,68 @@ enum GlassDebris {
             let polygon = shardPolygon(sides: sides, radii: radii, centre: centre, rng: &rng)
             mesh.append(MeshKit.polygonSlab(polygon, thickness: fragmentThickness, rimInset: rimInset,
                                             outlineInset: outlineInset))
+            mesh.append(streak(polygon, rng: &rng), materialOffset: 3)
         }
+        return mesh
+    }
+
+    /// One big irregular piece filling ~0.9 of the unit square (FOLD-REVIEW-7 #5), slots as `fragmentPair`.
+    static func fragmentSingle(seed: UInt64) -> MeshData {
+        var rng = SplitMix64(seed: seed)
+        let sides = 5 + Int(rng.next() % 2)
+        let centre = SIMD2<Float>(Float.random(in: -0.02...0.02, using: &rng), Float.random(in: -0.02...0.02, using: &rng))
+        let radii = SIMD2<Float>(Float.random(in: 0.42...0.47, using: &rng), Float.random(in: 0.42...0.47, using: &rng))
+        let polygon = shardPolygon(sides: sides, radii: radii, centre: centre, rng: &rng)
+        var mesh = MeshKit.polygonSlab(polygon, thickness: fragmentThickness, rimInset: rimInset * 0.8,
+                                       outlineInset: outlineInset * 0.8)
+        mesh.append(streak(polygon, rng: &rng), materialOffset: 3)
+        return mesh
+    }
+
+    /// A thin bright chord across a convex (counter-clockwise) polygon's top face, a hair above it: the reflection
+    /// streak of a flat piece of glass. One slot (0); its ends stop short of the edges.
+    static func streak(_ polygon: [SIMD2<Float>], rng: inout SplitMix64) -> MeshData {
+        var mesh = MeshData()
+        let count = polygon.count
+        guard count >= 3 else { return mesh }
+        let centre = polygon.reduce(SIMD2<Float>.zero, +) / Float(count)
+        let tilt = Float.random(in: 0.5...1.1, using: &rng)
+        let phi: Float = rng.next() % 2 == 0 ? tilt : -tilt
+        let dir = SIMD2<Float>(cos(phi), sin(phi))
+        let across = SIMD2<Float>(-dir.y, dir.x)
+        var extent: Float = 0
+        for p in polygon { extent = max(extent, simd_length(p - centre)) }
+        let origin = centre + across * Float.random(in: -0.3...0.3, using: &rng) * extent
+        let w = streakWidth * 0.5
+        // Clip both long edges of the band (origin ± w·across + t·dir) to the polygon (Cyrus–Beck) and keep the range
+        // both share, so all four corners are inside the (convex) shard.
+        var t0 = -Float.infinity, t1 = Float.infinity
+        for side: Float in [-1, 1] {
+            let line = origin + across * (w * side)
+            for i in 0..<count {
+                let a = polygon[i], b = polygon[(i + 1) % count]
+                let e = b - a
+                let n = SIMD2<Float>(e.y, -e.x)   // outward for counter-clockwise
+                let num = -simd_dot(n, line - a)
+                let den = simd_dot(n, dir)
+                if abs(den) < 1e-9 {
+                    if num < 0 { return mesh }
+                    continue
+                }
+                let t = num / den
+                if den > 0 { t1 = min(t1, t) } else { t0 = max(t0, t) }
+            }
+        }
+        guard t1 - t0 > 1e-3 else { return mesh }
+        let inset = (t1 - t0) * 0.18
+        let p0 = origin + dir * (t0 + inset), p1 = origin + dir * (t1 - inset)
+        let y = fragmentThickness / 2 + 0.00004
+        let up = SIMD3<Float>(0, 1, 0)
+        let corners = [p0 - across * w, p1 - across * w, p1 + across * w, p0 + across * w]
+        let v = corners.map { mesh.addVertex(SIMD3($0.x, y, $0.y), up) }
+        mesh.addTriangle(v[0], v[1], v[2])
+        mesh.addTriangle(v[0], v[2], v[3])
+        mesh.orientToNormals()
         return mesh
     }
 

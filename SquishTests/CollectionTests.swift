@@ -513,4 +513,94 @@ struct CollectionTests {
         #expect("".keepingLastWordsTogether == "")
         #expect("trailing ".keepingLastWordsTogether == "trailing ")
     }
+
+    /// FOLD-REVIEW-7 N7: a last word that is long, or already an unbreakable path, is left alone, so the line
+    /// breaks before it ("Follows your iPhone setting / (Settings › Accessibility › Motion).").
+    @Test func longOrUnbreakableLastWordIsNotGlued() {
+        let path = "(Settings\u{00A0}›\u{00A0}Accessibility\u{00A0}›\u{00A0}Motion)."
+        let footnote = "Follows your iPhone setting \(path)"
+        #expect(footnote.keepingLastWordsTogether == footnote)
+        #expect("Tap for internationalisation".keepingLastWordsTogether == "Tap for internationalisation")
+        // At the limit it still glues.
+        let twelve = String(repeating: "a", count: String.orphanGlueLimit)
+        #expect("one \(twelve)".keepingLastWordsTogether == "one\u{00A0}\(twelve)")
+    }
+
+    // MARK: Shelf meta lines (FOLD-REVIEW-7 N6)
+
+    @Test func dotSeparatorsAreGluedOnBothSides() {
+        #expect("SQUISH 3 DIFFERENT THINGS · 1/3".gluingDotSeparators == "SQUISH 3 DIFFERENT THINGS\u{00A0}·\u{00A0}1/3")
+        #expect("NO SEPARATOR".gluingDotSeparators == "NO SEPARATOR")
+    }
+
+    /// The two-line meta never leaves a "·" at a line end: flags (glued) on line 1, the number on line 2.
+    @Test func twoLineMetaPutsTheNumberOnItsOwnLine() {
+        #expect(ShelfMetaLines.twoLines(["PERFECT", "№0001"]) == "PERFECT\n№0001")
+        #expect(ShelfMetaLines.twoLines(["GOLDEN", "PERFECT", "№0042"]) == "GOLDEN\u{00A0}·\u{00A0}PERFECT\n№0042")
+        #expect(ShelfMetaLines.twoLines(["№0007"]) == "№0007")
+        #expect(ShelfMetaLines.twoLines([]) == "")
+        for text in [ShelfMetaLines.twoLines(["PERFECT", "№0001"]), ShelfMetaLines.twoLines(["GOLDEN", "PERFECT", "№0042"])] {
+            for line in text.split(separator: "\n") {
+                #expect(!line.hasSuffix("·") && !line.hasSuffix("· "))
+            }
+        }
+    }
+
+    /// The secret slot's hint is short enough for two lines in the 5-column tabletop grid (it truncated as
+    /// "SOME THINGS REFUSE TO BE S…").
+    @Test func secretSlotHintIsShort() {
+        let hint = CollectionStore.secretSlotHint.uppercased()
+        #expect(hint.count <= 26)
+        #expect(hint.split(separator: " ").allSatisfy { $0.count <= 13 })
+    }
+
+    // MARK: Tabletop Shelf split (FOLD-REVIEW-7 N5)
+
+    /// The Duo's tabletop window is 669 × 951 pt; the crease's centre is ~455 pt above a ~20 pt safe bottom.
+    @Test func tabletopLargeShelfSplitsAtTheCrease() {
+        let sheet = CGSize(width: 669, height: 909)
+        let line = ShelfTabletopLayout.creaseLine(sheet: sheet, creaseAboveSafeBottom: 455, accessibilitySize: false)
+        #expect(line == 909 - 455)
+    }
+
+    @Test func shelfDoesNotSplitOffTabletopLarge() {
+        // The 0.45 detent: wider than tall.
+        #expect(ShelfTabletopLayout.creaseLine(sheet: CGSize(width: 669, height: 428), creaseAboveSafeBottom: 455,
+                                               accessibilitySize: false) == nil)
+        // Regular iPhone and book pose: no crease is handed down.
+        #expect(ShelfTabletopLayout.creaseLine(sheet: CGSize(width: 402, height: 800), creaseAboveSafeBottom: nil,
+                                               accessibilitySize: false) == nil)
+        // Book pose's trailing half is narrow even if a value leaked through.
+        #expect(ShelfTabletopLayout.creaseLine(sheet: CGSize(width: 455, height: 640), creaseAboveSafeBottom: 300,
+                                               accessibilitySize: false) == nil)
+        // Accessibility sizes keep the one-column scrolling grid.
+        #expect(ShelfTabletopLayout.creaseLine(sheet: CGSize(width: 669, height: 909), creaseAboveSafeBottom: 455,
+                                               accessibilitySize: true) == nil)
+        // A crease far from the middle (a stale value) is ignored.
+        #expect(ShelfTabletopLayout.creaseLine(sheet: CGSize(width: 669, height: 909), creaseAboveSafeBottom: 100,
+                                               accessibilitySize: false) == nil)
+    }
+
+    /// The 5 × 2 grid's cards shrink just enough for both rows to end above the crease band.
+    @Test func tabletopGridFitsTheRamHalf() {
+        let width: CGFloat = 669 - 48, height: CGFloat = 293
+        let card = ShelfTabletopLayout.cardWidth(width: width, height: height, columns: 5, rows: 2, spacing: 16, rowSpacing: 12)
+        #expect(card <= (width - 4 * 16) / 5)
+        #expect(2 * (card / 0.75) + 12 <= height + 0.5)
+        // Plenty of height: the columns' own width wins.
+        let roomy = ShelfTabletopLayout.cardWidth(width: width, height: 2000, columns: 5, rows: 2, spacing: 16, rowSpacing: 12)
+        #expect(abs(roomy - (width - 4 * 16) / 5) < 0.01)
+    }
+
+    /// The anvil half's prints fill the half without overflowing it, and the hero matches the 2 × 2's height.
+    @Test func recentPrintsFillTheAnvilHalf() {
+        let width: CGFloat = 621, height: CGFloat = 346, caption: CGFloat = 44, spacing: CGFloat = 12
+        let fit = ShelfTabletopLayout.recent(width: width, height: height, caption: caption, spacing: spacing)
+        #expect(fit.small > 100)
+        #expect(fit.hero + spacing + 2 * fit.small + spacing <= width + 0.5)
+        #expect(2 * (fit.small + caption) + spacing <= height + 0.5)
+        #expect(abs((fit.hero + caption) - (2 * (fit.small + caption) + spacing)) < 0.01)
+        // Over 80 % of the half's width is used.
+        #expect(fit.hero + 2 * fit.small + 2 * spacing >= width * 0.8)
+    }
 }

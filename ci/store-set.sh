@@ -4,7 +4,8 @@
 #   <DUO>/store/duo-inner/  2007 × 2853          <DUO>/store/duo-outer/  1398 × 2034
 #     01-hero-duck          rubberDuck hero        O1-sealed         rubberDuck sealed cover, caption over its top
 #     02-pair-can           sodaCan before/after   O2-cover-launch   closed-launch idle picker, framed
-#     03-reveal-duck        rubberDuck tabletop reveal (the payoff, in the search-results triplet)
+#     03-reveal-duck        rubberDuck tabletop reveal (the payoff, in the search-results triplet); if it is MISSING,
+#                           03-reveal-can (the sodaCan reveal) as a FALLBACK the founder must sign off (see reveal_frame)
 #     04-hero-glass         glassBottle hero (its own camera: the other end of the device)
 #     05-variety            the grid: glass, can, cake, jelly (or the jelly hero if there is no grid)
 #     06-shelf              Duo shelf (raw, framed under its caption)
@@ -21,9 +22,11 @@
 # A frame that fails a check is not copied (any old copy is removed) and is listed as MISSING or FLAGGED.
 # Never uses an 18 Pro folded shot, an -eye composite, a book-pose store shot or a raw tabletop frame.
 #
-# Usage: bash ci/store-set.sh [duo-screens]       Exit 1 when anything is missing or flagged (duo.yml keeps going).
+# Usage: bash ci/store-set.sh [duo-screens]       Exit 1 when anything is missing or flagged, or when 03 is an
+#                                                 unapproved fallback (duo.yml keeps going).
 # Env: STORE_HERO (rubberDuck), STORE_PAIR (sodaCan), STORE_SPECTACLE (glassBottle), STORE_REVEAL (rubberDuck),
-#      STORE_VARIETY_FALLBACK (jelly).
+#      STORE_REVEAL_FALLBACK (sodaCan; empty = none), STORE_REVEAL_FALLBACK_APPROVED (0; 1 once the founder has signed
+#      the fallback off), STORE_VARIETY_FALLBACK (jelly).
 set -uo pipefail
 
 DUO="${1:-duo-screens}"
@@ -31,6 +34,9 @@ HERO="${STORE_HERO:-rubberDuck}"
 PAIR="${STORE_PAIR:-sodaCan}"
 SPECTACLE="${STORE_SPECTACLE:-glassBottle}"
 REVEAL="${STORE_REVEAL:-rubberDuck}"
+# FOLD-REVIEW-7 §3 A 03: the can reveal completes the can story from 02; empty = no fallback.
+REVEAL_FALLBACK="${STORE_REVEAL_FALLBACK-sodaCan}"
+FALLBACK_APPROVED="${STORE_REVEAL_FALLBACK_APPROVED:-0}"
 VARIETY_FALLBACK="${STORE_VARIETY_FALLBACK:-jelly}"
 INNER="$DUO/store/duo-inner"
 OUTER="$DUO/store/duo-outer"
@@ -42,6 +48,7 @@ source "$(dirname "$0")/store-frame.sh"
 : >"$MANIFEST"
 MISSING=0
 FLAGGED=0
+FALLBACK=0
 
 note() { echo "$*" | tee -a "$MANIFEST"; }
 
@@ -141,6 +148,50 @@ flag_if() {
   fi
 }
 
+# Frame 03, the payoff (FOLD-REVIEW-7 §3 A 03, top fix #1): the $REVEAL reveal. If it is MISSING (no frame, or it fails
+# its log checks), and only then, the $REVEAL_FALLBACK reveal stands in, written under its own object's name
+# (03-reveal-<object>.png, never 03-reveal-duck.png) after the same log checks (ok line, reveal still up at the
+# capture, phase=revealing, plain variant), and listed as FALLBACK: the founder must sign it off. Until
+# STORE_REVEAL_FALLBACK_APPROVED=1 says so, a fallback keeps the run red. A fallback that fails its checks too leaves
+# 03 MISSING; no other object is ever tried.
+reveal_name() {
+  case "$1" in
+    rubberDuck) echo duck ;;
+    sodaCan) echo can ;;
+    glassBottle) echo glass ;;
+    cakeSlice) echo cake ;;
+    *) echo "$1" ;;
+  esac
+}
+reveal_frame() {
+  local primary fallback missing_before="$MISSING" why
+  primary="$INNER/03-reveal-$(reveal_name "$REVEAL").png"
+  fallback="$INNER/03-reveal-$(reveal_name "$REVEAL_FALLBACK").png"
+  rm -f "$INNER"/03-reveal-*.png
+  copy_frame "$primary" 2007x2853 "$REVEAL" reveal plain "$REVEAL-storeshot-reveal.png" && return 0
+  if [[ -z "$REVEAL_FALLBACK" || "$REVEAL_FALLBACK" == "$REVEAL" ]]; then return 1; fi
+  if [[ ! -f "$DUO/$REVEAL_FALLBACK-storeshot-reveal.png" ]]; then
+    note "   no fallback for 03: $REVEAL_FALLBACK-storeshot-reveal.png is not in this run either"
+    return 1
+  fi
+  why=$(verify "$(basename "$fallback")" "$REVEAL_FALLBACK" reveal plain)
+  if [[ -n "$why" ]]; then
+    note "   no fallback for 03: $REVEAL_FALLBACK-storeshot-reveal.png fails its log check: $why"
+    return 1
+  fi
+  cp "$DUO/$REVEAL_FALLBACK-storeshot-reveal.png" "$fallback"
+  MISSING="$missing_before"
+  FALLBACK=$((FALLBACK + 1))
+  note "$(basename "$fallback") <- $REVEAL_FALLBACK-storeshot-reveal.png FALLBACK for 03: the $REVEAL reveal is MISSING (above)."
+  if [[ "$FALLBACK_APPROVED" == 1 ]]; then
+    note "   FALLBACK approved (STORE_REVEAL_FALLBACK_APPROVED=1): upload it as frame 03."
+  else
+    note "   FALLBACK NOT APPROVED: the founder must sign off the $REVEAL_FALLBACK reveal as frame 03 (FOLD-REVIEW-7 §6), then re-run with STORE_REVEAL_FALLBACK_APPROVED=1 or upload it by hand."
+  fi
+  check "$fallback" 2007x2853
+  return 0
+}
+
 # The grid's source objects: each needs a hero this run (the app logs the missing ones).
 grid_missing=""
 [[ -f "$LOGS/grid.txt" ]] && grid_missing=$(sed -n 's/.*SQUISH-T storeshot grid ok.* missing=\([^ ]*\).*/\1/p' "$LOGS/grid.txt" | tail -1)
@@ -148,7 +199,7 @@ grid_missing=""
 note "== iPhone Duo inner display (2007x2853)"
 copy_frame "$INNER/01-hero-duck.png" 2007x2853 "$HERO" hero plain "$HERO-storeshot-hero.png"
 copy_frame "$INNER/02-pair-can.png" 2007x2853 "$PAIR" pair plain "$PAIR-storeshot-pair.png"
-copy_frame "$INNER/03-reveal-duck.png" 2007x2853 "$REVEAL" reveal plain "$REVEAL-storeshot-reveal.png"
+reveal_frame
 copy_frame "$INNER/04-hero-glass.png" 2007x2853 "$SPECTACLE" hero plain "$SPECTACLE-storeshot-hero.png"
 if [[ -f "$DUO/duo-storeshot-grid.png" ]]; then
   copy_frame "$INNER/05-variety.png" 2007x2853 - - - duo-storeshot-grid.png
@@ -180,9 +231,15 @@ flag_if "$OUTER/O2-cover-launch.png" "$LOGS/duo-cover-launch.txt" "SQUISH-H .* p
 note "== checks before upload (FOLD-REVIEW-6)"
 note "   - 01/04: the AT nn° mark sits on the sweep above the lid, clear of the caption; the duck is visible under the lid shadow."
 note "   - 02: both pair labels must match the readout on their device (the app logs labels=… per pair); the can is plain green."
-note "   - 03: the reveal shows the flattened duck and its print, never an intact next object."
+note "   - 03: the reveal shows the flattened duck and its print (or, as a signed-off FALLBACK, the crushed can and its print), never an intact next object."
 note "   - 06: the shelf fills the sheet (both halves of the grid, the Golden card visible)."
 note "   - O2: the idle picker (chip grid, 'Open to press'), no PRESS SEALED card."
-note "missing: $MISSING  flagged: $FLAGGED"
-(( MISSING + FLAGGED > 0 )) && exit 1
+unapproved=0
+(( FALLBACK > 0 )) && [[ "$FALLBACK_APPROVED" != 1 ]] && unapproved=$FALLBACK
+if (( FALLBACK > 0 )); then
+  note "missing: $MISSING  flagged: $FLAGGED  fallback: $FALLBACK ($([[ "$FALLBACK_APPROVED" == 1 ]] && echo approved || echo "NOT approved: founder sign-off needed"))"
+else
+  note "missing: $MISSING  flagged: $FLAGGED"
+fi
+(( MISSING + FLAGGED + unapproved > 0 )) && exit 1
 exit 0

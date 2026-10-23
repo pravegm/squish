@@ -89,11 +89,18 @@
 # the sub-line). Shot on the 6.9" class (DEVICE=auto:Pro Max, 1320 × 2868) and on the iPhone 18 Pro for the 6.1" slot
 # by .github/workflows/store.yml with STORE_FRAMES=1, which writes the captioned frame to <OUT>/store/<name>.png.
 # Never a folded device in this set (Guideline 2.3). FOLD-REVIEW-6: press, payoff, can as the search-results triplet
-# (N7); glass replaces the invisible bubble wrap (N8, depth 0.66 [tune] so the bottle has cracked); seed=3 is plain
-# (not Golden, no surprise) for every object (N6); P6 hides the Game Center "NOT AVAILABLE" status (N5).
-P1-duck-mid|object=rubberDuck;depth=0.55;seed=3;notoasts|30|Drag it down. Feel it *give*. / A hydraulic press for every iPhone.
-P2-reveal-duck|object=rubberDuck;reveal;seed=3;notoasts|30|Open up. File the *evidence*.
-P3-can-buckle|object=sodaCan;depth=0.55;seed=3;notoasts|30|Cans buckle *ring* by ring.
-P4-glass-crack|object=glassBottle;depth=0.66;seed=3;notoasts|30|It creaks. Then it *doesn't*.
+# (N7); glass replaces the invisible bubble wrap (N8); seed=3 is plain (not Golden, no surprise) for every object (N6);
+# P6 hides the Game Center "NOT AVAILABLE" status (N5).
+# 5th column = the content check (ci/screenshots.sh, FOLD-REVIEW-7 N2): fields of the app's "demo press done" /
+# "demo reveal up" lines that must hold at the capture, or the store frame is FLAGGED and not written.
+# P4 (FOLD-REVIEW-7 N2): depth 0.66 was c = 0.51, past the seed-3 failure (c 0.412), so the press was empty. The touch
+# press arms at 168°, so contactT = 0.30 and c = (depth − 0.30) / 0.70; seed 3 cracks at c 0.197 (depth 0.438) and
+# fails at c 0.412 (depth 0.588). Depth 0.52 = c 0.314: cracked, the crack lines ~55 % grown, 0.07 of depth short of
+# the failure (scratchpad r7tools/glassdepth.mjs). P1 (duck c 0.357, seam at 0.389) and P3 (can: one buckle at
+# 0.257, the puncture at 0.557) are unchanged.
+P1-duck-mid|object=rubberDuck;depth=0.55;seed=3;notoasts|30|Drag it down. Feel it *give*. / A hydraulic press for every iPhone.|kind=rubberDuck,phase=pressing,failed=0
+P2-reveal-duck|object=rubberDuck;reveal;seed=3;notoasts|30|Open up. File the *evidence*.|kind=rubberDuck,revealed=1,golden=0,surprise=none
+P3-can-buckle|object=sodaCan;depth=0.55;seed=3;notoasts|30|Cans buckle *ring* by ring.|kind=sodaCan,phase=pressing,fractures>=1
+P4-glass-crack|object=glassBottle;depth=0.52;seed=3;notoasts|30|It creaks. Then it *doesn't*.|kind=glassBottle,phase=pressing,fractures>=1,failed=0
 P5-shelf|shelf;notoasts|12|Collect every pressed *specimen*.
 P6-settings|settings;gamecenter=hidden;notoasts|12|No ads. No purchases. *Just* the press. / Sound styles, haptic levels, Reduce Motion.

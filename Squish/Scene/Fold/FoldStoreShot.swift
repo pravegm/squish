@@ -21,7 +21,9 @@ import UIKit
 /// FOLD-REVIEW-6 #1 (frame 1 must read as a phone closing on a duck): the hero takes its own camera (the duck at a
 /// 22° elevation and 50° turn, glass at −28°), the key light leans toward the viewer so the lid's shadow lands on the
 /// object (`Options.keyTiltDegrees`), the readout label and V glyph sit on the hero too (`Options.angleMark`), and the
-/// hero and reveal hang from the caption band (`Anchor.top`, fill 0.66 / bleed 0.10) so no dead band opens under it.
+/// hero hangs from the caption band (`Anchor.top`, fill 0.66 / bleed 0.10) so no dead band opens under it. The
+/// reveal (FOLD-REVIEW-7 N4: ~151°, wide and short) is width-fitted with no bleed, centred, from a 42° eye, so the
+/// whole device including the hinge spine is in frame (PressDirector.writeStoreShot).
 /// Captions break by `CaptionWrap` (balanced lines, no orphans).
 ///
 /// The model: the inner display is one panel bent round a thin hinge cylinder (the 40 pt crease band becomes the bend),
@@ -396,11 +398,14 @@ enum FoldStoreShot {
         guard size.width >= 64, size.height >= 64 else { return nil }
         let context = CIContext(options: [.cacheIntermediates: false])
         let portrait = size.height >= size.width
-        // FOLD-REVIEW-6 §3 A 02: the small device's front corner kissed the large lid's corner; 0.27 → 0.25 tall
-        // lifts and shrinks it (~60 px clear at 2007 × 2853).
-        let beforeUnit = portrait ? CGRect(x: 0.04, y: 0.215, width: 0.46, height: 0.25)
+        // FOLD-REVIEW-6 §3 A 02, FOLD-REVIEW-7 §3 A 02: the small device's front corner kissed the large lid's corner
+        // (R7 measured 15–25 px clear at 0.25 / 0.47). The small box 0.25 → 0.23 tall lifts and shrinks the 111°
+        // device (its front edge ~57 px higher); the large box 0.47 → 0.48 drops the lid ~29 px, keeping a ~100 px
+        // floor under it. r7tools/framing3.mjs pair (sharp-cornered hulls, so conservative: it reads the R7 layout as
+        // touching) gives 65 px clear at 2007 × 2853; the rounded corners add more.
+        let beforeUnit = portrait ? CGRect(x: 0.04, y: 0.215, width: 0.46, height: 0.23)
                                   : CGRect(x: 0.04, y: 0.30, width: 0.38, height: 0.50)
-        let afterUnit = portrait ? CGRect(x: 0.20, y: 0.47, width: 0.76, height: 0.50)
+        let afterUnit = portrait ? CGRect(x: 0.20, y: 0.48, width: 0.76, height: 0.50)
                                  : CGRect(x: 0.45, y: 0.22, width: 0.51, height: 0.75)
         var small = options.before
         small.size = size

@@ -573,4 +573,87 @@ struct FoldPressTests {
         #expect(wrap.features.count == BubbleWrapLayout.count)
         #expect(Set(wrap.popOrder).count == BubbleWrapLayout.count)
     }
+
+    // MARK: Inner display (FOLD-REVIEW-7 N10)
+
+    private func inputs(window: Bool = true, canvas: Bool = true, shut: Bool = false,
+                        _ activation: InnerDisplayPolicy.Activation = .active) -> InnerDisplayPolicy.Inputs {
+        InnerDisplayPolicy.Inputs(inWindow: window, canvasOK: canvas, shut: shut, activation: activation)
+    }
+
+    @Test func innerCanvasExcludesTheCoverAndZeroSize() {
+        #expect(InnerDisplayPolicy.isInnerCanvas(CGSize(width: 669, height: 951)))
+        #expect(InnerDisplayPolicy.isInnerCanvas(CGSize(width: 951, height: 669)))
+        #expect(!InnerDisplayPolicy.isInnerCanvas(CGSize(width: 466, height: 678)))   // cover display
+        #expect(!InnerDisplayPolicy.isInnerCanvas(.zero))
+    }
+
+    @Test func innerDisplayPausesWhenItCantBeSeen() {
+        var policy = InnerDisplayPolicy()
+        #expect(policy.evaluate(inputs(), now: 0) == .visible)
+        #expect(policy.evaluate(inputs(shut: true), now: 1) == .closed)
+        #expect(!policy.rendering)
+        #expect(policy.evaluate(inputs(canvas: false), now: 2) == .size)
+        #expect(policy.evaluate(inputs(window: false, shut: true), now: 3) == .window)
+        #expect(policy.evaluate(inputs(shut: true, .background), now: 4) == .background)
+        // Reopen: the first open sample renders again, whatever the scene's activity is doing.
+        #expect(policy.evaluate(inputs(), now: 5) == .visible)
+        #expect(policy.rendering)
+    }
+
+    @Test func innerDisplayInactiveNeedsAGraceAndNeverEatsAReopen() {
+        var policy = InnerDisplayPolicy()
+        _ = policy.evaluate(inputs(), now: 0)
+        // Control Center: a short spell keeps rendering; a held one pauses; reactivation resumes.
+        #expect(policy.evaluate(inputs(.inactive), now: 10) == .visible)
+        #expect(policy.evaluate(inputs(.inactive), now: 10 + InnerDisplayPolicy.inactiveGrace / 2) == .visible)
+        #expect(policy.evaluate(inputs(.inactive), now: 10 + InnerDisplayPolicy.inactiveGrace) == .inactive)
+        #expect(policy.evaluate(inputs(.active), now: 11) == .visible)
+
+        // Folding toggles scene activity on a Duo: shut, inactive, then the reopen sample. It renders at once and
+        // stays rendering through the rest of the inactive spell.
+        _ = policy.evaluate(inputs(shut: true), now: 20)
+        _ = policy.evaluate(inputs(shut: true, .inactive), now: 21)
+        #expect(policy.evaluate(inputs(.inactive), now: 25) == .visible)
+        #expect(policy.evaluate(inputs(.inactive), now: 27) == .visible)
+
+        // A spell that starts just after a reopen doesn't pause either; one long after it does.
+        var late = InnerDisplayPolicy()
+        _ = late.evaluate(inputs(shut: true), now: 0)
+        _ = late.evaluate(inputs(), now: 1)
+        _ = late.evaluate(inputs(.inactive), now: 1.5)
+        #expect(late.evaluate(inputs(.inactive), now: 3) == .visible)
+        _ = late.evaluate(inputs(), now: 4)
+        _ = late.evaluate(inputs(.inactive), now: 10)
+        #expect(late.evaluate(inputs(.inactive), now: 11) == .inactive)
+    }
+
+    @Test func revealBeatsWaitForTheDisplayToLight() {
+        // The reopen from closed reveals at ~20°: dark. The display lights by 55°.
+        #expect(FoldRevealLight.isDark(angle: 20.1))
+        #expect(!FoldRevealLight.isDark(angle: FoldRevealLight.litAngle))
+        var light = FoldRevealLight()
+        var clock = 0.0
+        // Opening steadily through the dark window (the CI log: ~10°/s): never lit before 55°.
+        var angle = 20.0
+        while angle < FoldRevealLight.litAngle {
+            light.track(angle: angle, clock: clock)
+            #expect(!light.isLit(angle: angle, clock: clock), "lit at \(angle)°")
+            angle += 0.5
+            clock += 1.0 / 20
+        }
+        light.track(angle: angle, clock: clock)
+        #expect(light.isLit(angle: angle, clock: clock))
+
+        // Held still in the dark window (±2° noise) for the hold: counts as lit (55° is a worst case).
+        var still = FoldRevealLight()
+        still.track(angle: 40, clock: 0)
+        still.track(angle: 41.5, clock: 0.3)
+        #expect(!still.isLit(angle: 41.5, clock: 0.3))
+        still.track(angle: 39, clock: FoldRevealLight.stillHold)
+        #expect(still.isLit(angle: 39, clock: FoldRevealLight.stillHold))
+        // A real move restarts the hold.
+        still.track(angle: 45, clock: 1.0)
+        #expect(!still.isLit(angle: 45, clock: 1.0 + FoldRevealLight.stillHold / 2))
+    }
 }

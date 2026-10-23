@@ -3,7 +3,9 @@ name: App Store screenshots
 # The full App Store screenshot set (FOLD-REVIEW-5 §5, docs/appstore/screenshots.md), manual only:
 #  • pinch: the Pinch Press set P1–P6 (ci/scenarios.txt) on the 6.9" class (newest "… Pro Max" simulator,
 #    1320 × 2868) and on the iPhone 18 Pro for the 6.1" slot (1206 × 2622), raw + captioned
-#    (artifacts store-69, store-61: <set>/store/P*.png).
+#    (artifacts store-69, store-61: <set>/store/P*.png and <set>/store/MANIFEST.txt). Each P-frame is checked against
+#    the app log at capture (FOLD-REVIEW-7 N2, the 5th column of ci/scenarios.txt); a FLAGGED frame gets no
+#    captioned copy and the step exits 5.
 #  • duo: the iPhone Duo inner and outer sets via duo.yml (artifact store-duo: duo-screens/store/duo-inner|duo-outer,
 #    MANIFEST.txt, which also checks each frame against the run logs). The book-pose review pass is skipped.
 #    Order (FOLD-REVIEW-6 N7): duck hero, can pair, duck reveal, glass hero, grid (glass, can, cake, jelly), shelf,
@@ -63,6 +65,7 @@ jobs:
           xcodegen generate
 
       - name: Build
+        id: build
         run: |
           set -o pipefail
           xcodebuild build \
@@ -82,8 +85,10 @@ jobs:
           STORE_FRAMES: "1"
         run: bash ci/screenshots.sh
 
+      # Runs after a 6.9" set that ended FLAGGED (exit 5, FOLD-REVIEW-7 N2 content check) too: every frame is still
+      # captured and the job still ends red, but the 6.1" set isn't lost to one bad frame.
       - name: Capture the 6.1-inch set
-        if: success() && inputs.sixone
+        if: ${{ !cancelled() && inputs.sixone && steps.build.outcome == 'success' }}
         env:
           DEVICE: "iPhone 18 Pro"
           OUT: store-61

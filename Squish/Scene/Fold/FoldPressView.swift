@@ -27,8 +27,18 @@ private struct FoldStageRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> FoldStageHostView {
         let host = FoldStageHostView(scene: director.scene, controller: director.fold)
         let director = self.director
-        // The per-frame loop runs off this ARView's render updates (it replaces PressSceneView's on a Duo).
+        // The per-frame loop runs off this ARView's render updates (it replaces PressSceneView's on a Duo), and off
+        // the render gate's blind clock while the inner display can't be seen (FOLD-REVIEW-7 N10).
         host.onFrame = { [weak director] dt in director?.frame(dt: dt) }
+        host.startRenderGate(
+            // Shut = what the engine calls closed: a `closed` flag above 90° is stale (the Duo simulator keeps it set
+            // to ~150° on reopen), and the reopen must never wait for it.
+            shut: { [weak director] in
+                guard let director else { return false }
+                return director.isShowingCover && director.engine.rawAngle <= PressEngine.staleClosedAngle
+            },
+            busy: { [weak director] in director?.engine.phase == .pressing },
+            watch: { [weak director] in _ = director?.hingeClosed })
         return host
     }
 
@@ -53,6 +63,10 @@ final class FoldStageHostView: UIView {
     private let camera = PerspectiveCamera()
     private var frames = 0
     var onFrame: ((Double) -> Void)?
+    /// FOLD-REVIEW-7 N10: pauses this ARView (out of the window) while the inner display can't be seen.
+    private let gate = InnerRenderGate(name: "fold")
+    /// The ARView is out of the window (paused).
+    private(set) var isParked = false
 
     init(scene: PressScene, controller: FoldPressController) {
         self.scene = scene
@@ -94,21 +108,69 @@ final class FoldStageHostView: UIView {
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             let dt = event.deltaTime
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.frames &+= 1
-                guard let scene = self.scene else { return }
-                // Another view (the P-48 PressSceneView) has attached the scene: it owns it now. Never take it back,
-                // and stop driving the frame loop so a dying fold stage can't fight the machine view.
-                guard scene.arView === self.arView else { return }
-                // Self-heal: the root was moved without anyone attaching; re-anchor it before this frame renders.
-                if scene.root.parent !== self.anchor {
-                    self.log("reclaim (root parent was \(scene.root.parent.map { String(describing: type(of: $0)) } ?? "nil"))")
-                    self.claimScene()
-                }
-                self.onFrame?(dt)
-                if self.frames == 3 || self.frames % 240 == 0 { self.logState() }
+                self?.gate.renderTick(dt: dt)
             }
         }
+        gate.onFrame = { [weak self] dt, rendered in self?.drive(dt: dt, rendered: rendered) }
+        gate.onPausedChange = { [weak self] paused in self?.setParked(paused) }
+        gate.sample = { [weak self] in
+            guard let self else { return (inWindow: false, canvasOK: false, shut: false) }
+            return (inWindow: self.window != nil,
+                    canvasOK: self.laidOut != .zero && InnerDisplayPolicy.isInnerCanvas(self.bounds.size),
+                    shut: self.isShut?() ?? false)
+        }
+    }
+
+    /// The hinge reads shut (set by `startRenderGate`).
+    private var isShut: (() -> Bool)?
+
+    /// Starts pausing this stage while the inner display can't be seen (FOLD-REVIEW-7 N10). `shut`: the hinge reads
+    /// closed; `busy`: a press is live; `watch`: reads the observable hinge state, so a reopen resumes at once.
+    func startRenderGate(shut: @escaping () -> Bool, busy: @escaping () -> Bool, watch: @escaping () -> Void) {
+        isShut = shut
+        gate.busy = busy
+        gate.watch = watch
+        gate.start()
+    }
+
+    /// One frame of the loop. `rendered`: from this ARView's update (false: the gate's blind clock while paused, or
+    /// its catch-up frame on resume).
+    private func drive(dt: Double, rendered: Bool) {
+        if rendered { frames &+= 1 }
+        guard let scene else { return }
+        // Another view (the P-48 PressSceneView) has attached the scene: it owns it now. Never take it back,
+        // and stop driving the frame loop so a dying fold stage can't fight the machine view.
+        guard scene.arView === arView else { return }
+        // Self-heal: the root was moved without anyone attaching; re-anchor it before this frame renders.
+        if scene.root.parent !== anchor {
+            log("reclaim (root parent was \(scene.root.parent.map { String(describing: type(of: $0)) } ?? "nil"))")
+            claimScene()
+        }
+        onFrame?(dt)
+        if rendered && (frames == 3 || frames % 240 == 0) { logState() }
+    }
+
+    /// Pause = the ARView leaves the window (RealityKit renders only views in a window; a zero-size one in a window
+    /// still ticked at 60 fps, FOLD-REVIEW-7 N10). Its layer keeps its anchor point, bounds and warp, so putting it back
+    /// is one `addSubview`. The platen and bezel layers stay; the controller stops writing them while paused.
+    private func setParked(_ parked: Bool) {
+        guard parked != isParked else { return }
+        isParked = parked
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if parked {
+            arView.removeFromSuperview()
+        } else if arView.superview !== anvilClip {
+            anvilClip.addSubview(arView)
+        }
+        CATransaction.commit()
+        controller?.setRenderPaused(parked)
+        scene?.setRenderPaused(parked)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        gate.evaluate()
     }
 
     /// An Entity lives in one scene only: detach the press scene's root (and its old anchor) from the P-48 view's
@@ -171,6 +233,8 @@ final class FoldStageHostView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // N10: a move to the cover display (466 × 678) or a zero-size window pauses; the inner canvas resumes.
+        defer { gate.evaluate() }
         let size = bounds.size
         // Lay out once per canvas size (669 × 951 tabletop, 951 × 669 book). Ignore transient tiny sizes and the
         // cover display (466 × 678): while shut, the inner content stays frozen at the sealed state (§6.2).
@@ -204,9 +268,11 @@ final class FoldStageHostView: UIView {
     }
 
     func teardown() {
+        gate.stop()
         updates?.cancel()
         updates = nil
         onFrame = nil
+        isShut = nil
         controller?.detach(host: self)
         if let scene, scene.arView === arView, scene.framing == .foldAnvil {
             scene.setFraming(.machine)

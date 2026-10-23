@@ -151,9 +151,14 @@ extension CollectionStore {
         case .perfectSquish:
             return "Press slowly. Never ease off."
         case .allOthers:
-            return kind.unlockHint
+            // Shorter than `unlockHint` ("Some things refuse to be squished…"), which truncated in the tabletop
+            // Shelf's narrow secret slot as "SOME THINGS REFUSE TO BE S…" (FOLD-REVIEW-7 N6). Two lines there.
+            return Self.secretSlotHint
         }
     }
+
+    /// The secret slot's teaser on the Shelf: two short lines at the 5-column width ("SOME THINGS" / "WON'T SQUISH…").
+    nonisolated static let secretSlotHint = "Some things won't squish…"
 
     /// Short lower-case form for the object chip menu's locked rows (P2-7).
     func menuHint(for kind: ObjectKind) -> String {
@@ -162,7 +167,7 @@ extension CollectionStore {
         case .squishDifferentKinds(let count): "squish \(count) different things"
         case .totalPresses(let count): "squish \(count) times"
         case .perfectSquish: "press slowly, never ease off"
-        case .allOthers: "some things refuse to be squished"
+        case .allOthers: "some things won't squish"
         }
     }
 }

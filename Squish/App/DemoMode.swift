@@ -5,6 +5,11 @@ import Foundation
 /// Values can't contain `;` (the separator), and ci/scenarios.txt can't hold `|` (its column separator).
 /// Only active in DEBUG builds.
 ///
+/// Scripted presses (`depth=<0…1>`, `reveal`) log `SQUISH-T demo press done … phase= depth= c= fractures= failed=
+/// failureIndex= kind=` when the ram has reached the target, and with `reveal` also `SQUISH-T demo reveal up …
+/// revealed=1 kind= fractures= failed= golden= surprise=` (or `… reveal missing after 20s … revealed=0`). ci/screenshots.sh
+/// checks the P-frames against these fields (FOLD-REVIEW-7 N2, the 5th column of ci/scenarios.txt).
+///
 /// UI:
 /// - `notoasts` hides achievement toasts (read by the UI; passed by every store-shot and Duo CI scenario).
 /// - `gamecenter=hidden` hides the Game Center row's "NOT AVAILABLE" status in Settings (read by SettingsView,
@@ -50,7 +55,10 @@ import Foundation
 /// - `storeshotelevation=<deg>` the hero's eye elevation (default duck 22°, others 34°); `storeshotkeytilt=<deg>` the
 ///   hero's key-light tilt toward the viewer, so the lid's shadow lands on the object (default 18°). The hero is never
 ///   modelled below 58° (the inner display is dark from ~55°), carries the readout label and V glyph ("AT 67°"), and
-///   hangs from the caption band like the reveal.
+///   hangs from the caption band. `storeshotbleed=<fraction>` the hero's width-fit bleed (default 0.10; glass 0.04
+///   so its hinge spine stays in frame, FOLD-REVIEW-7 §3 A 04).
+/// - `revealelevation=<deg>` the reveal's eye elevation (default 42°, FOLD-REVIEW-7 N4). The reveal is width-fitted
+///   with no bleed and centred under the caption, so the whole near-flat device is in frame.
 /// - `storeshotcaption=<headline> / <sub-line>` (hero; default per object, FOLD-REVIEW-5 N3), `paircaption=…`,
 ///   `revealcaption=…` and `gridcaption=…` override the captions (`*word*` = highlight).
 /// - `storeshotsplat=overlay` adds the store-shot-only 2D splat overlay (off by default: FoldAnvil sprays the real

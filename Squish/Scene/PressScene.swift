@@ -56,6 +56,8 @@ final class PressScene {
     private var tell = false
     private var peakTons: Float = 0
     private var steamTimer: Float = 0
+    /// Fold Press: the reveal's glint, held until the inner display lights (`foldRevealLit`).
+    private var pendingRevealGlint = false
 
     // Placement, rest beat and power-on
     /// Holds the previous object while it slides off the anvil (the mess moves with `fx.root`).
@@ -126,6 +128,7 @@ final class PressScene {
         // then the view is assembled here on main. The latest request wins.
         objectRequest += 1
         let request = objectRequest
+        pendingRevealGlint = false
         if warmedKinds.contains(kind) || ObjectMeshes.jobs(for: kind).isEmpty {
             buildObject(kind, variant: variant)
             return
@@ -296,9 +299,13 @@ final class PressScene {
             // deterministic re-simulation from the trace — that belongs to the offline clip renderer (Share).
             if !context.reduceMotion {
                 fovTarget = 0.96
-                var rng = SplitMix64(seed: variant.seed &+ 0x2E7)
-                fx.particles.burst(.glint, count: 3, at: [0, 0.012, 0.01], speed: 0.06, colors: [UIColor(hex: 0xFFFFFF)],
-                                   size: 0.003...0.005, spread: 0.03, upBias: 0.7, life: 0.4, rng: &rng)
+                // FOLD PRESS (FOLD-REVIEW-7 N10): a reopen from closed reveals in the dark (~20°); the glint waits for
+                // FoldPressController to see the display lit (`foldRevealLit`), so its 0.4 s isn't spent unseen.
+                if framing == .foldAnvil {
+                    pendingRevealGlint = true
+                } else {
+                    burstRevealGlint()
+                }
             }
             view.handle(event, state: state)
         case let .fracture(index, isFailure):
@@ -326,6 +333,27 @@ final class PressScene {
         default:
             view.handle(event, state: state)
         }
+    }
+
+    private func burstRevealGlint() {
+        var rng = SplitMix64(seed: variant.seed &+ 0x2E7)
+        fx.particles.burst(.glint, count: 3, at: [0, 0.012, 0.01], speed: 0.06, colors: [UIColor(hex: 0xFFFFFF)],
+                           size: 0.003...0.005, spread: 0.03, upBias: 0.7, life: 0.4, rng: &rng)
+    }
+
+    /// FOLD PRESS: the inner display is lit for the reveal (FoldPressController, FOLD-REVIEW-7 N10): play its glint.
+    func foldRevealLit() {
+        guard pendingRevealGlint else { return }
+        pendingRevealGlint = false
+        burstRevealGlint()
+    }
+
+    /// FOLD-REVIEW-7 N10: the stage stopped (or restarted) rendering. Between shots the offscreen specimen ARView stays
+    /// in the window, hidden; take it out too while paused, so nothing in the app renders for a dark inner display.
+    /// `specimenSnapshot` puts it back (it re-adds whenever its superview isn't the stage). A shot in flight is left be.
+    func setRenderPaused(_ paused: Bool) {
+        guard paused, let view = specimenView, view.isHidden, view.superview != nil else { return }
+        view.removeFromSuperview()
     }
 
     func snapshot() async -> UIImage? {

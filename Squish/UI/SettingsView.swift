@@ -313,9 +313,25 @@ struct ChipChoice<Option: Hashable & Identifiable>: View {
 extension String {
     /// Joins the last two words with a no-break space, so a wrapped line never ends on one word alone
     /// (FOLD-REVIEW-6 N11: "… for each / moment.", "the / press."). Unchanged when there is nothing to join.
+    ///
+    /// Also unchanged when the last word is already long (more than `orphanGlueLimit` characters) or is itself an
+    /// unbreakable run (it holds a no-break space, like a `settingsPath`): a long last word isn't an orphan, and
+    /// gluing the word before it on makes a unit too wide for the line. FOLD-REVIEW-7 N7: "Follows your iPhone /
+    /// setting (Settings › Accessibility › Motion)." now breaks as "Follows your iPhone setting / (Settings › …)."
     var keepingLastWordsTogether: String {
         guard let space = lastIndex(of: " "), space != startIndex, index(after: space) != endIndex else { return self }
+        let lastWord = self[index(after: space)...]
+        guard lastWord.count <= Self.orphanGlueLimit, !lastWord.contains("\u{00A0}") else { return self }
         return replacingCharacters(in: space...space, with: "\u{00A0}")
+    }
+
+    /// The longest last word `keepingLastWordsTogether` still glues to the one before it.
+    static let orphanGlueLimit = 12
+
+    /// " · " with no-break spaces on both sides, so the separator always travels with its neighbours and no wrapped
+    /// line ends (or starts) on it (FOLD-REVIEW-7 N6: "PERFECT · / №0001", "THINGS · / 1/3").
+    var gluingDotSeparators: String {
+        replacingOccurrences(of: " · ", with: "\u{00A0}·\u{00A0}")
     }
 }
 

@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Boots the simulator, installs the built app and captures one screenshot per demo scenario.
-# Scenarios are listed in ci/scenarios.txt as `name|scenario[|delaySeconds[|caption]]` and interpreted by the app's
-# DemoMode (DEBUG builds only). Set SCENARIO_FILTER to a regex to run a subset (matched against the name).
+# Scenarios are listed in ci/scenarios.txt as `name|scenario[|delaySeconds[|caption[|expect]]]` and interpreted by the
+# app's DemoMode (DEBUG builds only). Set SCENARIO_FILTER to a regex to run a subset (matched against the name).
+#
+# Content check (FOLD-REVIEW-7 N2, the P-set's version of the Duo MANIFEST): right after each screenshot the app log is
+# snapshotted ($OUT/logs/<name>.at-capture.txt) and checked against what the scenario scripted. Every scenario needs
+# its "SQUISH-T demo '<scenario>' starts" line; a `depth=` / `reveal` scenario needs "SQUISH-T demo press done …"
+# before the capture, and a `reveal` one "SQUISH-T demo reveal up … revealed=1". The optional 5th column `expect` is a
+# comma list of `key=value`, `key>=n` or `key<=n` tested against the key=value fields of those two lines (phase, depth,
+# c, fractures, failed, kind, revealed, golden, surprise), e.g. `phase=pressing,fractures>=1,failed=0` for a crack
+# that must not have failed yet. A frame that fails is FLAGGED: its captioned store frame is not written (any old copy
+# is removed), $OUT/store/MANIFEST.txt says why, and the run exits 5 at the end (after every frame is captured).
 # Each run's app stdout/stderr goes to $OUT/logs/<name>.txt; a scenario with `exportclip` also
 # copies the rendered share clip to $OUT/<name>.mp4, and one with `storeshot` copies the folded-device store
 # shots the app wrote (Documents/storeshot-*.png, FoldStoreShot.swift) to $OUT/<name>-storeshot-*.png, after the
@@ -91,13 +100,67 @@ xcrun simctl bootstatus "$UDID" -b
 xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
 xcrun simctl install "$UDID" "$APP"
 
+# state_lines <log snapshot> <scenario>: the app's scripted-state lines (press done, reveal) as one string; prints a
+# reason starting with "!" instead when a required line is missing.
+state_lines() {
+  local snap="$1" scenario="$2" press="" reveal=""
+  if ! grep -qF "SQUISH-T demo '$scenario' starts" "$snap" 2>/dev/null; then
+    echo "!the app never logged \"SQUISH-T demo '$scenario' starts\""
+    return 0
+  fi
+  if [[ "$scenario" == *depth=* || "$scenario" == *reveal* ]]; then
+    press=$(grep -E "SQUISH-T demo press done" "$snap" 2>/dev/null | tail -1 || true)
+    if [[ -z "$press" ]]; then echo "!no 'SQUISH-T demo press done' line before the capture"; return 0; fi
+  fi
+  if [[ "$scenario" == *reveal* ]]; then
+    reveal=$(grep -E "SQUISH-T demo reveal (up|missing)" "$snap" 2>/dev/null | tail -1 || true)
+    reveal="${reveal#*SQUISH-T }"
+    [[ -n "$reveal" ]] || reveal="revealed=0 (no reveal line before the capture)"
+  fi
+  echo "${press#*SQUISH-T } $reveal"
+}
+
+# content_check <state> <expect>: one reason per failed expectation (joined by "; "), nothing when all hold.
+content_check() {
+  local state="$1" expect="$2" token key op want got reasons="" re='^([A-Za-z]+)(>=|<=|=)(.+)$'
+  local -a tokens=()
+  if [[ "$state" == \!* ]]; then echo "${state#!}"; return 0; fi
+  if [[ "$state" == *"revealed=0"* ]]; then
+    reasons="the reveal card was not up at the capture"
+    expect=""   # the other fields would only repeat it
+  fi
+  [[ -n "$expect" ]] && IFS=',' read -r -a tokens <<< "$expect"
+  for token in ${tokens[@]+"${tokens[@]}"}; do
+    if [[ ! "$token" =~ $re ]]; then reasons="${reasons:+$reasons; }bad expectation '$token'"; continue; fi
+    key="${BASH_REMATCH[1]}"; op="${BASH_REMATCH[2]}"; want="${BASH_REMATCH[3]}"
+    got=$(grep -oE "(^| )$key=[^ ]+" <<< "$state" | tail -1 | sed 's/^ *[A-Za-z]*=//' || true)
+    if [[ -z "$got" ]]; then reasons="${reasons:+$reasons; }no $key= in the log"; continue; fi
+    case "$op" in
+      "=")  [[ "$got" == "$want" ]] || reasons="${reasons:+$reasons; }$key=$got (want $want)" ;;
+      ">=") awk -v a="$got" -v b="$want" 'BEGIN { exit !(a + 0 >= b + 0) }' \
+              || reasons="${reasons:+$reasons; }$key=$got (want >= $want)" ;;
+      "<=") awk -v a="$got" -v b="$want" 'BEGIN { exit !(a + 0 <= b + 0) }' \
+              || reasons="${reasons:+$reasons; }$key=$got (want <= $want)" ;;
+    esac
+  done
+  if [[ -n "$reasons" ]]; then echo "$reasons"; fi
+  return 0
+}
+
 SIZE_MISMATCH=0
+CONTENT_FLAGGED=0
+STORE_MANIFEST="$OUT/store/MANIFEST.txt"
+if [[ "$STORE_FRAMES" == 1 ]]; then
+  mkdir -p "$OUT/store"
+  echo "== $DEVICE_NAME store frames (content-checked against the app log at capture, FOLD-REVIEW-7 N2)" > "$STORE_MANIFEST"
+fi
 while IFS= read -r line; do
   [[ -z "$line" || "$line" == \#* ]] && continue
-  IFS='|' read -r name scenario delay caption <<< "$line"
+  IFS='|' read -r name scenario delay caption expect <<< "$line"
   [[ "$name" =~ $FILTER ]] || continue
   delay="${delay:-${SHOT_DELAY:-11}}"
   caption="${caption:-}"
+  expect="${expect:-}"
   xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
   if [[ "$scenario" == *storeshot* ]]; then
     # Never upload a stale store shot from an earlier scenario.
@@ -112,16 +175,40 @@ while IFS= read -r line; do
   log="$OUT/logs/$name.txt"
   marker=""
   [[ "$scenario" == *depth=* || "$scenario" == *reveal* ]] && marker="SQUISH-T demo press done"
+  # The reveal card: wait for the app to say it is up (or that it never came), then let it fade in.
+  [[ "$scenario" == *reveal* ]] && marker="SQUISH-T demo reveal (up|missing)"
   [[ "$scenario" == *foldsim=* ]] && marker="SQUISH-T foldsim done"
   [[ "$scenario" == *exportclip* ]] && marker="SQUISH-CLIP (ok|failed)"
   [[ "$scenario" == *storeshot* ]] && marker="SQUISH-T storeshot done"
   if [[ -n "$marker" ]]; then
     for _ in $(seq 1 "$(( delay > 120 ? delay : 120 ))"); do grep -qE "$marker" "$log" 2>/dev/null && break; sleep 1; done
-    [[ "$scenario" == *reveal* ]] && sleep 6 || sleep 3
+    if [[ "$scenario" == *exportclip* ]]; then
+      [[ "$scenario" == *reveal* ]] && sleep 6 || sleep 3
+    elif [[ "$scenario" == *reveal* ]]; then
+      sleep 5
+    else
+      sleep 3
+    fi
   else
     sleep "$delay"
   fi
   xcrun simctl io "$UDID" screenshot "$OUT/$name.png" >/dev/null
+  # What the app had logged when the picture was taken (the content check reads this, never later lines).
+  cp "$log" "$OUT/logs/$name.at-capture.txt" 2>/dev/null || : > "$OUT/logs/$name.at-capture.txt"
+  content_problem=""
+  state=""
+  if [[ -n "$expect" || "$scenario" == *depth=* || "$scenario" == *reveal* || -n "$caption" ]]; then
+    state=$(state_lines "$OUT/logs/$name.at-capture.txt" "$scenario")
+    content_problem=$(content_check "$state" "$expect")
+    [[ "$state" =~ ^\ *$ ]] && state=""
+    if [[ -n "$content_problem" ]]; then
+      echo "warning: $name FLAGGED: $content_problem"
+      # Only store frames (a caption) and explicit expectations fail the run; other frames just warn.
+      if [[ -n "$caption" || -n "$expect" ]]; then CONTENT_FLAGGED=$((CONTENT_FLAGGED + 1)); fi
+    elif [[ -n "$state" ]]; then
+      echo "content ok for $name: ${state# }"
+    fi
+  fi
   if [[ -n "$EXPECT_SIZE" ]]; then
     got=$(png_size "$OUT/$name.png")
     if [[ "${got%% *}" != "$EXPECT_SIZE" ]]; then
@@ -149,10 +236,20 @@ while IFS= read -r line; do
   fi
   if [[ "$STORE_FRAMES" == 1 && -n "$caption" ]]; then
     mkdir -p "$OUT/store"
-    island=()
-    [[ "$STORE_ISLAND" == pill ]] && island=(--island pill)
-    store_frame --in "$OUT/$name.png" --out "$OUT/store/$name.png" --style framed --caption "$caption" ${island[@]+"${island[@]}"} \
-      || echo "warning: store frame failed for $name"
+    rm -f "$OUT/store/$name.png"
+    if [[ -n "$content_problem" ]]; then
+      # Never a store frame whose picture may not be what its caption says (FOLD-REVIEW-7 N2: P4's empty press).
+      echo "$name.png FLAGGED: $content_problem (raw $name.png kept for review; log logs/$name.at-capture.txt)" >> "$STORE_MANIFEST"
+    else
+      island=()
+      [[ "$STORE_ISLAND" == pill ]] && island=(--island pill)
+      if store_frame --in "$OUT/$name.png" --out "$OUT/store/$name.png" --style framed --caption "$caption" ${island[@]+"${island[@]}"}; then
+        echo "$name.png <- $name.png \"$caption\"${state:+ [${state# }]}" >> "$STORE_MANIFEST"
+      else
+        echo "warning: store frame failed for $name"
+        echo "$name.png FAILED to caption" >> "$STORE_MANIFEST"
+      fi
+    fi
   fi
   echo "captured $name ($scenario)"
 done < ci/scenarios.txt
@@ -162,6 +259,10 @@ xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 if [[ -d "$OUT/store" ]]; then
   echo "store frames ($DEVICE_NAME):"
   for f in "$OUT"/store/*.png; do if [[ -e "$f" ]]; then echo "  $(basename "$f") $(png_size "$f")"; fi; done
+fi
+if [[ -f "$STORE_MANIFEST" ]]; then
+  echo "flagged: $CONTENT_FLAGGED" >> "$STORE_MANIFEST"
+  cat "$STORE_MANIFEST"
 fi
 
 # App Store icon master: 85-icon shows AppIconArt as a full-width square centred on the screen
@@ -213,4 +314,8 @@ fi
 if (( SIZE_MISMATCH == 1 )); then
   echo "error: some screenshots are not $EXPECT_SIZE (is $DEVICE_NAME the right device class?)"
   exit 4
+fi
+if (( CONTENT_FLAGGED > 0 )); then
+  echo "error: $CONTENT_FLAGGED frame(s) FLAGGED by the content check (see $STORE_MANIFEST or the warnings above)"
+  exit 5
 fi
