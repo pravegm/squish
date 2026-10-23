@@ -1,0 +1,163 @@
+name: App Store Connect tool
+
+# tools/appstore: typechecks asc.swift and badges.swift, renders the 10 Game Center badges (artifact `badges`), and
+# validates docs/appstore/asc-metadata.json offline. Pushing to App Store Connect happens only on a manual run with
+# push=true AND the three ASC_* secrets set (see tools/appstore/README.md). The key is written to a temp file for
+# that job and deleted afterwards; it is never echoed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/appstore/**"
+      - "docs/appstore/asc-metadata.json"
+      - ".github/workflows/asc.yml"
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Run asc.swift push against App Store Connect (needs secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY)"
+        type: boolean
+        default: false
+      only:
+        description: "Optional step list for push, e.g. gamecenter,price (empty = every step)"
+        type: string
+        default: ""
+      store_run:
+        description: "Optional: ID of a green 'App Store screenshots' run; its store-* artifacts are uploaded as screenshots"
+        type: string
+        default: ""
+
+concurrency:
+  group: asc-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tool:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          xcrun swift --version
+
+      - name: Typecheck asc.swift and badges.swift
+        run: |
+          xcrun swiftc -typecheck tools/appstore/asc.swift
+          xcrun swiftc -typecheck tools/appstore/badges.swift
+
+      - name: Render badges (and verify IDs against the app)
+        run: xcrun swift tools/appstore/badges.swift --out tools/appstore/badges
+
+      - name: Self-test the validator on the fixture
+        run: |
+          xcrun swift tools/appstore/asc.swift help
+          xcrun swift tools/appstore/asc.swift validate --metadata tools/appstore/fixtures/asc-metadata.sample.json
+
+      - name: Upload badges
+        uses: actions/upload-artifact@v4
+        with:
+          name: badges
+          path: tools/appstore/badges/*.png
+          if-no-files-found: error
+
+  validate:
+    # Separate job so a problem in the listing data shows up red without hiding the badges.
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27.1
+        run: sudo xcode-select -s /Applications/Xcode_27.1.app
+      - name: Render badges (validate checks the image files)
+        run: xcrun swift tools/appstore/badges.swift --out tools/appstore/badges
+      - name: Validate docs/appstore/asc-metadata.json
+        run: |
+          if [ -f docs/appstore/asc-metadata.json ]; then
+            xcrun swift tools/appstore/asc.swift validate
+          else
+            echo "::warning::docs/appstore/asc-metadata.json isn't committed yet; nothing to validate"
+          fi
+
+  push:
+    needs: [tool, validate]
+    if: github.event_name == 'workflow_dispatch' && inputs.push
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+    steps:
+      - name: Check the secrets exist
+        id: secrets
+        run: |
+          if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_PRIVATE_KEY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Secrets ASC_KEY_ID, ASC_ISSUER_ID and ASC_PRIVATE_KEY are not all set; nothing pushed (tools/appstore/README.md)"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.ok == 'true'
+
+      - name: Select Xcode 27.1
+        if: steps.secrets.outputs.ok == 'true'
+        run: sudo xcode-select -s /Applications/Xcode_27.1.app
+
+      - name: Badges from this run
+        if: steps.secrets.outputs.ok == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: badges
+          path: tools/appstore/badges
+
+      - name: Store screenshots from run ${{ inputs.store_run }}
+        if: steps.secrets.outputs.ok == 'true' && inputs.store_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_RUN: ${{ inputs.store_run }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/store"
+          for name in store-duo store-69 store-61; do
+            gh run download "$STORE_RUN" -R "$GITHUB_REPOSITORY" -n "$name" -D "$RUNNER_TEMP/store/$name" || echo "::warning::artifact $name not found in run $STORE_RUN"
+          done
+
+      - name: Write the API key to a temp file
+        if: steps.secrets.outputs.ok == 'true'
+        run: |
+          umask 077
+          # Accept the .p8 pasted as-is, or with literal \n sequences.
+          printf '%s\n' "$ASC_PRIVATE_KEY" | sed 's/\\n/\n/g' > "$RUNNER_TEMP/AuthKey.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: check
+        if: steps.secrets.outputs.ok == 'true'
+        run: xcrun swift tools/appstore/asc.swift check
+
+      - name: plan
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ -n "$ONLY" ]; then xcrun swift tools/appstore/asc.swift plan --only "$ONLY"; else xcrun swift tools/appstore/asc.swift plan; fi
+
+      - name: push
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ -n "$ONLY" ]; then xcrun swift tools/appstore/asc.swift push --only "$ONLY"; else xcrun swift tools/appstore/asc.swift push; fi
+
+      - name: upload-screenshots from run ${{ inputs.store_run }}
+        if: steps.secrets.outputs.ok == 'true' && inputs.store_run != ''
+        run: xcrun swift tools/appstore/asc.swift upload-screenshots "$RUNNER_TEMP/store"
+
+      - name: Delete the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"

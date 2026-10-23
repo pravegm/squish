@@ -1,0 +1,69 @@
+{
+  "_comment": "CI fixture for asc.swift validate. It follows the asc-metadata.json schema; the real data is docs/appstore/asc-metadata.json (the listing writer's). Copy from docs/appstore/metadata.md and achievements.md, 23 Oct 2026.",
+  "bundleId": "com.pravegm.squish",
+  "primaryLocale": "en-GB",
+  "copyrightHolder": null,
+  "categories": {"primary": "GAMES", "primarySubcategories": ["GAMES_CASUAL", "GAMES_SIMULATION"], "secondary": "ENTERTAINMENT"},
+  "localizations": {
+    "en-GB": {
+      "name": "Squish: Fold-to-Crush Press",
+      "subtitle": "The £2,000 hydraulic press",
+      "privacyPolicyUrl": "https://[domain]/privacy",
+      "description": "Your phone is now a hydraulic press.\n\nPick an object. Close slowly. Ka-chunk.",
+      "keywords": "smash,squash,flatten,squeeze,satisfying,asmr,fidget,relax,toy,foldable,hinge,bubble,wrap,pop,stress",
+      "promotionalText": "Close your phone slowly and feel it give. Ten objects, ten ways to break, one shelf of pressed specimens. No ads, no in-app purchases, no timers. Just ka-chunk.",
+      "supportUrl": "https://[domain]/support",
+      "marketingUrl": ""
+    },
+    "en-US": {"subtitle": "The $2,000 hydraulic press"}
+  },
+  "ageRating": {
+    "parentalControls": false, "ageAssurance": false, "unrestrictedWebAccess": false, "userGeneratedContent": false,
+    "socialMedia": false, "socialMediaAgeRestricted": false, "messagingAndChat": false, "advertising": false,
+    "profanityOrCrudeHumor": "INFREQUENT_OR_MILD", "horrorOrFearThemes": "NONE", "alcoholTobaccoOrDrugUseOrReferences": "NONE",
+    "medicalOrTreatmentInformation": "NONE", "healthOrWellnessTopics": false, "sexualContentOrNudity": "NONE",
+    "sexualContentGraphicAndNudity": "NONE", "matureOrSuggestiveThemes": "NONE", "violenceCartoonOrFantasy": "INFREQUENT_OR_MILD",
+    "violenceRealistic": "NONE", "violenceRealisticProlongedGraphicOrSadistic": "NONE", "gunsOrOtherWeapons": "NONE",
+    "gambling": false, "gamblingSimulated": "NONE", "contests": "NONE", "lootBox": false, "kidsAgeBand": null
+  },
+  "review": {
+    "notes": "Squish works on every iPhone. Without an iPhone Duo, use Settings > Press without folding.",
+    "demoAccountRequired": false,
+    "contact": {"firstName": null, "lastName": null, "phone": null, "email": null}
+  },
+  "release": {"type": "SCHEDULED", "earliestReleaseDate": "2026-11-24T08:00:00Z"},
+  "price": {"baseTerritory": "GBR", "customerPrice": "2.99"},
+  "achievements": [
+    {"vendorIdentifier": "com.pravegm.squish.ach.first_squish", "referenceName": "First Squish", "points": 25, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "First Squish", "beforeEarnedDescription": "Press your first object.", "afterEarnedDescription": "Pressed. Filed. Ka-chunk."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.first_squish.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.pop_star", "referenceName": "Pop Star", "points": 75, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "Pop Star", "beforeEarnedDescription": "Pop 500 bubbles.", "afterEarnedDescription": "500 bubbles, and not one survivor."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.pop_star.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.whats_inside", "referenceName": "What's Inside?", "points": 75, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "What's Inside?", "beforeEarnedDescription": "Find a surprise hidden inside an object.", "afterEarnedDescription": "Found something in there. Didn't ask questions."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.whats_inside.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.patience", "referenceName": "Patience", "points": 50, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "Patience", "beforeEarnedDescription": "Take more than 30 seconds over a single press.", "afterEarnedDescription": "30 seconds of pure restraint."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.patience.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.pumped", "referenceName": "Pumped", "points": 50, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "Pumped", "beforeEarnedDescription": "Ease off and press again during one squish.", "afterEarnedDescription": "Up, down, up, down. Very hydraulic."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.pumped.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.perfectionist", "referenceName": "Perfectionist", "points": 100, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "Perfectionist", "beforeEarnedDescription": "Earn a Perfect Squish on 5 different objects.", "afterEarnedDescription": "Five objects, five flawless closes."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.perfectionist.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.steady_hands", "referenceName": "Steady Hands", "points": 75, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "Steady Hands", "beforeEarnedDescription": "Earn 10 Perfect Squishes.", "afterEarnedDescription": "Ten Perfect Squishes. Surgeons are nervous."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.steady_hands.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.midas", "referenceName": "Midas", "points": 100, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "Midas", "beforeEarnedDescription": "Press a Golden object.", "afterEarnedDescription": "Golden. One in fifty, and it was yours."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.midas.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.collector", "referenceName": "Collector", "points": 100, "showBeforeEarned": true, "repeatable": false,
+     "localizations": {"en-GB": {"name": "Collector", "beforeEarnedDescription": "Press all ten objects.", "afterEarnedDescription": "Ten objects, ten specimens. The shelf is full."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.collector.png"},
+    {"vendorIdentifier": "com.pravegm.squish.ach.the_secret", "referenceName": "The Secret", "points": 50, "showBeforeEarned": false, "repeatable": false,
+     "localizations": {"en-GB": {"name": "The Secret", "beforeEarnedDescription": "Some things don't squish.", "afterEarnedDescription": "PRESS 0 – BALL 1."}},
+     "image": "tools/appstore/badges/com.pravegm.squish.ach.the_secret.png"}
+  ],
+  "screenshots": {"APP_IPHONE_67": [], "APP_IPHONE_61": [], "duoInner": [], "duoOuter": []}
+}
