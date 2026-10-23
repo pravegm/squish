@@ -108,5 +108,5 @@ P1-duck-mid|object=rubberDuck;depth=0.55;seed=3;notoasts|30|Drag it down. Feel i
 P2-reveal-duck|object=rubberDuck;reveal;seed=3;notoasts|30|Open up. File the *evidence*.|kind=rubberDuck,revealed=1,golden=0,surprise=none
 P3-can-buckle|object=sodaCan;depth=0.55;seed=3;notoasts|30|Cans buckle *ring* by ring.|kind=sodaCan,phase=pressing,fractures>=1
 P4-shelf|shelf;notoasts|12|Collect every pressed *specimen*.
-P5-settings|settings;gamecenter=hidden;notoasts|12|No ads. No in-app purchases. *Just* the press. / Sound styles, haptic levels, Reduce Motion.
+P5-settings|settings;gamecenter=hidden;notoasts|12|No ads. No upsells. *Just* the press. / Sound styles, haptic levels, Reduce Motion.
 V4-glass-crack|object=glassBottle;depth=0.52;seed=3;notoasts|30||kind=glassBottle,phase=pressing,fractures>=1,failed=0
