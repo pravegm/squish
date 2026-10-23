@@ -637,7 +637,10 @@ enum CakeSquash {
             push = (base + rim * max(cover - base, 0)) * (1 + lumpiness * noise(phase + 1.7 * u))
         default:
             let base = spongeBarrel * sin(.pi * u)
-            push = (base + rim * (spongeRimPush - base)) * (1 + lumpiness * noise(phase + 1.7 * u))
+            // The ring is what shows from above: the upper sponge's top edge. Below it the sponge keeps its plain barrel,
+            // so the tip still blunts (the apex is drawn back; SceneTests.cakeSquashBulgesTheOutline).
+            let ring = rim * smooth(0.55, 0.8, u)
+            push = (base + ring * (spongeRimPush - base)) * (1 + lumpiness * noise(phase + 1.7 * u))
         }
         let out = d / r * (bulgeReach * t * push * apex)
         return SIMD3(p.x + out.x + oval.x, y, p.z + out.y + oval.y)
