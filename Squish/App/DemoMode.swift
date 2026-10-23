@@ -81,6 +81,9 @@ struct DemoScenario {
     static let current: DemoScenario? = {
         #if DEBUG
         guard let raw = UserDefaults.standard.string(forKey: "squishDemo"), !raw.isEmpty else { return nil }
+        // CI redirects stdout to a file, which makes it fully buffered: the scripts then see SQUISH-T lines seconds
+        // late (the R9 toast check shot 8 s after "reveal lit" instead of 2.5 s). Line-buffer it for demo runs.
+        setvbuf(stdout, nil, _IOLBF, 0)
         var values: [String: String] = [:]
         for part in raw.split(separator: ";") {
             let pieces = part.split(separator: "=", maxSplits: 1).map(String.init)

@@ -600,7 +600,19 @@ verify_toasts() {
     fsleep 0.1; t=$((t + 1))
   done
   if [[ -n "$lit" ]]; then
-    fsleep "$VERIFY_TOAST_DELAY"
+    # Shoot as soon as the app says the first toast is up (it stays 3 s); fall back to the fixed delay after light.
+    toast_before=$(grep -c "SQUISH-T toast shown" "$applog" 2>/dev/null)
+    tt=0
+    while (( tt < 80 )); do
+      (( $(grep -c "SQUISH-T toast shown" "$applog" 2>/dev/null) > toast_before )) && break
+      fsleep 0.1; tt=$((tt + 1))
+    done
+    if (( tt >= 80 )); then
+      vnote "   WARN no 'SQUISH-T toast shown' line within 8 s of the light: this reveal may have had no toasts"
+    else
+      fsleep 0.4   # let the pop-in transition finish
+      vnote "   toast: $(grep "SQUISH-T toast shown" "$applog" | tail -1) ($((tt / 10)).$((tt % 10))s after the lit line was seen)"
+    fi
     SHOOT_POSTURE=0 shoot verify/duo-reveal-toasts inner
     vnote "   verify/duo-reveal-toasts.png: ~${VERIFY_TOAST_DELAY}s after '${lit#*SQUISH-F }' (seen after ~$((t / 10)).$((t % 10))s of the reopen)"
   else

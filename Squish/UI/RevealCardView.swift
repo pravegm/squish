@@ -414,6 +414,9 @@ struct RevealCardView: View {
                 guard !Task.isCancelled, !collecting else { return }
                 withAnimation(Theme.pop(reduceMotion)) { toastIndex = index }
                 if index == 0 { UIFeel.success() }
+                #if DEBUG
+                if DemoScenario.current != nil { print("SQUISH-T toast shown \(index + 1)/\(count)") }   // ci verify pass
+                #endif
                 try? await Task.sleep(for: .milliseconds(Self.toastVisibleMilliseconds))
                 guard !Task.isCancelled else { return }
                 withAnimation(Theme.fade) { toastIndex = -1 }
