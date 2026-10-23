@@ -55,6 +55,12 @@ jobs:
             2>&1 | tee build.log | grep -E "error:|warning: .*Squish/|Test Suite|Test case|passed|failed|\*\* " || true
           grep -q "\*\* TEST SUCCEEDED \*\*" build.log
 
+      - name: Check the privacy manifest is in the app
+        run: |
+          APP=build/Build/Products/Debug-iphonesimulator/Squish.app
+          test -f "$APP/PrivacyInfo.xcprivacy" || { echo "PrivacyInfo.xcprivacy missing from $APP"; exit 1; }
+          plutil -lint "$APP/PrivacyInfo.xcprivacy"
+
       - name: Summarise errors
         if: failure()
         run: |

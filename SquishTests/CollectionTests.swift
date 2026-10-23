@@ -727,5 +727,29 @@ struct CollectionTests {
             #expect((60...85).contains(angle), "\(kind) AT \(angle)°")
         }
     }
+
+    /// The seeded can is the set's green FIZZO, not an orange or berry print (FOLD-REVIEW-9 N2): it is the Shelf's
+    /// hero tile and the cover's first recent tile, so it must match the lime the store presses (`seed=3`) show.
+    @Test func seededDemoCanIsTheGreenFizzo() throws {
+        let (store, _) = makeStore()
+        store.seedDemo(count: 7, onHinge: true)
+        let can = try #require(store.specimens.first { $0.kind == .sodaCan })
+        #expect(!can.variant.isGolden)
+        #expect(can.variant.surprise == nil)
+        #expect(CollectionStore.isGreenFizz(FoldStamps.canFizz(can.variant)))
+        // The store presses' seed is the same green, and the old pick (the first plain seed at salt 6) was not.
+        #expect(CollectionStore.isGreenFizz(FoldStamps.canFizz(PressVariant(kind: .sodaCan, seed: 3))))
+        #expect(!CollectionStore.isGreenFizz(FoldStamps.canFizz(PressVariant(kind: .sodaCan, seed: 48_514))))
+        // Every salt finds a plain green can.
+        for salt: UInt64 in 0..<8 {
+            let seed = CollectionStore.demoSeed(for: .sodaCan, golden: false, surprise: false, salt: salt)
+            let variant = PressVariant(kind: .sodaCan, seed: seed)
+            #expect(!variant.isGolden && variant.surprise == nil, "salt \(salt)")
+            #expect(CollectionStore.isGreenFizz(FoldStamps.canFizz(variant)), "salt \(salt) seed \(seed)")
+        }
+        // Other kinds keep their seeds: the filter is the can's alone.
+        #expect(CollectionStore.demoSeed(for: .rubberDuck, golden: false, surprise: false, salt: 1)
+                == SpecimenPrint.plainSeed(for: .rubberDuck, from: 1_000 + 7_919))
+    }
     #endif
 }

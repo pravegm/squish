@@ -72,9 +72,14 @@ struct CoverView: View {
         .ignoresSafeArea()
     }
 
+    /// The idle picker (FOLD-REVIEW-9 N5): centred on the whole outer display, like `sealed`. Centred in the safe area
+    /// it sat ~50 px from the hinge edge and ~210 px from the free edge. Its width is capped so that, centred, it still
+    /// clears the clock column (the safe area's trailing inset) by `CoverLayout.clockClearance`.
     private var idle: some View {
         GeometryReader { proxy in
-            let width = max(220, min(proxy.size.width - sideInset * 2, 340))
+            let insets = proxy.safeAreaInsets
+            let width = CoverLayout.idleWidth(display: proxy.size.width, leading: insets.leading,
+                                              trailing: insets.trailing, sideInset: sideInset)
             ScrollView(.vertical) {
                 VStack(spacing: Theme.s4) {
                     IdleCover(recent: recent, currentKind: currentKind, thumbnail: thumbnail,
@@ -82,7 +87,8 @@ struct CoverView: View {
                     safetyLine
                 }
                 .frame(width: width)
-                .padding(.vertical, Theme.s5)
+                // Symmetric, so it stays centred on the display while clearing the top and bottom insets.
+                .padding(.vertical, Theme.s5 + max(insets.top, insets.bottom))
                 .frame(minHeight: proxy.size.height - bottomInset)
                 .frame(maxWidth: .infinity)
             }
@@ -90,6 +96,7 @@ struct CoverView: View {
             .scrollIndicators(.hidden)
             .padding(.bottom, bottomInset)
         }
+        .ignoresSafeArea()
     }
 
     @ViewBuilder
@@ -169,16 +176,42 @@ private struct MachinePanel: View {
                 guard holdingPressure, !reduceMotion else { return }
                 withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glow = true }
             }
+            // FOLD-REVIEW-9 N5: on the panel's own corners (full bounds), not the safe area's, where the trailing pair
+            // floated ~190 px inside the edge. The trailing pair sits inside the hazard jaw.
             GeometryReader { proxy in
-                let inset: CGFloat = 14
                 ForEach(0..<4, id: \.self) { index in
                     Screw()
-                        .position(x: index % 2 == 0 ? inset : proxy.size.width - inset,
-                                  y: index < 2 ? inset : proxy.size.height - inset)
+                        .position(CoverLayout.screw(index, in: proxy.size))
                 }
             }
+            .ignoresSafeArea()
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Cover geometry (FOLD-REVIEW-9 N5), pure so tests can pin it.
+enum CoverLayout {
+    /// The idle picker's widest, narrowest, and its gap to the clock column.
+    static let maxIdleWidth: CGFloat = 340
+    static let minIdleWidth: CGFloat = 220
+    static let clockClearance: CGFloat = 16
+    /// Screw centres from the panel's edges: the corner rounding stays clear of them (≤ 60 pt radius at 18 pt),
+    /// and the trailing pair sits the same distance inside the 10 pt hazard jaw.
+    static let screwInset: CGFloat = 18
+    static let jawWidth: CGFloat = 10
+
+    /// The width of the idle column centred on a `display`-wide panel: ≤ `maxIdleWidth`, `sideInset` from the panel's
+    /// edges, and clear of the leading and trailing safe-area insets (the clock column) by `clockClearance`.
+    static func idleWidth(display: CGFloat, leading: CGFloat, trailing: CGFloat, sideInset: CGFloat) -> CGFloat {
+        let edge = max(sideInset, max(leading, trailing) + clockClearance)
+        return max(minIdleWidth, min(display - 2 * edge, maxIdleWidth))
+    }
+
+    /// Screw `index` (0 top-leading, 1 top-trailing, 2 bottom-leading, 3 bottom-trailing) on a panel of `size`.
+    static func screw(_ index: Int, in size: CGSize) -> CGPoint {
+        CGPoint(x: index % 2 == 0 ? screwInset : size.width - jawWidth - screwInset,
+                y: index < 2 ? screwInset : size.height - screwInset)
     }
 }
 

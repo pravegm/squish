@@ -430,7 +430,10 @@ final class PressScene {
         if !mess.isEmpty { bounds = bounds.union(mess) }
         let extentXZ = max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z)
         let extent = clamp(extentXZ * 1.25, 0.09, 0.22)
-        let centre = SIMD3<Float>((bounds.min.x + bounds.max.x) / 2, 0, (bounds.min.z + bounds.max.z) / 2)
+        // FOLD-REVIEW-9 N4: the subject sits a little above centre (image up is −z), so the card's PRESSED stamp, low
+        // on the photo's trailing corner, lands on the plate rather than on the specimen.
+        let centre = SIMD3<Float>((bounds.min.x + bounds.max.x) / 2, 0,
+                                  (bounds.min.z + bounds.max.z) / 2 + extent * Float(SpecimenFraming.lift))
         let camera = PerspectiveCamera()
         let height: Float = 1.0
         camera.camera.fieldOfViewInDegrees = 2 * atan(extent / 2 / height) * 180 / .pi
@@ -449,8 +452,49 @@ final class PressScene {
         offscreen.scene.removeAnchor(anchor)
         offscreen.isHidden = true
         // FOLD PRESS: a blank (never-rendered) shot returns nil so the director / UI fall back.
-        if let image, FoldSnapshot.isBlank(image) { return nil }
-        return image
+        // P-48 (FOLD-REVIEW-9 N4): the parked view often never renders either, and the director's fallback was the
+        // live frame under a fixed crop (58 % wide at 70 % down), which framed the specimen low and cut it at the
+        // right (the duck's beak on 6.1"). Aim a square crop of the live frame at the specimen's projected bounds.
+        if let image, !FoldSnapshot.isBlank(image) { return image }
+        guard framing == .machine else { return nil }
+        return await aimedLiveShot()
+    }
+
+    /// The live P-48 frame, cropped square to the flattened specimen and its settled mess as the camera sees them
+    /// (`SpecimenFraming`), so the card photo is the specimen, centred, never the empty backdrop above it.
+    private func aimedLiveShot() async -> UIImage? {
+        guard let view = arView, view.bounds.width > 1, view.bounds.height > 1 else { return nil }
+        let object = objectSlot.visualBounds(relativeTo: nil, excludeInactive: true)
+        guard !object.isEmpty, let subject = projectedRect(object, in: view) else { return nil }
+        let messBounds = fx.root.visualBounds(relativeTo: nil, excludeInactive: true)
+        let mess = messBounds.isEmpty ? nil : projectedRect(messBounds, in: view)
+        guard let image = await snapshot(), let cg = image.cgImage else { return nil }
+        let scale = CGFloat(cg.width) / view.bounds.width
+        // Book pose rolls the P-48 camera −90° (the ram comes from the side), so the frame's y is the card's x there.
+        let landscape = view.bounds.width > view.bounds.height
+        let pixels = CGSize(width: cg.width, height: cg.height)
+        let scaled = { (r: CGRect) in CGRect(x: r.minX * scale, y: r.minY * scale, width: r.width * scale, height: r.height * scale) }
+        guard let crop = SpecimenFraming.crop(subject: scaled(subject), mess: mess.map(scaled), image: pixels,
+                                              lift: landscape ? 0 : SpecimenFraming.lift),
+              let cropped = cg.cropping(to: crop) else { return nil }
+        // Turn a book-pose crop upright, as `CollectionStore.specimenCrop` does, and bake it in (a PNG keeps no orientation).
+        let turned = UIImage(cgImage: cropped, scale: 1, orientation: landscape ? .right : .up)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: turned.size, format: format).image { _ in
+            turned.draw(in: CGRect(origin: .zero, size: turned.size))
+        }
+    }
+
+    /// The view-space rectangle (points) the eight corners of `box` project to; nil if none lands in front of the camera.
+    private func projectedRect(_ box: BoundingBox, in view: ARView) -> CGRect? {
+        var rect = CGRect.null
+        for i in 0..<8 {
+            let corner = SIMD3<Float>(i & 1 == 0 ? box.min.x : box.max.x, i & 2 == 0 ? box.min.y : box.max.y,
+                                      i & 4 == 0 ? box.min.z : box.max.z)
+            if let point = view.project(corner) { rect = rect.union(CGRect(origin: point, size: .zero)) }
+        }
+        return rect.isNull ? nil : rect
     }
 
     // MARK: - Hosting
@@ -1091,5 +1135,37 @@ final class PressScene {
 
     private var foldRimLight: SpotLight? {
         root.children.first(where: { $0 is SpotLight }) as? SpotLight
+    }
+}
+
+/// How a specimen photo is framed (FOLD-REVIEW-9 N4: the P-48 card photo was the live frame under a fixed crop, with
+/// the top ~35 % empty backdrop, the duck cut at the right and the PRESSED stamp on its eye). Pure, so tests can pin it.
+enum SpecimenFraming {
+    /// The square's side over the subject's larger projected side.
+    static let margin: CGFloat = 1.35
+    /// The settled mess may widen the frame by at most this share of the subject's size on each side (a stray crumb
+    /// must not shrink the specimen to a dot).
+    static let messReach: CGFloat = 0.35
+    /// How far above the square's centre the subject's centre sits (share of the side): the card's stamp sits low on
+    /// the trailing corner, so this keeps it on the backdrop, off the specimen's face.
+    static let lift: CGFloat = 0.06
+
+    /// A square crop (image pixels) of an `image`-sized frame around `subject` (and the part of `mess` near it), the
+    /// subject centred across and `lift` above centre, kept inside the image. Nil for an empty subject.
+    static func crop(subject: CGRect, mess: CGRect?, image: CGSize, lift: CGFloat = SpecimenFraming.lift) -> CGRect? {
+        guard subject.width > 1 || subject.height > 1, image.width >= 2, image.height >= 2 else { return nil }
+        var target = subject
+        if let mess, !mess.isNull, !mess.isEmpty {
+            let reach = subject.insetBy(dx: -subject.width * messReach, dy: -subject.height * messReach)
+            let near = mess.intersection(reach)
+            if !near.isNull { target = target.union(near) }
+        }
+        let side = min(max(target.width, target.height) * margin, image.width, image.height)
+        guard side >= 2 else { return nil }
+        var x = target.midX - side / 2
+        var y = target.midY - side / 2 + side * lift   // the window drops, so the subject rides above its centre
+        x = min(max(x, 0), image.width - side)
+        y = min(max(y, 0), image.height - side)
+        return CGRect(x: x, y: y, width: side, height: side).integral.intersection(CGRect(origin: .zero, size: image))
     }
 }

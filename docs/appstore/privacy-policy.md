@@ -52,7 +52,7 @@ Squish, an independent app by GitHub user [pravegm](https://github.com/pravegm).
 | Crash logs via Apple's opt-in "Share with App Developers" | Not declared | Apple-collected. We add no third-party crash SDK. **If one is ever added, the label must change to declare Crash Data** |
 | Tracking (ATT) | None. No `NSUserTrackingUsageDescription` in Info.plist | |
 | Code check (23 Oct 2026) | No `URLSession`, `URLRequest`, `Network` framework, `URL(string:)`, web views, analytics or crash SDKs in `Squish/`. Only GameKit (Game Center) and local storage (UserDefaults, Application Support). No `NS*UsageDescription` keys in `project.yml` | Re-run the grep before each submission |
-| Privacy manifest (`PrivacyInfo.xcprivacy`) | Dev: include it with `NSPrivacyTracking = false`, no collected data types, and the required-reason API entries actually used (e.g. `UserDefaults` CA92.1, file timestamp) | |
+| Privacy manifest (`PrivacyInfo.xcprivacy`) | Done: `Squish/PrivacyInfo.xcprivacy`. No tracking, no collected data types; required-reason APIs UserDefaults CA92.1, file metadata C617.1, elapsed time 35F9.1 | ✅ |
 
 Re-check before every update: does any new code send anything off the device? If so, update the label **before** submitting.
 

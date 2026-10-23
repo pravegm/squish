@@ -467,6 +467,79 @@ struct SceneTests {
         }
     }
 
+    @Test func crushedCakeShadesAndKeepsItsSpongeBand() {
+        // FOLD-REVIEW-9 N3: at c = 1 the cream top clipped to flat white and covered the sponge. Its albedo now steps
+        // down as the squash completes, and the sponge's top ring pokes out past the cream's base all round.
+        func luma(_ hex: UInt32) -> Float {
+            0.2126 * Float((hex >> 16) & 0xFF) + 0.7152 * Float((hex >> 8) & 0xFF) + 0.0722 * Float(hex & 0xFF)
+        }
+        #expect(CakeSquash.creamShade(progress: 0) == Float(1))
+        #expect(CakeSquash.creamShade(progress: 0.4) == Float(1))
+        #expect(abs(CakeSquash.creamShade(progress: 1) - CakeSquash.crushedShade) < Float(1e-5))
+        #expect(luma(CakeSquash.creamTint) * CakeSquash.creamShade(progress: 1) < 200)
+        #expect(luma(CakeSquash.creamTint) * CakeSquash.creamShade(progress: 1) > 170)
+        var lastShade: Float = 1
+        for k in 0...20 {
+            let shade = CakeSquash.creamShade(progress: Float(k) / 20)
+            #expect(shade <= lastShade + 1e-6)
+            lastShade = shade
+        }
+        #expect(luma(CakeSquash.creamFold) < luma(CakeSquash.creamDark))
+        // The rim only comes in late (the 76° hold keeps its look) and the pushes stay ordered cream < sponge < filling.
+        #expect(CakeSquash.rimWeight(progress: 0.5) == Float(0) && CakeSquash.rimWeight(progress: 1) == Float(1))
+        #expect(CakeSquash.creamPush < CakeSquash.spongeRimPush && CakeSquash.spongeRimPush < CakeSquash.fillingPush)
+        let topOfSponge: Float = 0.053   // the upper sponge's top = the cream's base
+        let centroid = SIMD2<Float>(CakeSquash.centroidX, 0)
+        for extreme: Float in [0, 1, -1] {
+            let noise: (Float) -> Float = { _ in extreme }
+            for q in CakeSquash.wedge(inset: 0, sideSteps: CakeSquash.sideSteps) {
+                let p = SIMD3<Float>(q.x, topOfSponge, q.y)
+                let sponge = CakeSquash.deform(p, layer: CakeSquash.upperSpongeLayer, progress: 1, noise: noise)
+                let cream = CakeSquash.deform(p, layer: CakeSquash.creamLayer, progress: 1, noise: noise)
+                let gap = simd_distance(SIMD2(sponge.x, sponge.z), centroid) - simd_distance(SIMD2(cream.x, cream.z), centroid)
+                #expect(gap > 0.0004, "sponge ring \(gap) m at \(q), noise \(extreme)")
+            }
+            // On the back arc the frosting still covers the bulging sponge.
+            for j in 1..<16 {
+                let a = -CakeSquash.halfAngle + 0.01 + (2 * CakeSquash.halfAngle - 0.02) * Float(j) / 16
+                for (y, layer) in [(Float(0.012), CakeSquash.lowerSpongeLayer), (Float(0.04), CakeSquash.upperSpongeLayer)] {
+                    let dir = SIMD2<Float>(cos(a), sin(a))
+                    let s = CakeSquash.deform(SIMD3(dir.x * CakeSquash.radius, y, dir.y * CakeSquash.radius), layer: layer,
+                                              progress: 1, noise: noise)
+                    let r = CakeSquash.radius + 0.004
+                    let f = CakeSquash.deform(SIMD3(dir.x * r, y, dir.y * r), layer: CakeSquash.frostingLayer, progress: 1,
+                                              noise: noise)
+                    #expect(simd_length(SIMD2(f.x, f.z)) > simd_length(SIMD2(s.x, s.z)), "frosting at \(a), y \(y)")
+                }
+            }
+        }
+    }
+
+    @Test func specimenPhotoIsAimedAtTheSpecimen() throws {
+        // FOLD-REVIEW-9 N4: the P-48 card photo was a fixed crop of the live frame (58 % wide at 70 % down), so the duck
+        // sat low with empty backdrop above it and lost its beak at the right on 6.1". The crop now follows the subject.
+        let image = CGSize(width: 1206, height: 2622)
+        let duck = CGRect(x: 380, y: 1850, width: 560, height: 300)   // low and right of centre, as on 6.1"
+        let crop = try #require(SpecimenFraming.crop(subject: duck, mess: nil, image: image))
+        #expect(abs(crop.width - crop.height) <= CGFloat(1))
+        #expect(crop.contains(duck), "the whole specimen, beak included")
+        #expect(crop.width >= duck.width * 1.3 && crop.width <= duck.width * 1.4)
+        // Centred across; lifted a little above centre (the stamp sits low on the trailing corner).
+        #expect(abs(crop.midX - duck.midX) <= CGFloat(1))
+        #expect(duck.midY < crop.midY && duck.midY > crop.midY - crop.height * 0.1)
+        // Near the frame's edge it stays inside the image.
+        let edge = CGRect(x: 1000, y: 2500, width: 200, height: 100)
+        let inside = try #require(SpecimenFraming.crop(subject: edge, mess: nil, image: image))
+        #expect(CGRect(origin: .zero, size: image).contains(inside))
+        // Mess near the specimen widens the frame, but only so far: a stray crumb across the screen can't shrink it.
+        let near = CGRect(x: 300, y: 1900, width: 760, height: 260)
+        let withMess = try #require(SpecimenFraming.crop(subject: duck, mess: near, image: image))
+        #expect(withMess.width > crop.width && withMess.contains(near))
+        let everywhere = try #require(SpecimenFraming.crop(subject: duck, mess: CGRect(origin: .zero, size: image), image: image))
+        #expect(everywhere.width <= duck.width * (1 + 2 * SpecimenFraming.messReach) * SpecimenFraming.margin + 1)
+        #expect(SpecimenFraming.crop(subject: .zero, mess: nil, image: image) == nil)
+    }
+
     @Test func eggShellLandsRoundTheYolkNotOnIt() {
         // FOLD-REVIEW-6 N9: the shards were pinned over the yolk. Now they land on a ring outside the widest yolk pool.
         for doubleYolk in [false, true] {
@@ -609,10 +682,13 @@ struct SceneTests {
         }
         // A flattened, wider outline: the top-down footprint ≥ 1.9× the wedge's.
         #expect(footprint(crushedTop) >= 1.9 * footprint(restTop))
-        // The filling squeezes out past the cream, the cream past the sponge under it (so pink frames the white).
+        // The filling squeezes out furthest, and (FOLD-REVIEW-9 N3) the sponge now bulges past the cream top's edge, so
+        // from above it reads cream, a tan sponge ring, then the pink filling (it used to be cream over everything).
         let filling = reach[CakeSquash.fillingLayer] ?? 0, cream = reach[CakeSquash.creamLayer] ?? 0
         let sponge = reach[CakeSquash.upperSpongeLayer] ?? 0
-        #expect(filling > cream + 0.004 && cream > sponge)
+        #expect(filling > cream + 0.004)
+        #expect(filling > sponge + 0.002, "filling \(filling) vs sponge \(sponge)")
+        #expect(sponge > cream + 0.002, "sponge \(sponge) vs cream \(cream)")
         #expect(filling * k >= 0.02)
         // …and all of it stays on the strike plate (+16 pt), and on the plate floor.
         let plate = GlassDebris.containment(restHeight: CakeSquash.restHeight, anvilHalf: SIMD2<Float>(repeating: 1))

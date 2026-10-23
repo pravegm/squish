@@ -448,15 +448,31 @@ final class CollectionStore {
     }
 
     /// Finds a seed whose variant matches the wanted traits (golden is 1 in 50, so this is a short search).
+    /// A plain seeded can must also be the set's green FIZZO (FOLD-REVIEW-9 N2): the seed's fizz is one of lime,
+    /// orange or berry, and the Shelf's hero tile and the cover's first recent tile are this can, so it must match
+    /// the lime the store presses show (`seed=3`, DemoMode).
     static func demoSeed(for kind: ObjectKind, golden: Bool, surprise: Bool, salt: UInt64) -> UInt64 {
         var seed = 1_000 + salt * 7_919
         for _ in 0..<20_000 {
             let variant = PressVariant(kind: kind, seed: seed)
             let surpriseOK = surprise ? variant.surprise != nil : variant.surprise == nil
-            if variant.isGolden == golden && surpriseOK { return seed }
+            let fizzOK = kind != .sodaCan || golden || surprise || isGreenFizz(FoldStamps.canFizz(variant))
+            if variant.isGolden == golden && surpriseOK && fizzOK { return seed }
             seed += 1
         }
         return seed
+    }
+
+    /// The lime FIZZO fizz (SodaCanView's first palette, `FoldStamps.canFizz`'s first puddle).
+    static let greenFizzHex: UInt32 = 0xC9EFA0
+
+    /// Whether a fizz colour is the green one (component compare, so colour-space identity doesn't matter).
+    static func isGreenFizz(_ color: UIColor) -> Bool {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard color.getRed(&r, green: &g, blue: &b, alpha: &a) else { return false }
+        let want = (CGFloat((greenFizzHex >> 16) & 0xFF) / 255, CGFloat((greenFizzHex >> 8) & 0xFF) / 255,
+                    CGFloat(greenFizzHex & 0xFF) / 255)
+        return abs(r - want.0) < 0.01 && abs(g - want.1) < 0.01 && abs(b - want.2) < 0.01
     }
     #endif
 }

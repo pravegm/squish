@@ -74,14 +74,17 @@ struct SpecimenCardView: View {
 
     /// The red stamp sits on the render's lower-right corner, mostly inside it, so it clears the name and
     /// serial below by ≥ 12 pt even at its full ±9° rotation (VISUAL-REVIEW-1 #13).
+    /// Reveal (FOLD-REVIEW-9 N4): the photo is a wide crop of a square framed with the specimen centred and lifted
+    /// (`SpecimenFraming`), so the stamp, 4 pt lower and tucked into the corner, lands on the backdrop under the subject
+    /// rather than on its face; it still clears the serial by ≥ 12 pt.
     private var stamp: some View {
         PressedStamp(seed: specimen.variant.seed, text: specimen.stampText, date: specimen.date,
                      fixedAngle: specimen.kind == .unsquishable ? -4 : nil)
             .scaleEffect(style == .reveal ? 0.8 : 1)
             .scaleEffect(stampDown ? 1 : (reduceMotion ? 1 : 1.6))
             .opacity(stampDown ? 1 : 0)
-            .padding(.trailing, Theme.s1)
-            .offset(y: -Theme.s2)
+            .padding(.trailing, style == .reveal ? 2 : Theme.s1)
+            .offset(y: style == .reveal ? -Theme.s1 : -Theme.s2)
     }
 
     /// The specimen render on paper with a soft drop shadow, plus seal / sparkles / surprise tag.

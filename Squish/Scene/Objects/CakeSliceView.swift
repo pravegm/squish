@@ -60,6 +60,9 @@ final class CakeSliceView: PressObjectView {
     private let bulgeNoise: (Float) -> Float
     private var drips: [(model: ModelEntity, rest: SIMD3<Float>)] = []
     private var crumbled = false
+    /// The cream's mottle once it has loaded, and the albedo shade its material was last built at (−1: not yet).
+    private var creamMottle: TextureResource?
+    private var appliedCreamShade: Float = -1
     /// Candle base on the top, in wedge space (apex at the origin, arc toward +X).
     static let candleBase = CakeSquash.candleBase
 
@@ -98,8 +101,8 @@ final class CakeSliceView: PressObjectView {
         if !look.golden {
             Task { @MainActor [weak self] in
                 guard let texture = await Self.creamTexture(), let self else { return }
-                self.body?.setMaterial(SceneMaterials.textured(texture, roughness: CakeSquash.creamRoughness),
-                                       forSlot: Int(CakeSquash.creamSlot))
+                self.creamMottle = texture
+                self.applyCreamShade()
             }
         }
         // Five drips along the back frosting's top edge (they ride the bulge).
@@ -149,6 +152,18 @@ final class CakeSliceView: PressObjectView {
         entity.addChild(candlePivot)
         applyCandle(CakeSquash.candlePose(ramFace: restHeight, bent: false))
         entity.orientation = simd_quatf(angle: CakeSquash.yaw, axis: [0, 1, 0])
+    }
+
+    /// The cream top's textured material, its albedo stepped down as the squash completes (FOLD-REVIEW-9 N3). Only
+    /// rebuilt when the shade has moved, which happens only while the bulge grows.
+    private func applyCreamShade() {
+        guard !look.golden, let texture = creamMottle else { return }
+        let shade = CakeSquash.creamShade(progress: bulge)
+        guard abs(shade - appliedCreamShade) > 0.004 else { return }
+        appliedCreamShade = shade
+        var material = SceneMaterials.textured(texture, roughness: CakeSquash.creamRoughness)
+        material.baseColor = .init(tint: UIColor(white: CGFloat(shade), alpha: 1), texture: .init(texture))
+        body?.setMaterial(material, forSlot: Int(CakeSquash.creamSlot))
     }
 
     /// The cream's mottle (drawn once per session; FOLD-REVIEW-8 N4).
@@ -208,6 +223,7 @@ final class CakeSliceView: PressObjectView {
             for drip in drips {
                 drip.model.position = CakeSquash.deform(drip.rest, layer: CakeSquash.frostingLayer, progress: amount, noise: noise)
             }
+            applyCreamShade()
         }
         if bulge > 0.55 && !crumbled {
             // Crumbs fall off the bulging sponge (they persist on the plate).
@@ -285,8 +301,10 @@ final class CakeSliceView: PressObjectView {
             let pinkBlob = look.golden ? SceneMaterials.goldMess
                 : SceneMaterials.enamel(UIColor(hex: 0xF59BB5), roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.12)
             // The cream tongues in the matte cream (FOLD-REVIEW-8 N4: glossy #FFF3F7 read as blown-out white eggs).
+            // FOLD-REVIEW-9 N3: at the crushed cream's shade, so the tongues don't read as brighter than the top.
             let whiteBlob = look.golden ? SceneMaterials.goldMess
-                : SceneMaterials.pbr(UIColor(hex: CakeSquash.creamTint), roughness: CakeSquash.creamRoughness)
+                : SceneMaterials.pbr(CakeSquash.shaded(CakeSquash.creamTint, CakeSquash.creamShade(progress: max(bulge, 0.8))),
+                                     roughness: CakeSquash.creamRoughness)
             let count = 5 + Int(rng.next() % 3)
             for k in 0..<count {
                 let fraction = (Float(k) + 0.5 + Float.random(in: -0.3...0.3, using: &rng)) / Float(count)
@@ -548,6 +566,17 @@ enum CakeSquash {
         clamp((0.9 - s) / 0.6, 0, 1)
     }
 
+    /// FOLD-REVIEW-9 N3: at c = 1 the cream top (push 0.75) spread over the barrelled sponge (≤ 0.5), so from above the
+    /// sponge band vanished under a white disc. As the squash completes every sponge point is drawn toward this push
+    /// (cream 0.75 < sponge < filling 1.25), so a tan ring shows past the cream's edge, with the pink filling past that.
+    static let spongeRimPush: Float = 1.0
+    /// The back frosting starts ~4 mm (0.25 push) outside the sponge, so it needs a little less to keep covering it.
+    static let frostingRimInset: Float = 0.2
+    /// How far toward `spongeRimPush` the sponge has gone at squeeze `progress` (none until 0.55, all of it at 1).
+    static func rimWeight(progress: Float) -> Float {
+        smooth(0.55, 1, clamp(progress, 0, 1))
+    }
+
     /// How much the back frosting (a single band up the whole height) is pushed out at height share `u` (0 base … 1
     /// top): the sponge's barrel plus the filling and the cream top squeezing past it. Zero at the base.
     static func profile(_ u: Float) -> Float {
@@ -592,6 +621,8 @@ enum CakeSquash {
         let apex = clamp(p.x / apexReach, apexMin, 1)
         var y = p.y
         let push: Float
+        // FOLD-REVIEW-9 N3: near full squash the sponge bulges out past the cream top's edge, so a band stays visible.
+        let rim = rimWeight(progress: t)
         switch layer ?? inferredLayer(u) {
         case fillingLayer:
             push = fillingPush * (1 + fillingLumpiness * noise(phase * 1.3 + 2.1))
@@ -600,9 +631,13 @@ enum CakeSquash {
         case creamLayer:
             push = creamPush * (1 + lumpiness * noise(phase + 1.7 * u))
         case frostingLayer:
-            push = profile(u) * (1 + lumpiness * noise(phase + 1.7 * u))
+            // The back frosting rides out over the bulging sponge (it starts ~4 mm outside it), up to the cream.
+            let base = profile(u)
+            let cover = (spongeRimPush - frostingRimInset) * (1 - smooth(0.85, 1, u))
+            push = (base + rim * max(cover - base, 0)) * (1 + lumpiness * noise(phase + 1.7 * u))
         default:
-            push = spongeBarrel * sin(.pi * u) * (1 + lumpiness * noise(phase + 1.7 * u))
+            let base = spongeBarrel * sin(.pi * u)
+            push = (base + rim * (spongeRimPush - base)) * (1 + lumpiness * noise(phase + 1.7 * u))
         }
         let out = d / r * (bulgeReach * t * push * apex)
         return SIMD3(p.x + out.x + oval.x, y, p.z + out.y + oval.y)
@@ -676,11 +711,40 @@ enum CakeSquash {
     /// The mottle: soft blotches a little darker (warm pink-beige) and lighter than the tint.
     static let creamDark: UInt32 = 0xE6CDD3
     static let creamLight: UInt32 = 0xFAF1F3
+    /// The fold shadow round the top's rim (FOLD-REVIEW-9 N3).
+    static let creamFold: UInt32 = 0xD6B9C1
     /// Planar (top-down) UVs over the wedge: x 0…`uvSpan`, z ±`uvSpan`/2, so the mottle spreads with the cream.
     static let uvSpan: Float = 0.12
 
     static func planarUV(_ p: SIMD3<Float>) -> SIMD2<Float> {
         SIMD2(p.x / uvSpan, 0.5 + p.z / uvSpan)
+    }
+
+    /// FOLD-REVIEW-9 N3: flattened and facing the key head-on, the cream top still clipped to flat white at c = 1. Its
+    /// albedo steps down as the squash completes (the textured material's tint, × the mottle), so it shades and the
+    /// mottle and the rim's fold shadow stay visible.
+    static let crushedShade: Float = 0.82
+
+    /// The cream's albedo multiplier at squeeze `progress`: 1 until 0.45, `crushedShade` at 1.
+    static func creamShade(progress: Float) -> Float {
+        1 - (1 - crushedShade) * smooth(0.45, 1, clamp(progress, 0, 1))
+    }
+
+    /// `hex` scaled by `shade` (the cream ooze tongues, which only appear once the slice is crushed).
+    static func shaded(_ hex: UInt32, _ shade: Float) -> UIColor {
+        let f = CGFloat(clamp(shade, 0, 1))
+        return UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255 * f, green: CGFloat((hex >> 8) & 0xFF) / 255 * f,
+                       blue: CGFloat(hex & 0xFF) / 255 * f, alpha: 1)
+    }
+
+    /// The rest outline in the cream texture's pixel space (`planarUV`; the wedge is symmetric about v 0.5, so either
+    /// texture-v convention maps it onto itself).
+    static func uvOutline(side: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let points = wedge().map { CGPoint(x: CGFloat($0.x / uvSpan) * side, y: CGFloat(0.5 + $0.y / uvSpan) * side) }
+        path.addLines(between: points)
+        path.closeSubpath()
+        return path
     }
 
     /// The cream's colour texture: the tint, mottled with ~70 soft seeded blotches (≈ 3–13 mm on the slice).
@@ -700,7 +764,8 @@ enum CakeSquash {
             for k in 0..<70 {
                 let dark = k % 3 != 0
                 let colour = UIColor(hex: dark ? creamDark : creamLight)
-                let alphas: ClosedRange<Float> = dark ? 0.25...0.55 : 0.35...0.7
+                // FOLD-REVIEW-9 N3: the dark blotches a step stronger, so the mottle survives the flat top's key light.
+                let alphas: ClosedRange<Float> = dark ? 0.35...0.65 : 0.35...0.7
                 let alpha = CGFloat(Float.random(in: alphas, using: &rng))
                 let colours = [colour.withAlphaComponent(alpha).cgColor, colour.withAlphaComponent(0).cgColor] as CFArray
                 guard let gradient = CGGradient(colorsSpace: space, colors: colours, locations: [0, 1]) else { continue }
@@ -710,6 +775,20 @@ enum CakeSquash {
                 cg.drawRadialGradient(gradient, startCenter: centre, startRadius: 0, endCenter: centre, endRadius: radius,
                                       options: [])
             }
+            // FOLD-REVIEW-9 N3: a soft fold shadow just inside the outline, where the top rolls over its edge (the cream
+            // slab's walls map onto the outline itself, so they take the darkest of it).
+            let outline = uvOutline(side: side)
+            cg.saveGState()
+            cg.addPath(outline)
+            cg.clip()
+            cg.setLineJoin(.round)
+            cg.setStrokeColor(UIColor(hex: creamFold).withAlphaComponent(0.16).cgColor)
+            for step in 0..<5 {
+                cg.setLineWidth(side * (0.10 - 0.018 * CGFloat(step)))
+                cg.addPath(outline)
+                cg.strokePath()
+            }
+            cg.restoreGState()
         }
         return image.cgImage
     }

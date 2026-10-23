@@ -363,17 +363,20 @@ private struct ShelfSlot: View {
                 }
                 .scaleEffect(peeling ? 1.15 : 1)
                 .rotationEffect(.degrees(peeling ? 8 : 0))
-                .overlay(alignment: .bottomLeading) {
+                // FOLD-REVIEW-9 N9: the two-line "ON THE ANVIL" sticker covered the tile's own thumbnail (the duck's, in
+                // the store frame). Now a corner badge, mirroring the magnifier on the other corner: the press arrow on
+                // yellow, off the art. VoiceOver still says "On the anvil" (`accessibilityLabel`).
+                .overlay(alignment: .topLeading) {
                     if isOnAnvil {
-                        Text("ON THE ANVIL")
-                            .font(Theme.micro)
-                            .tracking(Theme.microTracking)
+                        Image(systemName: "arrow.down.to.line")
+                            .font(.system(size: 11, weight: .heavy))
                             .foregroundStyle(Theme.graphite)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Theme.yellow, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                            .frame(width: 24, height: 24)
+                            .background { Circle().fill(Theme.yellow).elevation(.e1) }
+                            .overlay(Circle().strokeBorder(Theme.graphite.opacity(0.15), lineWidth: 1))
                             .rotationEffect(.degrees(-4))
-                            .offset(x: -4, y: 6)
+                            .offset(x: -9, y: -9)
+                            .accessibilityHidden(true)
                     }
                 }
             }

@@ -707,14 +707,29 @@ enum FoldStamps {
             ctx.restoreGState()
             crumbs(ctx, around: .zero, spread: r * 1.2, count: 22, colors: [ink, UIColor(hex: 0x6F8EF2)], size: 1.5...4, rng: &rng)
         case .egg:
-            blob(ctx, stamp.apex, r * 0.95, lobes: 10, UIColor(hex: 0xFFFDF6).withAlphaComponent(0.95), rng: &rng)
-            ring(ctx, stamp.apex, r * 0.95, 2, UIColor(hex: 0xE9E1D2).withAlphaComponent(0.9))
+            // FOLD-REVIEW-9 N9: the white (a circle of r 0.95 about the apex, lobes to 1.15, spread to 1.2×) ran ~40 pt
+            // past the strike plate, and the shell ink's tan rim showed at the egg's far end between its lobes. The white
+            // is now a wavy oval about the egg's own outline (`eggWhitePath`): it covers the shell print from the splat's
+            // natural spread up, stays on the plate at its widest, and is clipped to the plate there as a backstop.
+            let white = UIColor(hex: 0xFFFDF6).withAlphaComponent(0.95)
+            let shape = eggWhitePath(stamp, rng: &rng)
+            ctx.saveGState()
+            clipToPlate(ctx, spread: splatMaxSpread)
+            ctx.addPath(shape)
+            ctx.setFillColor(white.cgColor)
+            ctx.fillPath()
+            ctx.addPath(shape)
+            ctx.setStrokeColor(UIColor(hex: 0xE9E1D2).withAlphaComponent(0.9).cgColor)
+            ctx.setLineWidth(2)
+            ctx.setLineJoin(.round)
+            ctx.strokePath()
             if variant.surprise == .doubleYolk {
                 fillDisc(ctx, CGPoint(x: stamp.apex.x - 0.012 * k, y: stamp.apex.y), 0.011 * k, Palette.yolk.withAlphaComponent(0.6))
                 fillDisc(ctx, CGPoint(x: stamp.apex.x + 0.012 * k, y: stamp.apex.y), 0.011 * k, Palette.yolk.withAlphaComponent(0.6))
             } else {
                 fillDisc(ctx, stamp.apex, 0.013 * k, Palette.yolk.withAlphaComponent(0.55))
             }
+            ctx.restoreGState()
         case .cakeSlice:
             let pink = (gold ? Palette.goldMessColor : UIColor(hex: 0xFF8FC8)).withAlphaComponent(0.9)
             blob(ctx, stamp.apex, r * 0.75, lobes: 8, pink, rng: &rng)
@@ -1023,11 +1038,65 @@ enum FoldStamps {
     /// Clips to the strike plate (print space): glass prints on the steel; frost never strays onto the enamel
     /// (FOLD-REVIEW-1 #7). Callers save / restore the graphics state.
     static func clipToPlate(_ ctx: CGContext) {
+        clipToPlate(ctx, spread: 1)
+    }
+
+    /// Clips to the strike plate (inset 3 pt) as it stands once the drawing is scaled by `spread` about the footprint
+    /// centre: the splat layer spreads up to `splatMaxSpread`, so a splat clipped at that spread stays on the plate.
+    static func clipToPlate(_ ctx: CGContext, spread: CGFloat) {
+        ctx.addPath(platePath(spread: spread))
+        ctx.clip()
+    }
+
+    /// The strike plate inset 3 pt, shrunk by `spread` about the footprint centre (print space).
+    static func platePath(spread: CGFloat = 1) -> CGPath {
+        let s = max(spread, 0.01)
         let plate = CGRect(x: -FoldMetrics.plateLateral / 2, y: -FoldMetrics.plateDepth / 2,
                            width: FoldMetrics.plateLateral, height: FoldMetrics.plateDepth).insetBy(dx: 3, dy: 3)
         let r = CGFloat(FoldMetrics.plateRadius) - 3
-        ctx.addPath(CGPath(roundedRect: plate, cornerWidth: r, cornerHeight: r, transform: nil))
-        ctx.clip()
+        var shrink = CGAffineTransform(scaleX: 1 / s, y: 1 / s)
+        return CGPath(roundedRect: plate, cornerWidth: r, cornerHeight: r, transform: &shrink)
+    }
+
+    /// The failure splat's widest spread about the footprint centre (`FoldPrintStack.update`: 0.85 + 0.35 · spread).
+    static let splatMaxSpread: CGFloat = 1.2
+    /// The egg white (FOLD-REVIEW-9 N9): an oval about the egg's own outline (half-length 55 mm × half-width 40 mm, its
+    /// lying profile), `eggWhiteGrow` larger (the egg is blunter than an ellipse) plus a 2 pt edge, so from a ~1.0 spread
+    /// up (the reveal's is 1.1–1.2) its waves' troughs still cover the shell print; the waves (±`eggWhiteWave`, 10 and 7
+    /// round) keep it a splat, not a stamp.
+    static let eggHalfLength: Double = 0.055
+    static let eggHalfWidth: Double = 0.040
+    static let eggWhiteWave: CGFloat = 0.05
+    static let eggWhiteGrow: CGFloat = 1.08
+    /// The white's gap to the plate's 3 pt inset edge at full spread (points).
+    static let eggWhiteMargin: CGFloat = 3
+
+    /// The egg white's outline (print space, about the footprint centre), seeded waves on an oval whose troughs clear
+    /// the egg's outline; shrunk if needed so that at `splatMaxSpread` it stays inside the strike plate's inset edge.
+    static func eggWhitePath(_ stamp: FoldStamp, rng: inout SplitMix64) -> CGPath {
+        let k = Double(stamp.pointsPerMetre)
+        let wave = Double(eggWhiteWave)
+        let a = (eggHalfLength * k * Double(eggWhiteGrow) + 2) / (1 - wave)
+        let b = (eggHalfWidth * k * Double(eggWhiteGrow) + 2) / (1 - wave)
+        let p1 = Double.random(in: 0...(2 * .pi), using: &rng)
+        let p2 = Double.random(in: 0...(2 * .pi), using: &rng)
+        let turn = LocalMap(k: 1, yaw: stamp.yawRadians)
+        let steps = 120
+        var points: [CGPoint] = []
+        for i in 0..<steps {
+            let t = Double(i) / Double(steps) * 2 * .pi
+            let w = 1 + wave * (0.65 * sin(10 * t + p1) + 0.35 * sin(7 * t + p2))
+            points.append(turn(a * w * cos(t), b * w * sin(t)))
+        }
+        // Fit: at full spread every point stays `eggWhiteMargin` inside the plate's 3 pt inset.
+        let hx = (CGFloat(FoldMetrics.plateLateral) / 2 - 3 - eggWhiteMargin) / splatMaxSpread
+        let hy = (CGFloat(FoldMetrics.plateDepth) / 2 - 3 - eggWhiteMargin) / splatMaxSpread
+        let reachX = points.map { abs($0.x) }.max() ?? 1, reachY = points.map { abs($0.y) }.max() ?? 1
+        let fit = min(1, hx / max(reachX, 1), hy / max(reachY, 1))
+        let path = CGMutablePath()
+        path.addLines(between: points.map { CGPoint(x: $0.x * fit, y: $0.y * fit) })
+        path.closeSubpath()
+        return path
     }
 
     /// Fades whatever was drawn in the current transparency layer to nothing toward the strike plate's edge (an

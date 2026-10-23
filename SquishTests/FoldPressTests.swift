@@ -331,6 +331,85 @@ struct FoldPressTests {
         #expect(FoldStamps.sprayLanding(.zero, radius: 3, specimenCentre: .zero, specimenHalf: CGSize(width: 400, height: 400)) == nil)
     }
 
+    /// FOLD-REVIEW-9 N9: the egg's white ran ~40 pt past the strike plate at full spread, and the shell ink's tan rim
+    /// showed at the egg's far end. At the splat's widest spread nothing of it may leave the plate.
+    @Test func eggSplatStaysOnThePlateAtFullSpread() throws {
+        let canvas = FoldPrintCanvas.rect
+        let spread = FoldStamps.splatMaxSpread
+        // The egg's lying profile (EggView / FoldStamps.stamp): (radius, along), metres.
+        let profile: [(Double, Double)] = [
+            (0.000, 0.000), (0.017, 0.004), (0.026, 0.010), (0.034, 0.020), (0.0385, 0.032), (0.0400, 0.044),
+            (0.0395, 0.056), (0.0370, 0.068), (0.0320, 0.080), (0.0255, 0.090), (0.0180, 0.098), (0.0105, 0.104),
+            (0.0045, 0.108), (0.000, 0.110),
+        ]
+        for book in [false, true] {
+            for seed in UInt64(1)...6 {
+                let variant = PressVariant(kind: .egg, seed: seed)
+                let stamp = FoldStamps.stamp(for: .egg, variant: variant, foldScale: SpecimenPrint.foldScale(.egg, variant: variant),
+                                             extraYaw: book ? FoldPressController.bookYaw(.egg) : 0)
+                var rng = SplitMix64(seed: 0xE66 &+ seed)
+                let white = FoldStamps.eggWhitePath(stamp, rng: &rng)
+                // At full spread the white stays inside the plate's 3 pt inset …
+                let box = white.boundingBoxOfPath
+                #expect(max(abs(box.minX), abs(box.maxX)) * spread <= CGFloat(FoldMetrics.plateLateral / 2 - 3))
+                #expect(max(abs(box.minY), abs(box.maxY)) * spread <= CGFloat(FoldMetrics.plateDepth / 2 - 3))
+                // … and from the reveal's spread (≥ 1.05) it covers the shell print's whole outline (no tan rim).
+                let map = FoldStamps.LocalMap(k: Double(stamp.pointsPerMetre), yaw: stamp.yawRadians)
+                for (radius, along) in profile {
+                    for side in [-1.0, 1.0] {
+                        let p = map(along - 0.055, side * radius)
+                        let unspread = CGPoint(x: p.x / 1.05, y: p.y / 1.05)
+                        #expect(white.contains(unspread), "egg seed \(seed) book \(book): shell print at \(p) uncovered")
+                    }
+                }
+                // And the drawn splat: no ink at all outside the plate as it stands at full spread.
+                let scale: CGFloat = 1
+                let image = try #require(FoldStamps.splatImage(stamp, variant: variant, scale: scale))
+                let data = try #require(image.dataProvider?.data)
+                guard let bytes = CFDataGetBytePtr(data) else {
+                    Issue.record("egg seed \(seed): no splat pixels")
+                    continue
+                }
+                let hx = CGFloat(FoldMetrics.plateLateral / 2 - 3) / spread + 1
+                let hy = CGFloat(FoldMetrics.plateDepth / 2 - 3) / spread + 1
+                var stray = 0
+                for py in 0..<image.height {
+                    for px in 0..<image.width {
+                        let x = canvas.minX + (CGFloat(px) + 0.5) / scale
+                        let y = canvas.minY + (CGFloat(py) + 0.5) / scale
+                        guard abs(x) > hx || abs(y) > hy else { continue }
+                        if bytes[py * image.bytesPerRow + px * 4 + 3] > 0 { stray += 1 }
+                    }
+                }
+                #expect(stray == 0, "egg seed \(seed) book \(book): \(stray) px of splat off the plate")
+            }
+        }
+    }
+
+    /// FOLD-REVIEW-9 N5: the idle picker is centred on the whole outer display and clears the clock column; the
+    /// screws sit on the panel's corners, the trailing pair inside the hazard jaw.
+    @Test func coverPickerCentresAndScrewsSitOnTheCorners() {
+        // The Duo's outer display, with its ~75 pt clock column on the trailing edge.
+        let display: CGFloat = 466, clock: CGFloat = 75
+        let width = CoverLayout.idleWidth(display: display, leading: 0, trailing: clock, sideInset: 24)
+        #expect(width >= CoverLayout.minIdleWidth && width <= CoverLayout.maxIdleWidth)
+        // Centred on the display, its trailing edge stays clear of the clock column.
+        #expect(display / 2 + width / 2 <= display - clock - CoverLayout.clockClearance + 0.5)
+        #expect(display / 2 - width / 2 >= 24 - 0.5)
+        // No column: the old 340 pt cap and 24 pt margins.
+        #expect(CoverLayout.idleWidth(display: 466, leading: 0, trailing: 0, sideInset: 24) == CGFloat(340))
+        #expect(CoverLayout.idleWidth(display: 300, leading: 0, trailing: 0, sideInset: 24) == CGFloat(252))
+        #expect(CoverLayout.idleWidth(display: 200, leading: 0, trailing: 60, sideInset: 24) == CoverLayout.minIdleWidth)
+        let panel = CGSize(width: display, height: 678)
+        let screws = (0..<4).map { CoverLayout.screw($0, in: panel) }
+        #expect(screws[0] == CGPoint(x: CoverLayout.screwInset, y: CoverLayout.screwInset))
+        #expect(screws[1].x == panel.width - CoverLayout.jawWidth - CoverLayout.screwInset)
+        #expect(screws[3].y == panel.height - CoverLayout.screwInset)
+        // Mirror images across the panel (the jaw aside), never floating in the panel's middle.
+        #expect(abs(screws[0].x - (panel.width - CoverLayout.jawWidth - screws[1].x)) < 0.5)
+        #expect(screws[1].x > panel.width - clock)
+    }
+
     @Test func pressedStampTurnsPaperWhiteOnRedPrints() {
         #expect(FoldPlaten.pressedOnPaper(Palette.raspberry))
         #expect(FoldPlaten.pressedOnPaper(UIColor(hex: 0xD0164F)))
