@@ -7,6 +7,17 @@ import Foundation
 ///
 /// UI:
 /// - `notoasts` hides achievement toasts (read by the UI; passed by every store-shot and Duo CI scenario).
+/// - `gamecenter=hidden` hides the Game Center row's "NOT AVAILABLE" status in Settings (read by SettingsView,
+///   `GameCenterRowDemo`; FOLD-REVIEW-6 N5). Passed by the Duo settings frame (07) and P6.
+///
+/// Settings state (PressDirector.applyDemoSettings, FOLD-REVIEW-6 N5; in memory only, never saved), so a settings
+/// frame shows what its caption says:
+/// - `soundstyle=workshop|soft`, `haptics=off|soft|full`, `captions=on|off`, `nofold` (= `nofold=on`, Press without
+///   folding; `nofold=off`). Logs `SQUISH-T demo settings … (not saved)`.
+///
+/// Variant: `seed=<int>` pins the press seed (crack pattern, fracture jitter, Golden and surprise rolls). The store
+/// passes use `seed=3`: plain (not Golden, no surprise) for every object, and the can sprays lime (scratchpad
+/// r7tools/variant.mjs replicates PressVariant); `golden` / `surprise=<name>` force them.
 ///
 /// Orientation (iPhone Duo):
 /// - `orient=portrait` asks the window scene for portrait (`requestGeometryUpdate`) and keeps asking if the system
@@ -29,13 +40,17 @@ import Foundation
 /// - `reveal` in the list (`storeshot=112,fail,reveal`, Duo only) shoots the tabletop reveal, label `reveal`: once the
 ///   reveal card is up and the hinge is still at ≥ 120° (the script closes to 0° and reopens), with the window's
 ///   SwiftUI chrome (print label, Again · Share · Next) and the caption "Open up. File the *evidence*.".
-/// - `storegrid=rubberDuck,egg,cakeSlice,sodaCan` (with `duo`) writes the variety frame storeshot-grid.png from the
+/// - `storegrid=glassBottle,sodaCan,cakeSlice,jelly` (with `duo`) writes the variety frame storeshot-grid.png from the
 ///   heroes earlier tabletop passes saved to Documents (`storehalves-<kind>-*`); no hinge needed. Logs
 ///   `SQUISH-T storeshot grid ok|failed` and `SQUISH-T storeshot done`.
 /// - `storeshotfold=<deg>` models the device at a fixed angle instead of the captured one.
-/// - `storeshotazimuth=<deg>` turns the eye for the hero, the pair's large device and the grid (default 32°, the V
-///   reads in profile); `storepairazimuth=` for the pair's small device (default 24°); `revealazimuth=` for the
-///   reveal (default 14°). Angle shots keep 14°.
+/// - `storeshotazimuth=<deg>` turns the eye for the hero, the pair's large device and the grid (default per hero,
+///   FOLD-REVIEW-6 #1/N7: duck 50°, glass −28°, others 32°; the pair and grid 32°); `storepairazimuth=` for the pair's
+///   small device (default 24°); `revealazimuth=` for the reveal (default 14°). Angle shots keep 14°.
+/// - `storeshotelevation=<deg>` the hero's eye elevation (default duck 22°, others 34°); `storeshotkeytilt=<deg>` the
+///   hero's key-light tilt toward the viewer, so the lid's shadow lands on the object (default 18°). The hero is never
+///   modelled below 58° (the inner display is dark from ~55°), carries the readout label and V glyph ("AT 67°"), and
+///   hangs from the caption band like the reveal.
 /// - `storeshotcaption=<headline> / <sub-line>` (hero; default per object, FOLD-REVIEW-5 N3), `paircaption=…`,
 ///   `revealcaption=…` and `gridcaption=…` override the captions (`*word*` = highlight).
 /// - `storeshotsplat=overlay` adds the store-shot-only 2D splat overlay (off by default: FoldAnvil sprays the real

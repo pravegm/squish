@@ -5,7 +5,9 @@ name: App Store screenshots
 #    1320 × 2868) and on the iPhone 18 Pro for the 6.1" slot (1206 × 2622), raw + captioned
 #    (artifacts store-69, store-61: <set>/store/P*.png).
 #  • duo: the iPhone Duo inner and outer sets via duo.yml (artifact store-duo: duo-screens/store/duo-inner|duo-outer,
-#    MANIFEST.txt). The book-pose review pass is skipped.
+#    MANIFEST.txt, which also checks each frame against the run logs). The book-pose review pass is skipped.
+#    Order (FOLD-REVIEW-6 N7): duck hero, can pair, duck reveal, glass hero, grid (glass, can, cake, jelly), shelf,
+#    settings; the tabletop passes pin seed=3 (plain, never Golden) in ci/duo-screenshots.sh.
 # No folded device is ever in the 6.9" or 6.1" sets (Guideline 2.3): those are Pinch Press frames only.
 on:
   workflow_dispatch:
@@ -29,11 +31,11 @@ on:
       storeshot_objects:
         description: "Duo tabletop store-shot objects"
         type: string
-        default: "rubberDuck glassBottle sodaCan egg cakeSlice"
+        default: "rubberDuck glassBottle sodaCan cakeSlice jelly"
       storegrid_objects:
-        description: "Duo variety grid objects (need a tabletop hero this run)"
+        description: "Duo variety grid objects (need a tabletop hero this run; FOLD-REVIEW-6: not the duck again)"
         type: string
-        default: "rubberDuck egg cakeSlice sodaCan"
+        default: "glassBottle sodaCan cakeSlice jelly"
 
 concurrency:
   group: store-${{ github.ref }}
@@ -125,6 +127,7 @@ jobs:
       storeshot_objects: ${{ inputs.storeshot_objects }}
       storeshot_shots: "112,fail,reveal"
       tabletop_angles: "150 112 90 75 62 45"
-      duo_ui: "shelf settings cover"
+      # Settings last: its demo keys change settings in memory (never saved), so nothing else can inherit them.
+      duo_ui: "shelf cover settings"
       storegrid_objects: ${{ inputs.storegrid_objects }}
       artifact_name: store-duo

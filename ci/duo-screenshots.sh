@@ -73,23 +73,32 @@
 #    app writes storeshot-reveal.png (the reveal on the tabletop model, with its print label and console keys).
 #  - Every hero's halves are also kept in Documents (storehalves-<kind>-*) for pass 4.
 #
-# PASS 3, DUO UI FRAMES (DUO_UI, default "shelf settings cover"; empty = none): raw inner/cover frames for the store set,
-# captioned later by ci/store-set.sh. shelf / settings: portrait launch at 180° with the seeded 7/10 collection
-# (one Golden) and the sheet open → duo-shelf.png / duo-settings.png. cover: launch with the hinge shut and 7 seeded
-# specimens → duo-cover-launch.png (outer display, the closed-launch picker, O2).
+#  - FOLD-REVIEW-6 N2 check: at the reopened capture the latest SQUISH-H line must say phase=revealing. If it doesn't,
+#    the run logs a WARN and writes "<object> missing …" to logs/reveal-checks.txt, and ci/store-set.sh marks that
+#    reveal frame MISSING in the MANIFEST, so a reveal can never be silently replaced by the next object.
+#  - Every tabletop launch pins STORESHOT_SEED (default 3: not Golden, no surprise for any object, a lime can fizz;
+#    FOLD-REVIEW-6 N6); the app logs kind=/seed=/golden=/surprise= on every store-shot line. Empty = random per launch.
 #
-# PASS 4, VARIETY GRID (STOREGRID_OBJECTS, default "rubberDuck egg cakeSlice sodaCan"; empty = none): one launch with
+# PASS 3, DUO UI FRAMES (DUO_UI, default "shelf cover settings"; empty = none): raw inner/cover frames for the store set,
+# captioned later by ci/store-set.sh. shelf / settings: portrait launch at 180° with the seeded 7/10 collection
+# (one Golden) and the sheet open → duo-shelf.png (the Duo opens the shelf at .large) / duo-settings.png. Settings shows
+# what its caption says (FOLD-REVIEW-6 N5): Soft sound, Press without folding and Captions on (demo keys, in memory only),
+# and `gamecenter=hidden` hides the Game Center row's "NOT AVAILABLE". It runs last anyway, so no other frame can
+# inherit those settings. cover: launch with the hinge already shut and 7 seeded specimens → duo-cover-launch.png
+# (outer display: the idle cover picker, O2). Nothing presses it; the run warns if the log shows the engine leaving idle.
+#
+# PASS 4, VARIETY GRID (STOREGRID_OBJECTS, default "glassBottle sodaCan cakeSlice jelly"; empty = none): one launch with
 # `duo;storegrid=…` renders the saved heroes side by side → duo-storeshot-grid.png. Objects without a hero this run
 # are skipped, so list only objects in STORESHOT_OBJECTS.
 #
 # Env: UDID (required), OBJECTS, ANGLES, HINGE_DRIVER, SWEEP_SECS_PER_30 (1.5), SWEEP_STEP (10),
 #      SETTLE (2.5), OUT (duo-screens), APP, BUNDLE, DUO_HINGE (path to the duo-hinge binary),
 #      BOOK_STORESHOT_OBJECTS (rubberDuck; empty = none), STORESHOT_ANGLES (120 75; book pass),
-#      STORESHOT_OBJECTS (rubberDuck glassBottle sodaCan egg cakeSlice; empty = no tabletop pass),
-#      STORESHOT_SHOTS (112,fail,reveal),
+#      STORESHOT_OBJECTS (rubberDuck glassBottle sodaCan cakeSlice jelly; empty = no tabletop pass),
+#      STORESHOT_SHOTS (112,fail,reveal), STORESHOT_SEED (3; empty = random),
 #      TABLETOP_ANGLES (150 112 90 75 62 45), FAIL_HOLD (62), STORESHOT_SIZE (portrait), STORESHOT_WAIT (60 s per shot),
 #      ORIENT (portrait), ORIENT_WAIT (40 s), ORIENT_FALLBACK (none|applescript), SIM_APP (Simulator),
-#      REVEAL_ANGLE (155), DUO_UI (shelf settings cover), STOREGRID_OBJECTS (rubberDuck egg cakeSlice sodaCan).
+#      REVEAL_ANGLE (155), DUO_UI (shelf cover settings), STOREGRID_OBJECTS (glassBottle sodaCan cakeSlice jelly).
 #      OBJECTS, STORESHOT_OBJECTS, DUO_UI and STOREGRID_OBJECTS may be set empty to skip that pass.
 set -uo pipefail
 
@@ -106,8 +115,9 @@ BUNDLE="${BUNDLE:-com.pravegm.squish}"
 DUO_HINGE="${DUO_HINGE:-$HOME/duo-fold-control/tools/duo-hinge}"
 BOOK_STORESHOT_OBJECTS="${BOOK_STORESHOT_OBJECTS-rubberDuck}"
 STORESHOT_ANGLES="${STORESHOT_ANGLES-120 75}"
-STORESHOT_OBJECTS="${STORESHOT_OBJECTS-rubberDuck glassBottle sodaCan egg cakeSlice}"
+STORESHOT_OBJECTS="${STORESHOT_OBJECTS-rubberDuck glassBottle sodaCan cakeSlice jelly}"
 STORESHOT_SHOTS="${STORESHOT_SHOTS-112,fail,reveal}"
+STORESHOT_SEED="${STORESHOT_SEED-3}"
 TABLETOP_ANGLES="${TABLETOP_ANGLES:-150 112 90 75 62 45}"
 FAIL_HOLD="${FAIL_HOLD:-62}"
 STORESHOT_SIZE="${STORESHOT_SIZE-portrait}"
@@ -117,13 +127,14 @@ ORIENT_WAIT="${ORIENT_WAIT:-40}"
 ORIENT_FALLBACK="${ORIENT_FALLBACK:-none}"
 SIM_APP="${SIM_APP:-Simulator}"
 REVEAL_ANGLE="${REVEAL_ANGLE:-155}"
-DUO_UI="${DUO_UI-shelf settings cover}"
-STOREGRID_OBJECTS="${STOREGRID_OBJECTS-rubberDuck egg cakeSlice sodaCan}"
+DUO_UI="${DUO_UI-shelf cover settings}"
+STOREGRID_OBJECTS="${STOREGRID_OBJECTS-glassBottle sodaCan cakeSlice jelly}"
 
 mkdir -p "$OUT/logs" "$OUT/raw"
 OUT_ABS="$(cd "$OUT" && pwd)"
 RUNLOG="$OUT_ABS/logs/run.txt"
 POSTURE_LOG="$OUT_ABS/logs/posture.txt"
+REVEAL_CHECKS="$OUT_ABS/logs/reveal-checks.txt"   # read by ci/store-set.sh: "<object> ok|missing <why>"
 FAILURES=0
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$RUNLOG" >&2; }
@@ -324,6 +335,27 @@ clear_store_shots() {
   return 0
 }
 
+# FOLD-REVIEW-6 N2: the reveal must still be up when it is captured at ~REVEAL_ANGLE. The latest SQUISH-H line (the app
+# prints one per hinge sample, at most every 0.25 s) carries the engine phase; anything but phase=revealing means the
+# card was collected (or never came up) and the next object is on the anvil. Logs the verdict, appends it to
+# REVEAL_CHECKS for ci/store-set.sh (which then marks the reveal frame MISSING) and counts a failure.
+check_reveal() {   # check_reveal <object> <app log>
+  local obj="$1" logf="$2" last phase
+  last=$(grep "SQUISH-H" "$logf" 2>/dev/null | tail -1)
+  phase=""
+  if [[ "$last" == *" phase="* ]]; then phase="${last##* phase=}"; phase="${phase%% *}"; fi
+  if [[ "$phase" == revealing ]]; then
+    log "$obj: reveal check ok (phase=revealing at the ${REVEAL_ANGLE}° capture)"
+    echo "$obj ok" >>"$REVEAL_CHECKS"
+    return 0
+  fi
+  log "WARN $obj: REVEAL NOT UP at the ${REVEAL_ANGLE}° capture: latest phase=${phase:-none} (${last:-no SQUISH-H line})."
+  log "WARN $obj: the reveal frame is marked MISSING for ci/store-set.sh; it must not be replaced by the next object."
+  echo "$obj missing phase=${phase:-none}" >>"$REVEAL_CHECKS"
+  FAILURES=$((FAILURES+1))
+  return 1
+}
+
 # Pass 2 for one object: tabletop (portrait) launch, sweep TABLETOP_ANGLES, wait for the angle shots, the hero and the
 # pair, copy them out.
 tabletop_pass() {
@@ -335,6 +367,7 @@ tabletop_pass() {
   clear_store_shots
   scen="object=$obj;duo;notoasts;orient=$ORIENT;storeshot=$STORESHOT_SHOTS;storeshotfailangle=$FAIL_HOLD"
   [[ -n "$STORESHOT_SIZE" ]] && scen="$scen;storeshotsize=$STORESHOT_SIZE"
+  [[ -n "$STORESHOT_SEED" ]] && scen="$scen;seed=$STORESHOT_SEED"
   to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
     "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 \
     || { log "launch failed: $obj (tabletop)"; FAILURES=$((FAILURES+1)); return; }
@@ -380,6 +413,7 @@ tabletop_pass() {
     # has settled.
     hinge_to 0; fsleep "$SETTLE"; fsleep 1; shoot "$obj-tabletop-closed" cover
     hinge_to "$REVEAL_ANGLE"; fsleep "$SETTLE"; fsleep 1.5; shoot "$obj-tabletop-reveal" inner
+    check_reveal "$obj" "$applog"
     wait_storeshot "$applog" reveal "$STORESHOT_WAIT"
   fi
   for _ in $(seq 1 10); do grep -q "SQUISH-T storeshot done" "$applog" 2>/dev/null && break; sleep 1; done
@@ -493,6 +527,7 @@ if [[ -n "$STORESHOT_OBJECTS" && -n "$STORESHOT_SHOTS" ]]; then
     log "skip tabletop store shots: no hinge driver"
   else
     clear_store_halves
+    : >"$REVEAL_CHECKS"
     for obj in $STORESHOT_OBJECTS; do tabletop_pass "$obj"; done
   fi
 fi
@@ -501,10 +536,17 @@ fi
 for ui in $DUO_UI; do
   case "$ui" in
     shelf)    ui_frame duo-shelf 180 inner "object=rubberDuck;duo;notoasts;orient=$ORIENT;shelf" ;;
-    settings) ui_frame duo-settings 180 inner "object=rubberDuck;duo;notoasts;orient=$ORIENT;settings" ;;
+    settings)
+      # FOLD-REVIEW-6 N5: the state its caption promises ("Press without folding. Hear it softer.").
+      ui_frame duo-settings 180 inner "object=rubberDuck;duo;notoasts;orient=$ORIENT;settings;soundstyle=soft;nofold;captions=on;gamecenter=hidden" ;;
     cover)
       if [[ "$DRIVER" == none ]]; then log "skip cover launch: no hinge driver"; continue; fi
-      ui_frame duo-cover-launch 0 cover "object=rubberDuck;duo;notoasts;specimens=7" ;;
+      # Launched with the hinge already at 0° (ui_frame moves it before the launch): the idle picker, no press.
+      ui_frame duo-cover-launch 0 cover "object=rubberDuck;duo;notoasts;specimens=7"
+      if grep -qE "SQUISH-H .* phase=(armed|pressing|sealed|revealing)" "$OUT_ABS/logs/duo-cover-launch.txt" 2>/dev/null; then
+        log "WARN duo-cover-launch: the engine left idle on a closed launch ($(grep -E 'SQUISH-H' "$OUT_ABS/logs/duo-cover-launch.txt" | tail -1)); O2 may show a sealed card"
+        FAILURES=$((FAILURES+1))
+      fi ;;
     *) log "WARN unknown DUO_UI frame '$ui' (shelf|settings|cover)" ;;
   esac
 done

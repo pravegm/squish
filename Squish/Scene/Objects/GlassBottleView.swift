@@ -8,10 +8,11 @@ import UIKit
 /// Silent rigidity until fracture 0 (~0.22), apart from a slight ovalisation; then bright crack lines that lengthen
 /// toward the failure. Fracture 1 (failure, ~0.40) is the biggest event in the app: the label tears away and each
 /// curved patch breaks into two flat, irregular convex shards of bottle glass, darker than the steel, with a dark
-/// hairline and a bright bevel on every edge (FOLD-REVIEW-4 F5, FOLD-REVIEW-5 N5: ~100 pieces, 3–9 mm) that fill a disc
-/// on the plate (no pale dust disc under them), skid a little (fade-and-slump under Reduce Motion) and stay on the
+/// hairline and a bright bevel on every edge (FOLD-REVIEW-4 F5, FOLD-REVIEW-5 N5: ~100 pieces, 3–9 mm) that heap up
+/// in the middle of the plate (FOLD-REVIEW-6 N10; no pale dust disc under them), skid a little (fade-and-slump under
+/// Reduce Motion) and stay on the
 /// strike plate (+16 pt); 10 label scraps (6 raspberry, 4 cream, ~a shard each) lie on top so the pile is still "a bottle",
-/// and 4 glints twinkle until the seal. Fracture 2 (~0.62): the pile crunches into soft "sea glass". The pile freezes
+/// and 6 glints twinkle until the seal. Fracture 2 (~0.62): the pile crunches into soft "sea glass". The pile freezes
 /// at seal, so the reveal shows exactly the sealed pile (FOLD-REVIEW-3 N5). Surprise `messageInABottle`: a rolled
 /// note that bursts into candy confetti.
 @MainActor
@@ -32,10 +33,13 @@ final class GlassBottleView: PressObjectView {
     private var shards: [ModelEntity] = []
     private var patchModels: [Entity] = []
     private var fragments: [Entity] = []
+    /// Per shard: the parent of its fragment pair, label scrap and glint, which the shatter lifts and tilts so the pile
+    /// heaps up in the middle (FOLD-REVIEW-6 N10). The debris body (the shard) itself stays yaw-only.
+    private var poses: [Entity] = []
     /// The fragments' glass faces and bright edges (the crunch swaps both to frosted sea glass).
     private var fragmentFaces: [ModelEntity] = []
     private var fragmentEdges: [ModelEntity] = []
-    /// Four glints on the pile that twinkle from the shatter until the seal (FOLD-REVIEW-4 F5: was a static white dot
+    /// Six glints on the pile that twinkle from the shatter until the seal (FOLD-REVIEW-4 F5: was a static white dot
     /// on every third shard).
     private var sparkles: [Entity] = []
     /// The intact paper label (one band, not split into shards); it tears away at the shatter.
@@ -197,6 +201,9 @@ final class GlassBottleView: PressObjectView {
                 let width = profile[mid].x * (cuts[k + 1] - cuts[k])
                 let size = GlassDebris.fragmentSize(width: width, height: along)
                 let layer = GlassDebris.layerHeight(shards.count)
+                let pose = Entity()
+                shard.addChild(pose)
+                poses.append(pose)
                 let fragment = Entity()
                 let variant = Int(rng.next() % UInt64(GlassDebris.fragmentVariants))
                 let resources = fragmentResources[variant]
@@ -216,7 +223,7 @@ final class GlassBottleView: PressObjectView {
                 fragment.scale = SIMD3(size.x, 1, size.y)
                 fragment.position = [0, layer, 0]
                 fragment.isEnabled = false
-                shard.addChild(fragment)
+                pose.addChild(fragment)
                 fragments.append(fragment)
                 fragmentSizes.append(size)
                 layers.append(layer)
@@ -245,19 +252,19 @@ final class GlassBottleView: PressObjectView {
                     scrap.position = [side * size.x * 0.25, layers[i] + GlassDebris.fragmentThickness / 2 + 0.00035, 0]
                     scrap.orientation = simd_quatf(angle: Float.random(in: -0.5...0.5, using: &rng), axis: [0, 1, 0])
                     scrap.isEnabled = false
-                    shards[i].addChild(scrap)
+                    poses[i].addChild(scrap)
                     labelScraps.append(scrap)
                 }
             }
         }
-        // Four glints, on body shards (never the base or the neck), over one fragment piece each.
+        // Six glints, on body shards (never the base or the neck), over one fragment piece each.
         let bodyShards = (1...4).flatMap { $0 < bandShards.count ? bandShards[$0] : [] }
         for i in bodyShards.shuffled(using: &rng).prefix(GlassDebris.sparkleCount) {
             let sparkle = ModelEntity(mesh: sparkleMesh, materials: [sparkleMaterial])
             let side: Float = rng.next() % 2 == 0 ? -1 : 1
             sparkle.position = [side * fragmentSizes[i].x * 0.25, layers[i] + GlassDebris.fragmentThickness / 2 + 0.0004, 0]
             sparkle.isEnabled = false
-            shards[i].addChild(sparkle)
+            poses[i].addChild(sparkle)
             sparkles.append(sparkle)
         }
         // The intact label: cream band, raspberry stripe band, wrapped all the way round (hidden at the shatter).
@@ -360,7 +367,7 @@ final class GlassBottleView: PressObjectView {
         fx.debris.freeze(pieces)
     }
 
-    /// The pile's four glints: short seeded twinkles (steady and dim under Reduce Motion) until the seal.
+    /// The pile's glints: short seeded twinkles (steady and dim under Reduce Motion) until the seal.
     private func twinkle(_ state: PressVisualState) {
         for (i, sparkle) in sparkles.enumerated() where sparkle.isEnabled {
             let k = Float(i)
@@ -431,9 +438,11 @@ final class GlassBottleView: PressObjectView {
         cracks.removeAll()
         let m = fx.motionScale
         // Each curved patch is swapped for its flat fragment pair (drawn in the shard's local XZ plane, so a yaw-only
-        // orientation lays it flat), dropped anywhere in a disc ~1.1× the footprint (√U radius: the middle fills, no
-        // ring round a hole, FOLD-REVIEW-4 F5), then skids 0.04–0.10 m/s outward with no up component; its centre is
-        // boxed so all of it stays on the strike plate + 16 pt.
+        // orientation lays it flat), dropped in a heap (FOLD-REVIEW-6 N10: the uniform √U disc, plus a skid that was the
+        // same for every piece, left a ring round a hole): a tighter disc weighted to the middle (`pileRadius`), the
+        // middle pieces lifted 2–3 deep and tilted so they overlap and catch the light (`heapLift`, `heapTilt`), and
+        // only the outer pieces skid (0.04–0.10 m/s × `skidShare`, outward, no up component); every centre is boxed so
+        // all of it stays on the strike plate + 16 pt.
         let centre0 = entity.convert(position: [0, 0, 0], to: fx.debris.root)
         // World size of one bottle-local metre (the hero scale, times any slot scale), so fragments keep their size.
         let pieceScale = max(entity.scale(relativeTo: fx.debris.root).x, 0.01)
@@ -443,15 +452,23 @@ final class GlassBottleView: PressObjectView {
             shard.setParent(fx.debris.root)
             let a = Float.random(in: 0...(2 * .pi), using: &rng)
             let u = Float.random(in: 0...1, using: &rng)
+            let rho = GlassDebris.pileRadius(u: u)
             let spot = GlassDebris.pilePoint(angle: a, u: u, footprint: footprint, containment: containment)
             let dir = SIMD3<Float>(cos(a), 0, sin(a))
+            if i < poses.count {
+                let lift = GlassDebris.heapLift(rho: rho, jitter: Float.random(in: 0...1, using: &rng))
+                let tilt = GlassDebris.heapTilt(rho: rho, jitter: Float.random(in: 0...1, using: &rng))
+                let axis = Float.random(in: 0...(2 * .pi), using: &rng)
+                poses[i].position = [0, lift, 0]
+                poses[i].orientation = simd_quatf(angle: tilt, axis: SIMD3(cos(axis), 0, sin(axis)))
+            }
             shard.orientation = simd_quatf(angle: Float.random(in: 0...(2 * .pi), using: &rng), axis: [0, 1, 0])
             shard.scale = SIMD3(repeating: pieceScale)
             shard.position = SIMD3(centre0.x + spot.x, 0.003, centre0.z + spot.y)
             let size = shard.visualBounds(relativeTo: fx.debris.root).extents
             // Circumscribed half size, so a little yaw while it skids can't swing a corner off the plate.
             let half = SIMD2<Float>(repeating: simd_length(SIMD2(size.x, size.z)) / 2)
-            let v = dir * Float.random(in: GlassDebris.skidSpeed, using: &rng) * m
+            let v = dir * Float.random(in: GlassDebris.skidSpeed, using: &rng) * GlassDebris.skidShare(rho: rho) * m
             fx.debris.adopt(shard, velocity: v, spin: SIMD3(0, Float.random(in: -2...2, using: &rng) * m, 0),
                             bounciness: 0.1, friction: 0.8, maxSpread: 1,
                             bounds: GlassDebris.centreBounds(containment: containment, pieceHalf: half))
@@ -486,12 +503,43 @@ enum GlassDebris {
 
     // MARK: The pile (FOLD-REVIEW-4 F5)
 
-    /// The pile fills a disc this many footprints wide (radius `footprint · 1.1 · √U`), not a ring round a hole.
-    static let pileFill: Float = 1.1
+    /// The pile's radius in footprints along the plate's x (FOLD-REVIEW-6 N10: 1.1 spread ~100 pieces so thin they read
+    /// as confetti), and its depth (z) as a share of that.
+    static let pileFill: Float = 0.82
+    static let pileAspect: Float = 0.85
+    /// Drop radius = `u^pileExponent` of the pile's (√u is uniform; 0.85 puts ~29 % of the pieces in the inner 0.35,
+    /// where a uniform disc puts 12 %): a heap, densest in the middle.
+    static let pileExponent: Float = 0.85
     /// Share of the containment box the drop points may use, leaving room for the skid.
     static let pileRoom: Float = 0.8
-    /// Glints on the pile (was one static dot on every third shard, ~17).
-    static let sparkleCount = 4
+    /// The heap: a piece in the very middle is lifted up to this (bottle-local metres; the debris body rests on its
+    /// symmetric bounds, so it renders ≈ 2× higher: ~3.2 mm on the plate, 2–3 pieces deep) and tilted up to `heapTilt`.
+    static let heapHeight: Float = 0.0021
+    static let heapMaxTilt: Float = 0.38
+    /// Glints on the pile (was one static dot on every third shard, ~17; 4 until round 6).
+    static let sparkleCount = 6
+
+    /// The drop radius (0…1 of the pile's) for a uniform `u`.
+    static func pileRadius(u: Float) -> Float {
+        pow(clamp(u, 0, 1), pileExponent)
+    }
+
+    /// How high a piece dropped at pile radius `rho` (0…1) is lifted: highest in the middle, flat at the edge.
+    static func heapLift(rho: Float, jitter: Float) -> Float {
+        let inner = 1 - clamp(rho, 0, 1)
+        return heapHeight * inner * inner.squareRoot() * (0.35 + 0.65 * clamp(jitter, 0, 1))
+    }
+
+    /// How far (radians) a piece at pile radius `rho` leans on the pieces under it: steepest in the middle.
+    static func heapTilt(rho: Float, jitter: Float) -> Float {
+        let inner = 1 - clamp(rho, 0, 1)
+        return heapMaxTilt * (0.12 + 0.88 * inner) * (0.3 + 0.7 * clamp(jitter, 0, 1))
+    }
+
+    /// The share of the skid a piece at pile radius `rho` gets: the middle of the heap stays put, the edge skids.
+    static func skidShare(rho: Float) -> Float {
+        0.2 + 0.8 * clamp(rho, 0, 1)
+    }
     /// Label scraps on top of the pile, so it keeps the bottle's raspberry/cream identity.
     static let labelScraps = (pink: 6, cream: 4)
     /// A scrap is ~1 fragment piece: ×1.4 of round 4's 0.7 (FOLD-REVIEW-5 N5), so the pink/cream reads at thumbnail.
@@ -515,11 +563,11 @@ enum GlassDebris {
     static let fragmentVariants = 8
     static let scrapVariants = 4
 
-    /// Where shard `u` (0…1) at `angle` lands, relative to the bottle's centre: uniform over an ellipse of radius
-    /// `pileFill · footprint`, shrunk to fit `pileRoom` of the containment box.
+    /// Where shard `u` (0…1) at `angle` lands, relative to the bottle's centre: over an ellipse of `pileFill · footprint`
+    /// (× `pileAspect` in z), weighted to the middle (`pileRadius`), shrunk to fit `pileRoom` of the containment box.
     static func pilePoint(angle: Float, u: Float, footprint: Float, containment: SIMD2<Float>) -> SIMD2<Float> {
-        let half = simd_min(SIMD2<Float>(repeating: footprint * pileFill), containment * pileRoom)
-        let r = clamp(u, 0, 1).squareRoot()
+        let half = simd_min(SIMD2<Float>(footprint * pileFill, footprint * pileFill * pileAspect), containment * pileRoom)
+        let r = pileRadius(u: u)
         return SIMD2(cos(angle) * half.x, sin(angle) * half.y) * r
     }
 

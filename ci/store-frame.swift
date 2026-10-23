@@ -2,7 +2,7 @@
 // caption system of docs/appstore/screenshots.md and FoldStoreShot.drawCaption (same band, sizes and shrink rule).
 //
 //   store-frame --in raw.png --out frame.png --caption "A shelf of pressed *specimens*. / No ads. No in-app purchases."
-//               [--size 2007x2853] [--style framed|overlay] [--ink dark|light]
+//               [--size 2007x2853] [--style framed|overlay] [--ink dark|light] [--island pill]
 //
 //  • framed (default): studio sweep, caption in the top band, the screenshot (unaltered, scaled to fit) on a black
 //    rounded screen card with a soft shadow below it. For frames whose top has content (Shelf, Settings, 6.9" Pinch).
@@ -31,6 +31,8 @@ guard let input = options["in"], let output = options["out"] else { fail("needs 
 let style = options["style"] ?? "framed"
 let lightInk = options["ink"] == "light"
 let rawCaption = options["caption"] ?? ""
+/// `--island pill`: draw the Dynamic Island on the screen card (framed style; the 6.9" and 6.1" phone frames).
+let islandPill = options["island"] == "pill"
 
 guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: input) as CFURL, nil),
       let shot = CGImageSourceCreateImageAtIndex(source, 0, nil) else { fail("cannot read \(input)") }
@@ -92,6 +94,17 @@ if style == "overlay" {
     ctx.addPath(CGPath(roundedRect: cgRect(screen), cornerWidth: screenRadius, cornerHeight: screenRadius, transform: nil))
     ctx.clip()
     ctx.draw(shot, in: cgRect(screen))
+    if islandPill {
+        // FOLD-REVIEW-6 N13: the simulator captures the Dynamic Island in some frames and not others (P3, P4, P6 had
+        // it in R6; P1, P2, P5 did not). Draw it on every phone frame: the 6.9" and 6.1" simulators (both @3x) capture
+        // a 283 x 110 px pill at y 42-151, centred, so this one (raw px, a few px larger) covers it exactly.
+        let pill = CGRect(x: CGFloat(shot.width) / 2 - 146, y: 39, width: 292, height: 116)
+        let r = CGRect(x: screen.minX + pill.minX * scale, y: screen.minY + pill.minY * scale,
+                       width: pill.width * scale, height: pill.height * scale)
+        ctx.addPath(CGPath(roundedRect: cgRect(r), cornerWidth: r.height / 2, cornerHeight: r.height / 2, transform: nil))
+        ctx.setFillColor(srgb(0x000000))
+        ctx.fillPath()
+    }
     ctx.restoreGState()
 }
 
@@ -109,29 +122,137 @@ func roundedFont(_ size: CGFloat) -> NSFont {
     return base
 }
 
-func headline(_ text: String, size: CGFloat, breakSentences: Bool) -> NSAttributedString {
+// MARK: Line breaks (FOLD-REVIEW-6 N11; the same rule as `CaptionWrap` in Squish/Scene/Fold/FoldStoreShot.swift,
+// keep the two in step)
+//  • A headline too wide for one line breaks at the sentence boundary ("`. `") that balances the two parts best:
+//    "No ads. No purchases. / Just the press.", not "No ads. / No purchases. Just the / press.".
+//  • Every paragraph that still wraps is balanced: as many lines as a greedy wrap needs, at the narrowest width that
+//    keeps that count, so lines come out even and none ends on one orphaned word ("… every / iPhone.").
+//  • A sub-line shrinks (to 0.30 of the headline size at the least) to stay on one line; only past that does it wrap,
+//    balanced, at its natural 0.40.
+// `*` highlight markers stay in place and are never measured.
+
+let sublineScale: CGFloat = 0.40
+let sublineMinimumScale: CGFloat = 0.30
+/// Slack for the layout engine's own kerning and rounding, so a measured line never re-wraps when drawn.
+let wrapSlack: CGFloat = 0.97
+
+func splitAtBestSentence(_ text: String, measure: (String) -> CGFloat) -> String? {
+    var best: (score: CGFloat, result: String)?
+    var search = text.startIndex..<text.endIndex
+    while let range = text.range(of: ". ", range: search) {
+        let left = String(text[..<range.lowerBound]) + "."
+        let right = String(text[range.upperBound...])
+        let score = max(measure(left), measure(right))
+        if best.map({ score < $0.score }) ?? true { best = (score: score, result: left + "\n" + right) }
+        search = range.upperBound..<text.endIndex
+    }
+    return best?.result
+}
+
+/// One paragraph's lines.
+func balancedParagraph(_ paragraph: String, width: CGFloat, measure: (String) -> CGFloat) -> [String] {
+    let words = paragraph.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+    guard words.count > 1, measure(paragraph) > width else { return [paragraph] }
+    func greedy(_ limit: CGFloat) -> [[String]] {
+        var lines: [[String]] = []
+        var current: [String] = []
+        for word in words {
+            if current.isEmpty || measure((current + [word]).joined(separator: " ")) <= limit {
+                current.append(word)
+            } else {
+                lines.append(current)
+                current = [word]
+            }
+        }
+        if !current.isEmpty { lines.append(current) }
+        return lines
+    }
+    let count = greedy(width).count
+    var lo: CGFloat = 0
+    var hi = width
+    for _ in 0..<20 {
+        let mid = (lo + hi) / 2
+        if greedy(mid).count <= count { hi = mid } else { lo = mid }
+    }
+    var lines = greedy(hi)
+    // One long word can still leave a lone last word: pull one more word down if the line still fits.
+    let n = lines.count
+    if n >= 2, lines[n - 1].count == 1, lines[n - 2].count >= 3, let moved = lines[n - 2].last {
+        let candidate = [moved] + lines[n - 1]
+        if measure(candidate.joined(separator: " ")) <= width {
+            lines[n - 2].removeLast()
+            lines[n - 1] = candidate
+        }
+    }
+    return lines.map { $0.joined(separator: " ") }
+}
+
+/// The chosen lines per paragraph (a sentence part or an explicit "\n"); `measure` is a plain string's width.
+func balancedLines(_ text: String, width: CGFloat, sentenceBreak: Bool, measure: (String) -> CGFloat) -> [[String]] {
+    let fit = width * wrapSlack
+    func plainWidth(_ s: String) -> CGFloat { measure(s.replacingOccurrences(of: "*", with: "")) }
     var source = text
-    if breakSentences, let range = source.range(of: ". ") { source.replaceSubrange(range, with: ".\n") }
+    if sentenceBreak, !source.contains("\n"), plainWidth(source) > fit,
+       let split = splitAtBestSentence(source, measure: plainWidth) {
+        source = split
+    }
+    return source.components(separatedBy: "\n").map { balancedParagraph($0, width: fit, measure: plainWidth) }
+}
+
+/// `text` with "\n" inserted at the chosen breaks.
+func balancedText(_ text: String, width: CGFloat, sentenceBreak: Bool, measure: (String) -> CGFloat) -> String {
+    balancedLines(text, width: width, sentenceBreak: sentenceBreak, measure: measure)
+        .map { $0.joined(separator: "\n") }.joined(separator: "\n")
+}
+
+/// The headline at `size`, and whether a paragraph of it still ends on one lone word (the caller shrinks a step).
+func headline(_ text: String, size: CGFloat, width: CGFloat) -> (text: NSAttributedString, orphan: Bool) {
     let paragraph = NSMutableParagraphStyle()
     paragraph.alignment = .center
     paragraph.lineBreakMode = .byWordWrapping
     paragraph.lineHeightMultiple = 0.92
     let font = roundedFont(size)
+    let paragraphs = balancedLines(text, width: width, sentenceBreak: true) { plain in
+        NSAttributedString(string: plain, attributes: [.font: font]).size().width
+    }
+    let orphan = paragraphs.contains { lines in lines.count > 1 && !(lines.last ?? " ").contains(" ") }
+    let source = paragraphs.map { $0.joined(separator: "\n") }.joined(separator: "\n")
     let result = NSMutableAttributedString()
     for (index, piece) in source.components(separatedBy: "*").enumerated() where !piece.isEmpty {
         result.append(NSAttributedString(string: piece, attributes: [
             .font: font, .foregroundColor: index % 2 == 1 ? highlight : ink, .paragraphStyle: paragraph,
         ]))
     }
-    return result
+    return (text: result, orphan: orphan)
 }
 
-func subline(_ text: String, size: CGFloat) -> NSAttributedString {
+func subline(_ text: String, size: CGFloat, width: CGFloat) -> NSAttributedString {
     let paragraph = NSMutableParagraphStyle()
     paragraph.alignment = .center
     paragraph.lineBreakMode = .byWordWrapping
-    return NSAttributedString(string: text.replacingOccurrences(of: "*", with: ""), attributes: [
-        .font: NSFont.monospacedSystemFont(ofSize: size * 0.40, weight: .semibold),
+    let plain = text.replacingOccurrences(of: "*", with: "")
+    func monoWidth(_ string: String, _ points: CGFloat) -> CGFloat {
+        NSAttributedString(string: string, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: points, weight: .semibold),
+        ]).size().width
+    }
+    let natural = size * sublineScale
+    let fit = width * wrapSlack
+    let naturalWidth = monoWidth(plain, natural)
+    var points = natural
+    var source = plain
+    if naturalWidth > fit {
+        // Monospaced widths scale linearly with the size: shrink to one line if the floor allows, else wrap.
+        let wanted = natural * fit / max(naturalWidth, 1)
+        if wanted >= size * sublineMinimumScale {
+            points = wanted
+        } else {
+            source = balancedText(plain, width: width, sentenceBreak: false) { monoWidth($0, natural) }
+        }
+    }
+    return NSAttributedString(string: source, attributes: [
+        .font: NSFont.monospacedSystemFont(ofSize: points, weight: .semibold),
         .foregroundColor: ink.withAlphaComponent(0.72),
         .paragraphStyle: paragraph,
     ])
@@ -149,17 +270,18 @@ if !rawCaption.isEmpty {
     }
     let minimum = H * 0.036
     var fontSize = H * 0.064
-    let breakSentences = headline(head, size: fontSize, breakSentences: false).size().width > band.width
-    var title = headline(head, size: fontSize, breakSentences: breakSentences)
-    var second = sub.map { subline($0, size: fontSize) }
+    var title = headline(head, size: fontSize, width: band.width)
+    var second = sub.map { subline($0, size: fontSize, width: band.width) }
+    // Shrink while it doesn't fit, or while a paragraph ends on one lone word ("File the / *evidence*."): a size step
+    // usually pulls that word back onto the line. At the minimum, the balanced break stands.
     while fontSize > minimum {
-        let total = measure(title).height + (second.map { measure($0).height + fontSize * 0.30 } ?? 0)
-        if total <= band.height { break }
+        let total = measure(title.text).height + (second.map { measure($0).height + fontSize * 0.30 } ?? 0)
+        if total <= band.height && !title.orphan { break }
         fontSize = max(minimum, fontSize * 0.95)
-        title = headline(head, size: fontSize, breakSentences: breakSentences)
-        second = sub.map { subline($0, size: fontSize) }
+        title = headline(head, size: fontSize, width: band.width)
+        second = sub.map { subline($0, size: fontSize, width: band.width) }
     }
-    let titleSize = measure(title)
+    let titleSize = measure(title.text)
     let secondSize = second.map { measure($0) } ?? .zero
     let gap = second == nil ? 0 : fontSize * 0.30
 
@@ -170,8 +292,8 @@ if !rawCaption.isEmpty {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = graphics
     var y = max(band.minY, band.midY - (titleSize.height + gap + secondSize.height) / 2)
-    title.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: titleSize.height + 2),
-               options: [.usesLineFragmentOrigin, .usesFontLeading])
+    title.text.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: titleSize.height + 2),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading])
     y += titleSize.height + gap
     second?.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: secondSize.height + 2),
                  options: [.usesLineFragmentOrigin, .usesFontLeading])

@@ -482,4 +482,35 @@ struct CollectionTests {
         let label = CGRect(x: field.minX + 24, y: plate.maxY + 24 - 23, width: field.width - 48, height: 46)
         #expect(!slot.intersects(label))
     }
+
+    // MARK: Sheets on a foldable (FOLD-REVIEW-6 N4)
+
+    /// Tabletop Duo: the Shelf at the 0.45 detent is 669 × ~430 pt, wider than tall, but the window is portrait, so
+    /// the sheet keeps its full width (it was squeezed into the right 45 %).
+    @Test func tabletopSheetKeepsFullWidthAtEveryDetent() {
+        for sheet in [CGSize(width: 669, height: 428), CGSize(width: 669, height: 900)] {
+            #expect(SheetCreaseLayout.layout(hasHinge: true, windowIsLandscape: false, sheet: sheet) == .full)
+        }
+    }
+
+    /// Book pose: the trailing half, clear of the 40 pt crease.
+    @Test func bookPoseSheetTakesTheTrailingHalf() {
+        let layout = SheetCreaseLayout.layout(hasHinge: true, windowIsLandscape: true, sheet: CGSize(width: 951, height: 640))
+        #expect(layout == .trailingHalf(width: 951 / 2 - ScreenBands.creaseHalf))
+    }
+
+    /// Regular iPhones never split, in either orientation.
+    @Test func noHingeNeverSplits() {
+        #expect(SheetCreaseLayout.layout(hasHinge: false, windowIsLandscape: true, sheet: CGSize(width: 874, height: 380)) == .full)
+        #expect(SheetCreaseLayout.layout(hasHinge: false, windowIsLandscape: false, sheet: CGSize(width: 402, height: 430)) == .full)
+    }
+
+    // MARK: Settings copy (FOLD-REVIEW-6 N11)
+
+    @Test func lastTwoWordsAreJoinedWithANoBreakSpace() {
+        #expect("for each moment.".keepingLastWordsTogether == "for each\u{00A0}moment.")
+        #expect("Squish".keepingLastWordsTogether == "Squish")
+        #expect("".keepingLastWordsTogether == "")
+        #expect("trailing ".keepingLastWordsTogether == "trailing ")
+    }
 }

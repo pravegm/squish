@@ -273,9 +273,117 @@ struct SceneTests {
             if abs(p.x) < full * 0.5 && abs(p.y) < box.y * GlassDebris.pileRoom * 0.5 { inner += 1 }
         }
         #expect(inner > n / 6)
-        #expect(GlassDebris.sparkleCount == 4)
+        #expect(GlassDebris.sparkleCount == 6)
         #expect((8...10).contains(GlassDebris.labelScraps.pink + GlassDebris.labelScraps.cream))
         #expect(GlassDebris.labelScraps.pink == 6 && GlassDebris.labelScraps.cream == 4)
+    }
+
+    @Test func glassPileHeapsUpInTheMiddle() {
+        // FOLD-REVIEW-6 N10: a ring with a hole. Now 25–30 % of the pieces land inside 0.35 of the pile's radius (a
+        // uniform disc puts 12 % there), the pile is tighter, and the middle stacks 2–3 pieces deep.
+        let share = pow(Float(0.35), 1 / GlassDebris.pileExponent)
+        #expect(share >= 0.25 && share <= 0.32)
+        var rng = SplitMix64(seed: 11)
+        var count = 0
+        let n = 2000
+        for _ in 0..<n {
+            let u = Float.random(in: 0...1, using: &rng)
+            if GlassDebris.pileRadius(u: u) < 0.35 { count += 1 }
+        }
+        #expect(count > n / 4 && count < n * 32 / 100)
+        #expect(GlassDebris.pileRadius(u: 0) == 0 && abs(GlassDebris.pileRadius(u: 1) - 1) < 1e-6)
+        #expect(GlassDebris.pileFill <= 0.85 && GlassDebris.pileAspect < 1)
+        // Lift: highest in the middle, none at the edge, monotonic; rendered ≈ 2 × lift × hero scale: 2–4 mm at most.
+        #expect(GlassDebris.heapLift(rho: 1, jitter: 1) == 0)
+        var previous = Float.infinity
+        for k in 0...20 {
+            let lift = GlassDebris.heapLift(rho: Float(k) / 20, jitter: 1)
+            #expect(lift <= previous)
+            previous = lift
+        }
+        let peak = 2 * GlassDebris.heapLift(rho: 0, jitter: 1) * 0.76
+        #expect(peak >= 0.002 && peak <= 0.004)
+        // Tilt: steepest in the middle, never more than the max, never zero; the edge skids, the middle stays.
+        #expect(abs(GlassDebris.heapTilt(rho: 0, jitter: 1) - GlassDebris.heapMaxTilt) < 1e-6)
+        #expect(GlassDebris.heapMaxTilt <= 0.4)
+        #expect(GlassDebris.heapTilt(rho: 1, jitter: 0) > 0)
+        #expect(GlassDebris.heapTilt(rho: 1, jitter: 1) < GlassDebris.heapTilt(rho: 0, jitter: 1))
+        #expect(abs(GlassDebris.skidShare(rho: 1) - 1) < 1e-6 && GlassDebris.skidShare(rho: 0) < 0.3)
+    }
+
+    @Test func eggShellLandsRoundTheYolkNotOnIt() {
+        // FOLD-REVIEW-6 N9: the shards were pinned over the yolk. Now they land on a ring outside the widest yolk pool.
+        for doubleYolk in [false, true] {
+            let reach = EggShell.yolkReach(doubleYolk: doubleYolk)
+            let yolkEdge = EggYolk.runRadius(1) + (doubleYolk ? EggYolk.doubleOffset : 0)
+            #expect(reach > EggYolk.runRadius(1))
+            #expect(reach + 0.006 > yolkEdge)
+            for k in 0..<36 {
+                for u in [Float(0), 0.5, 1] {
+                    let p = EggShell.ringPoint(angle: Float(k) * .pi / 18, u: u, reach: reach)
+                    // Outside the yolk's pool (an ellipse squashed in z by the ring's aspect at worst) …
+                    let r = simd_length(SIMD2(p.x, p.y / EggShell.ringAspect))
+                    #expect(r >= reach - 1e-5 && r <= reach + EggShell.ringWidth + 1e-5)
+                    // … and the centre on the P-48's anvil.
+                    #expect(abs(p.x) <= 0.079 && abs(p.y) <= 0.056)
+                }
+            }
+        }
+        // 24 smaller shards, a third inside up, all inside the 64-piece debris cap.
+        #expect(EggShell.sectors.reduce(0, +) == 24 && EggShell.sectors.reduce(0, +) <= 64)
+        #expect((0..<24).filter { EggShell.showsInside($0) }.count == 8)
+        #expect(EggShell.shardScale < 0.7 && EggShell.slack <= 0.005)
+        // The yolk always stands clear of the 2 mm white: the broken dome, its pool and the dome's floor.
+        #expect(EggYolk.minHeight > EggYolk.runHeight && EggYolk.runHeight > EggYolk.albumenHeight)
+        #expect(EggYolk.brokenDome >= EggYolk.minHeight)
+        // It spreads as the press closes, the pool wider than the dome, and stays inside the white (Ø ≥ 0.10 m).
+        #expect(EggYolk.runRadius(1) > EggYolk.runRadius(0) && EggYolk.brokenRadius(1) > EggYolk.brokenRadius(0))
+        #expect(EggYolk.runRadius(1) > EggYolk.brokenRadius(1) * 1.16)
+        #expect(EggYolk.runRadius(1) < 0.050)
+        #expect(EggYolk.glow >= 0.25)
+    }
+
+    @Test func cakeSquashBulgesTheOutline() {
+        // FOLD-REVIEW-6 N9: a uniformly scaled wedge kept its outline, so from above it looked intact.
+        let mesh = CakeSquash.bodyMesh()
+        expectValid(mesh, "cake body")
+        #expect(mesh.materialSlots == 4)
+        let cakeSlots = mesh.splitByMaterial().map { $0.slot }
+        #expect(cakeSlots == [0, 1, 2, 3])
+        let wedge = CakeSquash.wedge(inset: 0, sideSteps: CakeSquash.sideSteps)
+        #expect(wedge.count == 1 + 9 + 2 * CakeSquash.sideSteps)
+        #expect(CakeSquash.wedge().count == 10)
+        // Every extra side point lies on its straight side (the outline stays convex at rest).
+        for p in wedge.dropFirst().prefix(CakeSquash.sideSteps) {
+            #expect(abs(atan2(p.y, p.x) + CakeSquash.halfAngle) < 1e-4)
+        }
+        let flat: (Float) -> Float = { _ in 0 }
+        let lumpy = MeshKit.periodicNoise(seed: 9)
+        let side = SIMD3<Float>(0.06, 0.026, -0.06 * tan(CakeSquash.halfAngle))   // the filling, on a long side
+        // No squeeze at rest; the base never moves (it sits on the plate); every point only ever moves outward.
+        #expect(CakeSquash.deform(side, progress: 0, noise: lumpy) == side)
+        let base = SIMD3<Float>(0.06, 0, -0.06 * tan(CakeSquash.halfAngle))
+        #expect(simd_distance(CakeSquash.deform(base, progress: 1, noise: lumpy), base) < 1e-6)
+        var last: Float = 0
+        for k in 0...10 {
+            let q = CakeSquash.deform(side, progress: Float(k) / 10, noise: flat)
+            #expect(-q.z >= last - 1e-7 && q.y == side.y && abs(q.x - side.x) < 1e-6)
+            last = -q.z
+        }
+        // The long side bows sideways by ≥ 1 cm at full squash, the filling further than the sponge above it, and the
+        // cream top further than the sponge under it.
+        let out = -CakeSquash.deform(side, progress: 1, noise: flat).z - (-side.z)
+        #expect(out >= 0.010)
+        let sponge = SIMD3<Float>(side.x, 0.045, side.z)
+        #expect(-CakeSquash.deform(sponge, progress: 1, noise: flat).z < -CakeSquash.deform(side, progress: 1, noise: flat).z)
+        #expect(CakeSquash.profile(0.9) > CakeSquash.profile(0.7))
+        #expect(CakeSquash.profile(0) < 1e-6)
+        // The thin apex barely moves; the progress runs from s 0.9 (none) to s 0.3 (full), ≥ 0.8 at the c 0.7 hold.
+        let apex = SIMD3<Float>(0.004, 0.03, 0)
+        #expect(simd_distance(CakeSquash.deform(apex, progress: 1, noise: flat), apex) < 0.4 * CakeSquash.bulgeReach * 1.2)
+        #expect(CakeSquash.progress(heightRatio: 1) == 0 && CakeSquash.progress(heightRatio: 0.3) > 0.999)
+        #expect(CakeSquash.progress(heightRatio: 0.15) == 1)
+        #expect(CakeSquash.progress(heightRatio: 0.385) > 0.8)
     }
 
     @Test func duckHeadFlattensIntoAnEllipseWithTheBody() {
@@ -404,7 +512,7 @@ struct SceneTests {
         }
         for d in nearest { #expect(abs(d - BubbleWrapGrid.pitch) < 1e-5) }
         let half = BubbleWrapGrid.sheetSize / 2
-        let foot = BubbleWrapGrid.radius * 1.08
+        let foot = BubbleWrapGrid.radius * BubbleWrapGrid.creaseRadius
         for c in centres {
             #expect(abs(c.x) + foot <= half.x && abs(c.y) + foot <= half.y)
         }
@@ -434,8 +542,15 @@ struct SceneTests {
         // Meshes: the dome (shell + crease foot), the flat seal/cut bands and three crinkled craters (film + creases).
         let dome = BubbleWrapGrid.domeMesh()
         expectValid(dome, "dome")
-        #expect(dome.materialSlots == 2)
+        // FOLD-REVIEW-6: crown (0), crease foot (1) and the dark lower wall (2), each a non-empty slot.
+        #expect(dome.materialSlots == 3)
+        let slots = dome.splitByMaterial().map { $0.slot }
+        #expect(slots == [0, 1, 2])
+        #expect(BubbleWrapGrid.domeSlot(band: 0) == 1 && BubbleWrapGrid.domeSlot(band: 1) == 1)
+        #expect(BubbleWrapGrid.domeSlot(band: 2) == 2 && BubbleWrapGrid.domeSlot(band: 1 + BubbleWrapGrid.rimBands) == 2)
+        #expect(BubbleWrapGrid.domeSlot(band: 2 + BubbleWrapGrid.rimBands) == 0)
         #expect(abs((dome.bounds().max.y) - BubbleWrapGrid.unitHeight) < 1e-4)
+        #expect(abs(dome.bounds().max.x - BubbleWrapGrid.creaseRadius) < 1e-4)
         let ring = BubbleWrapGrid.ring(size: BubbleWrapGrid.sheetSize, corner: BubbleWrapGrid.sheetCorner,
                                        inset: BubbleWrapGrid.sealWidth)
         expectValid(ring, "seal")
@@ -451,7 +566,30 @@ struct SceneTests {
         }
         let glint = BubbleWrapGrid.glint
         #expect(glint.position.x < 0 && glint.position.z < 0 && glint.position.y > 0.5 * BubbleWrapGrid.unitHeight)
+        #expect(glint.size >= 0.24)
+        // The bounce glint sits low on the far side, smaller than the key glint, and on the dome (not inside it).
+        let bounce = BubbleWrapGrid.bounceGlint
+        #expect(bounce.position.x > 0 && bounce.position.z > 0 && bounce.position.y < glint.position.y)
+        #expect(bounce.size < glint.size && simd_length(SIMD2(bounce.position.x, bounce.position.z)) <= 1.05)
         #expect(BubbleCrater.snapScale(age: 0) > 1 && BubbleCrater.snapScale(age: BubbleCrater.snapDuration) == 1)
+        #expect(BubbleCrater.radius > BubbleWrapGrid.creaseRadius)
+    }
+
+    @Test func bubbleWrapReadsOnABrightPlate() {
+        // FOLD-REVIEW-6: the sheet was invisible on the P-48 (film 0.2, pale domes 0.36, nothing opaque but craters).
+        typealias L = BubbleWrapLook
+        let steel = L.luma(0xC9CDD3)   // the P-48's plate steel (Palette.plateSteel)
+        // The film is tinted and dense enough to read as a sheet, but stays clear (R5 N10: 0.55 read as a white card).
+        #expect(L.filmOpacity >= 0.3 && L.filmOpacity <= 0.45)
+        #expect(L.sealOpacity > L.filmOpacity)
+        // The cut edge and the crease rings are dark against the steel; the dome wall is darker than its crown.
+        #expect(L.luma(L.cutTint) < steel - 80)
+        #expect(L.luma(L.creaseTint) < steel - 70)
+        #expect(L.luma(L.rimTint) < L.luma(L.crownTint) - 30)
+        #expect(L.rimOpacity > L.crownOpacity && L.crownOpacity >= 0.4)
+        // Popped craters stay stress-whitened, brighter than the crown.
+        #expect(L.luma(L.craterTint) > L.luma(L.crownTint) && L.craterOpacity >= 0.75)
+        #expect(BubbleWrapGrid.cutWidth >= 0.001)
     }
 
     @Test func canStrainStartsAtContactAndStaysBounded() {

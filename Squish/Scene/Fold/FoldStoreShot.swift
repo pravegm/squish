@@ -18,6 +18,12 @@ import UIKit
 /// device's end shows the V; the pair labels quote each device's crown readout (`Halves.readout`) next to a
 /// side-profile glyph of the modelled angle, so no label can contradict the number on the screen.
 ///
+/// FOLD-REVIEW-6 #1 (frame 1 must read as a phone closing on a duck): the hero takes its own camera (the duck at a
+/// 22° elevation and 50° turn, glass at −28°), the key light leans toward the viewer so the lid's shadow lands on the
+/// object (`Options.keyTiltDegrees`), the readout label and V glyph sit on the hero too (`Options.angleMark`), and the
+/// hero and reveal hang from the caption band (`Anchor.top`, fill 0.66 / bleed 0.10) so no dead band opens under it.
+/// Captions break by `CaptionWrap` (balanced lines, no orphans).
+///
 /// The model: the inner display is one panel bent round a thin hinge cylinder (the 40 pt crease band becomes the bend),
 /// each page a rounded slab with a black glass bezel, on a warm studio sweep with a cast and a contact shadow.
 ///
@@ -75,6 +81,9 @@ enum FoldStoreShot {
         case centre
         /// The device's lowest projected point sits this fraction of the box height above the box bottom.
         case bottom(Double)
+        /// The device's highest projected point sits this fraction of the box height below the box top
+        /// (FOLD-REVIEW-6 N12: the hero and reveal hang from the caption band, so no dead band opens under it).
+        case top(Double)
     }
 
     enum Backdrop: String, Sendable {
@@ -115,21 +124,30 @@ enum FoldStoreShot {
         var azimuthDegrees: Double?
         /// Elevation of the 3/4 eye above the anvil page (degrees, from the footprint centre). Nil = 34° for tabletop
         /// content (design 40°), the book design eye clamped to 34–60° for book content on the tabletop model, and the
-        /// design eye's own for a standing book.
+        /// design eye's own for a standing book. The duck hero passes 22° (FOLD-REVIEW-6 #1): with its 50° turn the
+        /// device's end then shows the wedge at ~96° on screen instead of ~133°, so the lid reads as closing on the
+        /// duck rather than as a laptop lid (scratchpad r7tools/framing2.mjs).
         var elevationDegrees: Double?
         var eyeModel: FoldEyeModel = .standard
-        var fit: Fit = .width(bleed: 0.05)
-        /// Wanted device height as a fraction of the frame height (FOLD-REVIEW-4: ≈ 58 %); only ever grows the width
-        /// fit by up to its bleed.
-        var targetFill: Double? = 0.58
-        /// Largest device height as a fraction of the frame height, for the width fit (FOLD-REVIEW-5 #1: a 32°
-        /// azimuth makes the device less wide for its height, so without a cap the width fit would push the fill to
-        /// 61–65 % at 64–80°). Nil = no cap.
-        var maxFill: Double? = 0.60
-        /// Device lighting on the screens (FOLD-REVIEW-5 §3 b): the lid's cast shadow from the overhead softbox and
-        /// the wedge occlusion near the crease on the anvil page, a fainter wedge on the lid. Tabletop model only;
-        /// off for the E-check composites.
+        /// FOLD-REVIEW-6 N12: bleed 0.05 → 0.10, fill 0.58 → 0.66. The width fit still limits it: ~62 % at the
+        /// 22°/50° hero, ~66 % at 34°.
+        var fit: Fit = .width(bleed: 0.10)
+        /// Wanted device height as a fraction of the frame height; only ever grows the width fit by up to its bleed.
+        var targetFill: Double? = 0.66
+        /// Largest device height as a fraction of the frame height, for the width fit (FOLD-REVIEW-5 #1 capped it at
+        /// 0.60; R6 N12 wants 0.66, so the cap now sits above the target). Nil = no cap.
+        var maxFill: Double? = 0.70
+        /// Device lighting on the screens (FOLD-REVIEW-5 §3 b): the lid's cast shadow from the studio key and the
+        /// wedge occlusion near the crease on the anvil page, a fainter wedge on the lid. Tabletop model only; off for
+        /// the E-check composites.
         var lidShading = true
+        /// Tilt of the studio key toward the viewer, degrees from straight down (FOLD-REVIEW-6 #1 c). 0 = overhead
+        /// softbox: a 64° lid's shadow reaches ~31 mm, short of the duck (footprint centre 36.7 mm from the crease).
+        /// The heroes pass 18°: ~55 mm, so the duck's back half is in full shadow and its front in the penumbra.
+        var keyTiltDegrees: Double = 0
+        /// A readout label ("AT 67°") with the side-profile V glyph at the modelled angle, drawn on the sweep above
+        /// the lid's lower free corner (FOLD-REVIEW-6 #1 b: the pair's marks on the hero). Nil = none.
+        var angleMark: String?
         /// The box the device is fitted into, in unit coordinates of the frame. Nil = (0.04, 0.21, 0.92, 0.76) portrait
         /// (the top 21 % is the caption band), (0.06, 0.22, 0.88, 0.75) landscape with a caption, (0.10, 0.07, 0.80,
         /// 0.88) landscape without.
@@ -363,8 +381,13 @@ enum FoldStoreShot {
         let unit = options.heroBox ?? defaultHeroBox(size, captioned: options.caption != nil)
         guard let shot = deviceDraws(halves, options: options, box: frameRect(unit, in: size), canvas: size,
                                      context: context) else { return nil }
+        var heroMark: HeroMark?
+        if let label = options.angleMark, !label.isEmpty, shot.lidCorners.count == 2 {
+            heroMark = HeroMark(label: label, angle: options.hingeAngle, lid: shot.lidCorners,
+                                captioned: options.caption != nil)
+        }
         return flatten(size: size, backdrop: options.backdrop, devices: [shot], caption: options.caption,
-                       subcaption: options.subcaption, marks: nil)
+                       subcaption: options.subcaption, marks: nil, heroMark: heroMark)
     }
 
     /// The before/after frame: `before` (e.g. 112°) small, `after` (the squish, ~62°) large, an arrow between them.
@@ -373,7 +396,9 @@ enum FoldStoreShot {
         guard size.width >= 64, size.height >= 64 else { return nil }
         let context = CIContext(options: [.cacheIntermediates: false])
         let portrait = size.height >= size.width
-        let beforeUnit = portrait ? CGRect(x: 0.04, y: 0.215, width: 0.46, height: 0.27)
+        // FOLD-REVIEW-6 §3 A 02: the small device's front corner kissed the large lid's corner; 0.27 → 0.25 tall
+        // lifts and shrinks it (~60 px clear at 2007 × 2853).
+        let beforeUnit = portrait ? CGRect(x: 0.04, y: 0.215, width: 0.46, height: 0.25)
                                   : CGRect(x: 0.04, y: 0.30, width: 0.38, height: 0.50)
         let afterUnit = portrait ? CGRect(x: 0.20, y: 0.47, width: 0.76, height: 0.50)
                                  : CGRect(x: 0.45, y: 0.22, width: 0.51, height: 0.75)
@@ -575,6 +600,10 @@ enum FoldStoreShot {
         case let .bottom(lift):
             fit = StoreFit(scale: scale, reference: SIMD2<Double>((qlo.x + qhi.x) / 2, qlo.y),
                            pixel: CGPoint(x: box.midX, y: box.maxY - CGFloat(lift) * box.height))
+        case let .top(drop):
+            // Image-plane y is up, so the highest point is qhi.y.
+            fit = StoreFit(scale: scale, reference: SIMD2<Double>((qlo.x + qhi.x) / 2, qhi.y),
+                           pixel: CGPoint(x: box.midX, y: box.minY + CGFloat(drop) * box.height))
         }
         func px(_ p: SIMD3<Double>) -> CGPoint { fit.point(camera.project(p)) }
         let devicePixels = span.x * scale
@@ -652,7 +681,8 @@ enum FoldStoreShot {
             guard simd_dot(normal, eye - page.slab.frontCentroid) > 0,
                   case let (texture, textureRect)? = pageTexture(page.panel, image: page.image, rig: rig,
                                                                  sheen: options.glassSheen, splat: splat,
-                                                                 shade: options.lidShading && rig.tabletop) else { continue }
+                                                                 shade: options.lidShading && rig.tabletop,
+                                                                 keyTilt: options.keyTiltDegrees) else { continue }
             let quad = corners(of: textureRect).map { px(rig.world(canvas: $0, on: page.panel)) }
             if case let (image, rect)? = warp(texture, corners: quad, canvas: size, context: context) {
                 draws.append(StoreDraw.image(image, rect))
@@ -661,12 +691,22 @@ enum FoldStoreShot {
 
         let a = fit.point(qlo), b = fit.point(qhi)
         let frame = CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
-        return StoreDevice(draws: draws, pool: px(SIMD3(target.x, ground, target.z)), frame: frame)
+        // The lid's two free corners (bezel included, square) for the hero's angle mark: per lateral end, whichever of
+        // the screen-side and back-side corner projects higher, so the mark also clears the lid's top edge thickness.
+        let lidTop = rig.reach(.platen) + StoreRig.bezelPt
+        let lidBack = StoreRig.thicknessMM * rig.normal(.platen)
+        let lidCorners: [CGPoint] = [-StoreRig.bezelPt, Double(halves.layout.lateralLength) + StoreRig.bezelPt].map { l in
+            let front = rig.world(canvas: rig.canvas(a: lidTop, l: l, on: .platen), on: .platen)
+            let screenSide = px(front), backSide = px(front - lidBack)
+            return screenSide.y <= backSide.y ? screenSide : backSide
+        }
+        return StoreDevice(draws: draws, pool: px(SIMD3(target.x, ground, target.z)), frame: frame,
+                           lidCorners: lidCorners)
     }
 
     /// Flatten onto the sweep. Opaque, sRGB, 8-bit: App Store screenshots must have no alpha.
     private static func flatten(size: CGSize, backdrop: Backdrop, devices: [StoreDevice], caption: String?,
-                                subcaption: String?, marks: PairMarks?) -> UIImage {
+                                subcaption: String?, marks: PairMarks?, heroMark: HeroMark? = nil) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -682,6 +722,7 @@ enum FoldStoreShot {
                 }
             }
             if let marks { drawPairMarks(cg, marks, size: size) }
+            if let heroMark { drawHeroMark(cg, heroMark, size: size) }
             if let caption, !caption.isEmpty { drawCaption(caption, subline: subcaption, size: size) }
         }
     }
@@ -711,7 +752,9 @@ enum FoldStoreShot {
     private static let captionHighlight = UIColor(hex: 0xFFB81C)
 
     /// The headline centred in the top 21 % of the frame (never over the hero box), cap height ≥ 4 % of the frame
-    /// height; it breaks after its first sentence when it doesn't fit on one line.
+    /// height. Line breaks follow `CaptionWrap` (FOLD-REVIEW-6 N11): a headline too wide for one line breaks at its
+    /// most balanced sentence boundary, every wrapped paragraph is balanced (no orphaned last word), and the
+    /// sub-line shrinks (to 0.30 of the headline size at the least) to stay on one line before it wraps.
     private static func drawCaption(_ text: String, subline: String?, size: CGSize) {
         let band = CGRect(x: size.width * 0.06, y: size.height * 0.03,
                           width: size.width * 0.88, height: size.height * 0.165)
@@ -719,38 +762,61 @@ enum FoldStoreShot {
         // 4 % cap-height target, which a 0.058 floor kept but at the cost of clipping the first line off the frame.
         let minimum = size.height * 0.036
         var fontSize = size.height * 0.064
-        let breakSentences = captionString(text, size: fontSize, breakSentences: false).size().width > band.width
         func measure(_ string: NSAttributedString) -> CGSize {
             let r = string.boundingRect(with: CGSize(width: band.width, height: .greatestFiniteMagnitude),
                                         options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
             return CGSize(width: ceil(r.width), height: ceil(r.height))
         }
-        var headline = captionString(text, size: fontSize, breakSentences: breakSentences)
-        var sub = subline.map { sublineString($0, size: fontSize) }
-        while fontSize > minimum {
-            let height = measure(headline).height + (sub.map { measure($0).height + fontSize * 0.30 } ?? 0)
-            if height <= band.height { break }
-            fontSize = max(minimum, fontSize * 0.95)
-            headline = captionString(text, size: fontSize, breakSentences: breakSentences)
-            sub = subline.map { sublineString($0, size: fontSize) }
+        /// The headline at size `s`, and whether a paragraph of it still ends on one lone word.
+        func headlineString(_ s: CGFloat) -> (text: NSAttributedString, orphan: Bool) {
+            let font = roundedFont(s, weight: .heavy)
+            let paragraphs = CaptionWrap.balancedLines(text, width: band.width, sentenceBreak: true) { plain in
+                NSAttributedString(string: plain, attributes: [.font: font]).size().width
+            }
+            return (text: captionString(CaptionWrap.joined(paragraphs), size: s),
+                    orphan: CaptionWrap.hasOrphan(paragraphs))
         }
-        let headSize = measure(headline)
+        func sublineAttributed(_ s: CGFloat) -> NSAttributedString? {
+            guard let subline else { return nil }
+            let plain = subline.replacingOccurrences(of: "*", with: "")
+            func width(_ string: String, _ points: CGFloat) -> CGFloat {
+                NSAttributedString(string: string, attributes: [
+                    .font: UIFont.monospacedSystemFont(ofSize: points, weight: .semibold),
+                ]).size().width
+            }
+            let natural = s * CaptionWrap.sublineScale
+            if let points = CaptionWrap.oneLineSublineSize(natural: natural, naturalWidth: width(plain, natural),
+                                                           width: band.width) {
+                return sublineString(plain, pointSize: points)
+            }
+            let wrapped = CaptionWrap.balanced(plain, width: band.width, sentenceBreak: false) { width($0, natural) }
+            return sublineString(wrapped, pointSize: natural)
+        }
+        var headline = headlineString(fontSize)
+        var sub = sublineAttributed(fontSize)
+        // Shrink while it doesn't fit, or while a paragraph ends on one lone word ("File the / *evidence*."): a size
+        // step usually pulls that word back onto the line. At the minimum, the balanced break stands.
+        while fontSize > minimum {
+            let height = measure(headline.text).height + (sub.map { measure($0).height + fontSize * 0.30 } ?? 0)
+            if height <= band.height && !headline.orphan { break }
+            fontSize = max(minimum, fontSize * 0.95)
+            headline = headlineString(fontSize)
+            sub = sublineAttributed(fontSize)
+        }
+        let headSize = measure(headline.text)
         let subSize = sub.map { measure($0) } ?? .zero
         let gap = sub == nil ? 0 : fontSize * 0.30
         var y = max(band.minY, band.midY - (headSize.height + gap + subSize.height) / 2)
-        headline.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: headSize.height + 2),
+        headline.text.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: headSize.height + 2),
                       options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         y += headSize.height + gap
         sub?.draw(with: CGRect(x: band.minX, y: y, width: band.width, height: subSize.height + 2),
                   options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
     }
 
-    /// `*word*` marks the highlighted word, as in screenshots.md.
-    private static func captionString(_ text: String, size: CGFloat, breakSentences: Bool) -> NSAttributedString {
-        var source = text
-        if breakSentences, let range = source.range(of: ". ") {
-            source.replaceSubrange(range, with: ".\n")
-        }
+    /// `*word*` marks the highlighted word, as in screenshots.md. `text` already carries its line breaks.
+    private static func captionString(_ text: String, size: CGFloat) -> NSAttributedString {
+        let source = text
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byWordWrapping
@@ -766,12 +832,12 @@ enum FoldStoreShot {
         return result
     }
 
-    private static func sublineString(_ text: String, size: CGFloat) -> NSAttributedString {
+    private static func sublineString(_ text: String, pointSize: CGFloat) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byWordWrapping
         return NSAttributedString(string: text.replacingOccurrences(of: "*", with: ""), attributes: [
-            .font: UIFont.monospacedSystemFont(ofSize: size * 0.40, weight: .semibold),
+            .font: UIFont.monospacedSystemFont(ofSize: pointSize, weight: .semibold),
             .foregroundColor: captionInk.withAlphaComponent(0.72),
             .paragraphStyle: paragraph,
         ])
@@ -842,6 +908,48 @@ enum FoldStoreShot {
         }
     }
 
+    /// The hero's angle mark (FOLD-REVIEW-6 #1 b): the readout label ("AT 67°", the pair's type) and the profile V
+    /// glyph at the modelled angle, as one group on the empty sweep above the lid's lower free corner. At the 22°/50°
+    /// hero that corner is the right one, ~9 % of the frame lower than the left, so the group fits between the lid's
+    /// edge and the caption band. Never above the caption band's floor (21 %), never past a 3 % side margin.
+    private static func drawHeroMark(_ cg: CGContext, _ mark: HeroMark, size: CGSize) {
+        guard mark.lid.count == 2 else { return }
+        let unit = min(size.width, size.height)
+        let fontSize = unit * 0.045
+        let text = NSAttributedString(string: mark.label, attributes: [
+            .font: roundedFont(fontSize, weight: .heavy),
+            .foregroundColor: captionInk.withAlphaComponent(0.80),
+        ])
+        let textSize = text.size()
+        // drawProfileGlyph's geometry: a stroke of 6 % of the width, hinge on the label's baseline, 0.35 em gap.
+        let glyphLength = size.width * 0.06
+        let gap = fontSize * 0.35
+        let groupWidth = textSize.width + gap + glyphLength
+        let theta = CGFloat(clamp(mark.angle, 0, 180) * Double.pi / 180)
+        let hingeDrop = fontSize * 0.98
+        let rise = max(0, sin(theta) * glyphLength - hingeDrop)   // how far the lid stroke pokes above the label
+        let groupHeight = rise + max(textSize.height, hingeDrop + fontSize * 0.13)
+        let a = mark.lid[0], b = mark.lid[1]
+        let low = a.y >= b.y ? a : b, high = a.y >= b.y ? b : a
+        let margin = size.width * 0.03
+        var minX = low.x >= high.x ? min(low.x + groupWidth * 0.25, size.width - margin) - groupWidth
+                                   : max(low.x - groupWidth * 0.25, margin)
+        minX = min(max(minX, margin), size.width - margin - groupWidth)
+        // The lid's free edge (a straight line between the corners) under the group: clear its higher end.
+        func edgeY(_ x: CGFloat) -> CGFloat {
+            let dx = b.x - a.x
+            guard abs(dx) > 1 else { return min(a.y, b.y) }
+            let t = min(max((x - a.x) / dx, 0), 1)
+            return a.y + (b.y - a.y) * t
+        }
+        let clearance = min(edgeY(minX), edgeY(minX + groupWidth)) - fontSize * 0.30
+        let bandFloor = mark.captioned ? size.height * 0.21 : size.height * 0.03
+        let top = max(bandFloor, clearance - groupHeight)
+        let label = CGRect(x: minX, y: top + rise, width: textSize.width, height: textSize.height)
+        text.draw(at: label.origin)
+        drawProfileGlyph(cg, angle: mark.angle, label: label, fontSize: fontSize, size: size)
+    }
+
     /// A hinge in side profile: the table page as a horizontal stroke to the right of the hinge, the lid a stroke at
     /// `angle` from it (leaning right, over the page, below 90°), a small yellow arc between them and a hinge dot.
     /// About 6 % of the frame width, sitting on the label's baseline to its right (or its left if there's no room).
@@ -887,7 +995,7 @@ enum FoldStoreShot {
     /// to its rounded corners (plus the escaped splat on the anvil), a faint sheen and the rim. The rect includes a
     /// transparent margin so warped edges stay antialiased.
     private static func pageTexture(_ panel: StoreRig.Panel, image: CGImage, rig: StoreRig, sheen: Bool,
-                                    splat: EscapedSplat?, shade: Bool) -> (CGImage, CGRect)? {
+                                    splat: EscapedSplat?, shade: Bool, keyTilt: Double = 0) -> (CGImage, CGRect)? {
         let layout = rig.layout
         let b = StoreRig.bezelPt, m = StoreRig.marginPt, c = rig.c
         let reach = rig.reach(panel)
@@ -914,7 +1022,7 @@ enum FoldStoreShot {
             cg.clip()
             UIImage(cgImage: image).draw(in: half)
             if let splat { drawEscapedSplat(cg, splat, layout: layout) }
-            if shade { drawWedgeShading(cg, panel: panel, rig: rig) }
+            if shade { drawWedgeShading(cg, panel: panel, rig: rig, keyTilt: keyTilt) }
             if sheen, let gradient = CGGradient(
                 colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
                 colors: [UIColor(red: 1, green: 1, blue: 1, alpha: 0).cgColor,
@@ -1007,7 +1115,9 @@ enum FoldStoreShot {
     ///  • lid: a fainter wedge occlusion, 0.12·k over its first 25 %.
     /// k = 1 − (θ − 45)/135, clamped: 0 flat, 0.86 at 64°. A lid at or past 90° leans behind the crease and casts
     /// nothing on the anvil, so the 112° frame only gets the faint wedge and the reveal (150°+) almost nothing.
-    private static func drawWedgeShading(_ cg: CGContext, panel: StoreRig.Panel, rig: StoreRig) {
+    /// `keyTilt` (FOLD-REVIEW-6 #1 c, `Options.keyTiltDegrees`) leans the key toward the viewer: the shadow of the
+    /// lid's free edge moves forward by its height × tan(tilt), onto the duck.
+    private static func drawWedgeShading(_ cg: CGContext, panel: StoreRig.Panel, rig: StoreRig, keyTilt: Double = 0) {
         let thetaDegrees = rig.theta * 180 / Double.pi
         let k = clamp(1 - (thetaDegrees - 45) / 135, 0, 1)
         guard k > 0.01 else { return }
@@ -1033,7 +1143,7 @@ enum FoldStoreShot {
         switch panel {
         case .anvil:
             let depth = rig.reach(.anvil)
-            if let shadow = rig.lidShadowOnAnvil() {
+            if let shadow = rig.lidShadowOnAnvil(keyTiltDegrees: keyTilt) {
                 let ppm = FoldMetrics.pointsPerMM
                 let reach = shadow.reachMM * ppm
                 let penumbra = max(0.03 * depth, 0.18 * shadow.heightMM * ppm)
@@ -1225,6 +1335,17 @@ private struct StoreDevice {
     let draws: [StoreDraw]
     let pool: CGPoint
     let frame: CGRect
+    /// The lid's (platen page's) two free corners in output pixels, lateral start first.
+    let lidCorners: [CGPoint]
+}
+
+/// The hero's angle mark (FOLD-REVIEW-6 #1 b): the readout label and the profile glyph at the modelled angle.
+private struct HeroMark {
+    let label: String
+    let angle: Double
+    let lid: [CGPoint]
+    /// Keep the mark under the caption band.
+    let captioned: Bool
 }
 
 private struct PairMarks {
@@ -1371,13 +1492,16 @@ private struct StoreRig {
 
     /// The lid's shadow on the anvil page under a light straight above (tabletop: the anvil page is horizontal, so
     /// "above" is +v): how far from the anvil's crease edge the shadow of the lid's free edge (bezel included) falls
-    /// and how high that edge is, mm. Nil when the lid leans back behind the crease (θ ≥ ~90°).
-    func lidShadowOnAnvil() -> (reachMM: Double, heightMM: Double)? {
+    /// and how high that edge is, mm. Nil when the shadow falls behind the crease (overhead key: θ ≥ ~90°).
+    /// `keyTiltDegrees` leans the light toward the viewer (+u): the shadow reach grows by height × tan(tilt).
+    func lidShadowOnAnvil(keyTiltDegrees: Double = 0) -> (reachMM: Double, heightMM: Double)? {
         guard tabletop, let crease = arc.last else { return nil }
         let length = (reach(.platen) + StoreRig.bezelPt) / ppm
         let free = crease + length * away(.platen)
-        guard free.x > 0.5, free.y > 0 else { return nil }
-        return (reachMM: free.x, heightMM: free.y)
+        guard free.y > 0 else { return nil }
+        let reachMM = free.x + free.y * tan(clamp(keyTiltDegrees, 0, 60) * Double.pi / 180)
+        guard reachMM > 0.5 else { return nil }
+        return (reachMM: reachMM, heightMM: free.y)
     }
 
     /// Crease edge → free edge, pt.
@@ -1572,5 +1696,112 @@ private struct StoreFit {
 
     func point(_ q: SIMD2<Double>) -> CGPoint {
         CGPoint(x: Double(pixel.x) + (q.x - reference.x) * scale, y: Double(pixel.y) - (q.y - reference.y) * scale)
+    }
+}
+
+// MARK: - Caption line breaks
+
+/// Caption line breaking for the store frames (FOLD-REVIEW-6 N11). The same rule is in ci/store-frame.swift (the
+/// host-side compositor for raw frames); keep the two in step.
+///  • A headline too wide for one line breaks at the sentence boundary ("`. `") that balances the two parts best:
+///    "No ads. No purchases. / Just the press.", not "No ads. / No purchases. Just the / press.".
+///  • Every paragraph that still wraps is balanced: as many lines as a greedy wrap needs, at the narrowest width that
+///    keeps that count, so lines come out even and none ends on one orphaned word ("… every / iPhone.").
+///  • A sub-line shrinks (to `sublineMinimumScale` of the headline size at the least) to stay on one line; only past
+///    that does it wrap, balanced, at its natural size.
+/// `*` highlight markers stay in place and are never measured. `measure` is the one-line width of a plain string.
+enum CaptionWrap {
+    /// Sub-line size as a fraction of the headline size (screenshots.md: SF Mono at 40 %), and its shrink floor.
+    static let sublineScale: CGFloat = 0.40
+    static let sublineMinimumScale: CGFloat = 0.30
+    /// Slack for the layout engine's own kerning and rounding, so a measured line never re-wraps when drawn.
+    static let slack: CGFloat = 0.97
+
+    /// `text` with "\n" inserted at the chosen breaks.
+    static func balanced(_ text: String, width: CGFloat, sentenceBreak: Bool, measure: (String) -> CGFloat) -> String {
+        joined(balancedLines(text, width: width, sentenceBreak: sentenceBreak, measure: measure))
+    }
+
+    /// The chosen lines, per paragraph (a paragraph is a sentence part or an explicit "\n" in `text`).
+    static func balancedLines(_ text: String, width: CGFloat, sentenceBreak: Bool,
+                              measure: (String) -> CGFloat) -> [[String]] {
+        let fit = width * slack
+        func plainWidth(_ s: String) -> CGFloat { measure(s.replacingOccurrences(of: "*", with: "")) }
+        var source = text
+        if sentenceBreak, !source.contains("\n"), plainWidth(source) > fit,
+           let split = splitAtBestSentence(source, measure: plainWidth) {
+            source = split
+        }
+        return source.components(separatedBy: "\n").map { balancedParagraph($0, width: fit, measure: plainWidth) }
+    }
+
+    static func joined(_ paragraphs: [[String]]) -> String {
+        paragraphs.map { $0.joined(separator: "\n") }.joined(separator: "\n")
+    }
+
+    /// True when a wrapped paragraph's last line is a single word (the renderers shrink a step and try again).
+    static func hasOrphan(_ paragraphs: [[String]]) -> Bool {
+        paragraphs.contains { lines in lines.count > 1 && !(lines.last ?? " ").contains(" ") }
+    }
+
+    /// The sub-line point size that keeps it on one line, between the shrink floor and its natural size; nil when
+    /// even the floor is too wide (then it wraps at `natural`). Monospaced widths scale linearly with the size.
+    static func oneLineSublineSize(natural: CGFloat, naturalWidth: CGFloat, width: CGFloat) -> CGFloat? {
+        let fit = width * slack
+        guard naturalWidth > fit else { return natural }
+        let floorSize = natural * sublineMinimumScale / sublineScale
+        let wanted = natural * fit / max(naturalWidth, 1)
+        return wanted >= floorSize ? wanted : nil
+    }
+
+    static func splitAtBestSentence(_ text: String, measure: (String) -> CGFloat) -> String? {
+        var best: (score: CGFloat, result: String)?
+        var search = text.startIndex..<text.endIndex
+        while let range = text.range(of: ". ", range: search) {
+            let left = String(text[..<range.lowerBound]) + "."
+            let right = String(text[range.upperBound...])
+            let score = max(measure(left), measure(right))
+            if best.map({ score < $0.score }) ?? true { best = (score: score, result: left + "\n" + right) }
+            search = range.upperBound..<text.endIndex
+        }
+        return best?.result
+    }
+
+    /// One paragraph's lines.
+    static func balancedParagraph(_ paragraph: String, width: CGFloat, measure: (String) -> CGFloat) -> [String] {
+        let words = paragraph.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard words.count > 1, measure(paragraph) > width else { return [paragraph] }
+        func greedy(_ limit: CGFloat) -> [[String]] {
+            var lines: [[String]] = []
+            var current: [String] = []
+            for word in words {
+                if current.isEmpty || measure((current + [word]).joined(separator: " ")) <= limit {
+                    current.append(word)
+                } else {
+                    lines.append(current)
+                    current = [word]
+                }
+            }
+            if !current.isEmpty { lines.append(current) }
+            return lines
+        }
+        let count = greedy(width).count
+        var lo: CGFloat = 0
+        var hi = width
+        for _ in 0..<20 {
+            let mid = (lo + hi) / 2
+            if greedy(mid).count <= count { hi = mid } else { lo = mid }
+        }
+        var lines = greedy(hi)
+        // One long word can still leave a lone last word: pull one more word down if the line still fits.
+        let n = lines.count
+        if n >= 2, lines[n - 1].count == 1, lines[n - 2].count >= 3, let moved = lines[n - 2].last {
+            let candidate = [moved] + lines[n - 1]
+            if measure(candidate.joined(separator: " ")) <= width {
+                lines[n - 2].removeLast()
+                lines[n - 1] = candidate
+            }
+        }
+        return lines.map { $0.joined(separator: " ") }
     }
 }

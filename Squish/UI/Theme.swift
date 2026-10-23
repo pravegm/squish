@@ -977,18 +977,50 @@ struct Sticker<Content: View>: View {
 
 // MARK: - Crease safety for sheets
 
-/// On a foldable in book pose (landscape, vertical crease), keep a sheet's content on the right half so no
-/// control sits on the 40 pt crease. Tabletop sheets use a 0.45 detent instead (RootView).
+private struct WindowIsLandscapeKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    /// The window's orientation (RootView's full-screen bands), handed to sheets. A sheet can't tell the pose from its
+    /// own size: a tabletop sheet at the 0.45 detent is 669 × ~430 pt, wider than tall, yet its crease is horizontal.
+    /// Nil outside RootView (previews), where `CreaseSafe` falls back to the sheet's aspect.
+    var windowIsLandscape: Bool? {
+        get { self[WindowIsLandscapeKey.self] }
+        set { self[WindowIsLandscapeKey.self] = newValue }
+    }
+}
+
+/// Where a sheet's content goes on a foldable (FOLD-REVIEW-6 N4). Pure, so it's unit-tested (CollectionTests).
+enum SheetCreaseLayout: Equatable {
+    /// The whole sheet: no hinge, or tabletop (horizontal crease, which a scrolling sheet may cross).
+    case full
+    /// Book pose (landscape window, vertical crease): the trailing half, clear of the 40 pt crease.
+    case trailingHalf(width: CGFloat)
+
+    /// Decided on the window's orientation, the same rule as `ScreenBands.isLandscape` and `FoldLayout` (wider than
+    /// tall = book), never on the sheet's own aspect.
+    static func layout(hasHinge: Bool, windowIsLandscape: Bool?, sheet: CGSize) -> SheetCreaseLayout {
+        guard hasHinge, windowIsLandscape ?? (sheet.width > sheet.height) else { return .full }
+        return .trailingHalf(width: max(0, sheet.width / 2 - ScreenBands.creaseHalf))
+    }
+}
+
+/// On a foldable in book pose (landscape window, vertical crease), keep a sheet's content on the right half so no
+/// control sits on the 40 pt crease. Tabletop (portrait window, horizontal crease) gets the full sheet width at every
+/// detent; before FOLD-REVIEW-6 N4 the 0.45-detent Shelf was wider than tall and got squeezed into the right half.
 struct CreaseSafe: ViewModifier {
     @AppStorage("squish.hasHinge") private var hasHinge = false
+    @Environment(\.windowIsLandscape) private var windowIsLandscape
 
     func body(content: Content) -> some View {
         GeometryReader { proxy in
-            if hasHinge && proxy.size.width > proxy.size.height {
+            switch SheetCreaseLayout.layout(hasHinge: hasHinge, windowIsLandscape: windowIsLandscape, sheet: proxy.size) {
+            case let .trailingHalf(width):
                 content
-                    .frame(width: proxy.size.width / 2 - ScreenBands.creaseHalf)
+                    .frame(width: width)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-            } else {
+            case .full:
                 content
                     .frame(width: proxy.size.width, height: proxy.size.height)
             }

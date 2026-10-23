@@ -8,6 +8,8 @@ import UIKit
 /// Contact: the ram meets the flame — it goes out with a puff and the candle starts to lean.
 /// Fracture 0 (~0.22): icing cracks, sprinkles hop. Fracture 1 (~0.42): the candle bends and lies flat.
 /// Fracture 2 (failure, ~0.62): cream and frosting ooze out as blobs, crumbs and sprinkles burst and stay.
+/// Throughout the squash the slice bulges (`CakeSquash`, FOLD-REVIEW-6 N9): the sides barrel out, the filling and the
+/// cream top squeeze out past the sponge in lumps, and crumbs fall off it, so it reads as crushed from above too.
 /// Surprise `jamCentre`: the filling is glossy jam (otherwise pink cream) and a jam spread appears.
 @MainActor
 final class CakeSliceView: PressObjectView {
@@ -32,9 +34,18 @@ final class CakeSliceView: PressObjectView {
     private var spread: Float = 1
     private let hasJam: Bool
 
-    static let cakeHeight: Float = 0.065
+    static let cakeHeight: Float = CakeSquash.cakeHeight
     static let candleLength: Float = 0.038
-    static let radius: Float = 0.110
+    static let radius: Float = CakeSquash.radius
+    /// The layers, back frosting and squeeze-out as one CPU-deformed mesh (FOLD-REVIEW-6 N9: uniformly scaled layers
+    /// kept the wedge's outline, so from above a squashed slice looked intact).
+    private var body: DeformableMesh?
+    /// The bulge applied so far (latched: the cake never un-squeezes) and the one the mesh was last uploaded at.
+    private var bulge: Float = 0
+    private var shapedBulge: Float = 0
+    private let bulgeNoise: (Float) -> Float
+    private var drips: [(model: ModelEntity, rest: SIMD3<Float>)] = []
+    private var crumbled = false
     /// Candle base on the top, in wedge space (apex at the origin, arc toward +X).
     static let candleBase = SIMD2<Float>(0.078, 0.004)
     private static let candleLean: Float = 12 * .pi / 180
@@ -48,18 +59,13 @@ final class CakeSliceView: PressObjectView {
         hasJam = variant.surprise == .jamCentre
         restHeight = Self.cakeHeight + Self.candleLength * cos(Self.candleLean) + 0.008
         rng = SplitMix64(seed: variant.seed ^ 0xCA4E)
+        bulgeNoise = MeshKit.periodicNoise(seed: variant.seed ^ 0xCA4E_B01, octaves: 3)
         build(variant: variant)
     }
 
     /// The 40° sector outline (apex at the origin), corners rounded by the prism builder.
     static func wedge(inset: Float = 0) -> [SIMD2<Float>] {
-        var points: [SIMD2<Float>] = [SIMD2(inset * 2.5, 0)]
-        let half: Float = 20 * .pi / 180
-        for k in 0...8 {
-            let a = -half + 2 * half * Float(k) / 8
-            points.append(SIMD2(cos(a), sin(a)) * (radius - inset))
-        }
-        return points
+        CakeSquash.wedge(inset: inset)
     }
 
     private func build(variant: PressVariant) {
@@ -69,29 +75,20 @@ final class CakeSliceView: PressObjectView {
                : SceneMaterials.enamel(UIColor(hex: 0xF9B9CB), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.15))
         let cream = look.body(UIColor(hex: 0xFFF3F7), roughness: 0.35, clearcoat: 0.3)
         let frosting = look.body(UIColor(hex: 0xF59BB5), roughness: 0.35, clearcoat: 0.3)
-        var y: Float = 0
-        let layers: [(Float, PhysicallyBasedMaterial, Float)] = [(0.024, sponge, 0), (0.005, filling, 0.0015),
-                                                                 (0.024, sponge, 0), (0.012, cream, 0)]
-        for (i, layer) in layers.enumerated() {
-            Part.add(cached: "cake.layer.\(i)", {
-                MeshKit.roundedPrism(polygon: Self.wedge(inset: layer.2), height: layer.0, cornerRadius: 0.003,
-                                     bevel: min(0.002, layer.0 * 0.3))
-            }, layer.1, at: [0, y, 0], to: cake)
-            y += layer.0
-        }
-        // Back frosting on the arc face, full height, with five drips along the top edge.
-        let half: Float = 20 * .pi / 180
-        let back = MeshKit.lathePatch(profile: [SIMD2(Self.radius + 0.004, 0.0008), SIMD2(Self.radius + 0.004, Self.cakeHeight - 0.0005)],
-                                      rings: 0...1, angles: (-half + 0.01)...(half - 0.01), angularSteps: 16, thickness: 0.0055)
-        let backEntity = MeshKit.entity(back.mesh, materials: [frosting, frosting], name: "cake.back")
-        backEntity.position = back.centre
-        cake.addChild(backEntity)
+        // Sponge, filling, sponge, cream top and the back frosting: one deformable mesh (slots `CakeSquash.spongeSlot`…).
+        let mesh = MeshCache.mesh("cake.body") { CakeSquash.bodyMesh() }
+        let deformable = DeformableMesh(mesh, materials: [sponge, filling, cream, frosting], maxSpread: 1.8)
+        cake.addChild(deformable.entity)
+        body = deformable
+        // Five drips along the back frosting's top edge (they ride the bulge).
         for k in 0..<5 {
             let a = (-16 + Float(k) * 8) * .pi / 180
+            let rest = SIMD3<Float>(cos(a) * (Self.radius + 0.002), Self.cakeHeight - 0.006 - Float(k % 2) * 0.003,
+                                    sin(a) * (Self.radius + 0.002))
             let drip = Part.add(cached: "cake.drip", { MeshKit.ellipsoid(radii: [0.0035, 0.007, 0.0045], segments: 24, rings: 12) },
-                                frosting, at: [cos(a) * (Self.radius + 0.002), Self.cakeHeight - 0.006 - Float(k % 2) * 0.003,
-                                                sin(a) * (Self.radius + 0.002)], to: cake)
+                                frosting, at: rest, to: cake)
             drip.orientation = simd_quatf(angle: -a, axis: [0, 1, 0])
+            drips.append((drip, rest))
         }
         // Sprinkles on the cream top.
         let colors: [UIColor] = [Palette.raspberry, Palette.lime, Palette.cobalt, Palette.duckYellow, UIColor(hex: 0xF8F8F8)]
@@ -160,9 +157,29 @@ final class CakeSliceView: PressObjectView {
         let h = surfaceHeight(compression: state.compression)
         let cakeTop = min(Self.cakeHeight, h - (candleBent ? 0.007 : 0))
         let s = max(cakeTop / Self.cakeHeight, 0.15)
-        let k = min(1 / s.squareRoot(), 1.4)
+        // Part of the spread is now the bulge (the outline changes shape), so the uniform growth is capped lower.
+        let k = min(1 / s.squareRoot(), CakeSquash.maxUniformSpread)
         cake.scale = SIMD3(k, s, k)
-        spread = k
+        spread = k * (1 + CakeSquash.bulgeReach / footprint * bulge * 0.5)
+        // The squeeze (FOLD-REVIEW-6 N9): the sides barrel out, the filling and the cream top squeeze out past the
+        // sponge in lumps, latched at the deepest squash; re-uploaded only when it has grown.
+        bulge = max(bulge, CakeSquash.progress(heightRatio: s))
+        if bulge > shapedBulge + 0.01 || (bulge >= 1 && shapedBulge < 1) {
+            shapedBulge = bulge
+            let amount = bulge, noise = bulgeNoise
+            body?.update { CakeSquash.deform($0, progress: amount, noise: noise) }
+            for drip in drips {
+                drip.model.position = CakeSquash.deform(drip.rest, progress: amount, noise: noise)
+            }
+        }
+        if bulge > 0.55 && !crumbled {
+            // Crumbs fall off the bulging sponge (they persist on the plate).
+            crumbled = true
+            let crumbColors = look.golden ? [Palette.gold, Palette.goldMessColor] : [UIColor(hex: 0xE9C48A), UIColor(hex: 0xF4D9A8)]
+            fx.particles.burst(.crumb, count: 8, at: entity.convert(position: [0, 0.01, 0], to: fx.root),
+                               speed: 0.18 * max(fx.motionScale, 0.3), colors: crumbColors, size: 0.002...0.0035,
+                               spread: 0.05, upBias: 0.25, rng: &rng)
+        }
         // Candle: lean just enough to stay under the ram face, until it bends flat.
         if candleBent {
             candlePivot.orientation = simd_quatf(angle: 1.45, axis: [0, 0, 1])
@@ -250,8 +267,8 @@ final class CakeSliceView: PressObjectView {
                                 spin: Burst.spin(12 * m, rng: &rng), bounciness: 0.25)
             }
             let crumbColors = look.golden ? [Palette.gold, Palette.goldMessColor] : [UIColor(hex: 0xE9C48A), UIColor(hex: 0xF4D9A8)]
-            fx.particles.burst(.crumb, count: 10, at: [0, 0.012, 0], speed: 0.3 * m, colors: crumbColors,
-                               size: 0.002...0.004, spread: 0.03, upBias: 0.3, rng: &rng)
+            fx.particles.burst(.crumb, count: 16, at: [0, 0.012, 0], speed: 0.3 * m, colors: crumbColors,
+                               size: 0.002...0.004, spread: 0.045, upBias: 0.3, rng: &rng)
         }
     }
 
@@ -266,5 +283,112 @@ final class CakeSliceView: PressObjectView {
         flame.isEnabled = false
         fx.particles.burst(.dust, count: 4, at: at, speed: 0.03, colors: [UIColor(hex: 0xFFFFFF)],
                            size: 0.004...0.007, spread: 0.002, upBias: 0.8, life: 0.7, rng: &rng)
+    }
+}
+
+/// The slice's body and its squeeze (FOLD-REVIEW-6 N9: a uniformly scaled wedge kept its outline, so from above a cake
+/// at c 0.7 still looked intact). Pure, so SquishTests can pin it. Wedge space: apex at the origin, the arc toward +x.
+/// As the press closes the sides barrel out, the filling and the cream top squeeze out past the sponge in seeded lumps,
+/// and the base stays put on the plate; `CakeSliceView` uploads it through one `DeformableMesh`.
+enum CakeSquash {
+    static let cakeHeight: Float = 0.065
+    static let radius: Float = 0.110
+    static let halfAngle: Float = 20 * .pi / 180
+    /// Extra outline points on each straight side, so the sides can bow (a prism's straight edge has none).
+    static let sideSteps = 5
+    /// Material slots of `bodyMesh()`: sponge, filling, cream top, back frosting.
+    static let spongeSlot: UInt8 = 0
+    static let fillingSlot: UInt8 = 1
+    static let creamSlot: UInt8 = 2
+    static let frostingSlot: UInt8 = 3
+    /// (height, inset, slot) bottom → top: sponge, filling, sponge, cream.
+    static let layers: [(height: Float, inset: Float, slot: UInt8)] = [
+        (0.024, 0, spongeSlot), (0.005, 0.0015, fillingSlot), (0.024, 0, spongeSlot), (0.012, 0, creamSlot),
+    ]
+    /// The uniform sideways growth is capped here (was 1.4); the bulge does the rest.
+    static let maxUniformSpread: Float = 1.3
+    /// How far (wedge metres, before the uniform spread) the most squeezed layer gets pushed out at full squash.
+    static let bulgeReach: Float = 0.014
+    /// How lumpy the squeeze-out is round the slice (share of the reach).
+    static let lumpiness: Float = 0.35
+    /// The bulge pushes away from this stretch of the wedge's centre line, so the long sides bow sideways rather than
+    /// toward the apex; the thin apex itself only moves 30 %.
+    static let axisStart: Float = 0.03
+    static let axisEnd: Float = 0.08
+    static let apexReach: Float = 0.045
+
+    /// The 40° sector outline (apex at the origin, counter-clockwise from the apex), with `sideSteps` extra points on
+    /// each straight side.
+    static func wedge(inset: Float = 0, sideSteps: Int = 0) -> [SIMD2<Float>] {
+        let apex = SIMD2<Float>(inset * 2.5, 0)
+        let r = radius - inset
+        let start = SIMD2<Float>(cos(-halfAngle), sin(-halfAngle)) * r
+        let end = SIMD2<Float>(cos(halfAngle), sin(halfAngle)) * r
+        let steps = max(sideSteps, 0)
+        var points: [SIMD2<Float>] = [apex]
+        for k in 0..<steps {
+            points.append(apex + (start - apex) * (Float(k + 1) / Float(steps + 1)))
+        }
+        for k in 0...8 {
+            let a = -halfAngle + 2 * halfAngle * Float(k) / 8
+            points.append(SIMD2(cos(a), sin(a)) * r)
+        }
+        for k in stride(from: steps, to: 0, by: -1) {
+            points.append(apex + (end - apex) * (Float(k) / Float(steps + 1)))
+        }
+        return points
+    }
+
+    /// Sponge, filling, sponge, cream top (rounded prisms on the dense wedge) and the back frosting (a 7-ring lathe
+    /// patch, so it can bow too), in one mesh.
+    static func bodyMesh() -> MeshData {
+        var mesh = MeshData()
+        var y: Float = 0
+        for layer in layers {
+            let slab = MeshKit.roundedPrism(polygon: wedge(inset: layer.inset, sideSteps: sideSteps), height: layer.height,
+                                            cornerRadius: 0.003, bevel: min(0.002, layer.height * 0.3), cornerSteps: 3)
+            mesh.append(slab.translated(SIMD3(0, y, 0)), materialOffset: layer.slot)
+            y += layer.height
+        }
+        let rings = 6
+        let profile: [SIMD2<Float>] = (0...rings).map { k in
+            SIMD2(radius + 0.004, 0.0008 + (cakeHeight - 0.0013) * Float(k) / Float(rings))
+        }
+        let back = MeshKit.lathePatch(profile: profile, rings: 0...rings, angles: (-halfAngle + 0.01)...(halfAngle - 0.01),
+                                      angularSteps: 16, thickness: 0.0055)
+        var frosting = back.mesh.translated(back.centre)
+        frosting.triangleMaterials = []
+        mesh.append(frosting, materialOffset: frostingSlot)
+        return mesh
+    }
+
+    /// Squeeze progress (0…1) for the slice's height ratio `s`: none above 0.9, full at 0.3.
+    static func progress(heightRatio s: Float) -> Float {
+        clamp((0.9 - s) / 0.6, 0, 1)
+    }
+
+    /// How much a point at height share `u` (0 base … 1 top) is pushed out: a barrel, plus the filling and the cream
+    /// top squeezing out past the sponge. Zero at the base (it sits on the plate).
+    static func profile(_ u: Float) -> Float {
+        let u = clamp(u, 0, 1)
+        let barrel = 0.35 * sin(.pi * u)
+        let filling = 0.8 * exp(-pow((u - 0.41) / 0.07, 2))
+        let cream = 0.6 * exp(-pow((u - 0.9) / 0.09, 2))
+        return barrel + filling + cream
+    }
+
+    /// Wedge-space point `p` squeezed by `progress`; `noise` (periodic, −1…1) makes the lumps.
+    static func deform(_ p: SIMD3<Float>, progress: Float, noise: (Float) -> Float) -> SIMD3<Float> {
+        let t = clamp(progress, 0, 1)
+        guard t > 0 else { return p }
+        let axis = SIMD2<Float>(clamp(p.x, axisStart, axisEnd), 0)
+        let d = SIMD2<Float>(p.x, p.z) - axis
+        let r = simd_length(d)
+        guard r > 1e-5 else { return p }
+        let u = clamp(p.y / cakeHeight, 0, 1)
+        let lump = 1 + lumpiness * noise(atan2(d.y, d.x) + 1.7 * u)
+        let apex = clamp(p.x / apexReach, 0.3, 1)
+        let out = d / r * (bulgeReach * t * profile(u) * lump * apex)
+        return SIMD3(p.x + out.x, p.y, p.z + out.y)
     }
 }

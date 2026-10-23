@@ -42,21 +42,23 @@ The depth values below are **starting points [tune]**. Failure usually lands at 
 
 ---
 
-## A. iPhone Duo, inner display (2007 × 2853): 6 frames (+1 optional)
+## A. iPhone Duo, inner display (2007 × 2853): 7 frames
 
-The set proposed in design/FOLD-REVIEW-5.md §5. Frames 1–4 and 6 are **store shots**: the live Fold Press halves, captured on the real Duo simulator in tabletop pose, mapped onto a folded Duo model seen from a 3/4 eye (`FoldStoreShot.swift`). A raw inner frame reads as "two flat trays", so it never goes in this set, except the Shelf and Settings, which aren't anamorphic.
+The set as re-cut in design/FOLD-REVIEW-6.md §3 A (order N7: gesture and payoff in the search-results triplet, the device's phone-ness by frame 3). Frames 1–5 are **store shots**: the live Fold Press halves, captured on the real Duo simulator in tabletop pose, mapped onto a folded Duo model seen from a 3/4 eye (`FoldStoreShot.swift`). A raw inner frame reads as "two flat trays", so it never goes in this set, except the Shelf and Settings, which aren't anamorphic.
 
 | # | Frame | Caption (headline / sub-line) | Source (`duo-screens/…`) |
 |---|---|---|---|
-| **1** | Rubber Duck hero: the failure freeze at the 62° hold, 32° eye turn so the V of the fold shows, the lid's shadow over the flattened duck | **Close your phone. Feel it *give*.** / *Squish turns the fold into a hydraulic press.* | `rubberDuck-storeshot-hero.png` |
-| **2** | Soda Can before/after: small device at 112°, large at the squish. Each label quotes its own crown readout ("111°" → "AT 71°") beside a side-profile V | **Fold it shut. Open to *see*.** | `sodaCan-storeshot-pair.png` |
-| **3** | Glass Bottle hero. **If the pile doesn't read on the strike plate, use the can hero here** | **It creaks. Then it *doesn't*.** | `glassBottle-storeshot-hero.png` |
-| **4** | Tabletop reveal, reopened to ~155°: flat duck on the anvil, the PRESSED print and its "AT 64°" label on the lid, Again · Share · Next in the console | **Open up. File the *evidence*.** / *Every press becomes a specimen.* | `rubberDuck-storeshot-reveal.png` |
-| **5** | The Shelf, raw portrait inner frame (seeded 7/10, one Golden), framed under its caption | **A shelf of pressed *specimens*.** / *No ads. No in-app purchases.* | `duo-shelf.png` → `ci/store-set.sh` |
-| **6** | Variety: the heroes of four objects on one sweep, each labelled with its object and frozen readout ("EGG · AT 97°") | ***Ten* objects. Ten ways to give.** | `duo-storeshot-grid.png` (fallback `egg-storeshot-hero.png`) |
-| 7 *(optional)* | Settings sheet, raw, framed | **Press without folding. Hear it *softer*.** / *Accessibility built in.* | `duo-settings.png` → `ci/store-set.sh` |
+| **1** | Rubber Duck hero: the failure freeze at the 62° hold (never modelled below 58°: the real screen is dark from 55°), seen from a **22° elevation and 50° turn** so the device's end shows the wedge closing (~96° on screen, was ~133°). The readout label and V glyph ("AT 67°") sit on the sweep above the lid; the key light leans 18° toward the viewer so the lid's shadow falls across the duck. The device hangs from the caption band (fill 0.66 / bleed 0.10), so there's no dead band | **Close your phone. Feel it *give*.** / *Squish turns the fold into a hydraulic press.* | `rubberDuck-storeshot-hero.png` |
+| **2** | Soda Can before/after (seed 3: the plain green FIZZO can, never Golden): small device at 112°, large at the squish. Each label quotes its own crown readout ("111°" → "AT 74°") beside a side-profile V | **The hinge is the *lever*.** | `sodaCan-storeshot-pair.png` |
+| **3** | Tabletop reveal, reopened to ~155°: flat duck on the anvil, the PRESSED print and its "AT 67°" label on the lid, Again · Share · Next in the console. CI asserts the reveal is still up at the capture; if not, the frame is MISSING, never the next object | **Open up. File the *evidence*.** / *Every press becomes a specimen.* | `rubberDuck-storeshot-reveal.png` |
+| **4** | Glass Bottle hero from **its own camera** (−28°, the other end of the device, 34° elevation), with its AT nn° mark | **It creaks. Then it *doesn't*.** | `glassBottle-storeshot-hero.png` |
+| **5** | Variety: glass, can, cake and jelly on one sweep (not the duck again), each labelled with its object and frozen readout ("JELLY · AT 88°") | ***Ten* objects. Ten ways to give.** | `duo-storeshot-grid.png` (fallback `jelly-storeshot-hero.png`) |
+| **6** | The Shelf, raw portrait inner frame at full height (the Duo opens it at `.large`; seeded 7/10, one Golden), framed under its caption | **A shelf of pressed *specimens*.** / *No ads. No in-app purchases.* | `duo-shelf.png` → `ci/store-set.sh` |
+| **7** | Settings sheet, raw, framed. Demo state matches the caption: Sound style **Soft**, **Press without folding** on, Captions on, Game Center status hidden (`soundstyle=soft;nofold;captions=on;gamecenter=hidden`) | **Press without folding. Hear it *softer*.** / *Accessibility built in.* | `duo-settings.png` → `ci/store-set.sh` |
 
-Per-object hero captions (`heroCaption(for:)` in PressDirector.swift): duck as frame 1, glass as frame 3, can "Cans buckle *ring* by ring.", bubble "Every bubble *pops* on its own.", everything else the variety line.
+Per-object hero captions (`heroCaption(for:)` in PressDirector.swift): duck as frame 1, glass as frame 4, can "Cans buckle *ring* by ring.", bubble "Every bubble *pops* on its own.", everything else the variety line. Per-object hero cameras: `heroCamera(for:)` (overrides `storeshotazimuth=`, `storeshotelevation=`, `storeshotkeytilt=`).
+
+**Line breaks** (both renderers, FOLD-REVIEW-6 N11): a headline too wide for one line breaks at its most balanced sentence boundary; each wrapped paragraph is balanced (no lone last word); a paragraph still ending on one word shrinks the headline a step; the sub-line shrinks (to 0.30 of the headline size at the least) to stay on one line before it wraps.
 
 **Never upload:** `*-eye` composites, `*-book-storeshot-*`, raw `*-tabletop-*` frames, the `-112` singles, and any `9A–9D` / `90–99` frame (an iPhone 18 Pro drawn folded, Guideline 2.3). A pair whose label disagrees with its readout can't be produced any more: both labels come from the readout.
 
@@ -65,7 +67,7 @@ Per-object hero captions (`heroCaption(for:)` in PressDirector.swift): duck as f
 | # | Frame | Caption | Source |
 |---|---|---|---|
 | **O1** | The cover right after the press: PRESS SEALED card, print teaser, tonnage. Caption drawn in off-white over the empty graphite top band | **Ka-chunk. Now *open* it.** | `rubberDuck-tabletop-closed.png` (tabletop pass) or `rubberDuck-closed.png` (book pass) |
-| **O2** | Launched with the phone shut (7 seeded specimens): the cover's picker, framed | **Pick on the cover. Press *inside*.** | `duo-cover-launch.png` |
+| **O2** | Launched with the phone already shut (7 seeded specimens, nothing pressed): the cover's idle picker (chip grid, "Open to press"), framed. A closed launch no longer arms or seals (FOLD-REVIEW-6 N3); `ci/store-set.sh` flags O2 if the launch log shows the engine leaving idle | **Pick on the cover. Press *inside*.** | `duo-cover-launch.png` |
 
 ## C. iPhone 6.9" (1320 × 2868) and 6.1" (1206 × 2622): 6 frames (Pinch Press)
 
@@ -73,12 +75,14 @@ Captured on the newest "… Pro Max" simulator (6.9") and on the iPhone 18 Pro (
 
 | # | Scene | Caption | Demo argument |
 |---|---|---|---|
-| **P1** | Rubber Duck mid-squash, ram handle visible | **Drag it down. Feel it *give*.** / *A hydraulic press for every iPhone.* | `object=rubberDuck;depth=0.55;notoasts` |
-| **P2** | Bubble Wrap ripple | **Every bubble *pops* on its own.** | `object=bubbleWrap;depth=0.40;notoasts` |
-| **P3** | Soda Can buckling | **Cans buckle *ring* by ring.** | `object=sodaCan;depth=0.55;notoasts` |
-| **P4** | Duck reveal. **Flag:** until AchievementInfo prints tons on non-hinged phones (FOLD-REVIEW-5 N6), the card says "CRUSHED AT 65°" on a phone with no hinge; don't upload it before that's fixed | **Open up. File the *evidence*.** | `object=rubberDuck;reveal;notoasts` |
+| **P1** | Rubber Duck mid-squash (the handle hides during a press, by design) | **Drag it down. Feel it *give*.** / *A hydraulic press for every iPhone.* (the sub-line shrinks to one line) | `object=rubberDuck;depth=0.55;seed=3;notoasts` |
+| **P2** | Duck reveal ("CRUSHED AT 56 TONS") | **Open up. File the *evidence*.** | `object=rubberDuck;reveal;seed=3;notoasts` |
+| **P3** | Soda Can buckling (green FIZZO) | **Cans buckle *ring* by ring.** | `object=sodaCan;depth=0.55;seed=3;notoasts` |
+| **P4** | Glass Bottle cracking, replacing the invisible bubble wrap (FOLD-REVIEW-6 N8). Depth 0.66 is a starting point [tune]: the bottle must have cracked | **It creaks. Then it *doesn't*.** | `object=glassBottle;depth=0.66;seed=3;notoasts` |
 | **P5** | The Shelf (seeded 7/10) | **Collect every pressed *specimen*.** | `shelf;notoasts` |
-| **P6** | The Settings sheet | **No ads. No purchases. *Just* the press.** / *Sound styles, haptic levels, Reduce Motion.* | `settings;notoasts` |
+| **P6** | The Settings sheet, Game Center status hidden | **No ads. No purchases. *Just* the press.** / *Sound styles, haptic levels, Reduce Motion.* | `settings;gamecenter=hidden;notoasts` |
+
+Every captioned frame gets the same Dynamic Island: `ci/store-frame.swift --island pill` draws it on the screen card (the simulator captured it in some frames and not others, FOLD-REVIEW-6 N13; `STORE_ISLAND=none` turns it off).
 
 Check P1 for the ram handle before upload (request 4 below). Never a folded device in these sets.
 
@@ -88,7 +92,7 @@ Run **Actions → App Store screenshots** (`.github/workflows/store.yml`, manual
 
 - **store-69**: P1–P6 on the 6.9" simulator, raw (`P*.png`) and captioned (`store/P*.png`), each checked to be 1320 × 2868 (the job fails with exit 4 if the simulator is the wrong class). `DEVICE=auto:Pro Max` picks the newest available Pro Max and creates one if the image has none; the step log lists the device types found.
 - **store-61**: the same on the iPhone 18 Pro (1206 × 2622).
-- **store-duo**: duo.yml called with the store settings (no book pass; tabletop passes for duck, glass, can, egg, cake with `storeshot=112,fail,reveal`; the Shelf, Settings and closed-launch cover; the grid), assembled by `ci/store-set.sh` into `duo-screens/store/duo-inner/01…07` and `duo-outer/O1, O2`, with `MANIFEST.txt` (source and caption per frame, size and alpha checks).
+- **store-duo**: duo.yml called with the store settings (no book pass; tabletop passes for duck, glass, can, cake, jelly with `storeshot=112,fail,reveal` and `seed=3`; the Shelf, closed-launch cover and Settings; the grid), assembled by `ci/store-set.sh` into `duo-screens/store/duo-inner/01…07` and `duo-outer/O1, O2`, with `MANIFEST.txt` (source and caption per frame, size and alpha checks, and log checks: each store shot's `ok` line, the reveal still up at its capture, `golden=0` for the representative objects, the settings demo state applied, O2 from an idle launch). `store-set.sh` exits 1 when a frame is MISSING or FLAGGED.
 
 Captions on raw frames are drawn on the Mac runner by `ci/store-frame.swift` (`framed`: studio sweep, caption band, the unaltered screenshot on a black screen card; `overlay`: caption straight over the frame's top band). Store shots are captioned in the app by `FoldStoreShot`. Both use the same band and shrink rule.
 

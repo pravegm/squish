@@ -51,6 +51,9 @@ struct SettingsView: View {
             .padding(.horizontal, Theme.s4)
             .padding(.top, 20)
             .padding(.bottom, Theme.s3)
+            // The same 560 pt column as the sections, so on a wide sheet (Duo, 669 pt) the title lines up with them.
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.s5) {
@@ -61,9 +64,9 @@ struct SettingsView: View {
                             Text("Sound style").font(Theme.body).foregroundStyle(Theme.ink)
                             ChipChoice(selection: $settings.soundStyle, options: SoundStyle.allCases) { $0.title }
                                 .disabled(!settings.soundEnabled)
-                            Text(settings.soundStyle == .soft
-                                 ? "Soft is gentler: rounder highs, fewer crunches, nothing wet."
-                                 : "Workshop is the full mix: every crack, crunch and fizz.")
+                            Text((settings.soundStyle == .soft
+                                  ? "Soft is gentler: rounder highs, fewer crunches, nothing wet."
+                                  : "Workshop is the full mix: every crack, crunch and fizz.").keepingLastWordsTogether)
                                 .font(Theme.footnote)
                                 .foregroundStyle(Theme.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -85,16 +88,21 @@ struct SettingsView: View {
                             ToggleRow(title: "Press without folding", isOn: $settings.pressWithoutFolding,
                                       footnote: "Drag down on the screen instead of folding. Handy one-handed, or when folding isn't comfortable.")
                         } else {
+                            // Short enough for one line on a 6.1" phone (P6 broke it as "… folding / and dragging.").
                             InfoRow(title: "Press by dragging", value: "ALWAYS ON",
-                                    footnote: "On iPhone Duo you can choose between folding and dragging.")
+                                    footnote: "On iPhone Duo you can also press by folding.")
                         }
                         divider
+                        // The path never breaks inside itself: "Follows your iPhone setting / (Settings › Accessibility
+                        // › Motion)." instead of P6's "(Settings › / Accessibility › Motion).".
                         InfoRow(title: "Reduce Motion", value: reduceMotion ? "ON" : "OFF",
-                                footnote: "Follows your iPhone setting (Settings › Accessibility › Motion).")
+                                footnote: "Follows your iPhone setting (\(Self.settingsPath("Accessibility", "Motion"))).")
                     }
 
-                    section("Game Center", index: 2) {
-                        gameCenterRow
+                    if showsGameCenter {
+                        section("Game Center", index: 2) {
+                            gameCenterRow
+                        }
                     }
 
                     section("About", index: 3) {
@@ -107,7 +115,7 @@ struct SettingsView: View {
                             Text("No ads. No tracking. No in-app purchases.")
                                 .font(Theme.button)
                                 .foregroundStyle(Theme.ink)
-                            Text("Made by a tiny studio. Sounds from Sonniss GDC bundles and Freesound (CC0), the rest synthesised in code. Thanks to everyone who closed their phone very, very slowly.")
+                            Text("Made by a tiny studio. Sounds from Sonniss GDC bundles and Freesound (CC0), the rest synthesised in code. Thanks to everyone who closed their phone very, very slowly.".keepingLastWordsTogether)
                                 .font(Theme.footnote)
                                 .foregroundStyle(Theme.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -150,6 +158,12 @@ struct SettingsView: View {
             .accessibilityAction(named: "Open Tuning Lab") { showTuning = true }
     }
 
+    /// `-squishDemo …;gamecenter=hidden` drops the whole section (store frames 07 / P6).
+    private var showsGameCenter: Bool { !GameCenterRowDemo.hidesRow }
+
+    /// Never a status word a buyer reads as broken (FOLD-REVIEW-6 N5: "Game Center · NOT AVAILABLE" in 07 and P6).
+    /// Signed out, not yet asked, or Game Center unreachable all read the same, neutral way: achievements are kept
+    /// here, and signing in happens in the iPhone's Settings (we only hold a sign-in sheet when the system gave us one).
     @ViewBuilder
     private var gameCenterRow: some View {
         if gameCenter.isAuthenticated {
@@ -168,10 +182,20 @@ struct SettingsView: View {
                 .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
             }
             .padding(.vertical, Theme.s3)
+        } else if gameCenter.isUnavailable {
+            // Asked, and Game Center said no (signed out, restricted, or offline).
+            InfoRow(title: "Sign in to Game Center in Settings",
+                    footnote: "On your iPhone: \(Self.settingsPath("Game Center")). Until then, achievements you earn are kept here.")
         } else {
-            InfoRow(title: "Game Center", value: "NOT AVAILABLE",
-                    footnote: "Achievements are saved on this iPhone and sent when Game Center is available.")
+            // Not asked yet (the first run defers it, P1-7): no claim either way.
+            InfoRow(title: "Game Center",
+                    footnote: "Achievements you earn are kept on this iPhone and sent to Game Center once you're signed in.")
         }
+    }
+
+    /// "Settings › Accessibility › Motion" with no-break spaces, so the path wraps as one piece.
+    private static func settingsPath(_ parts: String...) -> String {
+        (["Settings"] + parts).joined(separator: " › ").replacingOccurrences(of: " ", with: "\u{00A0}")
     }
 
     private var divider: some View {
@@ -217,7 +241,7 @@ private struct ToggleRow: View {
             .tint(Theme.yellow)
             .frame(minHeight: Theme.hit)
             if let footnote {
-                Text(footnote)
+                Text(footnote.keepingLastWordsTogether)
                     .font(Theme.footnote)
                     .foregroundStyle(Theme.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -230,7 +254,8 @@ private struct ToggleRow: View {
 
 private struct InfoRow: View {
     let title: String
-    let value: String
+    /// The status word on the trailing edge; nil for a row that is only a title and a footnote.
+    var value: String? = nil
     var footnote: String?
 
     var body: some View {
@@ -238,15 +263,17 @@ private struct InfoRow: View {
             HStack {
                 Text(title).font(Theme.body).foregroundStyle(Theme.ink)
                 Spacer(minLength: Theme.s2)
-                Text(value)
-                    .font(Theme.label)
-                    .tracking(Theme.labelTracking)
-                    .foregroundStyle(Theme.inkSecondary)
-                    .multilineTextAlignment(.trailing)
+                if let value {
+                    Text(value)
+                        .font(Theme.label)
+                        .tracking(Theme.labelTracking)
+                        .foregroundStyle(Theme.inkSecondary)
+                        .multilineTextAlignment(.trailing)
+                }
             }
             .frame(minHeight: Theme.hit)
             if let footnote {
-                Text(footnote)
+                Text(footnote.keepingLastWordsTogether)
                     .font(Theme.footnote)
                     .foregroundStyle(Theme.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -279,4 +306,34 @@ struct ChipChoice<Option: Hashable & Identifiable>: View {
             Spacer(minLength: 0)
         }
     }
+}
+
+// MARK: - Line breaks
+
+extension String {
+    /// Joins the last two words with a no-break space, so a wrapped line never ends on one word alone
+    /// (FOLD-REVIEW-6 N11: "… for each / moment.", "the / press."). Unchanged when there is nothing to join.
+    var keepingLastWordsTogether: String {
+        guard let space = lastIndex(of: " "), space != startIndex, index(after: space) != endIndex else { return self }
+        return replacingCharacters(in: space...space, with: "\u{00A0}")
+    }
+}
+
+// MARK: - Demo
+
+/// `-squishDemo …;gamecenter=hidden` (FOLD-REVIEW-6 N5): Settings leaves out the Game Center section, for the store
+/// frames. Read here, from the same launch argument `DemoScenario` parses (`key=value;key`), like `RevealToastDemo`,
+/// so DemoMode.swift doesn't change. DEBUG only: always false in Release.
+enum GameCenterRowDemo {
+    static let hidesRow: Bool = {
+        #if DEBUG
+        guard let raw = UserDefaults.standard.string(forKey: "squishDemo") else { return false }
+        return raw.split(separator: ";").contains { part in
+            let pieces = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            return pieces.first == "gamecenter" && pieces.count > 1 && pieces[1] == "hidden"
+        }
+        #else
+        return false
+        #endif
+    }()
 }

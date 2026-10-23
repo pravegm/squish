@@ -48,7 +48,11 @@ final class PressDirector {
     @ObservationIgnored private var captionCounter = 0
     @ObservationIgnored private var traceSamples: [PressTrace.Sample] = []
     @ObservationIgnored private var traceStart: Double = 0
-    @ObservationIgnored private var revealPeakAngle: Double = 0
+    /// Fold-to-collect for the reveal card currently up (FOLD-REVIEW-6 N2); nil when no card is up.
+    @ObservationIgnored private var revealGate: RevealCollectGate?
+    /// One-shot recheck at the gate's deadline: a shut Duo lying still sends no more hinge samples.
+    @ObservationIgnored private var revealGateCheck: Task<Void, Never>?
+    @ObservationIgnored private var revealGateCheckDeadline: Double?
     @ObservationIgnored private var consecutiveSlams = 0
     /// Demo store shots (CI only, see `writeStoreShot`): the halves of each angle shot, kept for the before/after frame.
     @ObservationIgnored private var storeShotHalves: [String: FoldStoreShot.Halves] = [:]
@@ -132,6 +136,7 @@ final class PressDirector {
     /// A freshly unlocked object goes on next, so the unlock is felt immediately.
     func next() {
         guard let outcome = revealed else { return }
+        clearRevealGate()
         audio.collect()
         haptics.collect()
         engine.finishReveal()
@@ -159,6 +164,7 @@ final class PressDirector {
     /// Press the same object again (from the reveal card).
     func again() {
         guard revealed != nil else { return }
+        clearRevealGate()
         audio.collect()
         haptics.collect()
         engine.finishReveal()
@@ -181,19 +187,21 @@ final class PressDirector {
                          engine.usesVirtualHinge ? 1 : 0))
         }
 
-        // The reveal card is dismissed with the hinge too: closing the phone collects it, and
-        // folding ~20° from the open position collects it and lets the next press begin in one motion.
+        // The reveal card is dismissed with the hinge too: closing the phone collects it, and folding ~20° from the
+        // open position collects it and lets the next press begin in one motion. Only a deliberate close counts, never
+        // a stray `closed` sample or a brief dip (FOLD-REVIEW-6 N2; the rules are in RevealCollectGate).
+        let now = CACurrentMediaTime()
         if revealed != nil && !settings.pressWithoutFolding {
-            revealPeakAngle = max(revealPeakAngle, angle)
-            if closed || angle < revealPeakAngle - 20 {
-                revealPeakAngle = 0
+            var gate = revealGate ?? RevealCollectGate(start: now, angle: angle)
+            let collect = gate.ingest(angle: angle, closed: closed, at: now)
+            revealGate = gate
+            if collect {
                 next()
+            } else {
+                scheduleRevealGateCheck(at: gate.nextDeadline)
             }
-        } else {
-            revealPeakAngle = 0
         }
 
-        let now = CACurrentMediaTime()
         hingeLog.record(time: now, angle: angle, closed: closed)
         engine.usesVirtualHinge = settings.pressWithoutFolding
         guard !settings.pressWithoutFolding else { return }
@@ -299,6 +307,11 @@ final class PressDirector {
         haptics.place(context: context)
         traceSamples.removeAll(keepingCapacity: true)
         traceStart = CACurrentMediaTime()
+        // The engine arms only on an observed hinge reading (FOLD-REVIEW-6 N3), and a Duo lying still sends none, so
+        // start the trace with the reading this press armed on: the share-clip replay then arms exactly as it did.
+        if usesFoldPress && engine.hasHingeSample {
+            recordTrace(angle: engine.rawAngle, closed: engine.isClosed, at: traceStart)
+        }
         if UIAccessibility.isVoiceOverRunning {
             UIAccessibility.post(notification: .announcement, argument: kind.accessibilityDescription)
         }
@@ -347,6 +360,9 @@ final class PressDirector {
                                usesVirtualHinge: engine.usesVirtualHinge, config: engine.config)
         let outcome = collection.record(result, variant: variant, trace: lastTrace)
         revealed = outcome
+        // Fold-to-collect starts from the hinge as the card comes up (the sample that revealed it, or the last one).
+        clearRevealGate()
+        revealGate = RevealCollectGate(start: CACurrentMediaTime(), angle: engine.rawAngle)
         coachIfSlamming(result)
         lastSpecimenID = outcome.specimen.id
         if let lastTrace {
@@ -369,6 +385,32 @@ final class PressDirector {
             if image == nil, !self.usesFoldPress { image = await self.scene.snapshot() }
             guard let image, let png = image.pngData() else { return }
             self.collection.attachThumbnail(png, to: specimenID)
+        }
+    }
+
+    private func clearRevealGate() {
+        revealGate = nil
+        revealGateCheck?.cancel()
+        revealGateCheck = nil
+        revealGateCheckDeadline = nil
+    }
+
+    /// Re-check the reveal gate at `deadline` (nil cancels): after a close the hinge may send nothing more.
+    private func scheduleRevealGateCheck(at deadline: Double?) {
+        if let deadline, deadline == revealGateCheckDeadline, revealGateCheck != nil { return }   // already pending
+        revealGateCheck?.cancel()
+        revealGateCheck = nil
+        revealGateCheckDeadline = deadline
+        guard let deadline else { return }
+        let delay = max(deadline - CACurrentMediaTime(), 0) + 0.02
+        revealGateCheck = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            self.revealGateCheck = nil
+            self.revealGateCheckDeadline = nil
+            guard self.revealed != nil, !self.settings.pressWithoutFolding,
+                  let gate = self.revealGate, gate.shouldCollect(at: CACurrentMediaTime()) else { return }
+            self.next()
         }
     }
 
@@ -395,6 +437,7 @@ final class PressDirector {
         print(String(format: "SQUISH-T demo '%@' starts at %.2fs", demo.name, CACurrentMediaTime() - launchTime))
         engine.config.ignoreInputAfterActivation = 0
         #if DEBUG
+        applyDemoSettings(demo)
         if demo.has("orient") { holdInterfaceOrientation(demo) }
         #endif
         if demo.has("duo") {
@@ -532,14 +575,35 @@ final class PressDirector {
         default: return "*Ten* objects. Ten ways to give."
         }
     }
-    private static let pairCaption = "Fold it shut. Open to *see*."
+    /// FOLD-REVIEW-6 §3 A 02: the pair shows the gesture, not the opening, so it says what the hinge does.
+    private static let pairCaption = "The hinge is the *lever*."
     private static let revealCaption = "Open up. File the *evidence*. / Every press becomes a specimen."
     private static let gridCaption = "*Ten* objects. Ten ways to give."
-    /// FOLD-REVIEW-5 §3 d: the eye turn for frames whose object is already flat (hero, the pair's large device, the
-    /// grid), so the device's end shows the fold in profile; and for the pair's small device, whose object still
-    /// stands (anamorphic lean grows with the turn). Override with `storeshotazimuth=` / `storepairazimuth=`.
+    /// FOLD-REVIEW-5 §3 d: the eye turn for frames whose object is already flat (the pair's large device, the grid),
+    /// so the device's end shows the fold in profile; and for the pair's small device, whose object still stands
+    /// (anamorphic lean grows with the turn). Override with `storeshotazimuth=` / `storepairazimuth=`.
     private static let squishAzimuth: Double = 32
     private static let standingAzimuth: Double = 24
+    /// FOLD-REVIEW-6 #1: never model the hero below 58°. The real inner display goes dark from ~55° down, so a lit
+    /// screen on a device drawn more closed would misrepresent the app.
+    private static let heroMinimumAngle: Double = 58
+
+    /// The hero camera per object (FOLD-REVIEW-6 #1, N7), each overridable with `storeshotazimuth=`,
+    /// `storeshotelevation=` and `storeshotkeytilt=`:
+    ///  • duck (frame 1): 22° elevation, 50° turn. The device's end then shows the wedge at ~96° on screen (34°/32°
+    ///    showed ~133°, a laptop lid), and the fit still gives ~62 % fill (scratchpad r7tools/framing2.mjs);
+    ///  • glass (frame 4): the other end of the device, −28°, at the default 34° elevation, so frames 1 and 4 are
+    ///    no longer the same picture;
+    ///  • the rest (fallback heroes only): the R5 32° turn.
+    /// Every hero leans the key 18° toward the viewer, so the lid's shadow reaches ~55 mm from the crease at 64° and
+    /// covers the object at the footprint centre (36.7 mm); under the overhead key it stopped at ~31 mm, short of it.
+    private static func heroCamera(for kind: ObjectKind) -> (azimuth: Double, elevation: Double?, keyTilt: Double) {
+        switch kind {
+        case .rubberDuck: return (azimuth: 50, elevation: 22, keyTilt: 18)
+        case .glassBottle: return (azimuth: -28, elevation: nil, keyTilt: 18)
+        default: return (azimuth: squishAzimuth, elevation: nil, keyTilt: 18)
+        }
+    }
 
     private static func storeLabel(_ angle: Double) -> String { String(Int(angle.rounded())) }
 
@@ -698,6 +762,35 @@ final class PressDirector {
         }
     }
 
+    /// CI hook (FOLD-REVIEW-6 N5): the settings a store frame shows, so its caption is true of it. `soundstyle=soft`
+    /// (workshop | soft), `haptics=soft` (off | soft | full), `captions=on|off`, `nofold` (or `nofold=on|off`: Press
+    /// without folding). Applied in memory only, never saved: SettingsView saves on a change it sees after it appears,
+    /// and these are set before it exists, so the next CI launch starts from the stored settings again.
+    private func applyDemoSettings(_ demo: DemoScenario) {
+        var applied: [String] = []
+        if let raw = demo.string("soundstyle"), let style = SoundStyle(rawValue: raw) {
+            settings.soundStyle = style
+            applied.append("soundstyle=\(raw)")
+        }
+        if let raw = demo.string("haptics"), let level = HapticsLevel(rawValue: raw) {
+            settings.hapticsLevel = level
+            applied.append("haptics=\(raw)")
+        }
+        if let raw = demo.string("captions"), raw == "on" || raw == "off" {
+            settings.showCaptions = raw == "on"
+            applied.append("captions=\(raw)")
+        }
+        if demo.has("nofold") {
+            let on = demo.string("nofold") != "off"
+            settings.pressWithoutFolding = on
+            engine.usesVirtualHinge = on || !hingeAvailable
+            applied.append("nofold=\(on ? "on" : "off")")
+        }
+        if !applied.isEmpty {
+            print("SQUISH-T demo settings \(applied.joined(separator: " ")) (not saved)")
+        }
+    }
+
     /// Which store-shot sizes `storeshotsize` asks for: a comma list of portrait | landscape | both | all | 69
     /// (default portrait). Portrait and landscape are the Duo inner display (2007 × 2853 / 2853 × 2007) on a Duo and
     /// the 6.9" sizes (1320 × 2868 / 2868 × 1320) elsewhere; `69` (or `all`) adds a 1320 × 2868 copy of a Duo shot.
@@ -768,7 +861,20 @@ final class PressDirector {
             base.caption = caption.headline
             base.subcaption = caption.subline
             base.escapedSplat = escapedSplat(demo)
-            if tabletopContent { base.azimuthDegrees = demo.double("storeshotazimuth") ?? PressDirector.squishAzimuth }
+            if base.hingeAngle < PressDirector.heroMinimumAngle {
+                print(String(format: "SQUISH-T storeshot hero note: model %.1f° raised to %.0f° (inner display dark below ~55°)",
+                             base.hingeAngle, PressDirector.heroMinimumAngle))
+                base.hingeAngle = PressDirector.heroMinimumAngle
+            }
+            if tabletopContent {
+                let camera = PressDirector.heroCamera(for: currentKind)
+                base.azimuthDegrees = demo.double("storeshotazimuth") ?? camera.azimuth
+                base.elevationDegrees = demo.double("storeshotelevation") ?? camera.elevation
+                base.keyTiltDegrees = demo.double("storeshotkeytilt") ?? camera.keyTilt
+                // FOLD-REVIEW-6 #1 b, N12: the readout label and V glyph on the hero, hung from the caption band.
+                base.angleMark = halves.readout?.label ?? "\(Int(base.hingeAngle.rounded()))°"
+                base.anchor = .top(0.03)
+            }
             if demo.has("duo") { saveGridHalves(halves) }
             if let readout = halves.readout, readout.frozen, abs(Double(readout.degrees) - base.hingeAngle) > 2 {
                 print(String(format: "SQUISH-T storeshot hero note: readout %@ on a %.1f° model; pair label follows the readout",
@@ -779,6 +885,7 @@ final class PressDirector {
             base.caption = caption.headline
             base.subcaption = caption.subline
             if tabletopContent, let turn = demo.double("revealazimuth") { base.azimuthDegrees = turn }
+            if tabletopContent { base.anchor = .top(0.03) }   // FOLD-REVIEW-6 N12: no dead band under the caption
         }
         let sizes = storeShotSizes(demo)
         let stem = "storeshot-\(label)"
@@ -804,6 +911,8 @@ final class PressDirector {
         eyeView.caption = nil
         eyeView.subcaption = nil
         eyeView.escapedSplat = nil
+        eyeView.angleMark = nil
+        eyeView.keyTiltDegrees = 0
         eyeView.fit = .contain
         eyeView.targetFill = nil
         eyeView.anchor = .centre
@@ -818,11 +927,20 @@ final class PressDirector {
         }
         if !hero && !reveal { storeShotHalves[label] = halves }
         let status = written.isEmpty ? "failed:" : "ok"
-        print(String(format: "SQUISH-T storeshot %@ %@ at %.2fs hinge=%.1f model=%.1f readout=%@ az=%@ content=%@ pose=%@ anvil=%@ phase=%@ c=%.3f splat=%ld files=%@ ms=%.0f",
+        // `golden=` / `surprise=` (FOLD-REVIEW-6 N6): ci/store-set.sh refuses a Golden or surprise variant as the
+        // representative object; `el=` / `tilt=` record the hero camera.
+        let readoutLabel: String = halves.readout?.label ?? "-"
+        let azimuthLabel: String = base.azimuthDegrees.map { String(format: "%.0f", $0) } ?? "default"
+        let elevationLabel: String = base.elevationDegrees.map { String(format: "%.0f", $0) } ?? "default"
+        let surpriseLabel: String = variant.surprise?.rawValue ?? "none"
+        let golden: Int = variant.isGolden ? 1 : 0
+        let splat: Int = base.escapedSplat == nil ? 0 : 1
+        print(String(format: "SQUISH-T storeshot %@ %@ at %.2fs hinge=%.1f model=%.1f readout=%@ az=%@ el=%@ tilt=%.0f content=%@ pose=%@ anvil=%@ phase=%@ c=%.3f splat=%ld kind=%@ seed=%llu golden=%ld surprise=%@ files=%@ ms=%.0f",
                      label, status, CACurrentMediaTime() - launchTime, angle, base.hingeAngle,
-                     halves.readout?.label ?? "-", base.azimuthDegrees.map { String(format: "%.0f", $0) } ?? "default",
+                     readoutLabel, azimuthLabel, elevationLabel, base.keyTiltDegrees,
                      halves.layout.isBook ? "book" : "tabletop", base.model.rawValue, halves.source,
-                     engine.phase.rawValue, engine.measuredCompression, base.escapedSplat == nil ? 0 : 1,
+                     engine.phase.rawValue, engine.measuredCompression, splat,
+                     currentKind.rawValue, variant.seed, golden, surpriseLabel,
                      written.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
         return written.isEmpty ? nil : halves
     }

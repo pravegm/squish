@@ -4,15 +4,16 @@ import simd
 import UIKit
 
 /// Bubble Wrap (bible §4 #1, VISUAL-TARGET §5.1), rebuilt for FOLD-REVIEW-5 N10: from above it must read as a sheet of
-/// real bubble wrap. A clear film (barely tinted, glossy) with a milky heat-sealed margin and a crisp cut edge carries
-/// a regular hex grid of glossy, translucent domes; each dome has a blue-grey crease where it meets the film and a hot
-/// specular glint, so it reads on a white-hot strike plate, on the mid-grey platen and under the P-48's key.
+/// real bubble wrap. A tinted clear film with a milky heat-sealed margin and an opaque dark cut edge carries a regular
+/// hex grid of glossy domes; each dome has an opaque blue-grey crease ring where it meets the film, a darker wall round a
+/// clear crown, and two opaque glints (`BubbleWrapLook`, FOLD-REVIEW-6), so it reads on the P-48's bright steel, on the
+/// Duo's mid-grey plate and in the shadow under the P-48's press plate.
 /// As the press closes the domes squash and bulge, then pop one by one in the order of the press's pressure map
 /// (`BubbleWrapGrid`: a ripple from the front rows to the back, seeded so no two presses pop alike); each pop leaves a
 /// flat, crinkled, stress-whitened crater with radial creases and a ragged rim. Never holes.
 /// Grid: 6 columns × 4 cells, columns staggered half a cell (a true hex packing), to match `BubbleWrapLayout`'s 24
-/// fracture thresholds. Performance: every dome shares one shell mesh, one crease-ring mesh and one glint mesh, and
-/// every crater one of three crinkle meshes (two slots), so RealityKit batches them: ≤ 3 × 25 + 2 × 25 small models,
+/// fracture thresholds. Performance: every dome shares one three-slot shell mesh and one glint mesh, and every crater
+/// one of three crinkle meshes (two slots), so RealityKit batches them: ≤ 5 × 25 + 2 × 25 small models,
 /// squashed by entity scale only (no CPU deformation, no per-frame mesh upload).
 /// Surprise `megaBubble`: the four centre cells are one 2× dome that strains three times and pops on the fourth.
 @MainActor
@@ -66,11 +67,12 @@ final class BubbleWrapView: PressObjectView {
             craterFilm = SceneMaterials.gold
             craterCrease = SceneMaterials.pbr(UIColor(hex: 0xB98A1E), roughness: 0.3, metallic: 1)
         } else {
-            // Popped film: stress-whitened and crinkled (lit, so the folds catch the light), with blue-grey creases.
-            craterFilm = SceneMaterials.enamel(UIColor(hex: 0xE3EFF5), roughness: 0.32, clearcoat: 0.5,
-                                               clearcoatRoughness: 0.2, specular: 0.7, opacity: 0.62)
-            craterCrease = SceneMaterials.enamel(UIColor(hex: 0x6E9FBC), roughness: 0.3, clearcoat: 0.4,
-                                                 clearcoatRoughness: 0.2, opacity: 0.82)
+            // Popped film: stress-whitened and crinkled (lit, so the folds catch the light), with opaque blue-grey
+            // creases (FOLD-REVIEW-6: at 0.62 / 0.82 the craters were the only part of the sheet that read at all).
+            craterFilm = SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.craterTint), roughness: 0.3, clearcoat: 0.5,
+                                               clearcoatRoughness: 0.2, specular: 0.7, opacity: BubbleWrapLook.craterOpacity)
+            craterCrease = SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.creaseTint), roughness: 0.28, clearcoat: 0.5,
+                                                 clearcoatRoughness: 0.15)
         }
         build(hasMega: hasMega)
     }
@@ -79,24 +81,26 @@ final class BubbleWrapView: PressObjectView {
         let golden = look.golden
         for k in 0..<BubbleWrapGrid.craterVariants {
             let slots = Self.slotResources("bubble.crater.\(k)", slots: 2) { BubbleWrapGrid.craterMesh(seed: 0xC41 &+ UInt64(k) &* 977) }
-            if slots.count == 2 { craterMeshes.append(slots) }
+            let found = slots.compactMap { $0 }
+            if found.count == 2 { craterMeshes.append(found) }
         }
         entity.orientation = Part.yaw(12)
         // Lifted 0.6 mm so the 0.8 mm film never z-fights the strike plate (FOLD-REVIEW-2 #8).
         entity.position = [0, 0.0006, 0]
 
-        // The film: clear and glossy (FOLD-REVIEW-5 N10: at 0.55 it read as a white card), with the milky seal margin
-        // and a crisp blue-grey cut line so the sheet's edge is always visible.
+        // The film (FOLD-REVIEW-6: invisible at 0.2 on the P-48's bright steel). A pale blue-grey film at 0.34, so the
+        // sheet reads as a sheet on both plates without turning into a white card (R5 N10: 0.55), a denser milky seal
+        // margin, and an opaque dark cut line on the edge, so the sheet's outline reads whatever the sort order.
         let size = BubbleWrapGrid.sheetSize, film = BubbleWrapGrid.film
         let filmMaterial = golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xCFE3EE), roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.04,
-                                    specular: 1, opacity: 0.2)
+            : SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.filmTint), roughness: 0.08, clearcoat: 1,
+                                    clearcoatRoughness: 0.04, specular: 1, opacity: BubbleWrapLook.filmOpacity)
         Part.add(cached: "bubble.sheet", {
             MeshKit.roundedBox([size.x, film, size.y], radius: BubbleWrapGrid.sheetCorner, bevel: 0.0003)
         }, filmMaterial, at: [0, film / 2, 0], to: entity)
         let sealMaterial = golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xC6DCE8), roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.1,
-                                    opacity: 0.45)
+            : SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.sealTint), roughness: 0.2, clearcoat: 0.6,
+                                    clearcoatRoughness: 0.1, opacity: BubbleWrapLook.sealOpacity)
         Part.add(cached: "bubble.seal", {
             BubbleWrapGrid.ring(size: size, corner: BubbleWrapGrid.sheetCorner, inset: BubbleWrapGrid.sealWidth)
         }, sealMaterial, at: [0, film + BubbleWrapGrid.layerStep * 3, 0], to: entity)
@@ -104,35 +108,47 @@ final class BubbleWrapView: PressObjectView {
         if golden {
             cutMaterial = SceneMaterials.pbr(UIColor(hex: 0xB98A1E), roughness: 0.3, metallic: 1)
         } else {
-            cutMaterial = SceneMaterials.unlit(UIColor(hex: 0x5E90AE), opacity: 0.85)
+            cutMaterial = SceneMaterials.unlit(UIColor(hex: BubbleWrapLook.cutTint))
         }
         Part.add(cached: "bubble.cut", {
             BubbleWrapGrid.ring(size: size, corner: BubbleWrapGrid.sheetCorner, inset: BubbleWrapGrid.cutWidth)
         }, cutMaterial, at: [0, film + BubbleWrapGrid.layerStep * 4, 0], to: entity)
 
-        // The domes: one shared shell (slot 0), crease ring (slot 1) and glint for all of them.
+        // The domes (FOLD-REVIEW-6): every dome shares one shell in three slots — a clear crown (slot 0), an opaque dark
+        // crease ring where it is moulded out of the film (slot 1) and a darker "refraction" wall (slot 2), so from above
+        // each dome is a dark ring round a bright crown, as real bubble wrap reads on a bright surface. Two opaque
+        // highlights (the key glint up-left, a small bounce glint low on the far side) give it its gloss even when
+        // the translucent layers sort badly.
         let shellMaterial = golden ? SceneMaterials.gold
-            : SceneMaterials.enamel(UIColor(hex: 0xD6EBF5), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03,
-                                    specular: 1, opacity: 0.36)
+            : SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.crownTint), roughness: 0.05, clearcoat: 1,
+                                    clearcoatRoughness: 0.03, specular: 1, opacity: BubbleWrapLook.crownOpacity)
         let creaseMaterial: any Material = golden ? SceneMaterials.pbr(UIColor(hex: 0xB98A1E), roughness: 0.3, metallic: 1)
-            : SceneMaterials.enamel(UIColor(hex: 0x7AAAC6), roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.1,
-                                    opacity: 0.6)
-        let glintMaterial = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF), opacity: 0.92)
-        let dome = Self.slotResources("bubble.dome", slots: 2) { BubbleWrapGrid.domeMesh() }
+            : SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.creaseTint), roughness: 0.25, clearcoat: 0.6,
+                                    clearcoatRoughness: 0.1)
+        let rimMaterial = golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.rimTint), roughness: 0.06, clearcoat: 1,
+                                    clearcoatRoughness: 0.03, specular: 1, opacity: BubbleWrapLook.rimOpacity)
+        let glintMaterial = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF))
+        let bounceMaterial = SceneMaterials.unlit(UIColor(hex: BubbleWrapLook.bounceTint))
+        let dome = Self.slotResources("bubble.dome", slots: 3) { BubbleWrapGrid.domeMesh() }
+        let domeMaterials: [any Material] = [shellMaterial, creaseMaterial, rimMaterial]
         let glintMesh = MeshCache.resource("bubble.glint") { MeshKit.ellipsoid(radii: [1, 0.3, 0.62], segments: 16, rings: 8) }
-        let glint = BubbleWrapGrid.glint
+        let highlights = [(BubbleWrapGrid.glint, glintMaterial), (BubbleWrapGrid.bounceGlint, bounceMaterial)]
 
         func makeDome(centre: SIMD2<Float>, radius: Float, height: Float) -> Cell {
             let root = Entity()
             root.position = [centre.x, film + BubbleWrapGrid.layerStep, centre.y]
-            if dome.count > 0 { root.addChild(ModelEntity(mesh: dome[0], materials: [shellMaterial])) }
-            if dome.count > 1 { root.addChild(ModelEntity(mesh: dome[1], materials: [creaseMaterial])) }
+            for (slot, mesh) in dome.enumerated() where slot < domeMaterials.count {
+                if let mesh { root.addChild(ModelEntity(mesh: mesh, materials: [domeMaterials[slot]])) }
+            }
             if let glintMesh {
-                let spot = ModelEntity(mesh: glintMesh, materials: [glintMaterial])
-                spot.position = glint.position
-                spot.orientation = simd_quatf(from: [0, 1, 0], to: glint.normal)
-                spot.scale = SIMD3(repeating: glint.size)
-                root.addChild(spot)
+                for (highlight, material) in highlights {
+                    let spot = ModelEntity(mesh: glintMesh, materials: [material])
+                    spot.position = highlight.position
+                    spot.orientation = simd_quatf(from: [0, 1, 0], to: highlight.normal)
+                    spot.scale = SIMD3(repeating: highlight.size)
+                    root.addChild(spot)
+                }
             }
             entity.addChild(root)
             let cell = Cell(root: root, centre: centre, radius: radius, height: height)
@@ -156,13 +172,15 @@ final class BubbleWrapView: PressObjectView {
         }
     }
 
-    /// Cached resources for each material slot of one mesh (`key.slot`); empty slots are dropped.
-    private static func slotResources(_ key: String, slots: Int, _ build: () -> MeshData) -> [MeshResource] {
+    /// Cached resources for each material slot of one mesh (`key.slot`), indexed by slot; an empty slot is nil (so a
+    /// missing slot never shifts the others onto the wrong material).
+    private static func slotResources(_ key: String, slots: Int, _ build: () -> MeshData) -> [MeshResource?] {
         let mesh = MeshCache.mesh(key, build)
-        var result: [MeshResource] = []
+        let parts = mesh.splitByMaterial()
+        var result: [MeshResource?] = []
         for slot in 0..<slots {
-            let part = mesh.splitByMaterial().first { $0.slot == slot }?.mesh ?? MeshData()
-            if let resource = MeshCache.resource("\(key).\(slot)", { part }) { result.append(resource) }
+            let part = parts.first { $0.slot == slot }?.mesh ?? MeshData()
+            result.append(part.isValid ? MeshCache.resource("\(key).\(slot)", { part }) : nil)
         }
         return result
     }
@@ -243,7 +261,7 @@ final class BubbleWrapView: PressObjectView {
 
 /// Popped-crater numbers (multiples of the dome radius), pure so SquishTests can pin them.
 enum BubbleCrater {
-    /// The flattened film covers a little more than the dome's footprint (its crease ring is at 1.08).
+    /// The flattened film covers a little more than the dome's footprint (its crease ring is at `creaseRadius` 1.12).
     static let radius: Float = 1.14
     /// How high the crinkled film stands off the sheet (≈ 0.9 mm on a normal cell: flat, under the closed plates).
     static let rise: Float = 0.11
@@ -254,6 +272,34 @@ enum BubbleCrater {
     static func snapScale(age: Float) -> Float {
         let t = clamp(age / snapDuration, 0, 1)
         return 1 + snapOvershoot * (1 - t) * (1 - t)
+    }
+}
+
+/// The sheet's colours (FOLD-REVIEW-6: the hex sheet was invisible on the P-48: a 0.2 film and 0.36 pale domes on a
+/// bright plate, and nothing opaque but the craters). Pure, so SquishTests can pin the contrast. The rule: what has to
+/// read whatever the sort order (the cut edge, the crease rings, the highlights, the crater creases) is opaque; what is
+/// clear stays translucent but tinted, darker at the dome's wall than at its crown.
+enum BubbleWrapLook {
+    static let filmTint: UInt32 = 0xC2DAE7
+    static let filmOpacity: Float = 0.34
+    static let sealTint: UInt32 = 0xB3D0E0
+    static let sealOpacity: Float = 0.6
+    /// The cut edge (opaque, unlit).
+    static let cutTint: UInt32 = 0x3D7394
+    static let crownTint: UInt32 = 0xD3E8F3
+    static let crownOpacity: Float = 0.42
+    /// The dome's lower wall: the dark refraction ring that outlines every bubble from above.
+    static let rimTint: UInt32 = 0x8DB4CC
+    static let rimOpacity: Float = 0.7
+    /// The crease ring round each dome and the creases of a popped crater (opaque).
+    static let creaseTint: UInt32 = 0x4C80A3
+    static let bounceTint: UInt32 = 0xE6F4FB
+    static let craterTint: UInt32 = 0xE6F1F7
+    static let craterOpacity: Float = 0.8
+
+    /// Rec. 709 luma (0…255) of a hex colour.
+    static func luma(_ hex: UInt32) -> Float {
+        0.2126 * Float((hex >> 16) & 0xFF) + 0.7152 * Float((hex >> 8) & 0xFF) + 0.0722 * Float(hex & 0xFF)
     }
 }
 
@@ -277,7 +323,7 @@ enum BubbleWrapGrid {
     static let layerStep: Float = 0.00007
     /// The milky heat-sealed margin and the crisp cut line along the sheet's edge.
     static let sealWidth: Float = 0.0032
-    static let cutWidth: Float = 0.0007
+    static let cutWidth: Float = 0.0011
     /// The mega bubble: the four centre cells (columns 2–3, rows 1–2) as one dome 2× as wide, 1.6× as tall.
     static let megaCells: Set<Int> = [1 * 6 + 2, 1 * 6 + 3, 2 * 6 + 2, 2 * 6 + 3]
     static let megaScale: Float = 2.0
@@ -338,11 +384,18 @@ enum BubbleWrapGrid {
     /// The unit dome's height (`domeHeight / radius`).
     static var unitHeight: Float { domeHeight / radius }
 
+    /// Outer radius of the crease ring (the flared foot), in dome radii: 1.12 (was 1.08, a hairline from above).
+    static let creaseRadius: Float = 1.12
+    /// Wall bands (above the foot) drawn in the darker "refraction" rim slot: the steep lower ~half of the wall.
+    static let rimBands = 5
+    /// Height of the flared foot, in dome radii.
+    static let footHeight: Float = 0.09
+
     /// The dome profile (radius, y), base → apex: a flared foot where the bubble is moulded out of the film (the crease
-    /// ring, slot 1), then a steep wall and a full, slightly flattened crown (slot 0).
+    /// ring, slot 1), then a steep wall (its lower part the rim, slot 2) and a full, slightly flattened crown (slot 0).
     static var domeProfile: [SIMD2<Float>] {
-        let h = unitHeight, foot: Float = 0.08
-        var profile: [SIMD2<Float>] = [SIMD2(1.08, 0), SIMD2(1.035, 0.03), SIMD2(1.0, foot)]
+        let h = unitHeight, foot = footHeight
+        var profile: [SIMD2<Float>] = [SIMD2(creaseRadius, 0), SIMD2(1.05, foot * 0.4), SIMD2(1.0, foot)]
         for k in 1...14 {
             let t = Float.pi / 2 * Float(k) / 14
             let r = pow(max(cos(t), 0), 0.85)
@@ -351,24 +404,41 @@ enum BubbleWrapGrid {
         return profile
     }
 
-    /// Open at the base (it sits on the film). Slot 1: the two foot bands; slot 0: the shell.
-    static func domeMesh() -> MeshData {
-        MeshKit.lathe(profile: domeProfile, segments: 32, material: { (band: Int) -> UInt8 in band < 2 ? 1 : 0 })
+    /// The material slot of lathe band `band` of the dome: 1 the two foot bands, 2 the lower wall, 0 the crown.
+    static func domeSlot(band: Int) -> UInt8 {
+        if band < 2 { return 1 }
+        return band < 2 + rimBands ? 2 : 0
     }
 
-    /// The glint on the unit dome: up-left toward the key (−x, −z), lying on the surface.
-    static var glint: (position: SIMD3<Float>, normal: SIMD3<Float>, size: Float) {
-        let t: Float = 1.0
-        let h = unitHeight, foot: Float = 0.08
+    /// Open at the base (it sits on the film). Slot 1: the crease foot; slot 2: the dark lower wall; slot 0: the crown.
+    static func domeMesh() -> MeshData {
+        MeshKit.lathe(profile: domeProfile, segments: 32, material: { (band: Int) -> UInt8 in Self.domeSlot(band: band) })
+    }
+
+    /// A highlight lying on the unit dome's surface at profile parameter `t` (0 foot … π/2 apex), toward `direction`
+    /// (x, z), `size` dome radii long.
+    static func highlight(t: Float, direction: SIMD2<Float>, size: Float)
+        -> (position: SIMD3<Float>, normal: SIMD3<Float>, size: Float) {
+        let h = unitHeight, foot = footHeight
         let r = pow(cos(t), 0.85)
         let y = foot + (h - foot) * sin(t)
-        let dir = simd_normalize(SIMD2<Float>(-0.72, -0.69))
+        let dir = simd_normalize(direction)
         // The surface normal there (from the profile's slope), tilted toward `dir`.
         let dr = -0.85 * pow(cos(t), -0.15) * sin(t), dy = (h - foot) * cos(t)
         let n2 = simd_normalize(SIMD2<Float>(dy, -dr))
         let normal = simd_normalize(SIMD3<Float>(n2.x * dir.x, n2.y, n2.x * dir.y))
         let position = SIMD3<Float>(dir.x * r, y, dir.y * r) + normal * 0.02
-        return (position, normal, 0.2)
+        return (position, normal, size)
+    }
+
+    /// The key glint: up-left toward the key (−x, −z), high on the crown (FOLD-REVIEW-6: 0.24, was 0.2 and translucent).
+    static var glint: (position: SIMD3<Float>, normal: SIMD3<Float>, size: Float) {
+        highlight(t: 1.0, direction: SIMD2(-0.72, -0.69), size: 0.24)
+    }
+
+    /// The small bounce glint low on the far side (+x, +z), where the plate's light comes back through the bubble.
+    static var bounceGlint: (position: SIMD3<Float>, normal: SIMD3<Float>, size: Float) {
+        highlight(t: 0.42, direction: SIMD2(0.75, 0.66), size: 0.12)
     }
 
     /// A flat, top-facing band `inset` wide inside the rounded rectangle `size` (x, z) with corner radius `corner`.

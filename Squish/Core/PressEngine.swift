@@ -120,6 +120,16 @@ final class PressEngine {
     @ObservationIgnored private var sampleInterval = 1.0 / 30.0
     @ObservationIgnored private var virtualAngle = 180.0
     @ObservationIgnored private var virtualReleasing = false
+    /// Where the latest sample came from: nil before any sample, true for the touch press, false for a real hinge.
+    /// Until a sample arrives, `angle` and `isClosed` are defaults, not readings (FOLD-REVIEW-6 N3).
+    @ObservationIgnored private var lastSampleVirtual: Bool?
+    /// True when the current arm rests on an observed open sample of the input driving the press. An arm taken before
+    /// any sample (the touch press arms early so its teaching cue shows) is provisional: the next sample re-anchors it
+    /// if it reads open ≥ `armAngleMin`, and drops it otherwise. A provisional arm never seals.
+    @ObservationIgnored private var armObserved = false
+
+    /// True once a real hinge sample has arrived (the director seeds share-clip traces with it).
+    var hasHingeSample: Bool { lastSampleVirtual == false }
 
     init(config: PressConfig = .standard) {
         self.config = config
@@ -165,6 +175,7 @@ final class PressEngine {
         reversals = 0
         lastResult = nil
         armedContactT = nil
+        armObserved = false
         phase = .idle
         tryArm(at: time)
     }
@@ -173,6 +184,19 @@ final class PressEngine {
 
     /// Feed one hinge sample (degrees, 180 = flat).
     func ingest(angle raw: Double, closed: Bool, at time: Double) {
+        ingestSample(angle: raw, closed: closed, at: time, virtual: false)
+    }
+
+    private func ingestSample(angle raw: Double, closed: Bool, at time: Double, virtual: Bool) {
+        // The first sample from an input (at launch, or after switching between touch and hinge) is a state, not a
+        // transition: launching with the phone shut is not "closing" it, and an earlier arm was taken on another
+        // input's angle, so it must be re-anchored on this one (FOLD-REVIEW-6 N3).
+        let newInput = lastSampleVirtual != virtual
+        lastSampleVirtual = virtual
+        if newInput {
+            filter.reset()
+            if phase == .armed { armObserved = false }
+        }
         rawAngle = raw
         // Read tunables every sample so Tuning Lab changes apply live.
         filter.minCutoff = config.oneEuroMinCutoff
@@ -188,7 +212,7 @@ final class PressEngine {
             }
         }
         lastSampleTime = time
-        let wasClosed = isClosed
+        let wasClosed = newInput ? closed : isClosed
         isClosed = closed
 
         guard time - activationTime >= config.ignoreInputAfterActivation else { return }
@@ -201,6 +225,17 @@ final class PressEngine {
         case .idle:
             tryArm(at: time)
         case .armed:
+            if !armObserved {
+                // A provisional arm meets its first reading. Shut, or not open enough to arm: nothing was pressed, so
+                // drop the arm and re-arm only from a later open sample (FOLD-REVIEW-6 N3: a cold launch on the cover).
+                guard !closed, filtered >= config.armAngleMin else {
+                    disarm()
+                    break
+                }
+                armObserved = true
+                startAngle = min(filtered, config.armAngleMax)
+                if pressStartTime == nil { armedContactT = config.armed(at: startAngle).contactT }
+            }
             guard !closed else { break }
             if filtered > startAngle {
                 startAngle = min(filtered, config.armAngleMax)
@@ -233,7 +268,7 @@ final class PressEngine {
     func setVirtualAngle(_ angle: Double, at time: Double) {
         virtualReleasing = false
         virtualAngle = clamp(angle, 0, 180)
-        ingest(angle: virtualAngle, closed: false, at: time)
+        ingestSample(angle: virtualAngle, closed: false, at: time, virtual: true)
     }
 
     /// Touch fallback: the finger lifted, so the virtual press springs open.
@@ -265,8 +300,9 @@ final class PressEngine {
             beginReveal()
         }
 
-        // Arm without waiting for an input sample: a Duo lying still sends none, and the
-        // first-press teaching cues only appear once the press is armed.
+        // Arm without waiting for a fresh sample: a Duo lying still sends none, and the
+        // first-press teaching cues only appear once the press is armed. `tryArm` still needs the last
+        // reading to be open (or, for the touch press only, no reading yet).
         if phase == .idle {
             tryArm(at: now)
         }
@@ -286,7 +322,7 @@ final class PressEngine {
 
         if virtualReleasing {
             virtualAngle = min(180, virtualAngle + 300 * dt)
-            ingest(angle: virtualAngle, closed: false, at: now)
+            ingestSample(angle: virtualAngle, closed: false, at: now, virtual: true)
             if virtualAngle >= 180 { virtualReleasing = false }
         }
 
@@ -323,9 +359,13 @@ final class PressEngine {
         onEvent?(event)
     }
 
+    /// Arms on the latest reading. A hinge press needs an observed open sample ≥ `armAngleMin` (FOLD-REVIEW-6 N3):
+    /// before any sample, `angle` is the 180° default, not the hinge. Only the touch press may arm without one (its
+    /// first-press teaching cue needs `.armed`), and that arm is provisional (see `armObserved`).
     private func tryArm(at time: Double) {
-        guard material != nil, !isClosed, angle >= config.armAngleMin,
+        guard material != nil, lastSampleVirtual != nil || usesVirtualHinge, !isClosed, angle >= config.armAngleMin,
               time - activationTime >= config.ignoreInputAfterActivation else { return }
+        armObserved = lastSampleVirtual != nil
         startAngle = min(angle, config.armAngleMax)
         armedContactT = config.armed(at: startAngle).contactT
         phase = .armed
@@ -426,8 +466,10 @@ final class PressEngine {
     private func handleClose(at time: Double) {
         switch phase {
         case .armed, .pressing:
-            // Closed mid-press (the inner screen is dark by now): finish the crush blind.
-            guard maxDepthReached > 0.05 || rawAngle <= config.endAngle else { return }
+            // Closed mid-press (the inner screen is dark by now): finish the crush blind. Only a press the user made:
+            // it got somewhere, or an arm resting on an observed open sample was slammed shut between two samples.
+            // A provisional arm (no reading yet, e.g. launched with the phone shut) never seals (FOLD-REVIEW-6 N3).
+            guard maxDepthReached > 0.05 || (armObserved && rawAngle <= config.endAngle) else { return }
             fastForward(at: time)
             seal(blind: true, at: time)
             emit(.kaChunk)
@@ -436,6 +478,14 @@ final class PressEngine {
         case .idle, .revealing:
             break
         }
+    }
+
+    /// Drop an arm that nothing was pressed on; `tryArm` re-arms from the next open reading.
+    private func disarm() {
+        phase = .idle
+        armObserved = false
+        armedContactT = nil
+        nextGrainAngle = nil
     }
 
     private func fastForward(at time: Double) {

@@ -23,6 +23,10 @@ struct RootView: View {
     @State private var demoCover: CoverView.Content?
     /// Fold Press: the platen's monoprint, captured once as the press seals, for the cover's sealed card.
     @State private var coverPrint: UIImage?
+    /// The window's orientation, for `CreaseSafe` inside sheets (FOLD-REVIEW-6 N4: a sheet's own aspect isn't the pose).
+    @State private var windowLandscape: Bool?
+    /// The Shelf sheet's detent, reset each time it opens (`shelfOpeningDetent`).
+    @State private var shelfDetent: PresentationDetent = .medium
     @AppStorage("squish.askedForReview") private var askedForReview = false
     @AppStorage("squish.shelfDiscovered") private var shelfDiscovered = false
     /// Remembered once a hinge has ever reported, so a Duo never gets non-Duo copy (UX-REVIEW-1 P1-16).
@@ -54,7 +58,9 @@ struct RootView: View {
                     // Fold Press teaches with its own sheen sweep and grip glows (FOLD-REVIEW-1 #14).
                     PressHints(director: director)
                     // P-48 touch press: the ram handle on the crosshead, at rest (FOLD-REVIEW-5 N6, screenshots.md P1).
-                    PinchHandle(director: director, suppressed: revealVisible || collecting || isCoverUp || bands.isLandscape)
+                    // Hidden under an open sheet too: it showed on the crosshead behind the Shelf (FOLD-REVIEW-6 N14).
+                    PinchHandle(director: director,
+                                suppressed: revealVisible || collecting || isCoverUp || bands.isLandscape || sheet != nil)
                 }
 
                 if director.settings.showCaptions && director.revealed == nil {
@@ -112,6 +118,9 @@ struct RootView: View {
             .animation(Theme.fade, value: director.canChooseObject)
             .animation(Theme.fade, value: isCoverUp)
             .animation(Theme.pop(reduceMotion), value: tips.current)
+            .onChange(of: bands.isLandscape, initial: true) { _, landscape in
+                windowLandscape = landscape
+            }
         }
         .modifier(HingeReader(
             onUpdate: { angle, closed in director.hingeUpdate(angle: angle, closed: closed) },
@@ -328,24 +337,38 @@ struct RootView: View {
 
     private func openShelf() {
         shelfDiscovered = true
-        sheet = .shelf(.objects, demoDetail: nil, demoSettings: false)
+        presentShelf(.shelf(.objects, demoDetail: nil, demoSettings: false))
+    }
+
+    /// Every Shelf presentation goes through here, so it always opens at `shelfOpeningDetent`.
+    private func presentShelf(_ item: RootSheet) {
+        shelfDetent = shelfOpeningDetent
+        sheet = item
     }
 
     // MARK: - Sheets (§6.7)
+
+    /// The Shelf's short detent. On a Duo the medium detent's top edge would sit in the crease (P1-19).
+    private var shelfShortDetent: PresentationDetent { hasHinge ? .fraction(0.45) : .medium }
+
+    /// Duo: full height (FOLD-REVIEW-6 N4). At 0.45 the Shelf was one ~430 pt strip on the anvil half, with two
+    /// readable cards; at `.large` both halves show the 5-column grid. It can still be dragged down to 0.45.
+    /// Other iPhones keep opening at medium, over the P-48 (P5 shipped that way).
+    private var shelfOpeningDetent: PresentationDetent { hasHinge ? .large : .medium }
 
     @ViewBuilder
     private func sheetContent(_ item: RootSheet) -> some View {
         switch item {
         case let .shelf(tab, demoDetail, demoSettings):
             ShelfView(director: director, initialTab: tab, demoDetail: demoDetail, demoSettings: demoSettings)
-                // On a Duo the medium detent's top edge would sit in the crease (P1-19).
-                .presentationDetents([hasHinge ? .fraction(0.45) : .medium, .large])
+                .presentationDetents([shelfShortDetent, .large], selection: $shelfDetent)
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(Theme.sheetRadius)
                 .presentationBackground { AlbumPage() }
                 .presentationContentInteraction(.scrolls)
                 .sheetTypeCap()
                 .creaseSafe()
+                .environment(\.windowIsLandscape, windowLandscape)
         }
     }
 
@@ -561,13 +584,14 @@ struct RootView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(1200))
             if demo.has("settings") {
-                sheet = .shelf(.objects, demoDetail: nil, demoSettings: true)
+                presentShelf(.shelf(.objects, demoDetail: nil, demoSettings: true))
             } else if demo.has("detail") {
                 let best = ObjectKind.allCases.compactMap { director.collection.best(for: $0) }
                     .first { $0.variant.isGolden } ?? director.collection.specimens.first
-                sheet = .shelf(.objects, demoDetail: best?.id, demoSettings: false)
+                presentShelf(.shelf(.objects, demoDetail: best?.id, demoSettings: false))
             } else if demo.has("shelf") {
-                sheet = .shelf(demo.string("shelf") == "squished" ? .squished : .objects, demoDetail: nil, demoSettings: false)
+                presentShelf(.shelf(demo.string("shelf") == "squished" ? .squished : .objects, demoDetail: nil,
+                                    demoSettings: false))
             }
         }
     }

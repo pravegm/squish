@@ -15,6 +15,8 @@
 #  EXPECT_SIZE   e.g. 1320x2868: warn per frame, and exit 4 at the end, if a screenshot is another size.
 #  STORE_FRAMES  1 = for every scenario with a caption column, also write $OUT/store/<name>.png: the raw screenshot
 #                on the studio sweep under its App Store caption (ci/store-frame.swift, style framed).
+#  STORE_ISLAND  pill (default) = store-frame draws the Dynamic Island on every captioned frame, because the simulator
+#                captures it in some frames and not others (FOLD-REVIEW-6 N13); none = leave the capture as it is.
 set -euo pipefail
 
 DEVICE="${DEVICE:-iPhone 18 Pro}"
@@ -24,6 +26,7 @@ OUT="${OUT:-ci-screens}"
 FILTER="${SCENARIO_FILTER:-.}"
 EXPECT_SIZE="${EXPECT_SIZE:-}"
 STORE_FRAMES="${STORE_FRAMES:-0}"
+STORE_ISLAND="${STORE_ISLAND:-pill}"
 mkdir -p "$OUT/logs"
 # shellcheck source=ci/store-frame.sh
 source "$(dirname "$0")/store-frame.sh"
@@ -146,7 +149,9 @@ while IFS= read -r line; do
   fi
   if [[ "$STORE_FRAMES" == 1 && -n "$caption" ]]; then
     mkdir -p "$OUT/store"
-    store_frame --in "$OUT/$name.png" --out "$OUT/store/$name.png" --style framed --caption "$caption" \
+    island=()
+    [[ "$STORE_ISLAND" == pill ]] && island=(--island pill)
+    store_frame --in "$OUT/$name.png" --out "$OUT/store/$name.png" --style framed --caption "$caption" ${island[@]+"${island[@]}"} \
       || echo "warning: store frame failed for $name"
   fi
   echo "captured $name ($scenario)"

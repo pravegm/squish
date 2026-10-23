@@ -26,6 +26,8 @@ struct ShelfView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// From RootView, forwarded to the stacked sheets so their `CreaseSafe` knows the pose (FOLD-REVIEW-6 N4).
+    @Environment(\.windowIsLandscape) private var windowIsLandscape
     @State private var tab: Tab
     @State private var detail: DetailRef?
     @State private var showSettings = false
@@ -75,6 +77,7 @@ struct ShelfView: View {
                 .presentationBackground { AlbumPage(dots: false) }
                 .sheetTypeCap()
                 .creaseSafe()
+                .environment(\.windowIsLandscape, windowIsLandscape)
         }
         // Settings stacks on the Shelf, so closing it comes back here (P2-11).
         .sheet(isPresented: $showSettings) {
@@ -85,6 +88,7 @@ struct ShelfView: View {
                 .presentationBackground { AlbumPage(dots: false) }
                 .sheetTypeCap()
                 .creaseSafe()
+                .environment(\.windowIsLandscape, windowIsLandscape)
         }
         .task {
             guard demoDetail != nil || demoSettings else { return }
