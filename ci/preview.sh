@@ -137,7 +137,13 @@ record_segment() {
     sleep 12.5
   fi
   stop_recording
-  retime "$OUT_ABS/raw/$name.mp4" | tee -a "$REPORT" || true
+  # Re-time for ffmpeg (preview-lib.sh). Run 39987522022: AVFoundation said "Cannot Decode" twice right after a stop,
+  # so retry once; a take that still can't be re-timed is marked so take_gap never picks it.
+  rm -f "$OUT_ABS/raw/$name.retime-failed"
+  if ! retime "$OUT_ABS/raw/$name.mp4" | tee -a "$REPORT" | grep -q "retimed "; then
+    sleep 3
+    retime "$OUT_ABS/raw/$name.mp4" | tee -a "$REPORT" | grep -q "retimed " || : > "$OUT_ABS/raw/$name.retime-failed"
+  fi
   if [[ "$scen" == *pressaudio* ]]; then
     wait_for_log "$log" "SQUISH-T pressaudio (ok|failed)" 90 || say "warning: $name: no pressaudio line after 90 s"
     grep -h "SQUISH-T pressaudio" "$log" | tee -a "$REPORT" || true
@@ -157,7 +163,9 @@ take_gap() {
   local m="$OUT_ABS/raw/$1.marks.txt" rec s e g
   rec=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing" 2>/dev/null)
   s=$(spec_epoch "$m" "$2"); e=$(spec_epoch "$m" "$3")
-  if [[ -z "$rec" || -z "$s" || -z "$e" || ! -f "$OUT_ABS/raw/$1.wav" ]]; then echo 99; return 0; fi
+  if [[ -z "$rec" || -z "$s" || -z "$e" || ! -f "$OUT_ABS/raw/$1.wav" || -f "$OUT_ABS/raw/$1.retime-failed" ]]; then
+    echo 99; return 0
+  fi
   g=$(frame_gaps "$OUT_ABS/raw/$1.mp4" "$(calc "$s - $rec")" "$(calc "$e - $rec")")
   say "   $1 cut window: $g" >&2
   g="${g#*maxgap=}"; echo "${g%% *}"
