@@ -76,7 +76,28 @@ Once it feels right, tap *Copy config JSON* and send it to me. Those values beco
 - **Store shots.** `FoldStoreShot.swift` renders a modelled folded Duo for App Store frames. CI writes them as `*-storeshot-*.png`.
   - They are good for layout and captions. A real hand-held Duo video from you will sell the fold better than any render.
 - **Patience achievement** needs 30 s of engaged pressing. It is suppressed in CI demo runs.
-- **The design-critic score** for Duo frames was 6.3/10 after round 3. The target before submission is 8. The reviews are in `design/FOLD-REVIEW-*.md`.
+- **The design-critic score** after round 6 was 7.8 for the app and 7.0 for the store set. The target before submission is 8. The reviews are in `design/FOLD-REVIEW-*.md`.
+- **Hinge status vs angle.** The Duo simulator sometimes keeps reporting `.closed` while the phone reopens to about 150°. Two places now trust the angle instead when it reads above 90°: the engine (`PressEngine.staleClosedAngle`) and the reveal gate (`RevealCollectGate`). Check what the real Duo reports in the Tuning Lab hinge log.
+- **Two press bugs fixed in round 7, with tests:**
+  - Opening the app with the phone shut no longer seals a press you never made.
+  - A stray `closed` sample no longer dismisses the reveal before you see it.
+
+## 7. App Store screenshots
+
+Actions → **App Store screenshots** (`store.yml`, manual dispatch) builds the whole set in about an hour:
+- **Duo inner display**, 7 frames, 2007×2853.
+- **Duo outer display**, 2 frames, 1398×2034.
+- **6.9"**, 6 frames, 1320×2868.
+- **6.1"**, 6 frames, 1206×2622.
+
+The artifacts are `store-duo`, `store-69` and `store-61`. `store/MANIFEST.txt` lists each frame's source and any frame refused as MISSING or FLAGGED. A frame is refused when its reveal didn't hold, its settings state didn't apply, or its variant was Golden.
+
+How the set is made, and the order of the frames, is in `docs/appstore/screenshots.md`.
+
+**Decisions only you can make:**
+- whether to use a real photo of the Duo for frame 1;
+- whether App Store Connect offers the Duo screenshot slots yet;
+- the subtitle.
 
 ## 6. Where things are
 
