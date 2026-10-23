@@ -16,8 +16,8 @@
 | Voice Control | Not supported | Yes, small fix (custom actions on the press) |
 | Larger Text | Not supported | Medium fix (reveal card and press overlays at 200%) |
 | Dark Interface | Not supported | No: the light studio is the design |
-| Differentiate Without Color Alone | Not supported | Yes, small fix (mark the selected chip) |
-| Sufficient Contrast | Not supported | Yes, with the same chip fix |
+| Differentiate Without Color Alone | Supported (pre-submission fix: graphite outline on the selected chip, `Theme.swift` KeycapFace) | Done |
+| Sufficient Contrast | Supported (same fix: the selected-chip outline is graphite on paper, about 13:1) | Done |
 | Reduced Motion | **Supported** | — |
 | Captions | Not supported (no video or audio-only content) | Not applicable |
 | Audio Descriptions | Not supported (no time-based video content) | Not applicable |
@@ -109,7 +109,7 @@ Apple's bar is that users can complete all common tasks using only VoiceOver. Th
   - Apple's criterion is "dark by default for all common tasks".
 - **Plan:** none. The bright studio is part of the product. Revisit only if users ask.
 
-### Differentiate Without Color Alone: Not supported
+### Differentiate Without Color Alone: Supported (fixed before submission)
 
 - **Why not:**
   - A selected chip is shown **only by colour**: soft-yellow face and yellow lip vs paper (`Theme.swift:499, 507`).
@@ -121,7 +121,7 @@ Apple's bar is that users can complete all common tasks using only VoiceOver. Th
   - The bezel lamps are labelled READY / LOAD (`Squish/Scene/Fold/FoldBezel.swift:87-88`).
 - **1.0.1 fix (S), in `KeycapStyle` (`Theme.swift`):** give the selected chip a leading checkmark glyph and a 1.5 pt graphite border, always or at least when `accessibilityDifferentiateWithoutColor` is on. Check under the Grayscale colour filter.
 
-### Sufficient Contrast: Not supported
+### Sufficient Contrast: Supported (fixed before submission)
 
 - **Text passes.** Contrast ratios, computed from the `Theme` hex values:
 
@@ -197,3 +197,10 @@ Re-evaluate the labels with every update: add a label only after the fix is on d
   - Reduced Motion: no parallax or multi-axis effects; meaningful animation may become a fade.
   - Captions and Audio Descriptions: time-based content.
   - Voice Control: names, numbers and gesture alternatives.
+
+## Update (23 Oct 2026, before submission)
+
+The chip fix was made before 1.0 rather than in 1.0.1. A selected chip now always carries a 2 pt graphite outline: tabs, sound style, haptics level, and the object on the anvil.
+- The outline is about 13:1 against the paper face, and the chip reports the `.isSelected` trait to VoiceOver. See the `KeycapFace` body in `Squish/UI/Theme.swift`.
+- **Labels this earns:** Differentiate Without Color Alone and Sufficient Contrast join VoiceOver and Reduced Motion.
+- **Before publishing the labels on launch day,** check the Settings frame once under the Grayscale colour filter.

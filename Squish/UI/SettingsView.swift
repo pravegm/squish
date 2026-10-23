@@ -115,7 +115,7 @@ struct SettingsView: View {
                             Text("No ads. No tracking. No in-app purchases.")
                                 .font(Theme.button)
                                 .foregroundStyle(Theme.ink)
-                            Text("Made by a tiny studio. Sounds from Sonniss GDC bundles and Freesound (CC0), the rest synthesised in code. Thanks to everyone who closed their phone very, very slowly.".keepingLastWordsTogether)
+                            Text("Made by a tiny studio. Every sound is synthesised in code as you press: no recordings. Thanks to everyone who closed their phone very, very slowly.".keepingLastWordsTogether)
                                 .font(Theme.footnote)
                                 .foregroundStyle(Theme.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)

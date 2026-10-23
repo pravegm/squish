@@ -455,6 +455,14 @@ private struct KeycapFace: View {
                                 shape.strokeBorder(Theme.graphite.opacity(0.4), lineWidth: 1)
                             }
                         }
+                        .overlay {
+                            // A selected chip is never told apart by colour alone: a graphite outline (well over 3:1
+                            // against paper) marks it (Accessibility Nutrition Labels: Differentiate Without Color,
+                            // Sufficient Contrast; docs/appstore/accessibility.md).
+                            if kind == .chip && selected {
+                                shape.strokeBorder(Theme.graphite, lineWidth: 2)
+                            }
+                        }
                         .offset(y: travel)
                         .scaleEffect(pressed ? 0.985 : 1)
                 }
@@ -463,6 +471,7 @@ private struct KeycapFace: View {
             .padding(.bottom, lipHeight)
             .padding(.vertical, kind == .chip ? 2.5 : 0) // 36 + 3 lip + 5 = 44 pt target
             .contentShape(Rectangle())
+            .accessibilityAddTraits(kind == .chip && selected ? .isSelected : [])
             .animation(reduceMotion ? nil : (pressed ? Theme.keyDown : Theme.keyUp), value: pressed)
             .onChange(of: pressed) { _, isDown in
                 if isDown { UIFeel.press() }

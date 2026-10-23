@@ -9,7 +9,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""   # set your team in Xcode > Signing & Capabilities
 targets:
@@ -31,6 +31,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIStatusBarHidden: true
         UIRequiresFullScreen: true   # a press toy is full-screen only; also lets the demo request portrait on the Duo
+        NSPhotoLibraryAddUsageDescription: "Squish saves your specimen card and press clip to Photos only when you tap Save."
         UIUserInterfaceStyle: Light   # VISUAL-TARGET §6.13: the studio stays bright in Dark Mode
         UIViewControllerBasedStatusBarAppearance: false
         CADisableMinimumFrameDurationOnPhone: true
