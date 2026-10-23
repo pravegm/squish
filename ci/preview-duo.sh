@@ -4,10 +4,10 @@
 # as in ci/duo-screenshots.sh), cut with the app's own press sound.
 #
 # Segments (each its own launch, `seed=3;notoasts;orient=portrait`):
-#  - duck: a hand-paced close (several `hinge sweep`s at falling speed, a hold, then on), shut to 0° (the cut goes to
-#    the cover display's PRESS SEALED card when the cover recording worked), reopen to 155°: the reveal.
-#  - glass: the same paced close to 70° (it fails at ~81°) and hold; then shut and reopen off camera so the app reaches
-#    its reveal and renders the press audio.
+#  - duck: one slow `hinge sweep` 180° → 58° (inner recording), the close to 0° (cover recording: PRESS SEALED), the
+#    reopen to 155° (inner recording, cut from the moment the panel lights): the reveal.
+#  - glass: one slow sweep to 60° (it fails at ~80°) and a hold; then shut and reopen off camera so the app reaches its
+#    reveal and renders the press audio.
 #  - shelf: the seeded shelf sheet (`shelf;previewmarks`).
 # Outputs in $OUT (preview-duo): preview-duo.mp4 at the inner display's native aspect (2007 × 2853 → 1350 × 1920), and
 # preview-duo-886x1920.mp4, the size App Store Connect accepts for iPhone Duo previews (inner screen 886 × 1260 centred
@@ -34,6 +34,9 @@ if command -v gtimeout >/dev/null 2>&1; then TO=gtimeout; else TO=""; fi
 to() { local s="$1"; shift; if [[ -n "$TO" ]]; then "$TO" -k 5 "$s" "$@"; else perl -e 'alarm shift; exec @ARGV' "$s" "$@"; fi; }
 
 # ---- hinge (the ci/duo-screenshots.sh drivers: hinge first, duo-hinge as the fallback) ------------------------------
+# Run 39965173658: each `hinge` call costs 5–12 s of start-up on a busy runner, and a confirmed set (`-t 3`) or the end
+# of a sweep can hang until the timeout. So every on-camera motion is ONE `hinge sweep`, never a chain of short ones (a
+# chain put 5–70 s holds into the press), and nothing waits for a confirm while recording.
 DRIVER=none
 drv_set() {
   case "$DRIVER" in
@@ -43,12 +46,12 @@ drv_set() {
   esac
 }
 CUR=180
-# sweep_to <deg> <seconds> [noconfirm]: one continuous move (hinge's 60 Hz sweep; duo-hinge steps 10°), then a
-# confirmed set (skipped mid-gesture: a confirm waits for the simulator and would put a pause in the hand's motion).
+# sweep_to <deg> <seconds> [confirm]: one continuous move (hinge's 60 Hz sweep; duo-hinge steps 10°).
 sweep_to() {
-  local target="$1" secs="$2" confirm="${3:-confirm}" a
+  local target="$1" secs="$2" a t0
+  t0=$(now_epoch)
   if [[ "$DRIVER" == hinge ]]; then
-    to $(( ${secs%.*} + 20 )) hinge -d "$UDID" sweep "$CUR" "$target" "$secs" >>"$RUNLOG" 2>&1 || say "WARN sweep $CUR->$target"
+    to $(( ${secs%.*} + 9 )) hinge -d "$UDID" sweep "$CUR" "$target" "$secs" >>"$RUNLOG" 2>&1 || say "NOTE sweep $CUR->$target exited non-zero (timeout?)"
   else
     a="$CUR"
     while (( (target < a && a - 10 > target) || (target > a && a + 10 < target) )); do
@@ -56,19 +59,9 @@ sweep_to() {
       drv_set "$a" >>"$RUNLOG" 2>&1 || true
     done
   fi
+  [[ "${3:-}" == confirm || "$DRIVER" != hinge ]] && drv_set "$target" >>"$RUNLOG" 2>&1
+  say "sweep $CUR->$target (${secs}s asked) took $(calc "$(now_epoch) - $t0")s"
   CUR="$target"
-  [[ "$confirm" == noconfirm && "$DRIVER" == hinge ]] && return 0
-  local attempt
-  for attempt in 1 2 3; do drv_set "$target" >>"$RUNLOG" 2>&1 && break; sleep 1; done
-}
-# A hand-paced close: (target seconds) pairs, slower as the object resists, with a hold.
-paced_close() {   # paced_close <deg> <secs> [<deg> <secs> | hold <secs>]...
-  while (( $# >= 2 )); do
-    if [[ "$1" == hold ]]; then fsleep "$2"
-    elif (( $# >= 4 )) && [[ "$3" != hold ]]; then sweep_to "$1" "$2" noconfirm
-    else sweep_to "$1" "$2"; fi
-    shift 2
-  done
 }
 
 for d in hinge duo-hinge; do
@@ -82,7 +75,8 @@ for d in hinge duo-hinge; do
 done
 [[ "$DRIVER" == none ]] && { say "FAIL: no hinge driver works"; exit 3; }
 
-# ---- displays: which --display names recordVideo takes for the inner and cover panels -------------------------------
+# ---- displays: which --display names recordVideo takes (run 39965173658: inner LCD-1, cover LCD). Only ONE recording
+# can run at a time ("A recording is already in progress"), so the duck's cover shot is its own recording.
 probe_record() {   # probe_record <name>: 0 when a 2 s recording on that display produced a video
   local f="$OUT_ABS/raw/_probe-$1.mp4"
   rm -f "$f"
@@ -92,20 +86,15 @@ probe_record() {   # probe_record <name>: 0 when a 2 s recording on that display
   [[ -s "$f" ]] && ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$f" >/dev/null 2>&1
 }
 INNER=""; COVER=""
-for c in internal LCD-1 primary-1 3; do
+for c in LCD-1 primary-1 3 internal; do
   if probe_record "$c"; then INNER="$c"; say "inner display for recordVideo: '$c' ($(probe_video "$OUT_ABS/raw/_probe-$c.mp4"))"; break; fi
 done
-for c in external LCD primary 1; do
+for c in LCD primary 1 external; do
   [[ "$c" == "$INNER" ]] && continue
   if probe_record "$c"; then COVER="$c"; say "cover display for recordVideo: '$c' ($(probe_video "$OUT_ABS/raw/_probe-$c.mp4"))"; break; fi
 done
 rm -f "$OUT_ABS"/raw/_probe-*.mp4
-if [[ -z "$INNER" ]]; then
-  # Without --display recordVideo may still pick the main panel.
-  if probe_record ""; then say "recordVideo works without --display ($(probe_video "$OUT_ABS/raw/_probe-.mp4"))"; INNER=" "
-  else say "FAIL: recordVideo works on no display"; tail -20 "$RUNLOG"; exit 4; fi
-fi
-[[ "$INNER" == " " ]] && INNER=""
+[[ -n "$INNER" ]] || { say "FAIL: recordVideo works on no inner display name"; tail -20 "$RUNLOG"; exit 4; }
 
 to 180 xcrun simctl install "$UDID" "$APP" >>"$RUNLOG" 2>&1 || { say "FAIL install"; exit 1; }
 app_docs() { echo "$(to 30 xcrun simctl get_app_container "$UDID" "$BUNDLE" data 2>/dev/null)/Documents"; }
@@ -113,7 +102,8 @@ app_docs() { echo "$(to 30 xcrun simctl get_app_container "$UDID" "$BUNDLE" data
 # launch_tabletop <name> <scenario>: hinge 180°, launch, wait for the first frames and the portrait (tabletop) layout.
 launch_tabletop() {
   local name="$1" scen="$2" log="$OUT_ABS/logs/$1.txt" docs
-  sweep_to 180 1; fsleep 2
+  [[ "$CUR" != 180 ]] && sweep_to 180 1 confirm
+  fsleep 2
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
   docs="$(app_docs)"; mkdir -p "$docs"
   rm -f "$docs/preview-marks.txt" "$docs/press-audio.wav" "$docs/press-audio.txt"
@@ -125,26 +115,21 @@ launch_tabletop() {
   fsleep 2
 }
 
-# begin_recording <name>: inner (and cover, when it records) in the background.
-begin_recording() {
-  start_recording "$UDID" "$OUT_ABS/raw/$1.mp4" "$OUT_ABS/logs/$1.rec.txt" "$INNER" || return 1
-  INNER_PID=$REC_PID; INNER_EPOCH=$REC_EPOCH
-  COVER_PID=""; COVER_EPOCH=""
-  if [[ -n "$COVER" && "${2:-}" == cover ]]; then
-    if start_recording "$UDID" "$OUT_ABS/raw/$1-cover.mp4" "$OUT_ABS/logs/$1-cover.rec.txt" "$COVER"; then
-      COVER_PID=$REC_PID; COVER_EPOCH=$REC_EPOCH
-    else
-      say "WARN $1: cover recording failed to start"
-    fi
-  fi
-  fsleep 0.8
+# rec_begin <recording> <inner|cover> / rec_end <recording>: one recording; its start epoch goes to raw/<rec>.timing.
+rec_begin() {
+  local display="$INNER"
+  [[ "$2" == cover ]] && display="$COVER"
+  [[ -n "$display" ]] || { say "WARN $1: no $2 display to record"; REC_PID=""; return 1; }
+  start_recording "$UDID" "$OUT_ABS/raw/$1.mp4" "$OUT_ABS/logs/$1.rec.txt" "$display" || { REC_PID=""; return 1; }
+  echo "rec_epoch=$REC_EPOCH" > "$OUT_ABS/raw/$1.timing"
+  fsleep 0.5
 }
-end_recording() {
-  stop_recording "$INNER_PID"
-  [[ -n "$COVER_PID" ]] && stop_recording "$COVER_PID"
-  echo "rec_epoch=$INNER_EPOCH cover_epoch=${COVER_EPOCH:-none}" > "$OUT_ABS/raw/$1.timing"
+rec_end() {
+  [[ -n "${REC_PID:-}" ]] && stop_recording "$REC_PID"
+  [[ -f "$OUT_ABS/raw/$1.mp4" ]] && say "$1 raw: $(probe_video "$OUT_ABS/raw/$1.mp4")"
+  REC_PID=""
 }
-collect() {   # collect <name>: marks, wav, audio info
+collect() {   # collect <press> <scenario>: marks and wav, once the app has rendered the sound
   local name="$1" docs log="$OUT_ABS/logs/$1.txt"
   if grep -q pressaudio <<< "${2:-}"; then
     wait_for_log "$log" "SQUISH-T pressaudio (ok|failed)" 120 || say "WARN $name: no pressaudio line"
@@ -153,88 +138,146 @@ collect() {   # collect <name>: marks, wav, audio info
   docs="$(app_docs)"
   cp "$docs/preview-marks.txt" "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null || say "WARN $name: no marks file"
   cp "$docs/press-audio.wav" "$OUT_ABS/raw/$name.wav" 2>/dev/null || true
-  say "$name raw: $(probe_video "$OUT_ABS/raw/$name.mp4") | marks: $(tr '\n' ' ' < "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null | cut -c1-500)"
-  [[ -f "$OUT_ABS/raw/$name-cover.mp4" ]] && say "$name cover raw: $(probe_video "$OUT_ABS/raw/$name-cover.mp4")"
+  say "$name marks: $(tr '\n' ' ' < "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null | cut -c1-600)"
+  grep -E "SQUISH-H" "$log" > "$OUT_ABS/logs/$name.hinge.txt" 2>/dev/null || true
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 }
 
 BASE="seed=3;notoasts;orient=portrait"
-# Warm-up (first launch compiles shaders): never recorded.
+# Warm-up (first launch compiles shaders; a full press warms the deformation path): never recorded.
 launch_tabletop warmup "object=rubberDuck;duo;$BASE"
+sweep_to 60 3; sweep_to 0 1; fsleep 2; sweep_to 160 1.5; fsleep 3
 to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 
-# duck: paced close, shut (cover card), reopen (reveal).
+# duck: one slow close to 58° (inner), the close to 0° (cover: PRESS SEALED), the reopen to 155° (inner: the reveal).
 S="object=rubberDuck;duo;$BASE;pressaudio"
 launch_tabletop duck "$S"
-begin_recording duck cover
-paced_close 150 0.8 118 1.6 104 1.8 hold 0.6 80 1.4 60 1.2 hold 0.5 0 1.2 hold 2.6 155 1.5 hold 5
-end_recording duck
+DOCS="$(app_docs)"
+rec_begin duck-press inner
+sweep_to 58 7.5
+fsleep 0.8
+rec_end duck-press
+if rec_begin duck-cover cover; then :; fi
+sweep_to 0 1.2
+fsleep 2.8
+rec_end duck-cover
+rec_begin duck-reveal inner
+sweep_to 155 1.5
+wait_for_mark "$DOCS/preview-marks.txt" reveal 30 || say "WARN duck: no reveal mark 30 s after the reopen"
+fsleep 4.5
+rec_end duck-reveal
 collect duck "$S"
 
-# glass: paced close past the failure, hold; shut and reopen off camera so the reveal (and the audio) happen.
+# glass: one slow close to 60° (it fails at ~80°) and a hold; then shut and reopen off camera so the app reaches its
+# reveal and renders the press audio.
 S="object=glassBottle;duo;$BASE;pressaudio"
 launch_tabletop glass "$S"
-begin_recording glass
-paced_close 150 0.8 118 1.6 100 1.8 hold 0.5 84 1.4 70 1.2 hold 2.4
-end_recording glass
-paced_close 0 1.2 hold 2 155 1.5 hold 2
+DOCS="$(app_docs)"
+rec_begin glass inner
+sweep_to 60 7
+fsleep 1.8
+rec_end glass
+sweep_to 0 1.2; fsleep 2; sweep_to 155 1.5
+wait_for_mark "$DOCS/preview-marks.txt" reveal 30 || say "WARN glass: no reveal mark"
 collect glass "$S"
 
-# shelf
+# shelf: the sheet is already up by the time the recording starts (launch_tabletop waits ~10 s for the layout).
 S="object=rubberDuck;duo;$BASE;shelf;previewmarks"
 launch_tabletop shelf "$S"
-begin_recording shelf
-fsleep 6
-end_recording shelf
+rec_begin shelf inner
+fsleep 5.5
+rec_end shelf
 collect shelf "$S"
-sweep_to 180 1
 
 # ---- cut ------------------------------------------------------------------------------------------------------------
-rec_of() { sed -E "s/.*$2=([0-9.]+|none).*/\1/" "$OUT_ABS/raw/$1.timing"; }
-# window <name> <start spec> <end spec>: A (video s), DUR, OFF (wav offset); 1 when a mark is missing.
+rec_of() { sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing" 2>/dev/null; }
+rec_len() { ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT_ABS/raw/$1.mp4" 2>/dev/null; }
+# window <press> <recording> <start spec> <end spec>: A (s into the recording), DUR, OFF (wav offset, calibrated); the
+# end is clamped to the recording. 1 when a mark or the recording is missing.
 window() {
-  local m="$OUT_ABS/raw/$1.marks.txt" rec s e o
-  rec=$(rec_of "$1" rec_epoch); s=$(spec_epoch "$m" "$2"); e=$(spec_epoch "$m" "$3"); o=$(mark_epoch "$m" origin)
-  [[ -n "$s" && -n "$e" && -n "$o" ]] || { say "WARN $1: missing marks for '$2' / '$3'"; return 1; }
-  A=$(calc "$s - $rec"); DUR=$(calc "$e - $s"); OFF=$(calc "$o - $rec")
-  calc_ok "$A >= 0 && $DUR > 0.3" || { say "WARN $1: bad window A=$A DUR=$DUR"; return 1; }
+  local m="$OUT_ABS/raw/$1.marks.txt" rec s e o len cal="CAL_$1"
+  rec=$(rec_of "$2"); len=$(rec_len "$2")
+  [[ -n "$rec" && -n "$len" ]] || { say "WARN $2: no recording"; return 1; }
+  s=$(spec_epoch "$m" "$3"); e=$(spec_epoch "$m" "$4"); o=$(mark_epoch "$m" origin)
+  [[ -n "$s" && -n "$e" && -n "$o" ]] || { say "WARN $1/$2: missing marks for '$3' / '$4'"; return 1; }
+  A=$(calc "$s - $rec"); OFF=$(calc "$o - $rec + ${!cal:-0}")
+  calc_ok "$A < 0" && A=0
+  e=$(calc "$e - $rec"); calc_ok "$e > $len - 0.05" && e=$(calc "$len - 0.05")
+  DUR=$(calc "$e - $A")
+  calc_ok "$DUR > 0.3" || { say "WARN $2: bad window A=$A end=$e"; return 1; }
 }
+# calibrate <press> <recording>: delay the sound by where the failure flash shows in the recording (as ci/preview.sh).
+calibrate() {
+  local m="$OUT_ABS/raw/$1.marks.txt" f rec fv ft d rise
+  printf -v "CAL_$1" %s 0
+  f=$(mark_epoch "$m" failure); rec=$(rec_of "$2")
+  [[ -n "$f" && -n "$rec" ]] || { say "calibrate $1: no failure mark or recording"; return 0; }
+  fv=$(calc "$f - $rec")
+  ft=$(flash_time "$OUT_ABS/raw/$2.mp4" "$(calc "$fv - 0.3")" "$(calc "$fv + 0.8")")
+  if [[ -n "$ft" ]]; then
+    d=$(calc "${ft%% *} - $fv"); rise="${ft##* }"
+    if calc_ok "$d >= 0 && $d <= 0.5 && $rise >= 8"; then
+      printf -v "CAL_$1" %s "$d"; say "calibrate $1: flash ${d}s after the failure mark (dY $rise): sound delayed ${d}s"
+    else say "calibrate $1: flash at +${d}s (dY $rise) is implausible; sound by clock only"; fi
+  else say "calibrate $1: no flash found; sound by clock only"; fi
+}
+# first_lit <recording> <from s>: the first time after <from> the recording's mean brightness passes 25 (the inner
+# panel wakes ~150° into the reopen).
+first_lit() {
+  ffmpeg -nostdin -v error -ss "$2" -t 6 -i "$OUT_ABS/raw/$1.mp4" -vf "scale=120:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null \
+    | awk -v base="$2" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 } /YAVG/ { split($0, y, "="); if (y[2] + 0 > 25) { printf "%.3f", base + t; exit } }'
+}
+
 # Native: 2007 × 2853 → 1350 × 1920 (cover 1398 × 2034 fits as 1320 × 1920 on graphite). Store: 886 × 1260 on bands.
 VF_NATIVE="fps=30,scale=1350:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1350:1920:(ow-iw)/2:(oh-ih)/2:color=0x2B2E30,setsar=1,format=yuv420p"
 VF_STORE="fps=30,scale=886:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=886:1920:(ow-iw)/2:(oh-ih)/2:color=0xF3EEE6,setsar=1,format=yuv420p"
 
 NATIVE=(); STORE=(); AT=0
-add_cut() {   # add_cut <label> <raw.mp4> <wav|""> <A> <DUR> <OFF>
-  cut_segment "$2" "$4" "$5" "$3" "$6" "$VF_NATIVE" "$OUT_ABS/seg/$1.mov" || { say "WARN cut $1 failed"; return 1; }
-  cut_segment "$2" "$4" "$5" "$3" "$6" "$VF_STORE" "$OUT_ABS/seg/$1-886.mov" || { say "WARN cut $1 (886) failed"; return 1; }
+add_cut() {   # add_cut <label> <recording> <wav|""> <A> <DUR> <OFF>
+  local raw="$OUT_ABS/raw/$2.mp4"
+  cut_segment "$raw" "$4" "$5" "$3" "$6" "$VF_NATIVE" "$OUT_ABS/seg/$1.mov" || { say "WARN cut $1 failed"; return 1; }
+  cut_segment "$raw" "$4" "$5" "$3" "$6" "$VF_STORE" "$OUT_ABS/seg/$1-886.mov" || { say "WARN cut $1 (886) failed"; return 1; }
   NATIVE+=("$OUT_ABS/seg/$1.mov"); STORE+=("$OUT_ABS/seg/$1-886.mov")
-  say "cut $1: ${4}s +${5}s -> final ${AT}s"
+  say "cut $1: $2 ${4}s +${5}s -> final ${AT}s ($(frame_gaps "$raw" "$4" "$(calc "$4 + $5")"))"
   AT=$(calc "$AT + $5")
 }
 
+calibrate duck duck-press
+calibrate glass glass
 DUCK_WAV="$OUT_ABS/raw/duck.wav"; [[ -f "$DUCK_WAV" ]] || DUCK_WAV=""
-DM="$OUT_ABS/raw/duck.marks.txt"
 POSTER=""
-if [[ -n "$(mark_epoch "$DM" closed)" && -f "$OUT_ABS/raw/duck-cover.mp4" ]]; then
-  # press (inner) up to the close, the sealed card (cover), the reopen and reveal (inner)
-  window duck "phase-pressing-0.5" "closed-0.15" && { P_AT=$AT; P_A=$A; add_cut duck-press "$OUT_ABS/raw/duck.mp4" "$DUCK_WAV" "$A" "$DUR" "$OFF"; }
-  CREC=$(rec_of duck cover_epoch)
-  s=$(spec_epoch "$DM" "closed-0.15"); e=$(spec_epoch "$DM" "opened+0.1,closed+2.6"); o=$(mark_epoch "$DM" origin)
-  add_cut duck-cover "$OUT_ABS/raw/duck-cover.mp4" "$DUCK_WAV" "$(calc "$s - $CREC")" "$(calc "$e - $s")" "$(calc "$o - $CREC")"
-  window duck "opened+0.1,closed+2.6" "reveal+2.8" && add_cut duck-reveal "$OUT_ABS/raw/duck.mp4" "$DUCK_WAV" "$A" "$DUR" "$OFF"
-else
-  window duck "phase-pressing-0.5" "reveal+2.8" && { P_AT=$AT; P_A=$A; add_cut duck "$OUT_ABS/raw/duck.mp4" "$DUCK_WAV" "$A" "$DUR" "$OFF"; }
+if window duck duck-press "phase-pressing-0.5" "failure+1.2,phase-pressing+6.5"; then
+  P_AT=$AT; P_A=$A
+  add_cut duck-press duck-press "$DUCK_WAV" "$A" "$DUR" "$OFF"
+  pe=$(spec_epoch "$OUT_ABS/raw/duck.marks.txt" "phase-pressing+3.0")
+  [[ -n "$pe" ]] && POSTER=$(calc "$pe - $(rec_of duck-press) - $P_A + $P_AT")
 fi
-# Poster: mid-squash, in the hold at 104° (the sweeps reach it ≈ 4.2 s in; pressing starts ≈ 0.3 s in).
-pe=$(spec_epoch "$DM" "phase-pressing+4.1")
-[[ -n "$pe" && -n "${P_AT:-}" ]] && POSTER=$(calc "$pe - $(rec_of duck rec_epoch) - $P_A + $P_AT")
-
+window duck duck-cover "closed-0.3" "closed+2.3" && add_cut duck-cover duck-cover "$DUCK_WAV" "$A" "$DUR" "$OFF"
+if [[ -f "$OUT_ABS/raw/duck-reveal.mp4" ]]; then
+  rv=$(mark_epoch "$OUT_ABS/raw/duck.marks.txt" reveal); rrec=$(rec_of duck-reveal)
+  if [[ -n "$rv" && -n "$rrec" ]]; then
+    lit=$(first_lit duck-reveal "$(calc "$rv - $rrec")")
+    say "duck reveal: mark at $(calc "$rv - $rrec")s in duck-reveal, panel lit at ${lit:-?}s"
+    [[ -n "$lit" ]] && printf -v LIT_EPOCH %s "$(calc "$lit + $rrec")"
+    # The reveal cut: from the lit panel for 3.2 s (fallback: reveal + 1.4 s).
+    if [[ -n "${LIT_EPOCH:-}" ]]; then
+      echo "lit epoch=$LIT_EPOCH t=0" >> "$OUT_ABS/raw/duck.marks.txt"
+      window duck duck-reveal "lit+0.05" "lit+3.25"
+    else
+      window duck duck-reveal "reveal+1.4" "reveal+4.6"
+    fi && add_cut duck-reveal duck-reveal "$DUCK_WAV" "$A" "$DUR" "$OFF"
+  fi
+fi
+DUCK_END_AT=$AT
 GLASS_WAV="$OUT_ABS/raw/glass.wav"; [[ -f "$GLASS_WAV" ]] || GLASS_WAV=""
-window glass "phase-pressing-0.4" "failure+2.0,phase-pressing+8" && add_cut glass "$OUT_ABS/raw/glass.mp4" "$GLASS_WAV" "$A" "$DUR" "$OFF"
-window shelf "origin+1.1" "origin+4.6" && {
-  if calc_ok "$AT + $DUR <= 29.5"; then add_cut shelf "$OUT_ABS/raw/shelf.mp4" "" "$A" "$DUR" 0
-  else say "NOTE shelf left out: the cut is already ${AT}s (Apple: 30 s at most)"; fi
-}
+GLASS_AT=""; GLASS_DUR=""
+if window glass glass "phase-pressing-0.4" "failure+1.8,phase-pressing+6.5"; then
+  GLASS_AT=$AT; GLASS_DUR=$DUR
+  add_cut glass glass "$GLASS_WAV" "$A" "$DUR" "$OFF"
+fi
+if [[ -f "$OUT_ABS/raw/shelf.mp4" ]] && calc_ok "$AT + 3.5 <= 29.5"; then
+  add_cut shelf shelf "" 1.0 3.5 0
+fi
 say "total cut: ${AT}s"
 
 (( ${#NATIVE[@]} > 0 )) || { say "FAIL: nothing to cut"; exit 6; }
@@ -249,8 +292,24 @@ if [[ -n "$POSTER" ]]; then
 fi
 STILLS=(0.5)
 [[ -n "$POSTER" ]] && STILLS+=("$POSTER")
-for t in 4 7 10 13 16 19 22; do calc_ok "$t < $TOTAL" && STILLS+=("$t"); done
+for t in 2 4 6 8 10 12 14 16 18 20 22 24; do calc_ok "$t < $TOTAL" && STILLS+=("$t"); done
 frames "$OUT_ABS/preview-duo.mp4" "$OUT_ABS/frames" "${STILLS[@]}"
 frames "$OUT_ABS/preview-duo-886x1920.mp4" "$OUT_ABS/frames" 3
+
+# Social clips (docs/press/), 1080 × 1920, from the finished native cut: the duck's last 9.5 s up to the end of its
+# reveal (squeeze, PRESS SEALED on the cover, reopen, specimen), and the glass.
+mkdir -p "$OUT_ABS/social"
+if calc_ok "$DUCK_END_AT > 9.5"; then
+  social_from_master "$OUT_ABS/preview-duo.mp4" "$(calc "$DUCK_END_AT - 9.5")" 9.5 "$OUT_ABS/social/duo-duck.mp4" \
+    && say "social duo-duck.mp4: $(du -h "$OUT_ABS/social/duo-duck.mp4" | cut -f1)"
+fi
+if [[ -n "$GLASS_AT" ]]; then
+  gd=$GLASS_DUR; calc_ok "$gd > 9" && gd=9
+  social_from_master "$OUT_ABS/preview-duo.mp4" "$GLASS_AT" "$gd" "$OUT_ABS/social/duo-glass.mp4" \
+    && say "social duo-glass.mp4: $(du -h "$OUT_ABS/social/duo-glass.mp4" | cut -f1)"
+fi
+for f in "$OUT_ABS"/social/*.mp4; do [[ -f "$f" ]] && { report_media "$f" | tee -a "$REPORT" >&2; frames "$f" "$OUT_ABS/frames" 1.5 4.5 7.5; }; done
+# Raw recordings are large (2007 × 2853 at 60 fps); keep them out of the artifact once cut.
+rm -f "$OUT_ABS"/raw/*.mp4
 ls -la "$OUT_ABS" | tee -a "$REPORT" >&2
 exit 0

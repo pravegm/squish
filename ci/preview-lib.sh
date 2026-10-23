@@ -101,6 +101,28 @@ probe_video() {
   echo "${w}x${h} fps=$r avg=$a frames=$n dur=$d start=$s"
 }
 
+# frame_gaps <video> <from s> <to s>: "frames=<n> maxgap=<s> at=<s>" for the frames whose time is in [from, to].
+# recordVideo writes a frame only when the screen changes, so a render stall shows up as one long gap (the duck press
+# of run 39965173658: the whole squash missing, the unpressed frame then the reveal).
+frame_gaps() {
+  ffprobe -v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 "$1" 2>/dev/null \
+    | sort -g | awk -v a="$2" -v b="$3" '$1 + 0 >= a && $1 + 0 <= b { t = $1 + 0; n++; if (have && t - last > gap) { gap = t - last; at = last }; last = t; have = 1 }
+        END { printf "frames=%d maxgap=%.3f at=%.3f", n, gap, at }'
+}
+
+# flash_time <video> <from s> <to s>: the time (s, in the file) of the biggest frame-to-frame rise in the mean brightness
+# of the top half of the picture, and the rise: "<t> <dY>". The failure flash (RootView FailureFlash) whitens the top
+# half, so this finds when a failure became visible.
+flash_time() {
+  local from="$2" dur
+  dur=$(calc "$3 - $2")
+  ffmpeg -nostdin -v error -ss "$from" -t "$dur" -i "$1" \
+      -vf "crop=iw:ih/2:0:0,scale=180:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null \
+    | awk -v base="$from" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
+        /YAVG/ { split($0, y, "="); v = y[2] + 0; if (have && v - last > best) { best = v - last; at = t }; last = v; have = 1 }
+        END { if (have && best > 0) printf "%.3f %.1f", base + at, best }'
+}
+
 # audio_chain <wav start seconds (may be negative)> <duration>: an ffmpeg audio filter chain (after the input label)
 # that takes [start, start + duration) of the WAV, padding silence before 0 and after its end, with 30 ms fades at the
 # cut points so a hard cut never clicks, as 48 kHz stereo.
@@ -162,6 +184,14 @@ frames() {
   for t in "$@"; do
     ffmpeg -nostdin -y -v error -ss "$t" -i "$v" -frames:v 1 "$dir/$(basename "${v%.*}")-${t}s.png" || true
   done
+}
+
+# social_from_master <preview.mp4> <start> <dur> <out.mp4>: a social_clip cut from a finished preview (its own sound).
+social_from_master() {
+  ffmpeg -nostdin -y -v error -ss "$2" -t "$3" -i "$1" \
+    -filter_complex "[0:v]split[bg][fg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:3,eq=brightness=-0.12[b];[fg]scale=1080:1920:force_original_aspect_ratio=decrease[f];[b][f]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v];[0:a]afade=t=in:d=0.03,afade=t=out:st=$(calc "$3 - 0.05"):d=0.05,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]" \
+    -map "[v]" -map "[a]" -t "$3" -r 30 -c:v libx264 -profile:v high -level:v 4.2 -preset slow \
+    -b:v 4500k -maxrate 6M -bufsize 9M -g 30 -c:a aac -b:a 160k -ac 2 -movflags +faststart "$4"
 }
 
 # social_clip <raw> <a> <dur> <wav|""> <off> <out.mp4>: 1080 × 1920 9:16 for X / Bluesky / Mastodon. The phone screen

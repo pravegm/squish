@@ -94,12 +94,21 @@ xcrun simctl bootstatus "$UDID" -b
 xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 \
   --cellularMode active --cellularBars 4 --wifiBars 3 || true
 xcrun simctl install "$UDID" "$APP"
-# Warm-up launch: the first launch after install compiles shaders and is the slowest; never record it.
-xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE" -squishDemo "object=rubberDuck" >/dev/null
-sleep 12
-xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
-
 app_docs() { echo "$(xcrun simctl get_app_container "$UDID" "$BUNDLE" data)/Documents"; }
+
+# Warm-up, never kept: a full scripted duck press to its reveal (the first press after install builds the deformation
+# and shader state; in run 39965173658 the first recorded press stalled for its whole squash), under a throwaway
+# recording so the encoder is warm too.
+WARM_LOG="$OUT_ABS/logs/warmup.txt"; : > "$WARM_LOG"
+start_recording "$UDID" "$OUT_ABS/raw/_warmup.mp4" "$OUT_ABS/logs/warmup.rec.txt" || true
+xcrun simctl launch --terminate-running-process --stdout="$WARM_LOG" --stderr="$WARM_LOG" \
+  "$UDID" "$BUNDLE" -squishDemo "object=rubberDuck;reveal;seed=3;notoasts" >/dev/null
+wait_for_log "$WARM_LOG" "SQUISH-T demo reveal (up|missing)" 90 || say "warning: warm-up press never reached its reveal"
+sleep 2
+stop_recording
+say "warm-up: $(probe_video "$OUT_ABS/raw/_warmup.mp4" 2>/dev/null)"
+rm -f "$OUT_ABS/raw/_warmup.mp4"
+xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 
 # ---- record every segment -------------------------------------------------------------------------------------------
 record_segment() {
@@ -122,7 +131,9 @@ record_segment() {
       say "warning: $name: no reveal mark after 120 s"
     fi
   else
-    sleep 7.5
+    # The shelf: the app takes ~11–13 s from launch to its demo on the CI simulator; the sheet opens 1.2 s after.
+    wait_for_mark "$docs/preview-marks.txt" origin 90 || say "warning: $name: no origin mark after 90 s"
+    sleep 6.5
   fi
   stop_recording
   if [[ "$scen" == *pressaudio* ]]; then
@@ -138,9 +149,52 @@ record_segment() {
   xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 }
 
+# recording_ok <name> <from spec> <to spec>: the recording has no frame gap over 0.4 s inside the cut (a render stall).
+recording_ok() {
+  local m="$OUT_ABS/raw/$1.marks.txt" rec s e g
+  rec=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing")
+  s=$(spec_epoch "$m" "$2"); e=$(spec_epoch "$m" "$3")
+  [[ -n "$s" && -n "$e" ]] || { say "   $1: marks missing for the cut"; return 1; }
+  g=$(frame_gaps "$OUT_ABS/raw/$1.mp4" "$(calc "$s - $rec")" "$(calc "$e - $rec")")
+  say "   $1 cut window: $g"
+  local gap="${g#*maxgap=}"; gap="${gap%% *}"
+  calc_ok "$gap <= 0.4"
+}
+
+for seg in "${SEGMENTS[@]}"; do
+  IFS='|' read -r name scen from to <<< "$seg"
+  for attempt in 1 2 3; do
+    record_segment "$name" "$scen"
+    # The shelf sheet is static once open (recordVideo writes no frames for a still screen), so only presses are checked.
+    [[ "$scen" != *pressaudio* ]] && break
+    recording_ok "$name" "$from" "$to" && break
+    say "warning: $name: render stall inside the cut (attempt $attempt); recording it again"
+  done
+done
+
+# Audio/picture calibration per press: the app's sound is placed by wall clock, but the simulator shows a frame some
+# time after the engine event (render latency at ~15–20 fps). Every press here fails, and the failure whitens the top
+# of the screen, so measure where that flash is in the recording and delay the sound by the same amount (0–0.5 s).
 for seg in "${SEGMENTS[@]}"; do
   IFS='|' read -r name scen _ _ <<< "$seg"
-  record_segment "$name" "$scen"
+  printf -v "CAL_$name" %s 0
+  [[ "$scen" == *pressaudio* ]] || continue
+  m="$OUT_ABS/raw/$name.marks.txt"; f=$(mark_epoch "$m" failure)
+  [[ -n "$f" ]] || { say "calibrate $name: no failure mark; sound placed by clock only"; continue; }
+  rec=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$name.timing")
+  fv=$(calc "$f - $rec")
+  ft=$(flash_time "$OUT_ABS/raw/$name.mp4" "$(calc "$fv - 0.3")" "$(calc "$fv + 0.8")")
+  if [[ -n "$ft" ]]; then
+    d=$(calc "${ft%% *} - $fv"); rise="${ft##* }"
+    if calc_ok "$d >= 0 && $d <= 0.5 && $rise >= 8"; then
+      printf -v "CAL_$name" %s "$d"
+      say "calibrate $name: failure mark at ${fv}s, flash at ${ft%% *}s (dY $rise): sound delayed ${d}s"
+    else
+      say "calibrate $name: flash at ${ft%% *}s (dY $rise) vs mark ${fv}s is implausible; sound placed by clock only"
+    fi
+  else
+    say "calibrate $name: no flash found; sound placed by clock only"
+  fi
 done
 
 # ---- cut ------------------------------------------------------------------------------------------------------------
@@ -153,8 +207,12 @@ seg_window() {
   if [[ -z "$s" || -z "$e" || -z "$origin" ]]; then
     say "error: $name: missing marks for '$2' / '$3' (origin=${origin:-none})"; return 1
   fi
-  A=$(calc "$s - $rec"); DUR=$(calc "$e - $s"); OFF=$(calc "$origin - $rec")
+  local cal="CAL_$name"
+  A=$(calc "$s - $rec"); DUR=$(calc "$e - $s"); OFF=$(calc "$origin - $rec + ${!cal:-0}")
   calc_ok "$A >= 0" || { say "error: $name: cut starts before the recording (A=$A)"; return 1; }
+  local len
+  len=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT_ABS/raw/$name.mp4")
+  calc_ok "$A + $DUR <= $len + 0.05" || { say "error: $name: cut ends at $(calc "$A + $DUR")s, after the recording ($len s)"; return 1; }
 }
 
 SEGS=()
