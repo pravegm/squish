@@ -85,94 +85,192 @@ The live page already shows web-sized copies (≈900 px tall JPEGs in `site/asse
 
 ## Pitch emails
 
+*The founder sends these by hand from their own email account. No tool sends anything. Dates and order follow `launch-checklist.md`. Each one is plain text: paste the subject line, then the body (the text inside the quote block).*
+
+**Fill in only these before sending.** Every other link below is live.
+- `[your name]`: your sign-off.
+- `[App Store link]` (from Sat 7 Nov, once pre-order is live): `https://apps.apple.com/app/id<your app ID>`, from App Store Connect › App Information › Apple ID.
+- `[TestFlight link]` (from Fri 6 Nov): the public TestFlight link.
+- `[promo code]` and `[expiry date]` (creator emails only, after approval).
+
+**The links these emails use:**
+- Press page: https://pravegm.github.io/squish/press/
+- Site: https://pravegm.github.io/squish/
+- Press-kit release: https://github.com/pravegm/squish/releases/tag/press-kit. When you create it, attach the files from `docs/press/` and the two preview masters from the `preview-69` and `preview-duo` artifacts of `preview.yml`, **renamed exactly as below**. The direct links in the emails depend on these names:
+
+| Attach as | From |
+|---|---|
+| `squish-duo-duck.mp4` | `docs/press/squish-duo-duck.mp4` (9.5 s, iPhone Duo, with sound) |
+| `squish-glass.mp4`, `squish-can.mp4`, `squish-glass-loop.gif` | `docs/press/` |
+| `squish-preview-duo.mp4` | artifact `preview-duo` › `preview-duo/preview-duo.mp4` (the iPhone Duo App Preview, 19 s, native aspect) |
+| `squish-preview-iphone.mp4` | artifact `preview-69` › `preview-69/preview-69.mp4` (the 6.9" App Preview, 26 s, 886 × 1920) |
+
 General rules:
-- Plain text. Clip link in the first two lines. Under 150 words.
-- One follow-up after 4–5 days, then stop.
-- Never attach large files; link to a page.
-- Send tip-line emails **this week** (claim the idea), then a launch note on release day.
+- Plain text, under 150 words, with the clip link in the first two lines.
+- Never attach video. Link to it.
+- Send each outlet its own email; never CC.
+- Follow up only on the dates in the table below, then stop.
 
 > Addresses marked [verify] come from older public listings. Check each site's current "tips" or "contact" page before sending.
 
-### 1. Tip lines: TechCrunch, MacRumors, 9to5Mac
-*To: tips@techcrunch.com / tips@macrumors.com / tips@9to5mac.com [verify] · send separately, never CC'd*
+| When | Email | To |
+|---|---|---|
+| **Sun 25 Oct** | 1. Tip lines | TechCrunch, MacRumors, 9to5Mac |
+| **Sun 25 Oct** | 1a. FoldHunt listing request | FoldHunt |
+| **Sat 7 Nov** (once pre-order is live) | 1b. One-line pre-order follow-up | the three tip lines, as a reply to email 1 |
+| **Tue 10 Nov** | 3. PocketGamer / TouchArcade | both, separately |
+| **Wed 11 Nov** | 2. Digital Trends | Vikhyaat Vivek |
+| **Sat 21 – Mon 23 Nov** (after approval, when codes exist) | 4. Duo creators | the 20–30 creators shortlisted on 11 Nov |
+| **Tue 24 Nov** | 5. Launch-day note, and 5a. FoldHunt update | every journalist contacted; FoldHunt |
+| **Thu 10 Dec** | 6. Free-update note (once) | everyone contacted earlier |
 
-**Subject:** Tip: someone turned the iPhone Duo into a hydraulic press (15s clip)
+*(Emails 1–4 keep their numbers because `launch-checklist.md` refers to them by number.)*
 
-> Hi [Outlet] team,
+### 1. Tip lines: TechCrunch, MacRumors, 9to5Mac (Sun 25 Oct)
+*To: tips@techcrunch.com / tips@macrumors.com / tips@9to5mac.com [verify] · send separately, never CC'd. If you filmed the real-hands teaser and posted it on 24 Oct, put the link to that post on the clip line instead.*
+
+**Subject:** Tip: someone turned the iPhone Duo into a hydraulic press (10s clip)
+
+> Hi there,
 >
-> 15-second clip: [link]
+> 10-second clip (screen recording, sound on): https://github.com/pravegm/squish/releases/download/press-kit/squish-duo-duck.mp4
 >
-> I'm building **Squish**, an iPhone Duo toy where the hinge works as a hydraulic press. Pick a virtual object, push the top half down slowly, and it strains, cracks and gives way in sync with your hand, with matching haptics and sound. Close it for a "ka-chunk", reopen to find a pressed specimen card.
+> I'm building Squish, an iPhone Duo toy where the hinge works as a hydraulic press. Pick a virtual object, close the top half slowly, and it strains, cracks and gives way in step with your hand, with matching haptics and sound. Close it for a "ka-chunk", reopen to find a pressed specimen card.
 >
-> - On every iPhone (drag to press); the Duo is the hero.
+> - Works on every iPhone (drag to press); the Duo is the hero.
 > - £2.99/$2.99, no ads, no IAP, no data collected.
-> - Pre-order [~7 Nov], launch [24 Nov].
+> - Pre-order from early November, launch planned for Tue 24 Nov.
 >
-> Happy to send TestFlight, hi-res clips, or a quote. No embargo.
+> Happy to send TestFlight, more clips or a quote. No embargo.
 >
-> [Founder name], [Studio name]
+> [your name], Squish
 > https://pravegm.github.io/squish/press/
 
-### 2. Digital Trends: Vikhyaat Vivek (wrote "The iPhone Duo has developers going wild", 10 Oct 2026)
-*To: [find via Digital Trends author page / X / Muck Rack]*
+### 1a. FoldHunt: listing request (Sun 25 Oct)
+*To: FoldHunt's submission form or contact address [verify on the site]*
+
+**Subject:** Listing request: Squish, a hydraulic press toy for iPhone Duo
+
+> Hi,
+>
+> Could you add Squish to FoldHunt? It's an iPhone Duo toy where the hinge is a hydraulic press: close the phone slowly over a virtual object and it squishes in real time, then reopen it to find a pressed specimen card.
+>
+> - Uses the hinge angle continuously (tabletop and book pose), plus the cover display for the "press sealed" card.
+> - £2.99/$2.99, no ads, no IAP. Launch planned for Tue 24 Nov, pre-order from early November.
+> - Clip: https://github.com/pravegm/squish/releases/download/press-kit/squish-duo-duck.mp4
+> - Icon and screenshots: https://pravegm.github.io/squish/press/
+>
+> I'll send the App Store link the day it's live.
+>
+> Thanks,
+> [your name], Squish
+
+### 1b. Tip lines: pre-order follow-up (Sat 7 Nov)
+*Reply in the same thread as email 1, to each outlet separately. Only once pre-order is live.*
+
+**Subject:** Re: Tip: someone turned the iPhone Duo into a hydraulic press (10s clip)
+
+> Quick follow-up: Squish is now up for pre-order, out Tue 24 Nov: [App Store link]
+>
+> The App Preview (iPhone Duo, with sound): https://github.com/pravegm/squish/releases/download/press-kit/squish-preview-duo.mp4
+>
+> [your name]
+
+### 3. PocketGamer / TouchArcade (Tue 10 Nov)
+*To: PocketGamer reviews/news desk [verify on pocketgamer.com contact page] · TouchArcade: "Submit a Tip" link / staff email at the bottom of the forums [verify]; also post a dev thread in TouchArcade's forums, identifying yourself as the developer*
+
+**Subject:** Squish: a premium, ad-free crush toy for iPhone Duo (and every iPhone). Pre-order now
+
+> Hi,
+>
+> Crush games on iOS are mostly ad farms, untouched for years. Squish is the opposite: a £2.99/$2.99 toy with no ads, no IAP, no energy and no timers, where each object breaks its own way and you feel it through the haptics.
+>
+> On iPhone Duo, closing the phone *is* the press: the crush follows the hinge in real time, then a "ka-chunk" seals it and you reopen to a pressed specimen card. On other iPhones you drag the ram down.
+>
+> - 10 objects at launch, including one secret that doesn't behave
+> - Perfect Squish (slow, steady closes) and 1-in-50 Golden presses, plus a collection shelf
+> - Game Center achievements, a full press-without-folding mode
+> - Pre-order: [App Store link] · out Tue 24 Nov · free holiday object drop in December
+>
+> App Preview: https://github.com/pravegm/squish/releases/download/press-kit/squish-preview-duo.mp4
+> TestFlight: [TestFlight link] · promo code on request once it's approved.
+>
+> [your name], Squish
+> https://pravegm.github.io/squish/press/
+
+### 2. Digital Trends: Vikhyaat Vivek (Wed 11 Nov)
+*He wrote "The iPhone Duo has developers going wild" (10 Oct 2026). To: [find via his Digital Trends author page / X / Muck Rack]*
 
 **Subject:** One for the "developers going wild" pile: the Duo as a hydraulic press
 
 > Hi Vikhyaat,
 >
-> Your piece on Duo developers (Duo-Man, Accorduon, Twofold) was the one that made me feel like it's 2009 on the App Store again. I liked your point that the best ones make the hinge *part of the interaction*, not just a layout trick.
+> Your piece on Duo developers (Duo-Man, Accorduon, Twofold) made me feel like it's 2009 on the App Store again. I liked your point that the best ones make the hinge part of the interaction, not just a layout trick.
 >
-> So: **Squish** makes the hinge the whole interaction. The phone is a hydraulic press. A virtual object sits on the lower screen, and as you close the top half the press follows your hand, degree by degree: bubble wrap pops bubble by bubble, a rubber duck's squeak climbs with the pressure, glass creaks before it goes. Snap it shut, reopen, and the result is stamped as a pressed specimen.
+> So: Squish makes the hinge the whole interaction. The phone is a hydraulic press. A virtual object sits on the lower screen, and as you close the top half the press follows your hand, degree by degree: bubble wrap pops bubble by bubble, a rubber duck's squeak climbs with the pressure, glass creaks before it goes. Snap it shut, reopen, and the result is stamped as a pressed specimen.
 >
-> 20s clip: [link] · TestFlight: [link]
-> £2.99/$2.99, no ads, no IAP, launching [24 Nov]. It also runs on non-Duo iPhones.
+> 19-second App Preview (iPhone Duo): https://github.com/pravegm/squish/releases/download/press-kit/squish-preview-duo.mp4
+> TestFlight: [TestFlight link]
 >
-> Happy to talk about how we map hinge angle to "pressure" and haptics, or anything else.
+> £2.99/$2.99, no ads, no IAP, out Tue 24 Nov. It also runs on non-Duo iPhones. Happy to talk about how the hinge angle maps to "pressure" and haptics.
 >
-> [Founder name]
+> [your name], Squish
 
-*(Founder decision: he was sceptical of "vibe-coding" as a standard. If the build process comes up, be straightforward about it rather than vague. See the open question in the summary.)*
+*(Founder decision: he was sceptical of "vibe-coding" as a standard. If the build process comes up, be straightforward about it rather than vague.)*
 
-### 3. PocketGamer / TouchArcade
-*To: PocketGamer reviews/news desk [verify on pocketgamer.com contact page] · TouchArcade: "Submit a Tip" link / staff email at the bottom of the forums [verify]; also post a dev thread in TouchArcade's forums, identifying yourself as the developer*
-
-**Subject:** Squish: a premium, ad-free crush toy for iPhone Duo (and every iPhone). Pre-order now
-
-> Hi [name],
->
-> Crush games on iOS are mostly ad farms that haven't been updated in years. **Squish** is the opposite: a £2.99/$2.99 toy with no ads, no IAP, no energy and no timers, where each object breaks its own way and you feel it through the haptics.
->
-> On iPhone Duo, closing the phone *is* the press: the crush follows the hinge in real time, then a "ka-chunk" seals it and you reopen to a pressed specimen card. On other iPhones you drag the ram down.
->
-> - 10 objects at launch, including one secret that doesn't behave
-> - Perfect Squish (slow, steady closes) and 1-in-50 Golden variants, plus a collection shelf
-> - Game Center achievements, full accessibility mode
-> - Pre-order: [link] · Launch [24 Nov] · Free holiday object drop in December
->
-> Trailer: [link] · Promo code or TestFlight on request.
->
-> [Founder name], [Studio name]
-
-### 4. Duo creator (TikTok / YouTube / Shorts)
-*To: [creator business email from bio] · only creators who already own a Duo and post "apps you need" or "weird apps" content*
+### 4. Duo creators: TikTok / YouTube / Shorts (Sat 21 – Mon 23 Nov)
+*To: [creator business email from bio] · only creators who already own a Duo and post "apps you need" or "weird apps" content. Send after approval, once promo codes exist, and record who got each code. Personalise the first line for each creator, or delete it.*
 
 **Subject:** A free code for Squish: the Duo becomes a hydraulic press
 
-> Hey [name],
+> Hey,
 >
-> Loved your [specific video] (the [specific moment] got me).
+> I make Squish: your Duo becomes a hydraulic press. Put a virtual egg on the bottom screen, close the phone slowly, and feel it crack in your hand, then ka-chunk. It reads really well on camera from a three-quarter overhead angle.
 >
-> I make **Squish**: your Duo becomes a hydraulic press. Put a virtual egg on the bottom screen, close the phone slowly, and feel it crack in your hand, then *ka-chunk*. It reads really well on camera from a three-quarter overhead angle.
->
-> Here's a free code: **[promo code]** (redeem in the App Store by [expiry date]). No strings attached: no script, no obligation to post. If you do make something:
-> - Raw caption-free clips and a 10s hook you can drop in: [link]
+> Here's a free code: [promo code] (redeem in the App Store by [expiry date]). No strings attached: no script, no obligation to post. If you do make something:
+> - Caption-free clips you can drop in: https://github.com/pravegm/squish/releases/tag/press-kit
 > - Please keep everything on screen. No real objects between the halves (we're careful about that one).
 > - If you post, a "gifted" tag keeps everyone right with the platform rules.
 >
 > The secret 10th object makes a good reveal if you get that far. I won't spoil it.
 >
 > Thanks either way!
-> [Founder name], Squish
+> [your name], Squish
+
+### 5. Launch-day note (Tue 24 Nov)
+*To: every journalist you emailed (1, 2, 3), each separately, as a reply in your earlier thread.*
+
+**Subject:** Re: [the subject of your earlier email]
+
+> Squish is out today: [App Store link]
+>
+> The iPhone Duo's hinge becomes a hydraulic press; on other iPhones you drag the ram. £2.99/$2.99, no ads, no IAP, no data collected. No embargo, and everything on the press page is free to use: https://pravegm.github.io/squish/press/
+>
+> App Preview: https://github.com/pravegm/squish/releases/download/press-kit/squish-preview-duo.mp4 · promo code on request.
+>
+> [your name]
+
+### 5a. FoldHunt: listing update (Tue 24 Nov)
+*Reply in the email 1a thread.*
+
+**Subject:** Re: Listing request: Squish, a hydraulic press toy for iPhone Duo
+
+> Squish is live: [App Store link]. Could you update the listing with the App Store link? Thanks again.
+>
+> [your name]
+
+### 6. Free-update note (Thu 10 Dec, once)
+*To: everyone contacted earlier, as a reply in your earlier thread. Fill in the new objects from the final 1.1 build; never name one that isn't in it. After this, no more update emails.*
+
+**Subject:** Re: [the subject of your earlier email]
+
+> One last note: Squish 1.1 is out today with the free Holiday Object Drop ([the new objects]), for everyone who has the app. [App Store link]
+>
+> Clips: https://github.com/pravegm/squish/releases/tag/press-kit
+>
+> That's the last update email from me. Thanks for reading.
+>
+> [your name]
 
 ---
 

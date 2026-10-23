@@ -1,10 +1,38 @@
 # Squish: App Preview and social teaser scripts
 
+## 0. As delivered (Oct 2026): the CI-rendered previews
+
+`.github/workflows/preview.yml` (manual) renders both previews from real screen recordings of the app (`simctl io recordVideo`) on GitHub's macOS runners. No hands, no device frame, no captions burned in, nothing animated by hand. This replaces the on-device capture plan below until the founder records on hardware.
+
+| | 6.9" (`preview-69.mp4`, artifact `preview-69`) | iPhone Duo (`preview-duo-886x1920.mp4` to upload, `preview-duo.mp4` native master; artifact `preview-duo`) |
+|---|---|---|
+| Size | 886 × 1920 (the iPhone 18 Pro Max's 1320 × 2868 scaled to cover; ~3 px of status bar/home indicator cropped, no UI) | 886 × 1920: the inner display 886 × 1260, centred on `#F3EEE6` bands (the §A layout; the bands are empty). Master 1350 × 1920 |
+| Duration | **26.2 s** (duck 10.2 · can 5.7 · glass 6.2 · shelf 4.0) | **19.2 s** (duck close 7.2 · reopen and reveal 4.3 · glass 7.7) |
+| Video | H.264 High 4.0, 30 fps constant, 10 Mbit/s | H.264 High 4.0, 30 fps constant, ~3.5 Mbit/s (the encoder needs less for the flat panels; master High 5.0) |
+| Audio | **Yes.** Stereo AAC 256 kbit/s, 48 kHz, −16 LUFS target (measured −17.3 LUFS, −1.4 dBFS peak; AAC averages ~190 kbit/s on this sparse sound) | **Yes**, same (measured −17.0 LUFS, −1.3 dBFS peak) |
+| Poster frame | **00:03.55** (the duck mid-squash, in its hold) | **00:03.48** (the duck mid-squash on the anvil half) |
+| Delivered by | `preview.yml` run 39992130391 (artifacts `preview-69`, `preview-duo`) | the same run |
+| Beats | duck slow press → reveal card · soda can buckles → sealed · glass creaks, holds, breaks · the shelf | duck close (to 58°) → hard cut to the reopen and reveal card · glass close and break |
+
+**How it's made** (`ci/preview.sh`, `ci/preview-duo.sh`, `ci/preview-lib.sh`, `ci/preview-retime.swift`):
+- **The presses.** 6.9": the scripted touch press with `slowpress` (a hand-paced curve: ease onto the object, squeeze, a hold just short of the failure, through) after an off-record `prewarm` press, so the recorded take renders without first-use stalls; best of up to three takes by longest frame gap. Duo: `hingescript` feeds a hand-paced hinge curve through the app's own hinge input at 60 Hz on the real iPhone Duo simulator in tabletop pose, because the simulator's `hinge` CLI stalls mid-sweep. Only the part of the close a real inner display would show (down to 58°) and the reopen are in the cut; there is no cover-display shot.
+- **The sound** is the app's own: after each reveal the app re-renders the press from its recorded trace through `OfflineAudio` (the share-clip renderer, at real speed) into a WAV, and the script places it by wall clock (the simulator shares the runner's clock), then nudges it by where the failure flash actually appears in the recording (render latency, 0–0.25 s).
+- **Timing.** Recordings are re-timed through AVFoundation before ffmpeg touches them: `recordVideo` files carry a few frames with huge composition offsets, and ffmpeg's timestamps drifted 1–8 s off on them.
+- **Checks in `REPORT.txt`:** ffprobe facts and loudness of every output, per-take frame-gap check, calibration per press, and a sync check of the glass flash against its mark; `frames/` holds stills (including the poster) for review.
+
+**Limits, honestly:** the CI simulators render at ~35 fps (each frame is shown until the next, at a constant 30 fps), and a take can still hold one frame for up to ~0.2–0.4 s around a fracture (the script keeps the best of three takes). It reads as a beat, not a glitch, but an on-device QuickTime capture (plan below) would be smoother. Captions (§A) are not burned in; previews autoplay muted, so add them in an editor if wanted.
+
+**Upload:** App Store Connect › the version › App Preview: `preview-69.mp4` in the 6.9" slot, `preview-duo-886x1920.mp4` in the iPhone Duo slot; set the poster frames above.
+
+**Social and press cuts** from the same recordings are in `docs/press/` (see `docs/press/fact-sheet.md` and `social-launch.md`).
+
+---
+
 ## Rules this script obeys
 
 | Rule | Source | How we comply |
 |---|---|---|
-| 15–30 s, ≤ 30 fps, H.264 (10–12 Mbps) or ProRes 422 HQ, stereo AAC 256 kbps at 44.1/48 kHz, ≤ 500 MB, up to 3 previews per device size and language | Apple, App preview specifications | A **30 s** cut, H.264 `.mp4` at 30 fps, −16 LUFS / −1 dBTP (bible §8) |
+| 15–30 s, ≤ 30 fps, H.264 (10–12 Mbps) or ProRes 422 HQ, stereo AAC 256 kbps at 44.1/48 kHz, ≤ 500 MB, up to 3 previews per device size and language | Apple, App preview specifications | A **30 s** cut in this plan (the CI cuts in §0 run 26 s and 19 s), H.264 `.mp4` at 30 fps, −16 LUFS / −1 dBTP (bible §8) |
 | **Accepted resolution for iPhone Duo, 6.9" and 6.5": 886 × 1920 portrait (or 1920 × 886 landscape)** | Apple, App preview specifications | Portrait 886 × 1920. The Duo inner display (2007 × 2853, aspect 0.70) doesn't fill a 0.46 frame, so we **scale the inner screen to 886 px wide (≈ 1,260 px tall), centre it, and use the off-white bands above and below for captions**. Never crop into the UI |
 | Show only the app; **"Don't film people interacting with a device"**; capture on device | Apple, App Previews guidelines | **No hands in the App Preview.** The fold is shown by the app's own ram descending plus an overlaid fold glyph (allowed in the same way as Apple's "touch hotspots"). Real hands go in the social teaser only |
 | Previews autoplay **muted**; copy must be legible and stay on screen long enough | Apple | Every beat has a caption, ≤ 6 words, each on screen ≥ 1.5 s |
@@ -34,7 +62,7 @@ Audio: the app's own sound throughout (hiss, gauge ticks climbing the pentatonic
 | **01.6–02.4** | The final volley: the rest of the sheet bursts at once, the top screen flashes white for 2 frames, and the sheet flattens | ***Feel* it give.** | Volley + tonic resolve |
 | **02.4–03.0** | The ram holds at full depth, a crumb of plastic settles, and the fold glyph completes the close | ***Feel* it give.** (held) | Motor spins down |
 | **03.0–04.6** | Cut to the **outer display**: the "PRESS SEALED · 48 TONS · OPEN TO SEE" card, gauge needle settling | ***Ka-chunk.*** | Ka-chunk (heavy, fixed brand sound) |
-| **04.6–06.6** | Back to the inner display: the ram lifts, 2 s slow-mo replay of the volley, then the card pops in: "BUBBLE WRAP · 48 pops", and the red PRESSED stamp thunks | **Open it to see.** | Release sigh → reveal sting |
+| **04.6–06.6** | Back to the inner display: the ram lifts, 2 s slow-mo replay of the volley, then the card pops in: "BUBBLE WRAP · 24 pops", and the red PRESSED stamp thunks | **Open it to see.** | Release sigh → reveal sting |
 | **06.6–10.0** | **Rubber Duck, slow close.** Squeak pitch rising, sideways bulge, then the comic *bloop* flat. **00:08.0 is the poster frame** (mid-squash) | **Slowly is *better*.** | Rising squeak, bloop |
 | **10.0–12.2** | Egg: hairline cracks spread, *crack*, and the yolk spreads | ***Ten* objects.** | Shell crack, soft spread |
 | **12.2–13.6** | Crayon: clean SNAP, second snap, waxy smear | **Ten ways to *give*.** | Snap, snap |
