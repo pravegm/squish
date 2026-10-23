@@ -623,6 +623,15 @@ verify_toasts() {
   fi
   vnote "   at the shot: $(hinge_line "$applog")"
   [[ -n "$sweep_pid" ]] && wait "$sweep_pid" 2>/dev/null
+  # The app's own capture, 0.6 s after the first toast (DemoCapture): exact timing, whatever the log lag.
+  fsleep 3
+  data=$(app_data)
+  if [[ -n "$data" && -f "$data/Documents/toast-shot.png" ]]; then
+    cp "$data/Documents/toast-shot.png" "$OUT/verify/duo-reveal-toast-app.png"
+    vnote "   verify/duo-reveal-toast-app.png: the app's window 0.6 s after '$(grep "SQUISH-T toast shown" "$applog" | head -1)' ($(grep "SQUISH-T capture toast-shot" "$applog" | tail -1))"
+  else
+    vnote "   WARN no Documents/toast-shot.png ($(grep "SQUISH-T capture toast-shot" "$applog" | tail -1))"
+  fi
   CUR="$REVEAL_ANGLE"
   fsleep "$SETTLE"
   shoot verify/duo-reveal-toasts-settled inner

@@ -1,4 +1,30 @@
 import Foundation
+import UIKit
+
+#if DEBUG
+/// CI verify frames that need exact timing (a toast is up for 3 s; the scripts see log lines late): the app writes
+/// its own key window, SwiftUI overlays included, to Documents/<name>.png.
+@MainActor enum DemoCapture {
+    static func window(_ name: String) {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows).first(where: \.isKeyWindow) else {
+            print("SQUISH-T capture \(name) failed: no key window")
+            return
+        }
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        guard let data = image.pngData(),
+              let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        do {
+            try data.write(to: directory.appendingPathComponent("\(name).png"))
+            print("SQUISH-T capture \(name) ok \(Int(window.bounds.width))x\(Int(window.bounds.height))")
+        } catch {
+            print("SQUISH-T capture \(name) failed: \(error.localizedDescription)")
+        }
+    }
+}
+#endif
 
 /// Scripted states for CI screenshots and UI review, read from the `-squishDemo` launch argument.
 /// Format: `key=value;key;key=value`, e.g. `object=rubberDuck;depth=0.6` or `object=bubbleWrap;reveal`.
