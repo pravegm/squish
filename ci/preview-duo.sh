@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # The iPhone Duo App Preview: screen recordings of the real iPhone Duo simulator in tabletop pose (`orient=portrait`,
-# the 669 × 951 pt inner canvas with a horizontal fold), the press driven by the REAL simulated hinge (the `hinge` CLI,
-# as in ci/duo-screenshots.sh), cut with the app's own press sound.
+# the 669 × 951 pt inner canvas with a horizontal fold), cut with the app's own press sound. The press is the app's
+# Fold Press driven through its hinge input by the `hingescript` demo key (PressDirector), because the simulator's
+# `hinge` CLI stalls mid-sweep and costs 5–12 s per call (runs 39965173658, 39973167568). The CLI only opens the device.
 #
-# Segments (each its own launch, `seed=3;notoasts;orient=portrait`):
-#  - duck: one slow `hinge sweep` 180° → 58° (inner recording), the close to 0° (cover recording: PRESS SEALED), the
-#    reopen to 155° (inner recording, cut from the moment the panel lights): the reveal.
-#  - glass: one slow sweep to 60° (it fails at ~80°) and a hold; then shut and reopen off camera so the app reaches its
-#    reveal and renders the press audio.
+# Segments (each its own launch and recording, `seed=3;notoasts;orient=portrait`):
+#  - duck: `hingescript=7`: a human-paced close 180° → 58°, then a hard cut (the script goes on to 44° and seals, out of
+#    shot: a real inner display is dark below ~55°) to the reopen, from just before the reveal card to 3 s after.
+#  - glass: the same close; it fails at ~80°; cut 1.8 s after the failure.
 #  - shelf: the seeded shelf sheet (`shelf;previewmarks`).
+# There is no cover-display shot: only one recordVideo runs at a time, and the scripted hinge never really closes.
 # Outputs in $OUT (preview-duo): preview-duo.mp4 at the inner display's native aspect (2007 × 2853 → 1350 × 1920), and
 # preview-duo-886x1920.mp4, the size App Store Connect accepts for iPhone Duo previews (inner screen 886 × 1260 centred
 # on #F3EEE6 bands, the preview-video.md §A layout, captions not burned in); frames/, raw/, seg/, logs/, REPORT.txt.
@@ -138,56 +139,47 @@ collect() {   # collect <press> <scenario>: marks and wav, once the app has rend
   docs="$(app_docs)"
   cp "$docs/preview-marks.txt" "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null || say "WARN $name: no marks file"
   cp "$docs/press-audio.wav" "$OUT_ABS/raw/$name.wav" 2>/dev/null || true
+  cat "$docs/preview-script.txt" >> "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null || true   # hingescript steps
   say "$name marks: $(tr '\n' ' ' < "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null | cut -c1-600)"
   grep -E "SQUISH-H" "$log" > "$OUT_ABS/logs/$name.hinge.txt" 2>/dev/null || true
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 }
 
 BASE="seed=3;notoasts;orient=portrait"
-# Warm-up (first launch compiles shaders; a full press warms the deformation path): never recorded.
-launch_tabletop warmup "object=rubberDuck;duo;$BASE"
-sweep_to 60 3; sweep_to 0 1; fsleep 2; sweep_to 160 1.5; fsleep 3
-to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+# The presses are driven in the app by `hingescript` (PressDirector: samples fed through hingeUpdate at 60 Hz while
+# the simulated Duo lies open at 180°): the `hinge` CLI stalled mid-sweep and costs 5–12 s per call (run 39973167568).
+# The CLI only puts the device at 180° before each launch. Each recording starts before its launch and ends 3.5 s after
+# the script's last step, so every cut point is inside it.
+# press_take <name> <scenario>: record one hingescript press and collect its marks, script steps and sound.
+press_take() {
+  local name="$1" scen="$2" docs
+  [[ "$CUR" != 180 ]] && sweep_to 180 1 confirm
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  docs="$(app_docs)"; mkdir -p "$docs"
+  rm -f "$docs/preview-marks.txt" "$docs/press-audio.wav" "$docs/press-audio.txt" "$docs/preview-script.txt"
+  : > "$OUT_ABS/logs/$name.txt"
+  rec_begin "$name" inner || return 1
+  to 60 xcrun simctl launch --terminate-running-process --stdout="$OUT_ABS/logs/$name.txt" --stderr="$OUT_ABS/logs/$name.txt" \
+    "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 || say "launch failed: $name"
+  if [[ "$scen" == *hingescript* ]]; then
+    wait_for_mark "$docs/preview-script.txt" script-160 150 || say "WARN $name: the hinge script never reached its end"
+    fsleep 3.5
+  else
+    wait_for_mark "$docs/preview-marks.txt" origin 120 || say "WARN $name: no origin mark"
+    fsleep 6.5
+  fi
+  rec_end "$name"
+  grep -h "SQUISH-T hingescript\|SQUISH-T orient" "$OUT_ABS/logs/$name.txt" | tee -a "$REPORT" >&2 || true
+  collect "$name" "$scen"
+}
 
-# duck: one slow close to 58° (inner), the close to 0° (cover: PRESS SEALED), the reopen to 155° (inner: the reveal).
-S="object=rubberDuck;duo;$BASE;pressaudio"
-launch_tabletop duck "$S"
-DOCS="$(app_docs)"
-rec_begin duck-press inner
-sweep_to 58 7.5
-fsleep 0.8
-rec_end duck-press
-if rec_begin duck-cover cover; then :; fi
-sweep_to 0 1.2
-fsleep 2.8
-rec_end duck-cover
-rec_begin duck-reveal inner
-sweep_to 155 1.5
-wait_for_mark "$DOCS/preview-marks.txt" reveal 30 || say "WARN duck: no reveal mark 30 s after the reopen"
-fsleep 4.5
-rec_end duck-reveal
-collect duck "$S"
+# Warm-up (first launch compiles shaders; one scripted press warms the deformation path): never kept.
+press_take warmup "object=rubberDuck;duo;$BASE;hingescript=4"
+rm -f "$OUT_ABS/raw/warmup.mp4"
 
-# glass: one slow close to 60° (it fails at ~80°) and a hold; then shut and reopen off camera so the app reaches its
-# reveal and renders the press audio.
-S="object=glassBottle;duo;$BASE;pressaudio"
-launch_tabletop glass "$S"
-DOCS="$(app_docs)"
-rec_begin glass inner
-sweep_to 60 7
-fsleep 1.8
-rec_end glass
-sweep_to 0 1.2; fsleep 2; sweep_to 155 1.5
-wait_for_mark "$DOCS/preview-marks.txt" reveal 30 || say "WARN glass: no reveal mark"
-collect glass "$S"
-
-# shelf: the sheet is already up by the time the recording starts (launch_tabletop waits ~10 s for the layout).
-S="object=rubberDuck;duo;$BASE;shelf;previewmarks"
-launch_tabletop shelf "$S"
-rec_begin shelf inner
-fsleep 5.5
-rec_end shelf
-collect shelf "$S"
+press_take duck "object=rubberDuck;duo;$BASE;pressaudio;hingescript=7"
+press_take glass "object=glassBottle;duo;$BASE;pressaudio;hingescript=7"
+press_take shelf "object=rubberDuck;duo;$BASE;shelf;previewmarks"
 
 # ---- cut ------------------------------------------------------------------------------------------------------------
 rec_of() { sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing" 2>/dev/null; }
@@ -224,7 +216,7 @@ calibrate() {
 # first_lit <recording> <from s>: the first time after <from> the recording's mean brightness passes 25 (the inner
 # panel wakes ~150° into the reopen).
 first_lit() {
-  ffmpeg -nostdin -v error -ss "$2" -t 6 -i "$OUT_ABS/raw/$1.mp4" -vf "scale=120:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null \
+  ffmpeg -nostdin -v error -i "$OUT_ABS/raw/$1.mp4" -vf "trim=start=$2:duration=6,setpts=PTS-STARTPTS,scale=120:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null \
     | awk -v base="$2" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 } /YAVG/ { split($0, y, "="); if (y[2] + 0 > 25) { printf "%.3f", base + t; exit } }'
 }
 
@@ -242,41 +234,29 @@ add_cut() {   # add_cut <label> <recording> <wav|""> <A> <DUR> <OFF>
   AT=$(calc "$AT + $5")
 }
 
-calibrate duck duck-press
+calibrate duck duck
 calibrate glass glass
 DUCK_WAV="$OUT_ABS/raw/duck.wav"; [[ -f "$DUCK_WAV" ]] || DUCK_WAV=""
 POSTER=""
-if window duck duck-press "phase-pressing-0.5" "failure+1.2,phase-pressing+6.5"; then
+# duck: the close while a real inner display would still be lit (to 58° + 0.3 s), then a hard cut to the reopen, from
+# just before the reveal card comes up (the engine reveals at 120° on the way open) to 3 s after it.
+if window duck duck "phase-pressing-0.5" "script-58+0.3,phase-pressing+7"; then
   P_AT=$AT; P_A=$A
-  add_cut duck-press duck-press "$DUCK_WAV" "$A" "$DUR" "$OFF"
-  pe=$(spec_epoch "$OUT_ABS/raw/duck.marks.txt" "phase-pressing+3.0")
-  [[ -n "$pe" ]] && POSTER=$(calc "$pe - $(rec_of duck-press) - $P_A + $P_AT")
+  add_cut duck-press duck "$DUCK_WAV" "$A" "$DUR" "$OFF"
+  pe=$(spec_epoch "$OUT_ABS/raw/duck.marks.txt" "script-begin+3.6")   # the hold near 115°: mid-squash
+  [[ -n "$pe" ]] && POSTER=$(calc "$pe - $(rec_of duck) - $P_A + $P_AT")
 fi
-window duck duck-cover "closed-0.3" "closed+2.3" && add_cut duck-cover duck-cover "$DUCK_WAV" "$A" "$DUR" "$OFF"
-if [[ -f "$OUT_ABS/raw/duck-reveal.mp4" ]]; then
-  rv=$(mark_epoch "$OUT_ABS/raw/duck.marks.txt" reveal); rrec=$(rec_of duck-reveal)
-  if [[ -n "$rv" && -n "$rrec" ]]; then
-    lit=$(first_lit duck-reveal "$(calc "$rv - $rrec")")
-    say "duck reveal: mark at $(calc "$rv - $rrec")s in duck-reveal, panel lit at ${lit:-?}s"
-    [[ -n "$lit" ]] && printf -v LIT_EPOCH %s "$(calc "$lit + $rrec")"
-    # The reveal cut: from the lit panel for 3.2 s (fallback: reveal + 1.4 s).
-    if [[ -n "${LIT_EPOCH:-}" ]]; then
-      echo "lit epoch=$LIT_EPOCH t=0" >> "$OUT_ABS/raw/duck.marks.txt"
-      window duck duck-reveal "lit+0.05" "lit+3.25"
-    else
-      window duck duck-reveal "reveal+1.4" "reveal+4.6"
-    fi && add_cut duck-reveal duck-reveal "$DUCK_WAV" "$A" "$DUR" "$OFF"
-  fi
-fi
+window duck duck "reveal-0.25" "reveal+3.0" && add_cut duck-reveal duck "$DUCK_WAV" "$A" "$DUR" "$OFF"
 DUCK_END_AT=$AT
 GLASS_WAV="$OUT_ABS/raw/glass.wav"; [[ -f "$GLASS_WAV" ]] || GLASS_WAV=""
 GLASS_AT=""; GLASS_DUR=""
-if window glass glass "phase-pressing-0.4" "failure+1.8,phase-pressing+6.5"; then
+if window glass glass "phase-pressing-0.4" "failure+1.8,script-58+0.3"; then
   GLASS_AT=$AT; GLASS_DUR=$DUR
   add_cut glass glass "$GLASS_WAV" "$A" "$DUR" "$OFF"
 fi
-if [[ -f "$OUT_ABS/raw/shelf.mp4" ]] && calc_ok "$AT + 3.5 <= 29.5"; then
-  add_cut shelf shelf "" 1.0 3.5 0
+# shelf: from 3 s after the demo starts (the tabletop rotation and the sheet have settled), 3.5 s.
+if window shelf shelf "origin+3.0" "origin+6.5" && calc_ok "$AT + $DUR <= 29.5"; then
+  add_cut shelf shelf "" "$A" "$DUR" 0
 fi
 say "total cut: ${AT}s"
 
@@ -297,7 +277,7 @@ frames "$OUT_ABS/preview-duo.mp4" "$OUT_ABS/frames" "${STILLS[@]}"
 frames "$OUT_ABS/preview-duo-886x1920.mp4" "$OUT_ABS/frames" 3
 
 # Social clips (docs/press/), 1080 × 1920, from the finished native cut: the duck's last 9.5 s up to the end of its
-# reveal (squeeze, PRESS SEALED on the cover, reopen, specimen), and the glass.
+# reveal (the squeeze, then the reopen and the specimen card), and the glass.
 mkdir -p "$OUT_ABS/social"
 if calc_ok "$DUCK_END_AT > 9.5"; then
   social_from_master "$OUT_ABS/preview-duo.mp4" "$(calc "$DUCK_END_AT - 9.5")" 9.5 "$OUT_ABS/social/duo-duck.mp4" \

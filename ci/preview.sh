@@ -32,9 +32,9 @@ say() { echo "$*" | tee -a "$REPORT"; }
 # name|scenario|cut start|cut end. Cut points are "<mark>±<s>" with comma fallbacks (preview-lib.sh spec_epoch).
 # The order is the cut order. Durations at slowpress 5 / 4.5: duck ≈ 9.5 s, can ≈ 6 s, glass ≈ 6 s, shelf 4 s.
 SEGMENTS=(
-  "duck|object=rubberDuck;reveal;seed=3;notoasts;slowpress=5;pressaudio|phase-pressing-0.6|reveal+3.0"
-  "can|object=sodaCan;reveal;seed=3;notoasts;slowpress=4.5;pressaudio|phase-pressing-0.4|phase-sealed+0.9,reveal+0.2"
-  "glass|object=glassBottle;reveal;seed=3;notoasts;slowpress=5;pressaudio|phase-pressing-0.4|failure+2.2,phase-sealed+0.6"
+  "duck|object=rubberDuck;reveal;seed=3;notoasts;prewarm;slowpress=5;pressaudio|phase-pressing-0.6|reveal+3.0"
+  "can|object=sodaCan;reveal;seed=3;notoasts;prewarm;slowpress=4.5;pressaudio|phase-pressing-0.4|phase-sealed+0.9,reveal+0.2"
+  "glass|object=glassBottle;reveal;seed=3;notoasts;prewarm;slowpress=5;pressaudio|phase-pressing-0.4|failure+2.2,phase-sealed+0.6"
   "shelf|object=rubberDuck;shelf;notoasts;previewmarks|origin+1.1|origin+5.1"
 )
 VF="fps=30,scale=886:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=886:1920,setsar=1,format=yuv420p"
@@ -149,28 +149,44 @@ record_segment() {
   xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 }
 
-# recording_ok <name> <from spec> <to spec>: the recording has no frame gap over 0.4 s inside the cut (a render stall).
-recording_ok() {
+# take_gap <name> <from spec> <to spec>: the longest frame gap (s) inside the cut (a render stall), or 99 when the take
+# is unusable (no marks, no sound).
+take_gap() {
   local m="$OUT_ABS/raw/$1.marks.txt" rec s e g
-  rec=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing")
+  rec=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing" 2>/dev/null)
   s=$(spec_epoch "$m" "$2"); e=$(spec_epoch "$m" "$3")
-  [[ -n "$s" && -n "$e" ]] || { say "   $1: marks missing for the cut"; return 1; }
+  if [[ -z "$rec" || -z "$s" || -z "$e" || ! -f "$OUT_ABS/raw/$1.wav" ]]; then echo 99; return 0; fi
   g=$(frame_gaps "$OUT_ABS/raw/$1.mp4" "$(calc "$s - $rec")" "$(calc "$e - $rec")")
-  say "   $1 cut window: $g"
-  local gap="${g#*maxgap=}"; gap="${gap%% *}"
-  calc_ok "$gap <= 0.4"
+  say "   $1 cut window: $g" >&2
+  g="${g#*maxgap=}"; echo "${g%% *}"
+}
+TAKE_FILES="mp4 marks.txt wav audio.txt timing"
+keep_take() {   # keep_take <name> <attempt>: raw/<name>.* -> raw/<name>.take<attempt>.*
+  local x; for x in $TAKE_FILES; do [[ -f "$OUT_ABS/raw/$1.$x" ]] && mv "$OUT_ABS/raw/$1.$x" "$OUT_ABS/raw/$1.take$2.$x"; done; return 0
+}
+use_take() {    # use_take <name> <attempt>: raw/<name>.take<attempt>.* -> raw/<name>.*
+  local x; for x in $TAKE_FILES; do [[ -f "$OUT_ABS/raw/$1.take$2.$x" ]] && cp "$OUT_ABS/raw/$1.take$2.$x" "$OUT_ABS/raw/$1.$x"; done; return 0
 }
 
+# Up to three takes per press; the first with no frame gap over 0.25 s wins, otherwise the take with the smallest gap.
 for seg in "${SEGMENTS[@]}"; do
   IFS='|' read -r name scen from to <<< "$seg"
+  if [[ "$scen" != *pressaudio* ]]; then record_segment "$name" "$scen"; continue; fi
+  best=""; best_gap=99
   for attempt in 1 2 3; do
     record_segment "$name" "$scen"
-    # The shelf sheet is static once open (recordVideo writes no frames for a still screen), so only presses are checked.
-    [[ "$scen" != *pressaudio* ]] && break
-    recording_ok "$name" "$from" "$to" && break
-    say "warning: $name: render stall inside the cut (attempt $attempt); recording it again"
+    gap=$(take_gap "$name" "$from" "$to")
+    keep_take "$name" "$attempt"
+    say "   $name take $attempt: longest frame gap in the cut ${gap}s"
+    if calc_ok "$gap < $best_gap"; then best=$attempt; best_gap=$gap; fi
+    calc_ok "$gap <= 0.25" && break
   done
+  if [[ -z "$best" ]] || calc_ok "$best_gap >= 99"; then say "error: $name: no usable take"; exit 6; fi
+  use_take "$name" "$best"
+  say "$name: using take $best (longest frame gap ${best_gap}s)"
+  calc_ok "$best_gap > 0.25" && say "warning: $name: every take has a render stall of ${best_gap}s inside the cut (a short freeze in the preview)"
 done
+rm -f "$OUT_ABS"/raw/*.take*.mp4
 
 # Audio/picture calibration per press: the app's sound is placed by wall clock, but the simulator shows a frame some
 # time after the engine event (render latency at ~15–20 fps). Every press here fails, and the failure whitens the top

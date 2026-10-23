@@ -450,6 +450,7 @@ final class PressDirector {
             if demo.has("storeshot") { watchStoreShots(demo) }
             if demo.has("storegrid") { writeStoreGrid(demo) }
             if demo.has("pressaudio") || demo.has("previewmarks") { watchPreviewMarks() }
+            if demo.has("hingescript") { Task { @MainActor [weak self] in await self?.runHingeScript(demo) } }
             if demo.has("pressaudio") {
                 // The CI script drives the real hinge (press, close, reopen), so the reveal can take minutes.
                 Task { @MainActor [weak self] in await self?.writeDemoPressAudio(waitingUpTo: 900) }
@@ -515,10 +516,12 @@ final class PressDirector {
         }
         hingeUnavailable()
         if let kind = demo.object { load(kind) }
-        #if DEBUG
-        if demo.has("pressaudio") || demo.has("previewmarks") { watchPreviewMarks() }
-        #endif
         let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
+        #if DEBUG
+        // With `prewarm` the marks start after the warm-up press, at the recorded take's placement.
+        let prewarm = demo.has("prewarm") && targetDepth != nil
+        if (demo.has("pressaudio") || demo.has("previewmarks")) && !prewarm { watchPreviewMarks() }
+        #endif
         guard let targetDepth else { return }
         // The touch press arms at armAngleMax, so map with the contact point captured there (floating contact).
         let start = engine.config.armAngleMax
@@ -528,6 +531,12 @@ final class PressDirector {
             while renderedFrames < 30 {
                 try? await Task.sleep(for: .milliseconds(50))
             }
+            #if DEBUG
+            if prewarm {
+                await prewarmDemoPress(targetAngle: targetAngle)
+                if demo.has("pressaudio") || demo.has("previewmarks") { watchPreviewMarks() }
+            }
+            #endif
             print(String(format: "SQUISH-T demo press begins at %.2fs phase=%@ touch=%d", CACurrentMediaTime() - launchTime,
                          engine.phase.rawValue, usesTouchPress ? 1 : 0))
             virtualPress(0)
@@ -647,6 +656,99 @@ final class PressDirector {
             }
             virtualPress((180 - angle) / 180)
             if done { break }
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+    }
+
+    /// `prewarm` (touch press, with `depth=` or `reveal`): one quick press of the same object to its reveal, then Again,
+    /// before the scripted press. On the CI simulator the first crack, burst or failure of an object in a process
+    /// stalls rendering for 0.5–0.9 s (preview run 39973167568: every recorded take had one, at a fracture); doing it
+    /// once off the record means the take the preview uses renders smoothly. The marks (`pressaudio` /
+    /// `previewmarks`) start after it, so `origin` is the recorded take's placement. Logs `SQUISH-T demo prewarm done`.
+    private func prewarmDemoPress(targetAngle: Double) async {
+        let began = CACurrentMediaTime()
+        virtualPress(0)
+        try? await Task.sleep(for: .milliseconds(300))
+        for step in 1...60 {
+            let angle = 180 + (targetAngle - 180) * Double(step) / 60
+            virtualPress((180 - angle) / 180)
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        for _ in 0..<30 {
+            virtualPress((180 - targetAngle) / 180)
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        while revealed == nil, CACurrentMediaTime() - began < 20 {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        try? await Task.sleep(for: .seconds(1.5))   // the reveal card's own first-time work
+        let hadReveal = revealed != nil
+        again()
+        try? await Task.sleep(for: .seconds(1.5))   // the object lands again
+        print(String(format: "SQUISH-T demo prewarm done at %.2fs revealed=%d phase=%@", CACurrentMediaTime() - launchTime,
+                     hadReveal ? 1 : 0, engine.phase.rawValue))
+    }
+
+    /// `hingescript[=seconds]` (with `duo`, default 7): the Duo preview's press, fed through `hingeUpdate` exactly as
+    /// `onHingeChange` samples are, at 60 Hz, because the simulator's `hinge` CLI can't hold a steady sweep (preview run
+    /// 39973167568: a 180° → 58° sweep stalled at 125°, then jumped to 60° reporting "closed"; each call costs 5–12 s).
+    /// The real simulated Duo lies still at 180°, so it sends no samples of its own meanwhile. The script: wait for the
+    /// tabletop layout, close 180° → 58° on the `slowPressDepth` pacing (ease in, squeeze, a hold near 115°, through),
+    /// hold 0.6 s, on to 44° (below the ~55° where a real inner display is dark, so never used on camera) until the
+    /// press seals, then reopen to 160° in 1.2 s: the reveal. Writes Documents/preview-script.txt (`script-<step>
+    /// epoch=<unix s>`: begin, 58, sealed, reopen, 160) for ci/preview-duo.sh, and logs `SQUISH-T hingescript …`.
+    private func runHingeScript(_ demo: DemoScenario) async {
+        let close = max(demo.double("hingescript") ?? 7, 2)
+        var lines: [String] = []
+        let waitStart = CACurrentMediaTime()
+        while CACurrentMediaTime() - waitStart < 60 {
+            if renderedFrames >= 120, let layout = fold.layout, !layout.isBook { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        try? await Task.sleep(for: .seconds(2))
+        scriptMark("begin", into: &lines)
+        await scriptSweep(from: 180, to: 58, seconds: close, eased: false)
+        scriptMark("58", into: &lines)
+        await scriptHold(58, seconds: 0.6)
+        await scriptSweep(from: 58, to: 44, seconds: 0.5, eased: true)
+        let sealWait = CACurrentMediaTime()
+        while engine.phase != .sealed, CACurrentMediaTime() - sealWait < 3 {
+            hingeUpdate(angle: 44, closed: false)
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        scriptMark("sealed", into: &lines)
+        await scriptHold(44, seconds: 0.5)
+        scriptMark("reopen", into: &lines)
+        await scriptSweep(from: 44, to: 160, seconds: 1.2, eased: true)
+        scriptMark("160", into: &lines)
+        await scriptHold(160, seconds: 1)
+    }
+
+    private func scriptMark(_ name: String, into lines: inout [String]) {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        lines.append(String(format: "script-%@ epoch=%.3f t=0", name, Date().timeIntervalSince1970))
+        try? (lines.joined(separator: "\n") + "\n").write(to: documents.appendingPathComponent("preview-script.txt"),
+                                                         atomically: true, encoding: .utf8)
+        print(String(format: "SQUISH-T hingescript %@ at %.2fs angle=%.1f phase=%@", name,
+                     CACurrentMediaTime() - launchTime, engine.angle, engine.phase.rawValue))
+    }
+
+    /// from → to over `seconds` at 60 Hz: `eased` = smoothstep; otherwise the `slowPressDepth` pacing.
+    private func scriptSweep(from: Double, to: Double, seconds: Double, eased: Bool) async {
+        let began = CACurrentMediaTime()
+        while true {
+            let t = min(CACurrentMediaTime() - began, seconds)
+            let p = eased ? PressDirector.smooth(t / seconds) : PressDirector.slowPressDepth(at: t, duration: seconds)
+            hingeUpdate(angle: from + (to - from) * p, closed: false)
+            if t >= seconds { break }
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+    }
+
+    private func scriptHold(_ angle: Double, seconds: Double) async {
+        let began = CACurrentMediaTime()
+        while CACurrentMediaTime() - began < seconds {
+            hingeUpdate(angle: angle, closed: false)
             try? await Task.sleep(for: .milliseconds(16))
         }
     }
@@ -1083,8 +1185,11 @@ final class PressDirector {
         let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
         let w = window?.bounds.size ?? .zero
         let s = scene.screen.bounds.size
-        let matches = wantsPortrait ? (w.height > w.width && s.height > s.width)
-                                    : (w.width > w.height && s.width > s.height)
+        // The inner display is 669 pt across its short side in either pose; store run 39971788282 logged "ok" for a
+        // 469 × 669 window (not the inner display) and the settings frame came out landscape. Require the inner size.
+        let innerSized = min(w.width, w.height) >= 600 && min(s.width, s.height) >= 600
+        let matches = innerSized && (wantsPortrait ? (w.height > w.width && s.height > s.width)
+                                                   : (w.width > w.height && s.width > s.height))
         return (window: String(format: "%.0fx%.0f", Double(w.width), Double(w.height)),
                 screen: String(format: "%.0fx%.0f", Double(s.width), Double(s.height)),
                 matches: matches)

@@ -64,6 +64,14 @@ import UIKit
 ///   seconds= rate= kind= style=`). The simulator shares the host clock, so the script lines the WAV up with
 ///   `simctl io recordVideo`. Logs `SQUISH-T preview marks origin epoch=…` and `SQUISH-T pressaudio ok|failed …`.
 ///   `previewmarks` writes the marks file only (the shelf segment: `origin` is ~when RootView's demo timer starts).
+/// - `prewarm` (touch press, with `depth=` or `reveal`): a quick press of the same object to its reveal, then Again, before
+///   the scripted press, so the first-use render stall of the object's cracks (0.5–0.9 s on the CI simulator) happens
+///   off the record. The marks start after it (`origin` = the recorded take). Logs `SQUISH-T demo prewarm done …`.
+/// - `hingescript[=seconds]` (with `duo`, default 7): the Duo preview's press, fed through the director's hinge input at
+///   60 Hz while the simulated Duo lies open (the simulator's `hinge` CLI can't hold a steady sweep): once the tabletop
+///   layout is up, close 180° → 58° on the `slowpress` pacing, hold, on to 44° until it seals (out of shot: a real inner
+///   display is dark there), reopen to 160° (the reveal). Writes Documents/preview-script.txt (`script-begin|58|sealed|
+///   reopen|160 epoch=…`) and logs `SQUISH-T hingescript <step> at …`.
 /// - Also used by the preview: `object=`, `reveal`, `seed=3`, `notoasts`, `shelf` (UI key, RootView: opens the shelf
 ///   1.2 s after launch with the seeded collection), `duo`, `orient=portrait`.
 ///

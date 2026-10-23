@@ -116,8 +116,8 @@ frame_gaps() {
 flash_time() {
   local from="$2" dur
   dur=$(calc "$3 - $2")
-  ffmpeg -nostdin -v error -ss "$from" -t "$dur" -i "$1" \
-      -vf "crop=iw:ih/2:0:0,scale=180:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null \
+  ffmpeg -nostdin -v error -i "$1" \
+      -vf "trim=start=$from:duration=$dur,setpts=PTS-STARTPTS,crop=iw:ih/2:0:0,scale=180:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null \
     | awk -v base="$from" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
         /YAVG/ { split($0, y, "="); v = y[2] + 0; if (have && v - last > best) { best = v - last; at = t }; last = v; have = 1 }
         END { if (have && best > 0) printf "%.3f %.1f", base + at, best }'
@@ -141,15 +141,19 @@ audio_chain() {
 # ORIGIN - REC_EPOCH: wav time = video time - offset. No WAV: a silent stereo track.
 cut_segment() {
   local raw="$1" a="$2" dur="$3" wav="$4" off="$5" vf="$6" out="$7" ws
+  # Never `-ss` before `-i` on a recordVideo file: on these variable-frame-rate recordings (1/600 time base) the input
+  # seek landed seconds away from the asked time (run 39965173658: the duck cut showed the reveal 3.5 s in, while the
+  # raw file, checked frame by frame, matched the marks exactly). Decode from the start and `trim` by timestamp.
+  local tv="[0:v]trim=start=$a:duration=$dur,setpts=PTS-STARTPTS,$vf[v]"
   if [[ -n "$wav" && -f "$wav" ]]; then
     ws=$(calc "$a - $off")
-    ffmpeg -nostdin -y -v error -ss "$a" -i "$raw" -i "$wav" \
-      -filter_complex "[0:v]$vf[v];[1:a]$(audio_chain "$ws" "$dur")[a]" \
+    ffmpeg -nostdin -y -v error -i "$raw" -i "$wav" \
+      -filter_complex "$tv;[1:a]$(audio_chain "$ws" "$dur")[a]" \
       -map "[v]" -map "[a]" -t "$dur" -r 30 -c:v libx264 -preset medium -crf 12 -pix_fmt yuv420p \
       -c:a pcm_s16le "$out"
   else
-    ffmpeg -nostdin -y -v error -ss "$a" -i "$raw" -f lavfi -i "anullsrc=r=48000:cl=stereo" \
-      -filter_complex "[0:v]$vf[v]" -map "[v]" -map 1:a -t "$dur" -r 30 \
+    ffmpeg -nostdin -y -v error -i "$raw" -f lavfi -i "anullsrc=r=48000:cl=stereo" \
+      -filter_complex "$tv" -map "[v]" -map 1:a -t "$dur" -r 30 \
       -c:v libx264 -preset medium -crf 12 -pix_fmt yuv420p -c:a pcm_s16le "$out"
   fi
 }
@@ -200,14 +204,15 @@ social_from_master() {
 social_clip() {
   local raw="$1" a="$2" dur="$3" wav="$4" off="$5" out="$6" ws
   local vf="[0:v]fps=30,split[bg][fg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:3,eq=brightness=-0.12[b];[fg]scale=-2:1920[f];[b][f]overlay=(W-w)/2:0,setsar=1,format=yuv420p[v]"
+  vf="[0:v]trim=start=$a:duration=$dur,setpts=PTS-STARTPTS,${vf#\[0:v\]}"   # trim, never input -ss (cut_segment)
   if [[ -n "$wav" && -f "$wav" ]]; then
     ws=$(calc "$a - $off")
-    ffmpeg -nostdin -y -v error -ss "$a" -i "$raw" -i "$wav" \
+    ffmpeg -nostdin -y -v error -i "$raw" -i "$wav" \
       -filter_complex "$vf;[1:a]$(audio_chain "$ws" "$dur"),loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]" \
       -map "[v]" -map "[a]" -t "$dur" -r 30 -c:v libx264 -profile:v high -level:v 4.2 -preset slow \
       -b:v 4500k -maxrate 6M -bufsize 9M -g 30 -c:a aac -b:a 160k -ac 2 -movflags +faststart "$out"
   else
-    ffmpeg -nostdin -y -v error -ss "$a" -i "$raw" -filter_complex "$vf" -map "[v]" -t "$dur" -r 30 \
+    ffmpeg -nostdin -y -v error -i "$raw" -filter_complex "$vf" -map "[v]" -t "$dur" -r 30 \
       -c:v libx264 -profile:v high -level:v 4.2 -preset slow -b:v 4500k -maxrate 6M -bufsize 9M -g 30 \
       -movflags +faststart "$out"
   fi
