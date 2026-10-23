@@ -127,6 +127,7 @@ rec_begin() {
 }
 rec_end() {
   [[ -n "${REC_PID:-}" ]] && stop_recording "$REC_PID"
+  [[ -f "$OUT_ABS/raw/$1.mp4" ]] && say "$1 $(retime "$OUT_ABS/raw/$1.mp4")"
   [[ -f "$OUT_ABS/raw/$1.mp4" ]] && say "$1 raw: $(probe_video "$OUT_ABS/raw/$1.mp4")"
   REC_PID=""
 }

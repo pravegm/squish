@@ -32,7 +32,7 @@ say() { echo "$*" | tee -a "$REPORT"; }
 # name|scenario|cut start|cut end. Cut points are "<mark>±<s>" with comma fallbacks (preview-lib.sh spec_epoch).
 # The order is the cut order. Durations at slowpress 5 / 4.5: duck ≈ 9.5 s, can ≈ 6 s, glass ≈ 6 s, shelf 4 s.
 SEGMENTS=(
-  "duck|object=rubberDuck;reveal;seed=3;notoasts;prewarm;slowpress=5;pressaudio|phase-pressing-0.6|reveal+3.0"
+  "duck|object=rubberDuck;reveal;seed=3;notoasts;prewarm;slowpress=5;pressaudio|phase-pressing-0.6|reveal+4.0"
   "can|object=sodaCan;reveal;seed=3;notoasts;prewarm;slowpress=4.5;pressaudio|phase-pressing-0.4|phase-sealed+0.9,reveal+0.2"
   "glass|object=glassBottle;reveal;seed=3;notoasts;prewarm;slowpress=5;pressaudio|phase-pressing-0.4|failure+2.2,phase-sealed+0.6"
   "shelf|object=rubberDuck;shelf;notoasts;previewmarks|origin+1.1|origin+5.1"
@@ -136,6 +136,7 @@ record_segment() {
     sleep 6.5
   fi
   stop_recording
+  retime "$OUT_ABS/raw/$name.mp4" | tee -a "$REPORT" || true
   if [[ "$scen" == *pressaudio* ]]; then
     wait_for_log "$log" "SQUISH-T pressaudio (ok|failed)" 90 || say "warning: $name: no pressaudio line after 90 s"
     grep -h "SQUISH-T pressaudio" "$log" | tee -a "$REPORT" || true
@@ -272,7 +273,7 @@ done
 GLASS_FAIL=$(spec_epoch "$OUT_ABS/raw/glass.marks.txt" "failure+0.25")
 GLASS_REC=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/glass.timing")
 [[ -n "$GLASS_FAIL" ]] && STILLS+=("$(calc "$GLASS_FAIL - $GLASS_REC - ${SEG_A_glass} + ${SEG_AT_glass}")")
-DUCK_REVEAL=$(spec_epoch "$DUCK_MARKS" "reveal+2.0")
+DUCK_REVEAL=$(spec_epoch "$DUCK_MARKS" "reveal+3.3")
 [[ -n "$DUCK_REVEAL" ]] && STILLS+=("$(calc "$DUCK_REVEAL - $DUCK_REC - ${SEG_A_duck} + ${SEG_AT_duck}")")
 CAN_SEAL=$(spec_epoch "$OUT_ABS/raw/can.marks.txt" "phase-sealed-0.8")
 CAN_REC=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/can.timing")
@@ -305,9 +306,9 @@ if [[ "$SOCIAL" == 1 ]]; then
     social_clip "$OUT_ABS/raw/$name.mp4" "$A" "$DUR" "$wav" "$OFF" "$OUT_ABS/social/$out"
     say "social $out: ${DUR}s, $(du -h "$OUT_ABS/social/$out" | cut -f1)"
   }
-  social_cut x-duck.mp4 duck "phase-pressing-0.6" "reveal+2.6" 8
+  social_cut x-duck.mp4 duck "phase-pressing-0.6" "reveal+3.6" 8
   social_cut bluesky-glass.mp4 glass "phase-pressing-0.5" "failure+2.6,phase-sealed+1.0" 7
-  social_cut mastodon-can.mp4 can "phase-pressing-0.5" "reveal+2.4" 7
+  social_cut mastodon-can.mp4 can "phase-pressing-0.5" "reveal+3.2" 7
   # Loop: the glass going, 3.4 s, silent; MP4 (1080 × 1920) and a 360 px GIF, each kept under 5 MB.
   seg_window glass "failure-1.4,phase-sealed-1.6" "failure+2.0,phase-sealed+1.8" && {
     social_clip "$OUT_ABS/raw/glass.mp4" "$A" "$DUR" "" 0 "$OUT_ABS/social/loop-glass.mp4"

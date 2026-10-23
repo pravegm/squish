@@ -88,6 +88,24 @@ stop_recording() {
   wait "$pid" 2>/dev/null || true
 }
 
+# retime <file.mp4>: re-time a recordVideo file in place with ci/preview-retime.swift (built once with swiftc): frames
+# in presentation order at their true times, no reordering, so ffmpeg reads the same timeline the app's marks use.
+# Prints one line; returns 1 (file untouched) when it can't.
+RETIME_BIN=""
+retime() {
+  local f="$1" tmp="${1%.mp4}.retimed.mp4" out src
+  if [[ -z "$RETIME_BIN" ]]; then
+    RETIME_BIN="${TMPDIR:-/tmp}/squish-preview-retime"
+    src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/preview-retime.swift"
+    if ! out=$(xcrun swiftc -O "$src" -o "$RETIME_BIN" 2>&1); then
+      echo "warning: could not build preview-retime: $(echo "$out" | grep -m3 error)"; RETIME_BIN=none
+    fi
+  fi
+  [[ "$RETIME_BIN" == none ]] && return 1
+  if out=$("$RETIME_BIN" "$f" "$tmp" 2>&1); then mv "$tmp" "$f"; echo "   $out"; return 0; fi
+  echo "warning: $out"; rm -f "$tmp"; return 1
+}
+
 # probe_video <file>: one line "WxH fps=<r_frame_rate> avg=<avg_frame_rate> frames=<n> dur=<s> start=<s>".
 probe_video() {
   local w h r a n d s
