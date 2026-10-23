@@ -749,6 +749,7 @@ final class PressDirector {
             var reported = false
             var failedLogged = false
             var lostLogged = false
+            var shapeLogged = false
             var requests = 0
             var lastRequest = -10.0
             var matchedSince: Double?
@@ -764,8 +765,9 @@ final class PressDirector {
                     matchedSince = nil
                     if reported && !lostLogged {
                         lostLogged = true
-                        print(String(format: "SQUISH-T orient %@ lost at %.2fs interface=%ld; re-requesting", raw,
-                                     now - self.launchTime, current.rawValue))
+                        let shape = PressDirector.windowShape(windowScene, portrait: wantsPortrait)
+                        print(String(format: "SQUISH-T orient %@ lost at %.2fs interface=%ld window=%@ screen=%@; re-requesting",
+                                     raw, now - self.launchTime, current.rawValue, shape.window, shape.screen))
                     }
                     if now - lastRequest >= 2 {
                         lastRequest = now
@@ -781,24 +783,79 @@ final class PressDirector {
                     if let layout = self.fold.layout {
                         if layout.isBook != wantsPortrait {
                             reported = true
-                            print(String(format: "SQUISH-T orient %@ ok at %.2fs canvas=%.0fx%.0f layout=%@ requests=%ld",
+                            let shape = PressDirector.windowShape(windowScene, portrait: wantsPortrait)
+                            print(String(format: "SQUISH-T orient %@ ok at %.2fs canvas=%.0fx%.0f layout=%@ interface=%ld window=%@ screen=%@ requests=%ld",
                                          raw, now - self.launchTime, Double(layout.canvas.width),
-                                         Double(layout.canvas.height), layout.isBook ? "book" : "tabletop", requests))
+                                         Double(layout.canvas.height), layout.isBook ? "book" : "tabletop",
+                                         current.rawValue, shape.window, shape.screen, requests))
                         }
-                    } else if now - since > 5 {
-                        reported = true
-                        print(String(format: "SQUISH-T orient %@ ok at %.2fs layout=none requests=%ld", raw,
-                                     now - self.launchTime, requests))
+                    } else {
+                        // FOLD-REVIEW-8 N1: with no Fold Press stage (`nofold`, the settings frame 07) the interface
+                        // orientation alone said "portrait" while the capture was a 2853 × 2007 landscape screen with
+                        // the app in its left half. So the window and the screen must have the wanted shape too
+                        // (taller than wide for portrait), for the whole 5 s; until then keep asking.
+                        let shape = PressDirector.windowShape(windowScene, portrait: wantsPortrait)
+                        if !shape.matches {
+                            matchedSince = nil
+                            if !shapeLogged {
+                                shapeLogged = true
+                                print(String(format: "SQUISH-T orient %@ pending at %.2fs: interface=%ld but window=%@ screen=%@; re-requesting",
+                                             raw, now - self.launchTime, current.rawValue, shape.window, shape.screen))
+                            }
+                            if now - lastRequest >= 2 {
+                                lastRequest = now
+                                requests += 1
+                                windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
+                                    print("SQUISH-T orient request error: \(error.localizedDescription)")
+                                }
+                            }
+                        } else if now - since > 5 {
+                            reported = true
+                            print(String(format: "SQUISH-T orient %@ ok at %.2fs layout=none interface=%ld window=%@ screen=%@ requests=%ld",
+                                         raw, now - self.launchTime, current.rawValue, shape.window, shape.screen,
+                                         requests))
+                        }
+                    }
+                } else if self.fold.layout == nil, !lostLogged,
+                          !PressDirector.windowShape(windowScene, portrait: wantsPortrait).matches {
+                    // Reported, the interface still matches, but the window or screen no longer has the shape.
+                    lostLogged = true
+                    let shape = PressDirector.windowShape(windowScene, portrait: wantsPortrait)
+                    print(String(format: "SQUISH-T orient %@ lost at %.2fs interface=%ld window=%@ screen=%@; re-requesting",
+                                 raw, now - self.launchTime, current.rawValue, shape.window, shape.screen))
+                    if now - lastRequest >= 2 {
+                        lastRequest = now
+                        requests += 1
+                        windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
+                            print("SQUISH-T orient request error: \(error.localizedDescription)")
+                        }
                     }
                 }
                 if !reported, !failedLogged, now - started > 20 {
                     failedLogged = true
-                    print(String(format: "SQUISH-T orient %@ failed after 20s: interface=%ld layout=%@ requests=%ld", raw,
-                                 current.rawValue, self.fold.layout.map { $0.isBook ? "book" : "tabletop" } ?? "none",
-                                 requests))
+                    let shape = PressDirector.windowShape(windowScene, portrait: wantsPortrait)
+                    print(String(format: "SQUISH-T orient %@ failed after 20s: interface=%ld layout=%@ window=%@ screen=%@ requests=%ld",
+                                 raw, current.rawValue,
+                                 self.fold.layout.map { $0.isBook ? "book" : "tabletop" } ?? "none",
+                                 shape.window, shape.screen, requests))
                 }
             }
         }
+    }
+
+    /// The key window's and the screen's bounds (points, as "WxH") and whether both have the wanted shape (taller
+    /// than wide for portrait, wider than tall for landscape), for the `orient` hook's log and its no-Fold-Press check
+    /// (FOLD-REVIEW-8 N1). No window yet matches neither.
+    private static func windowShape(_ scene: UIWindowScene, portrait wantsPortrait: Bool)
+        -> (window: String, screen: String, matches: Bool) {
+        let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+        let w = window?.bounds.size ?? .zero
+        let s = scene.screen.bounds.size
+        let matches = wantsPortrait ? (w.height > w.width && s.height > s.width)
+                                    : (w.width > w.height && s.width > s.height)
+        return (window: String(format: "%.0fx%.0f", Double(w.width), Double(w.height)),
+                screen: String(format: "%.0fx%.0f", Double(s.width), Double(s.height)),
+                matches: matches)
     }
 
     /// CI hook (FOLD-REVIEW-6 N5): the settings a store frame shows, so its caption is true of it. `soundstyle=soft`
@@ -912,6 +969,9 @@ final class PressDirector {
                 base.elevationDegrees = demo.double("storeshotelevation") ?? camera.elevation
                 base.keyTiltDegrees = demo.double("storeshotkeytilt") ?? camera.keyTilt
                 if let bleed = demo.double("storeshotbleed") ?? camera.bleed { base.fit = .width(bleed: bleed) }
+                // FOLD-REVIEW-8 N5: the bleed stays 2 % inside the side edges (Options.edgeInset); a negative
+                // `storeshotinset=` turns the clamp off to compare with R8.
+                if let inset = demo.double("storeshotinset") { base.edgeInset = inset < 0 ? nil : inset }
                 // FOLD-REVIEW-6 #1 b, N12: the readout label and V glyph on the hero, hung from the caption band.
                 base.angleMark = halves.readout?.label ?? "\(Int(base.hingeAngle.rounded()))°"
                 base.anchor = .top(0.03)
@@ -969,8 +1029,17 @@ final class PressDirector {
         variants.append((file: "\(stem)-eye.png", options: eyeView))
 
         var written: [String] = []
-        for variant in variants {
-            if writePNG(label: label, file: variant.file, image: FoldStoreShot.render(halves, options: variant.options)) {
+        // FOLD-REVIEW-8 N5: the first variant's (the store frame's) device bounds, so ci/store-set.sh can flag a frame
+        // whose device leaves it (`inframe=0`), as the duck hero's base corner did at x 0 in R8.
+        var deviceFrame = "-"
+        var inFrame = 0
+        for (index, variant) in variants.enumerated() {
+            let image = FoldStoreShot.render(halves, options: variant.options)
+            if index == 0 {
+                deviceFrame = FoldStoreShot.lastDeviceFramesLabel
+                inFrame = FoldStoreShot.lastDevicesInFrame ? 1 : 0
+            }
+            if writePNG(label: label, file: variant.file, image: image) {
                 written.append(variant.file)
             }
         }
@@ -984,13 +1053,15 @@ final class PressDirector {
         let surpriseLabel: String = variant.surprise?.rawValue ?? "none"
         let golden: Int = variant.isGolden ? 1 : 0
         let splat: Int = base.escapedSplat == nil ? 0 : 1
-        print(String(format: "SQUISH-T storeshot %@ %@ at %.2fs hinge=%.1f model=%.1f readout=%@ az=%@ el=%@ tilt=%.0f content=%@ pose=%@ anvil=%@ phase=%@ c=%.3f splat=%ld kind=%@ seed=%llu golden=%ld surprise=%@ files=%@ ms=%.0f",
+        // `frame=` / `inframe=` (FOLD-REVIEW-8 N5) are last, so older parsers of this line still read it.
+        print(String(format: "SQUISH-T storeshot %@ %@ at %.2fs hinge=%.1f model=%.1f readout=%@ az=%@ el=%@ tilt=%.0f content=%@ pose=%@ anvil=%@ phase=%@ c=%.3f splat=%ld kind=%@ seed=%llu golden=%ld surprise=%@ files=%@ ms=%.0f frame=%@ inframe=%ld",
                      label, status, CACurrentMediaTime() - launchTime, angle, base.hingeAngle,
                      readoutLabel, azimuthLabel, elevationLabel, base.keyTiltDegrees,
                      halves.layout.isBook ? "book" : "tabletop", base.model.rawValue, halves.source,
                      engine.phase.rawValue, engine.measuredCompression, splat,
                      currentKind.rawValue, variant.seed, golden, surpriseLabel,
-                     written.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
+                     written.joined(separator: ","), (CACurrentMediaTime() - started) * 1000,
+                     deviceFrame, inFrame))
         return written.isEmpty ? nil : halves
     }
 
@@ -1033,17 +1104,23 @@ final class PressDirector {
             variants.append((file: "storeshot-pair-land.png", options: landscape))
         }
         var written: [String] = []
-        for variant in variants {
+        var deviceFrame = "-"
+        var inFrame = 0
+        for (index, variant) in variants.enumerated() {
             let image = FoldStoreShot.renderPair(before: before, after: after, options: variant.options)
+            if index == 0 {
+                deviceFrame = FoldStoreShot.lastDeviceFramesLabel
+                inFrame = FoldStoreShot.lastDevicesInFrame ? 1 : 0
+            }
             if writePNG(label: "pair", file: variant.file, image: image) {
                 written.append(variant.file)
             }
         }
-        print(String(format: "SQUISH-T storeshot pair %@ at %.2fs before=%.1f after=%.1f labels=%@|%@ files=%@ ms=%.0f",
+        print(String(format: "SQUISH-T storeshot pair %@ at %.2fs before=%.1f after=%.1f labels=%@|%@ files=%@ ms=%.0f frame=%@ inframe=%ld",
                      written.isEmpty ? "failed:" : "ok", CACurrentMediaTime() - launchTime,
                      options.before.hingeAngle, options.after.hingeAngle,
                      before.readout?.label ?? "model", after.readout?.label ?? "model", written.joined(separator: ","),
-                     (CACurrentMediaTime() - started) * 1000))
+                     (CACurrentMediaTime() - started) * 1000, deviceFrame, inFrame))
     }
 
     /// What the crown readout shows now (FoldBezel.updateReadout): whole degrees of the last Fold Press update's
@@ -1141,10 +1218,13 @@ final class PressDirector {
             options.caption = caption.headline
             options.subcaption = caption.subline
             let image = items.isEmpty ? nil : FoldStoreShot.renderGrid(items, options: options)
+            let deviceFrame = items.isEmpty ? "-" : FoldStoreShot.lastDeviceFramesLabel
+            let inFrame: Int = !items.isEmpty && FoldStoreShot.lastDevicesInFrame ? 1 : 0
             let ok = self.writePNG(label: "grid", file: "storeshot-grid.png", image: image)
-            print(String(format: "SQUISH-T storeshot grid %@ at %.2fs objects=%ld missing=%@ ms=%.0f",
+            print(String(format: "SQUISH-T storeshot grid %@ at %.2fs objects=%ld missing=%@ ms=%.0f frame=%@ inframe=%ld",
                          ok ? "ok" : "failed:", CACurrentMediaTime() - self.launchTime, items.count,
-                         missing.joined(separator: ","), (CACurrentMediaTime() - started) * 1000))
+                         missing.joined(separator: ","), (CACurrentMediaTime() - started) * 1000,
+                         deviceFrame, inFrame))
             print(String(format: "SQUISH-T storeshot done at %.2fs missing=%@", CACurrentMediaTime() - self.launchTime,
                          ok ? "" : "grid"))
         }

@@ -5,8 +5,9 @@ import UIKit
 
 /// Glass Bottle (bible §4 #9, VISUAL-TARGET §5.9): a sea-glass bottle lying on its side, neck camera-right,
 /// pre-fractured into ~30 thin shards (2.2 mm lathe patches, 45–72° arcs) under one intact paper label band.
-/// Silent rigidity until fracture 0 (~0.22), apart from a slight ovalisation; then bright crack lines that lengthen
-/// toward the failure. Fracture 1 (failure, ~0.40) is the biggest event in the app: the label tears away; the base
+/// Silent rigidity until fracture 0 (~0.22), apart from a slight ovalisation; then two crack stars on the camera side
+/// (`GlassCrack`, FOLD-REVIEW-8 N3: one on the upper flank for the Duo, one on the front flank for the P-48, whose ram
+/// hides the top) of thick, dark-cored bright lines that grow from their impacts toward the failure. Fracture 1 (failure, ~0.40) is the biggest event in the app: the label tears away; the base
 /// ring and the neck stay whole (curved bottle glass on the heap, FOLD-REVIEW-7 #5) and every other curved patch breaks
 /// into two flat, irregular convex shards (or, one in three, stays one big piece) of bottle glass in two tints, darker
 /// than the steel, with a dark hairline and a bright bevel on every edge and a specular streak across the face
@@ -57,7 +58,11 @@ final class GlassBottleView: PressObjectView {
     private let labelBand = Entity()
     /// Flat label scraps lying on top of shards, shown once the label has torn (FOLD-REVIEW-4 F5: 6 raspberry, 4 cream).
     private var labelScraps: [Entity] = []
-    private var cracks: [Crack] = []
+    /// The crack stars (FOLD-REVIEW-8 N3): every line, impact and their parent, which the shatter removes.
+    private let crackRoot = Entity()
+    private var crackLines: [CrackLine] = []
+    private var crackImpacts: [(edge: ModelEntity, core: ModelEntity, at: SIMD2<Float>)] = []
+    private let crackSeed: UInt64
     private var crackC: Float = 0
     private var cracked = false
     private var message: Entity?
@@ -71,16 +76,18 @@ final class GlassBottleView: PressObjectView {
     private let seaGlass: PhysicallyBasedMaterial
     private let seaGlassEdge: any Material
 
-    /// One crack segment on top of the bottle; segments appear in order and lengthen with compression.
-    private struct Crack {
-        let model: ModelEntity
-        /// Entity-local start (x, z); y follows the squashed surface.
+    /// One segment of a crack star's ray: a bright line with a dark core on top of it. Segments appear in order from
+    /// the impact and lengthen with compression.
+    private struct CrackLine {
+        let edge: ModelEntity
+        let core: ModelEntity
+        /// The segment's ends on the body, as (entity x, angle round the body from the top toward the camera, +z).
         let start: SIMD2<Float>
-        let angle: Float
-        let length: Float
-        /// The part of the whole run (0…1) this segment covers.
+        let end: SIMD2<Float>
+        /// The part of its ray (0…1) this segment covers, and its width share (the rays taper toward their tips).
         let from: Float
         let to: Float
+        let width: Float
     }
 
     static let length: Float = 0.140
@@ -107,6 +114,7 @@ final class GlassBottleView: PressObjectView {
         }
         containment = GlassDebris.containment(restHeight: 0.060 * Self.heroScale, anvilHalf: PressRig.anvilHalf)
         rng = SplitMix64(seed: variant.seed ^ 0x6A55)
+        crackSeed = variant.seed ^ 0xC2AC_5747
         build(variant: variant)
     }
 
@@ -372,13 +380,17 @@ final class GlassBottleView: PressObjectView {
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
         switch index {
         case 0:
-            // A long creak, then bright crack lines on top that lengthen as the press closes, and a glint.
+            // A long creak, then two crack stars on the camera side that grow as the press closes, and a glint at the
+            // front star's impact (FOLD-REVIEW-8 N3: the old run lay on the top, under the ram).
             cracked = true
             crackC = state.compression
             buildCracks()
             growCracks(compression: state.compression)
-            fx.particles.burst(.glint, count: 3, at: entity.convert(position: [0, Self.localHeight, 0], to: fx.root), speed: 0.05,
-                               colors: [UIColor(hex: 0xFFFFFF)], size: 0.003...0.005, upBias: 0.6, life: 0.25, rng: &rng)
+            let impact = GlassCrack.impacts[GlassCrack.impacts.count - 1]
+            let glint = GlassCrack.surface(x: impact.x, angle: impact.angle, squash: squash)
+            fx.particles.burst(.glint, count: 3, at: entity.convert(position: glint.point + glint.normal * 0.002, to: fx.root),
+                               speed: 0.05, colors: [UIColor(hex: 0xFFFFFF)], size: 0.003...0.005, upBias: 0.6, life: 0.25,
+                               rng: &rng)
         case 1:
             shatter(state: state)
         default:
@@ -431,48 +443,91 @@ final class GlassBottleView: PressObjectView {
 
     // MARK: - Cracks (fracture 0 → failure)
 
+    /// FOLD-REVIEW-8 N3: the old run (seven 0.4 × 0.7 mm near-white boxes along the top) lay under the ram, edge-on
+    /// to the P-48's eye, white on pale glass. Now two crack stars on bare body glass on the camera side
+    /// (`GlassCrack.impacts`: one on the upper flank for the Duo's top-down eye, one on the front flank for the P-48's),
+    /// each `GlassCrack.raysPerStar` rays of bright, dark-cored line (`lineWidth` / `coreWidth`), plus a bright impact
+    /// spot with a dark centre.
     private func buildCracks() {
-        let white = SceneMaterials.unlit(UIColor(hex: 0xF4FFFC), opacity: 0.85)
-        // A run along the top of the straight body (entity x −0.050 … ≈ +0.004, where the radius is 0.030).
-        var x: Float = -0.050
-        var z: Float = Float.random(in: -0.004...0.004, using: &rng)
-        var segments: [(start: SIMD2<Float>, angle: Float, length: Float)] = []
+        guard crackLines.isEmpty else { return }
+        // The old run's 15 draws, still taken from the press's stream, so the shatter's pile (frame 04) is unchanged.
+        _ = Float.random(in: -0.004...0.004, using: &rng)
         for _ in 0..<7 {
-            let length = Float.random(in: 0.006...0.011, using: &rng)
-            let turn = Float.random(in: -0.7...0.7, using: &rng)
-            segments.append((SIMD2(x, z), turn, length))
-            x += length * cos(turn)
-            z = clamp(z + length * sin(turn), -0.010, 0.010)
+            _ = Float.random(in: 0.006...0.011, using: &rng)
+            _ = Float.random(in: -0.7...0.7, using: &rng)
         }
-        let total = max(segments.reduce(0) { $0 + $1.length }, 1e-4)
-        var along: Float = 0
-        for segment in segments {
-            let line = ModelEntity(mesh: .generateBox(width: segment.length, height: 0.0004, depth: 0.0007), materials: [white])
-            line.orientation = simd_quatf(angle: -segment.angle, axis: [0, 1, 0])
-            line.isEnabled = false
-            entity.addChild(line)
-            cracks.append(Crack(model: line, start: segment.start, angle: segment.angle, length: segment.length,
-                                from: along / total, to: (along + segment.length) / total))
-            along += segment.length
+        var crackRng = SplitMix64(seed: crackSeed)
+        let edgeMaterial = SceneMaterials.unlit(UIColor(hex: look.golden ? 0xFFF1C4 : GlassCrack.edgeTint))
+        let coreMaterial = SceneMaterials.unlit(UIColor(hex: look.golden ? 0x6B4500 : GlassCrack.coreTint))
+        let edgeMesh = MeshResource.generateBox(width: 1, height: GlassCrack.lineThickness, depth: GlassCrack.lineWidth)
+        let coreMesh = MeshResource.generateBox(width: 1, height: GlassCrack.lineThickness, depth: GlassCrack.coreWidth)
+        let impactEdge = MeshCache.resource("glass.crack.impact") {
+            MeshKit.ellipsoid(radii: [GlassCrack.impactRadius, GlassCrack.lineThickness / 2, GlassCrack.impactRadius],
+                              segments: 16, rings: 6)
+        } ?? .generateSphere(radius: GlassCrack.impactRadius)
+        let impactCore = MeshCache.resource("glass.crack.impactCore") {
+            MeshKit.ellipsoid(radii: [GlassCrack.impactRadius * 0.5, GlassCrack.lineThickness / 2, GlassCrack.impactRadius * 0.5],
+                              segments: 16, rings: 6)
+        } ?? .generateSphere(radius: GlassCrack.impactRadius * 0.5)
+        for impact in GlassCrack.impacts {
+            for ray in GlassCrack.star(x: impact.x, angle: impact.angle, rng: &crackRng) {
+                let lengths = (0..<(ray.count - 1)).map { GlassCrack.chord(ray[$0], ray[$0 + 1]) }
+                let total = max(lengths.reduce(0, +), 1e-4)
+                var along: Float = 0
+                for i in lengths.indices {
+                    defer { along += lengths[i] }
+                    guard lengths[i] > GlassCrack.minSegment else { continue }
+                    let edge = ModelEntity(mesh: edgeMesh, materials: [edgeMaterial])
+                    let core = ModelEntity(mesh: coreMesh, materials: [coreMaterial])
+                    for line in [edge, core] {
+                        line.isEnabled = false
+                        ShadowCasting.off(line)
+                        crackRoot.addChild(line)
+                    }
+                    crackLines.append(CrackLine(edge: edge, core: core, start: ray[i], end: ray[i + 1],
+                                                from: along / total, to: (along + lengths[i]) / total,
+                                                width: GlassCrack.widthShare(along: along / total)))
+                }
+            }
+            let edge = ModelEntity(mesh: impactEdge, materials: [edgeMaterial])
+            let core = ModelEntity(mesh: impactCore, materials: [coreMaterial])
+            for spot in [edge, core] {
+                ShadowCasting.off(spot)
+                crackRoot.addChild(spot)
+            }
+            crackImpacts.append((edge, core, SIMD2(impact.x, impact.angle)))
         }
+        entity.addChild(crackRoot)
     }
 
-    /// The run shows 30 % at the first crack and grows to its full length at the failure.
+    /// The rays show `GlassCrack.firstShare` at the first crack and grow to their full length at the failure, on the
+    /// squashed, ovalised body.
     private func growCracks(compression c: Float) {
-        let p = clamp((c - crackC) / max(failC - crackC, 0.02), 0, 1)
-        let grown = 0.3 + 0.7 * p
-        let radius: Float = 0.030
-        for crack in cracks {
-            let f = clamp((grown - crack.from) / max(crack.to - crack.from, 1e-4), 0, 1)
-            crack.model.isEnabled = f > 0.02
-            guard f > 0.02 else { continue }
-            let dir = SIMD2<Float>(cos(crack.angle), sin(crack.angle))
-            let centre = crack.start + dir * (crack.length * f / 2)
-            // On the squashed, ovalised cross-section (bottle centre line at y 0.030, local z widened by 1/squash).
-            let across = centre.y * squash
-            let top = 0.030 + max(radius * radius - across * across, 0).squareRoot() * squash + 0.0003
-            crack.model.position = [centre.x, top, centre.y]
-            crack.model.scale = [f, 1, 1]
+        let grown = GlassCrack.grown(compression: c, crackC: crackC, failC: failC)
+        for line in crackLines {
+            let f = clamp((grown - line.from) / max(line.to - line.from, 1e-4), 0, 1)
+            let on = f > 0.02
+            line.edge.isEnabled = on
+            line.core.isEnabled = on
+            guard on else { continue }
+            let a = GlassCrack.surface(x: line.start.x, angle: line.start.y, squash: squash)
+            let tip = line.start + (line.end - line.start) * f
+            let b = GlassCrack.surface(x: tip.x, angle: tip.y, squash: squash)
+            for (model, lift) in [(line.edge, GlassCrack.lift), (line.core, GlassCrack.lift + GlassCrack.coreLift)] {
+                let pose = GlassCrack.segmentPose(from: a, to: b, lift: lift)
+                model.position = pose.position
+                model.orientation = pose.orientation
+                // A little longer than the chord (one line width), so the joints of a ray close up.
+                model.scale = [pose.length + GlassCrack.lineWidth * line.width, 1, line.width]
+            }
+        }
+        for impact in crackImpacts {
+            let spot = GlassCrack.surface(x: impact.at.x, angle: impact.at.y, squash: squash)
+            let up = simd_quatf(from: [0, 1, 0], to: spot.normal)
+            impact.edge.position = spot.point + spot.normal * GlassCrack.lift
+            impact.edge.orientation = up
+            impact.core.position = spot.point + spot.normal * (GlassCrack.lift + GlassCrack.coreLift)
+            impact.core.orientation = up
         }
     }
 
@@ -486,8 +541,9 @@ final class GlassBottleView: PressObjectView {
         // The label tears: the band goes, the flat scraps on top of the pile appear.
         labelBand.isEnabled = false
         for scrap in labelScraps { scrap.isEnabled = true }
-        for crack in cracks { crack.model.removeFromParent() }
-        cracks.removeAll()
+        crackRoot.removeFromParent()
+        crackLines.removeAll()
+        crackImpacts.removeAll()
         let m = fx.motionScale
         // Each curved patch is swapped for its flat fragment pair (drawn in the shard's local XZ plane, so a yaw-only
         // orientation lays it flat), dropped in a heap (FOLD-REVIEW-6 N10: the uniform √U disc, plus a skid that was the
@@ -564,6 +620,111 @@ final class GlassBottleView: PressObjectView {
             fx.debris.adopt(message, velocity: SIMD3(0, 0.2, 0.05) * m, spin: Burst.spin(4 * m, rng: &rng), bounciness: 0.2,
                             bounds: GlassDebris.centreBounds(containment: containment, pieceHalf: half))
         }
+    }
+}
+
+/// The crack stars between fracture 0 and the failure (FOLD-REVIEW-8 N3), pinned in SquishTests/SceneTests.swift.
+/// Body coordinates: entity x along the bottle (base −0.070 … neck +0.070, before the hero scale) and the angle round
+/// the body from the top (0) toward the camera (+z, π/2); the cross-section is ovalised by the view's `squash`.
+enum GlassCrack {
+    /// The straight body's cross-section: its centre line's height and its radius (entity metres).
+    static let centreY: Float = 0.030
+    static let bodyRadius: Float = 0.030
+    /// Bare body glass between the base's heel (full radius from x ≈ −0.060) and the label band (from x ≥ −0.035):
+    /// the rays stay here, so no crack runs over the paper.
+    static let axialRange: ClosedRange<Float> = -0.057 ... -0.037
+    /// The impacts: one on the upper flank (35°; the Duo's top-down eye, ~47° up, sees it face-on) and one on the front
+    /// flank (81°; the P-48's eye, ~21° up, sees it face-on under the ram, which hides the top).
+    static let impacts: [(x: Float, angle: Float)] = [(-0.0475, 0.62), (-0.0465, 1.42)]
+    static let raysPerStar = 6
+    static let segmentsPerRay = 4
+    /// Full ray length (along the surface) at the failure, and how much of a step goes along the bottle (the bare
+    /// glass is only ~20 mm long, so the stars run mostly round it).
+    static let rayLength: ClosedRange<Float> = 0.016...0.024
+    static let axialShare: Float = 0.55
+    /// Each step's heading wanders by up to this (radians), so the rays are jagged, not ruled.
+    static let wander: Float = 0.3
+    /// The line: a bright edge `lineWidth` wide (≈ 1.4 mm on the plate at the hero scale) with a dark core inside it,
+    /// so it reads on pale glass (the core) and on steel or the dark label (the edge); tapering to `tipTaper` at the tip.
+    static let lineWidth: Float = 0.0018
+    static let coreWidth: Float = 0.0008
+    static let tipTaper: Float = 0.6
+    static let lineThickness: Float = 0.0003
+    /// The bright line's centre above the glass, and the core's further lift (its top face stands clear of the edge's).
+    static let lift: Float = 0.0004
+    static let coreLift: Float = 0.00012
+    static let impactRadius: Float = 0.0024
+    static let edgeTint: UInt32 = 0xF4FFFC
+    static let coreTint: UInt32 = 0x123C37
+    /// Segments shorter than this (a ray pinned at the label's edge) are not drawn.
+    static let minSegment: Float = 0.0003
+    /// The share of every ray showing at the first crack; it grows linearly to all of it at the failure.
+    static let firstShare: Float = 0.3
+
+    static func grown(compression c: Float, crackC: Float, failC: Float) -> Float {
+        let p = clamp((c - crackC) / max(failC - crackC, 0.02), 0, 1)
+        return firstShare + (1 - firstShare) * p
+    }
+
+    /// The width share of a segment starting `along` (0…1) its ray: full at the impact, `tipTaper` at the tip.
+    static func widthShare(along: Float) -> Float {
+        1 - (1 - tipTaper) * clamp(along, 0, 1)
+    }
+
+    /// The body's surface at entity `x` and `angle`, and its outward normal, with the cross-section squashed to
+    /// `squash` of its height and widened by 1/squash (as the view scales the bottle).
+    static func surface(x: Float, angle: Float, squash: Float) -> (point: SIMD3<Float>, normal: SIMD3<Float>) {
+        let s = max(squash, 0.05)
+        let point = SIMD3<Float>(x, centreY + bodyRadius * cos(angle) * s, bodyRadius * sin(angle) / s)
+        let normal = simd_normalize(SIMD3<Float>(0, cos(angle) / s, sin(angle) * s))
+        return (point, normal)
+    }
+
+    /// The straight distance between two body points (unsquashed).
+    static func chord(_ a: SIMD2<Float>, _ b: SIMD2<Float>) -> Float {
+        simd_distance(surface(x: a.x, angle: a.y, squash: 1).point, surface(x: b.x, angle: b.y, squash: 1).point)
+    }
+
+    /// One star's rays from the impact at (`x`, `angle`): `raysPerStar` seeded polylines of `segmentsPerRay + 1`
+    /// body points (x, angle), spread round the impact, every point on the bare glass (`axialRange`).
+    static func star(x: Float, angle: Float, rng: inout SplitMix64) -> [[SIMD2<Float>]] {
+        let phase = Float.random(in: 0...(2 * .pi), using: &rng)
+        var rays: [[SIMD2<Float>]] = []
+        for k in 0..<raysPerStar {
+            var heading = phase + 2 * .pi * Float(k) / Float(raysPerStar) + Float.random(in: -0.35...0.35, using: &rng)
+            let step = Float.random(in: rayLength, using: &rng) / Float(segmentsPerRay)
+            var u = x
+            var v: Float = 0
+            var ray = [SIMD2<Float>(x, angle)]
+            for _ in 0..<segmentsPerRay {
+                heading += Float.random(in: -wander...wander, using: &rng)
+                u = clamp(u + step * cos(heading) * axialShare, axialRange.lowerBound, axialRange.upperBound)
+                v += step * sin(heading)
+                ray.append(SIMD2(u, angle + v / bodyRadius))
+            }
+            rays.append(ray)
+        }
+        return rays
+    }
+
+    /// A line between body points `a` and `b` (surface point and normal), `lift` out from the glass: its centre (the
+    /// chord's middle, pushed out by the arc's sag so it never sinks in), its rotation (local x along the chord, local
+    /// y out of the glass) and its length.
+    static func segmentPose(from a: (point: SIMD3<Float>, normal: SIMD3<Float>),
+                            to b: (point: SIMD3<Float>, normal: SIMD3<Float>),
+                            lift: Float) -> (position: SIMD3<Float>, orientation: simd_quatf, length: Float) {
+        let p0 = a.point + a.normal * lift, p1 = b.point + b.normal * lift
+        let sum = a.normal + b.normal
+        let n = simd_length(sum) > 1e-5 ? simd_normalize(sum) : SIMD3<Float>(0, 1, 0)
+        let d = p1 - p0
+        let length = simd_length(d)
+        guard length > 1e-6 else { return ((p0 + p1) / 2, simd_quatf(from: [0, 1, 0], to: n), 0) }
+        let dir = d / length
+        let off = n - simd_dot(n, dir) * dir
+        let up = simd_length(off) > 1e-5 ? simd_normalize(off) : SIMD3<Float>(0, 1, 0)
+        let side = simd_cross(dir, up)
+        let sag = length * length / (8 * bodyRadius)
+        return ((p0 + p1) / 2 + up * sag, simd_quatf(simd_float3x3(columns: (dir, up, side))), length)
     }
 }
 

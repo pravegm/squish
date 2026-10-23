@@ -347,6 +347,19 @@ final class CollectionStore {
     static func specimenCrop(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let width = CGFloat(cg.width), height = CGFloat(cg.height)
+        let target = CGSize(width: thumbnailSize, height: thumbnailSize)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        // Already a card: the square top-down specimen shot (`PressScene.specimenSnapshot`) or the Fold diptych
+        // (`FoldPressController.specimenDiptych`, `SpecimenPrint.cardImage`). Keep all of it, only downscaled. The
+        // crop below is for full-screen live frames; on a square it took the landscape branch and kept a rotated
+        // 58 % window right of centre (half the print, half the specimen).
+        if abs(width - height) <= 1 {
+            let whole = UIImage(cgImage: cg, scale: 1, orientation: .up)
+            return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+                whole.draw(in: CGRect(origin: .zero, size: target))
+            }
+        }
         // Portrait: a tight square on the anvil (contact line ~74%, flattened object ~66–78%), inside the
         // columns at 20/80% width, so the card shows the specimen rather than the press (VISUAL-REVIEW-1 #12).
         // Interim until Scene provides a dedicated orthographic specimen render.
@@ -360,9 +373,6 @@ final class CollectionStore {
         let originX = min(max(centerX - side / 2, 0), width - side)
         let originY = min(max(centerY - side / 2, 0), height - side)
         guard let cropped = cg.cropping(to: CGRect(x: originX, y: originY, width: side, height: side).integral) else { return nil }
-        let target = CGSize(width: thumbnailSize, height: thumbnailSize)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
         let upright = UIImage(cgImage: cropped, scale: 1, orientation: portrait ? .up : .right)
         return UIGraphicsImageRenderer(size: target, format: format).image { _ in
             upright.draw(in: CGRect(origin: .zero, size: target))
@@ -388,25 +398,46 @@ final class CollectionStore {
         seedDemo(count: count, onHinge: demo.has("duo"))
     }
 
-    /// (kind, perfect, golden, surprise, fractures, duration, failure angle, days ago)
-    private static let demoPresses: [(ObjectKind, Bool, Bool, Bool, Int, Double, Double?, Double)] = [
-        (.bubbleWrap, true, false, false, 24, 11.2, nil, 3.1),
-        (.rubberDuck, false, false, false, 2, 6.4, 104, 3.0),
-        (.jelly, true, false, true, 2, 9.8, 112, 2.2),
-        (.crayon, false, false, false, 3, 4.1, 128, 1.4),
-        (.egg, false, true, false, 2, 8.7, 97, 1.1),
-        (.cakeSlice, true, false, true, 3, 13.5, 118, 0.4),
-        (.sodaCan, false, false, false, 5, 7.2, 92, 0.1),
+    /// (kind, perfect, golden, surprise, duration, days ago). Fractures and the failure angle aren't listed: they come
+    /// from each seed exactly as a real press derives them (FOLD-REVIEW-8 N2: the old hand-typed 92–128° were 20–60°
+    /// above anything the press produces).
+    private static let demoPresses: [(ObjectKind, Bool, Bool, Bool, Double, Double)] = [
+        (.bubbleWrap, true, false, false, 11.2, 3.1),
+        (.rubberDuck, false, false, false, 6.4, 3.0),
+        (.jelly, true, false, true, 9.8, 2.2),
+        (.crayon, false, false, false, 4.1, 1.4),
+        (.egg, false, true, false, 8.7, 1.1),
+        (.cakeSlice, true, false, true, 13.5, 0.4),
+        (.sodaCan, false, false, false, 7.2, 0.1),
     ]
+
+    /// How far a seeded press went: a full, sealed press (the engine seals at depth 0.98, c ≈ 0.97).
+    static let demoCompression = 0.96
+
+    /// One seeded press, as the engine would have recorded it: its fractures are the seed's jittered thresholds a
+    /// press to `demoCompression` reaches, and its failure angle is where a press opened flat meets the failure
+    /// threshold (`SpecimenPrint.failureAngle`).
+    static func demoResult(kind: ObjectKind, seed: UInt64, perfect: Bool, duration: Double) -> PressResult {
+        PressResult(kind: kind, seed: seed, failureAngle: SpecimenPrint.failureAngle(kind, seed: seed),
+                    fractureCount: SpecimenPrint.fractureCount(kind, seed: seed, maxCompression: demoCompression),
+                    maxCompression: demoCompression, duration: duration, wasSlammed: false,
+                    isPerfect: perfect, reversals: 0)
+    }
 
     func seedDemo(count: Int, onHinge: Bool = false) {
         for (index, entry) in Self.demoPresses.prefix(max(0, count)).enumerated() {
-            let (kind, perfect, golden, surprise, fractures, duration, angle, daysAgo) = entry
+            let (kind, perfect, golden, surprise, duration, daysAgo) = entry
             let seed = Self.demoSeed(for: kind, golden: golden, surprise: surprise, salt: UInt64(index))
-            let result = PressResult(kind: kind, seed: seed, failureAngle: angle, fractureCount: fractures,
-                                     maxCompression: 0.96, duration: duration, wasSlammed: false,
-                                     isPerfect: perfect, reversals: 0)
-            let outcome = record(result, variant: PressVariant(kind: kind, seed: seed), onHinge: onHinge)
+            let variant = PressVariant(kind: kind, seed: seed)
+            let result = Self.demoResult(kind: kind, seed: seed, perfect: perfect, duration: duration)
+            let outcome = record(result, variant: variant, onHinge: onHinge)
+            // The card a real Fold press stores: the platen's print of this very press (FOLD-REVIEW-8 N2), through the
+            // same attach path, so the Shelf, the cover's recent tiles and the card detail all show a print.
+            if let print = SpecimenPrint.printImage(kind: kind, variant: variant, maxCompression: result.maxCompression,
+                                                    fractureCount: result.fractureCount),
+               let png = SpecimenPrint.cardImage(print: print).pngData() {
+                attachThumbnail(png, to: outcome.specimen.id)
+            }
             if let i = specimens.firstIndex(where: { $0.id == outcome.specimen.id }) {
                 specimens[i].date = Date().addingTimeInterval(-daysAgo * 86_400)
                 if bests[kind]?.id == outcome.specimen.id { bests[kind] = specimens[i] }

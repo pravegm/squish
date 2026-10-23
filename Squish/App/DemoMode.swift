@@ -13,7 +13,7 @@ import Foundation
 /// UI:
 /// - `notoasts` hides achievement toasts (read by the UI; passed by every store-shot and Duo CI scenario).
 /// - `gamecenter=hidden` hides the Game Center row's "NOT AVAILABLE" status in Settings (read by SettingsView,
-///   `GameCenterRowDemo`; FOLD-REVIEW-6 N5). Passed by the Duo settings frame (07) and P6.
+///   `GameCenterRowDemo`; FOLD-REVIEW-6 N5). Passed by the Duo settings frame (07) and P5 (P6 until R8).
 ///
 /// Settings state (PressDirector.applyDemoSettings, FOLD-REVIEW-6 N5; in memory only, never saved), so a settings
 /// frame shows what its caption says:
@@ -28,6 +28,11 @@ import Foundation
 /// - `orient=portrait` asks the window scene for portrait (`requestGeometryUpdate`) and keeps asking if the system
 ///   rotates back, so the Duo simulator (book pose by default) runs the tabletop layout: 669 × 951 pt, horizontal
 ///   fold. Logs `SQUISH-T orient portrait ok|failed|lost`. `orient=landscape` asks for book pose.
+/// - With a Fold Press stage, "ok" waits for its canvas to follow. With none (`nofold`, the settings frame;
+///   FOLD-REVIEW-8 N1) the interface orientation is not enough: the key window's bounds and the screen's bounds must
+///   also have the wanted shape (portrait: taller than wide) for 5 s, else it logs `orient portrait pending … window=
+///   screen=` once and keeps asking. Every ok / failed / lost line carries `interface= window=<WxH> screen=<WxH>`
+///   (points).
 ///
 /// Store shots (FoldStoreShot.swift, FOLD-REVIEW-4 #1/#2), written to Documents/storeshot-<label>[-land|-69|-eye].png,
 /// then `SQUISH-T storeshot <label> ok|failed` per shot and `SQUISH-T storeshot done` at the end:
@@ -56,7 +61,12 @@ import Foundation
 ///   hero's key-light tilt toward the viewer, so the lid's shadow lands on the object (default 18°). The hero is never
 ///   modelled below 58° (the inner display is dark from ~55°), carries the readout label and V glyph ("AT 67°"), and
 ///   hangs from the caption band. `storeshotbleed=<fraction>` the hero's width-fit bleed (default 0.10; glass 0.04
-///   so its hinge spine stays in frame, FOLD-REVIEW-7 §3 A 04).
+///   so its hinge spine stays in frame, FOLD-REVIEW-7 §3 A 04). Whatever the bleed, the device stays
+///   `storeshotinset=<fraction>` of the frame width inside each side edge (default 0.02; negative = no clamp, the R8
+///   fit), so the duck hero no longer loses its base corner at x 0 (FOLD-REVIEW-8 N5).
+/// - Every store-shot line (angle shots, hero, reveal, pair, grid) ends `frame=<x0-x1/y0-y1>[;…] inframe=0|1`: the
+///   projected device bounds in output pixels of the store frame, and whether every device lies inside it.
+///   ci/store-set.sh FLAGS a Duo frame whose line says `inframe=0` (or has no `inframe=`).
 /// - `revealelevation=<deg>` the reveal's eye elevation (default 42°, FOLD-REVIEW-7 N4). The reveal is width-fitted
 ///   with no bleed and centred under the caption, so the whole near-flat device is in frame.
 /// - `storeshotcaption=<headline> / <sub-line>` (hero; default per object, FOLD-REVIEW-5 N3), `paircaption=…`,

@@ -12,6 +12,9 @@ import UIKit
 /// Throughout the squash the slice is crushed (`CakeSquash`, FOLD-REVIEW-6 N9 / FOLD-REVIEW-7 #5): it spreads about its
 /// own centre, the sides barrel out, the tip blunts, the cream top's outline goes lumpy and the filling squeezes out
 /// past it in pink tongues that droop to the plate, so from above it reads as a crushed slice, not an intact wedge.
+/// FOLD-REVIEW-8 N4 (it still read as an intact, blown-out white wedge at c = 1): the whole outline is also drawn toward
+/// a lumpy oval about the centroid (`CakeSquash.blobOffset`: the point goes, the corners round, the sides swell), and the
+/// cream is a darker, matte, mottled cream (`CakeSquash.creamTint`, `creamImage`) so the squash shades.
 /// The candle (FOLD-REVIEW-7 N3) is a child of the unscaled root, not of the squashed slice: it keeps its true length
 /// and thickness whatever the slice's (k, s, k) scale, and only the ram flattens it (`CakeSquash.candlePose`).
 /// Surprise `jamCentre`: the filling is glossy jam (otherwise pink cream) and a jam spread appears.
@@ -83,13 +86,22 @@ final class CakeSliceView: PressObjectView {
         let filling = look.golden ? SceneMaterials.gold
             : (hasJam ? SceneMaterials.enamel(UIColor(hex: 0xE0335A), roughness: 0.15, clearcoat: 0.8, clearcoatRoughness: 0.08)
                : SceneMaterials.enamel(UIColor(hex: 0xF9B9CB), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.15))
-        let cream = look.body(UIColor(hex: 0xFFF3F7), roughness: 0.35, clearcoat: 0.3)
+        // FOLD-REVIEW-8 N4: a darker, matte cream (was #FFF3F7 + 0.3 clearcoat, which clipped to flat white), mottled
+        // once its texture arrives, so the squash shades.
+        let cream = look.body(UIColor(hex: CakeSquash.creamTint), roughness: CakeSquash.creamRoughness, clearcoat: 0)
         let frosting = look.body(UIColor(hex: 0xF59BB5), roughness: 0.35, clearcoat: 0.3)
         // Sponge, filling, sponge, cream top and the back frosting: one deformable mesh (slots `CakeSquash.spongeSlot`…).
         let mesh = MeshCache.mesh("cake.body") { CakeSquash.bodyMesh() }
         let deformable = DeformableMesh(mesh, materials: [sponge, filling, cream, frosting], maxSpread: 1.8)
         cake.addChild(deformable.entity)
         body = deformable
+        if !look.golden {
+            Task { @MainActor [weak self] in
+                guard let texture = await Self.creamTexture(), let self else { return }
+                self.body?.setMaterial(SceneMaterials.textured(texture, roughness: CakeSquash.creamRoughness),
+                                       forSlot: Int(CakeSquash.creamSlot))
+            }
+        }
         // Five drips along the back frosting's top edge (they ride the bulge).
         for k in 0..<5 {
             let a = (-16 + Float(k) * 8) * .pi / 180
@@ -137,6 +149,16 @@ final class CakeSliceView: PressObjectView {
         entity.addChild(candlePivot)
         applyCandle(CakeSquash.candlePose(ramFace: restHeight, bent: false))
         entity.orientation = simd_quatf(angle: CakeSquash.yaw, axis: [0, 1, 0])
+    }
+
+    /// The cream's mottle (drawn once per session; FOLD-REVIEW-8 N4).
+    private static var creamTextureCache: TextureResource?
+
+    private static func creamTexture() async -> TextureResource? {
+        if let cached = creamTextureCache { return cached }
+        let texture = await StudioEnvironment.textureAsync(CakeSquash.creamImage(), name: "cake.cream")
+        creamTextureCache = texture
+        return texture
     }
 
     static func candleProfile() -> [SIMD2<Float>] {
@@ -213,7 +235,8 @@ final class CakeSliceView: PressObjectView {
                 let radial = blob.size * 0.5 * (1.3 + 0.7 * t)
                 let along = blob.size * 0.5 * (0.85 + 0.35 * t)
                 let height = blob.size * 0.5 * flat
-                let n = spot.normal
+                // Out of the rounded outline, not the rest wedge's straight side (FOLD-REVIEW-8 N4).
+                let n = CakeSquash.oozeNormal(spot.normal, at: SIMD2(edge.x, edge.z), progress: bulge)
                 var centre = SIMD3(root.x + n.x * radial * 0.35, height, root.z + n.y * radial * 0.35)
                 if fx.isFoldPress {
                     // On the Duo the tongue stays on the strike plate + 16 pt, like the rest of the mess.
@@ -261,8 +284,9 @@ final class CakeSliceView: PressObjectView {
             oozeC = state.compression
             let pinkBlob = look.golden ? SceneMaterials.goldMess
                 : SceneMaterials.enamel(UIColor(hex: 0xF59BB5), roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.12)
+            // The cream tongues in the matte cream (FOLD-REVIEW-8 N4: glossy #FFF3F7 read as blown-out white eggs).
             let whiteBlob = look.golden ? SceneMaterials.goldMess
-                : SceneMaterials.enamel(UIColor(hex: 0xFFF3F7), roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.12)
+                : SceneMaterials.pbr(UIColor(hex: CakeSquash.creamTint), roughness: CakeSquash.creamRoughness)
             let count = 5 + Int(rng.next() % 3)
             for k in 0..<count {
                 let fraction = (Float(k) + 0.5 + Float.random(in: -0.3...0.3, using: &rng)) / Float(count)
@@ -442,12 +466,14 @@ enum CakeSquash {
         return parts
     }
 
-    /// Sponge, filling, sponge, cream top and the back frosting in one mesh (slots as `bodyParts`).
+    /// Sponge, filling, sponge, cream top and the back frosting in one mesh (slots as `bodyParts`), with planar
+    /// top-down UVs (`planarUV`) for the cream's mottle (the parts' own UVs, where they have any, are replaced).
     static func bodyMesh() -> MeshData {
         var mesh = MeshData()
         for part in bodyParts() {
             mesh.append(part.mesh, materialOffset: part.slot)
         }
+        mesh.uvs = mesh.positions.map { planarUV($0) }
         return mesh
     }
 
@@ -546,17 +572,21 @@ enum CakeSquash {
     }
 
     /// Wedge-space point `p` of `layer` (inferred from its height if nil) squeezed by `progress`; `noise` (periodic,
-    /// −1…1) makes the lumps. Points only ever move outward and down; the base never moves.
+    /// −1…1) makes the lumps. Points move out from the slice's centre line and toward the oval (`blobOffset`: the apex is
+    /// drawn back), and only ever down; the base stays on the plate (y 0).
     static func deform(_ p: SIMD3<Float>, layer: Int? = nil, progress: Float, noise: (Float) -> Float) -> SIMD3<Float> {
         let t = clamp(progress, 0, 1)
         guard t > 0 else { return p }
+        let u = clamp(p.y / cakeHeight, 0, 1)
+        // FOLD-REVIEW-8 N4: the whole outline is drawn toward a lumpy oval about the centroid, so from above the point
+        // and the straight sides go; the layers' own pushes below then frill it.
+        let oval = blobOffset(SIMD2(p.x, p.z), height: u, progress: t, noise: noise)
         let axis = SIMD2<Float>(clamp(p.x, axisStart, axisEnd), 0)
         var d = SIMD2<Float>(p.x, p.z) - axis
         // Ahead of the axis the tip spreads mostly sideways, so it blunts instead of growing a longer point.
         if p.x < axisStart { d.x *= apexSideways }
         let r = simd_length(d)
-        guard r > 1e-5 else { return p }
-        let u = clamp(p.y / cakeHeight, 0, 1)
+        guard r > 1e-5 else { return SIMD3(p.x + oval.x, p.y, p.z + oval.y) }
         // The lumps vary round the slice and along its straight sides (where the push direction is constant).
         let phase = atan2(d.y, d.x) + alongSide * p.x
         let apex = clamp(p.x / apexReach, apexMin, 1)
@@ -575,7 +605,113 @@ enum CakeSquash {
             push = spongeBarrel * sin(.pi * u) * (1 + lumpiness * noise(phase + 1.7 * u))
         }
         let out = d / r * (bulgeReach * t * push * apex)
-        return SIMD3(p.x + out.x, y, p.z + out.y)
+        return SIMD3(p.x + out.x + oval.x, y, p.z + out.y + oval.y)
+    }
+
+    // MARK: The crush toward an oval (FOLD-REVIEW-8 N4)
+
+    /// FOLD-REVIEW-8 N4: at c = 1 the slice kept its full wedge outline from above (the pushes are constant along a
+    /// straight side, so the sides stayed straight and the point stayed a point). As it squashes, every point is now
+    /// also moved along its ray from the centroid toward a lumpy oval (`blobLong` toward the apex/arc × `blobAcross`
+    /// across, ± `blobLumpiness`), `roundness` of the way at full squash (a little less at the base, `baseRound`):
+    /// the apex is drawn back ~10 mm, the arc's corners round off and the sides swell, so it reads as a squashed cake.
+    /// A radial map about one point (the cap fans' centre), so every layer stays stacked and no wall folds over.
+    static let blobLong: Float = 0.050
+    static let blobAcross: Float = 0.040
+    static let roundness: Float = 0.75
+    static let blobLumpiness: Float = 0.06
+    static let baseRound: Float = 0.85
+
+    /// Distance from the centroid along `angle` (wedge space, 0 = toward the arc, π = toward the apex) to the rest
+    /// wedge's outline: the nearest of the arc and the two straight sides.
+    static func restRadius(angle: Float) -> Float {
+        let d = SIMD2<Float>(cos(angle), sin(angle))
+        let b = centroidX * d.x
+        let c = centroidX * centroidX - radius * radius
+        var best = -b + max(b * b - c, 0).squareRoot()
+        for side: Float in [-1, 1] {
+            // The side through the apex at ±halfAngle; its normal n, and the ray's crossing C + t d with n · p = 0.
+            let n = SIMD2<Float>(-sin(side * halfAngle), cos(side * halfAngle))
+            let den = simd_dot(d, n)
+            guard abs(den) > 1e-6 else { continue }
+            let t = -centroidX * n.x / den
+            if t > 0 { best = min(best, t) }
+        }
+        return max(best, 1e-4)
+    }
+
+    /// The oval's radius along `angle` (before the lumps).
+    static func blobRadius(angle: Float) -> Float {
+        let x = cos(angle) / blobLong, z = sin(angle) / blobAcross
+        return 1 / max((x * x + z * z).squareRoot(), 1e-3)
+    }
+
+    /// How far (wedge metres, x and z) the point `p` (x, z) at height share `u` is moved toward the oval at `progress`.
+    static func blobOffset(_ p: SIMD2<Float>, height u: Float, progress: Float, noise: (Float) -> Float) -> SIMD2<Float> {
+        let t = clamp(progress, 0, 1)
+        let d = SIMD2<Float>(p.x - centroidX, p.y)
+        guard t > 0, simd_length(d) > 1e-6 else { return .zero }
+        let angle = atan2(d.y, d.x)
+        let target = blobRadius(angle: angle) * (1 + blobLumpiness * noise(angle + 0.6))
+        let w = roundness * smooth(0.05, 1, t) * (baseRound + (1 - baseRound) * clamp(u, 0, 1))
+        return d * ((target / restRadius(angle: angle) - 1) * w)
+    }
+
+    /// The outward direction of an ooze tongue leaving the squeezed slice at wedge-space `point` (x, z): the rest
+    /// outline's `normal`, turned toward the ray from the centroid as the outline rounds.
+    static func oozeNormal(_ normal: SIMD2<Float>, at point: SIMD2<Float>, progress: Float) -> SIMD2<Float> {
+        let d = SIMD2<Float>(point.x - centroidX, point.y)
+        guard simd_length(d) > 1e-5 else { return normal }
+        let w = roundness * smooth(0.05, 1, clamp(progress, 0, 1))
+        let n = normal * (1 - w) + simd_normalize(d) * w
+        return simd_length(n) > 1e-5 ? simd_normalize(n) : normal
+    }
+
+    // MARK: The cream top (FOLD-REVIEW-8 N4)
+
+    /// The cream top: #FFF3F7 with a 0.3 clearcoat clipped to flat white under the key, so no squash could shade.
+    /// Now a darker, matte cream (no clearcoat) with a faint mottle (`creamImage`) so the form shades.
+    static let creamTint: UInt32 = 0xF4E3E7
+    static let creamRoughness: Float = 0.62
+    /// The mottle: soft blotches a little darker (warm pink-beige) and lighter than the tint.
+    static let creamDark: UInt32 = 0xE6CDD3
+    static let creamLight: UInt32 = 0xFAF1F3
+    /// Planar (top-down) UVs over the wedge: x 0…`uvSpan`, z ±`uvSpan`/2, so the mottle spreads with the cream.
+    static let uvSpan: Float = 0.12
+
+    static func planarUV(_ p: SIMD3<Float>) -> SIMD2<Float> {
+        SIMD2(p.x / uvSpan, 0.5 + p.z / uvSpan)
+    }
+
+    /// The cream's colour texture: the tint, mottled with ~70 soft seeded blotches (≈ 3–13 mm on the slice).
+    @MainActor
+    static func creamImage(size: Int = 128, seed: UInt64 = 0xC4EA_3007) -> CGImage? {
+        let side = CGFloat(size)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format)
+        var rng = SplitMix64(seed: seed)
+        let image = renderer.image { context in
+            let cg = context.cgContext
+            cg.setFillColor(UIColor(hex: creamTint).cgColor)
+            cg.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            let space = CGColorSpaceCreateDeviceRGB()
+            for k in 0..<70 {
+                let dark = k % 3 != 0
+                let colour = UIColor(hex: dark ? creamDark : creamLight)
+                let alphas: ClosedRange<Float> = dark ? 0.25...0.55 : 0.35...0.7
+                let alpha = CGFloat(Float.random(in: alphas, using: &rng))
+                let colours = [colour.withAlphaComponent(alpha).cgColor, colour.withAlphaComponent(0).cgColor] as CFArray
+                guard let gradient = CGGradient(colorsSpace: space, colors: colours, locations: [0, 1]) else { continue }
+                let centre = CGPoint(x: CGFloat(Float.random(in: 0...1, using: &rng)) * side,
+                                     y: CGFloat(Float.random(in: 0...1, using: &rng)) * side)
+                let radius = CGFloat(Float.random(in: 0.025...0.11, using: &rng)) * side
+                cg.drawRadialGradient(gradient, startCenter: centre, startRadius: 0, endCenter: centre, endRadius: radius,
+                                      options: [])
+            }
+        }
+        return image.cgImage
     }
 
     /// A point on the rest outline (wedge space, `fraction` 0…1 of the way round from the apex, counter-clockwise) and

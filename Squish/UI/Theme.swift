@@ -932,7 +932,8 @@ struct EmbossedSilhouette: View {
     }
 }
 
-/// The specimen photo if one was captured, otherwise the object tile.
+/// The specimen photo if one was captured, otherwise its pressed tile (never the intact object: a specimen has
+/// been squished, FOLD-REVIEW-8 N2). Intact `ObjectTile`s are only for objects not pressed yet.
 struct SpecimenImage: View {
     let specimen: SpecimenRecord
     let thumbnail: UIImage?
@@ -951,10 +952,59 @@ struct SpecimenImage: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .transition(.opacity)
             } else {
-                ObjectTile(kind: specimen.kind, cornerRadius: cornerRadius, golden: specimen.variant.isGolden)
+                PressedTile(specimen: specimen, cornerRadius: cornerRadius)
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// A specimen with no stored thumbnail (its write failed, or the reveal's capture hasn't landed yet): the print its
+/// press left on the platen, rebuilt from the record (`SpecimenPrint`, the seeded demo cards' path), in the card's
+/// own framing. Rendered off the main actor and cached; until it's ready, a bare strike plate on paper.
+struct PressedTile: View {
+    let specimen: SpecimenRecord
+    var cornerRadius: CGFloat = Theme.stickerRadius
+    @State private var rendered: UIImage?
+
+    var body: some View {
+        let image = rendered ?? SpecimenPrint.cachedCard(for: specimen)
+        Color.clear
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                } else {
+                    blankPlate
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .task(id: specimen.id) {
+                guard SpecimenPrint.cachedCard(for: specimen) == nil else { return }
+                let record = specimen
+                let card = await Task.detached(priority: .userInitiated) { SpecimenPrint.card(for: record) }.value
+                rendered = card
+            }
+            .accessibilityHidden(true)
+    }
+
+    /// The strike plate before its print is drawn: paper, and the plate's steel in the print's proportions.
+    private var blankPlate: some View {
+        let canvas = FoldPrintCanvas.rect
+        return ZStack {
+            Color(uiColor: Palette.paper)
+            GeometryReader { proxy in
+                // As `SpecimenPrint.cardImage` fits the print canvas (plate + 40 pt) into the card, 4 % margin.
+                let box = min(proxy.size.width, proxy.size.height) * 0.92
+                let s = min(box / canvas.width, box / canvas.height)
+                RoundedRectangle(cornerRadius: CGFloat(FoldMetrics.plateRadius) * s, style: .continuous)
+                    .fill(Color(uiColor: FoldTextures.platenSteel))
+                    .frame(width: CGFloat(FoldMetrics.plateLateral) * s, height: CGFloat(FoldMetrics.plateDepth) * s)
+                    .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            }
+        }
     }
 }
 

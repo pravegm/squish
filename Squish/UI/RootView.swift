@@ -556,8 +556,17 @@ struct RootView: View {
 
     /// The cover's teaser (FOLD-REVIEW-3 N16): the print the platen took of this press, exactly as it lies on the
     /// lid (`FoldPlaten.printImage()`, the same image the collection card's diptych uses). Fold Press only: the
-    /// P-48 has no platen print, and a demo cover has none yet, so both keep the silhouette teaser.
+    /// P-48 has no platen print, so it keeps the silhouette teaser.
     private func sealedPrintTeaser() -> UIImage? {
+        if case let .sealed(kind, _)? = demoCover {
+            // A demo cover has no press behind it: the print a real press of this object leaves, through the same path
+            // as the seeded cards (`SpecimenPrint`, FOLD-REVIEW-8 N2), so the teaser and the card it opens to match.
+            guard director.usesFoldPress else { return nil }
+            let variant = PressVariant(kind: kind, seed: SpecimenPrint.plainSeed(for: kind))
+            let fractures = SpecimenPrint.fractureCount(kind, seed: variant.seed, maxCompression: 0.96)
+            return SpecimenPrint.printImage(kind: kind, variant: variant, maxCompression: 0.96, fractureCount: fractures)
+                .map { UIImage(cgImage: $0, scale: 2, orientation: .up) }
+        }
         guard director.usesFoldPress, demoCover == nil, let image = director.fold.platen.printImage() else { return nil }
         return UIImage(cgImage: image, scale: 2, orientation: .up)
     }

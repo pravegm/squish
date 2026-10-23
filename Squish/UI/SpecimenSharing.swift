@@ -25,7 +25,10 @@ final class SpecimenShareModel {
 
     func shareImage(specimen: SpecimenRecord, thumbnail: UIImage?) {
         UIFeel.tick()
-        guard let url = ShareImageRenderer.renderFile(specimen: specimen, thumbnail: thumbnail) else {
+        // No stored thumbnail: the print rebuilt now (ImageRenderer draws synchronously, so the card's async
+        // `PressedTile` would only get as far as a bare plate). Never the intact object (FOLD-REVIEW-8 N2).
+        let still = thumbnail ?? SpecimenPrint.card(for: specimen)
+        guard let url = ShareImageRenderer.renderFile(specimen: specimen, thumbnail: still) else {
             fail("The image smudged. Try again?")
             return
         }

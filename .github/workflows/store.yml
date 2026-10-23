@@ -1,7 +1,8 @@
 name: App Store screenshots
 
 # The full App Store screenshot set (FOLD-REVIEW-5 §5, docs/appstore/screenshots.md), manual only:
-#  • pinch: the Pinch Press set P1–P6 (ci/scenarios.txt) on the 6.9" class (newest "… Pro Max" simulator,
+#  • pinch: the Pinch Press set P1–P5 (ci/scenarios.txt; FOLD-REVIEW-8: five frames, the glass crack is cut and kept
+#    as V4-glass-crack, rendered only with pinch_filter '^(P[0-9]|V4)-') on the 6.9" class (newest "… Pro Max" simulator,
 #    1320 × 2868) and on the iPhone 18 Pro for the 6.1" slot (1206 × 2622), raw + captioned
 #    (artifacts store-69, store-61: <set>/store/P*.png and <set>/store/MANIFEST.txt). Each P-frame is checked against
 #    the app log at capture (FOLD-REVIEW-7 N2, the 5th column of ci/scenarios.txt); a FLAGGED frame gets no
@@ -9,7 +10,9 @@ name: App Store screenshots
 #  • duo: the iPhone Duo inner and outer sets via duo.yml (artifact store-duo: duo-screens/store/duo-inner|duo-outer,
 #    MANIFEST.txt, which also checks each frame against the run logs). The book-pose review pass is skipped.
 #    Order (FOLD-REVIEW-6 N7): duck hero, can pair, duck reveal, glass hero, grid (glass, can, cake, jelly), shelf,
-#    settings; the tabletop passes pin seed=3 (plain, never Golden) in ci/duo-screenshots.sh.
+#    settings; the tabletop passes pin seed=3 (plain, never Golden) in ci/duo-screenshots.sh. The UI frames run
+#    shelf, settings, then cover (FOLD-REVIEW-8 N1: the cover pass leaves the device closed). Review-only frames (a
+#    toast-on duck reveal, the egg's tabletop reveal) land in store-duo's duo-screens/verify/: never upload them.
 # No folded device is ever in the 6.9" or 6.1" sets (Guideline 2.3): those are Pinch Press frames only.
 on:
   workflow_dispatch:
@@ -38,6 +41,10 @@ on:
         description: "Duo variety grid objects (need a tabletop hero this run; FOLD-REVIEW-6: not the duck again)"
         type: string
         default: "glassBottle sodaCan cakeSlice jelly"
+      verify:
+        description: "Duo review-only frames in duo-screens/verify/ (toasts egg; empty = none). Never uploaded"
+        type: string
+        default: "toasts egg"
 
 concurrency:
   group: store-${{ github.ref }}
@@ -132,7 +139,9 @@ jobs:
       storeshot_objects: ${{ inputs.storeshot_objects }}
       storeshot_shots: "112,fail,reveal"
       tabletop_angles: "150 112 90 75 62 45"
-      # Settings last: its demo keys change settings in memory (never saved), so nothing else can inherit them.
-      duo_ui: "shelf cover settings"
+      # FOLD-REVIEW-8 N1: the cover last, because it leaves the device closed (R8's settings frame, launched after it,
+      # came out landscape). Settings' demo keys are in memory only (never saved), so the cover can't inherit them.
+      duo_ui: "shelf settings cover"
       storegrid_objects: ${{ inputs.storegrid_objects }}
+      verify: ${{ inputs.verify }}
       artifact_name: store-duo

@@ -603,4 +603,128 @@ struct CollectionTests {
         // Over 80 % of the half's width is used.
         #expect(fit.hero + 2 * fit.small + 2 * spacing >= width * 0.8)
     }
+
+    // MARK: Prints for specimens (FOLD-REVIEW-8 N2)
+
+    /// RGBA of one pixel (x, y from the top left) of a decoded image.
+    private func pixel(_ image: UIImage, x: Int, y: Int) -> (r: Int, g: Int, b: Int)? {
+        guard let cg = image.cgImage else { return nil }
+        var data = [UInt8](repeating: 0, count: 4)
+        let drawn: Bool = data.withUnsafeMutableBytes { buffer in
+            guard let ctx = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            // Shift the image so that pixel (x, y) lands on the single bitmap pixel (CG's origin is bottom left).
+            ctx.draw(cg, in: CGRect(x: -x, y: -(cg.height - 1 - y), width: cg.width, height: cg.height))
+            return true
+        }
+        return drawn ? (Int(data[0]), Int(data[1]), Int(data[2])) : nil
+    }
+
+    /// A square card (the specimen shot, the Fold diptych) is stored whole, upright, only downscaled: the full-screen
+    /// crop used to cut a rotated 58 % window out of it.
+    @Test func squareCardsAreStoredWhole() throws {
+        let (store, _) = makeStore()
+        let outcome = press(store, .rubberDuck)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let card = UIGraphicsImageRenderer(size: CGSize(width: 720, height: 720), format: format).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 720, height: 360))   // the print half
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 360, width: 720, height: 360))   // the specimen half
+        }
+        store.attachThumbnail(try #require(card.pngData()), to: outcome.specimen.id)
+        let stored = try #require(store.thumbnail(for: try #require(store.specimens.first)))
+        #expect(stored.size == CGSize(width: CollectionStore.thumbnailSize, height: CollectionStore.thumbnailSize))
+        let top = try #require(pixel(stored, x: 8, y: 8))
+        let bottom = try #require(pixel(stored, x: 8, y: 500))
+        #expect(top.r > 200 && top.b < 60, "top-left should be the print half (red), got \(top)")
+        #expect(bottom.b > 200 && bottom.r < 60, "bottom-left should be the specimen half (blue), got \(bottom)")
+    }
+
+    /// The mirrored rest heights match the object views' own constants (SpecimenPrint can't read the main-actor ones).
+    @Test func printRestHeightsMatchTheObjects() {
+        let plain = { (kind: ObjectKind) in PressVariant(kind: kind, seed: SpecimenPrint.plainSeed(for: kind)) }
+        func near(_ a: Double, _ b: Float) -> Bool { abs(a - Double(b)) < 1e-5 }
+        #expect(near(SpecimenPrint.restHeight(.rubberDuck, variant: plain(.rubberDuck)), 0.085 * DuckView.heroScale))
+        #expect(near(SpecimenPrint.restHeight(.gummyBear, variant: plain(.gummyBear)), 0.107 * GummyBearView.heroScale))
+        #expect(near(SpecimenPrint.restHeight(.glassBottle, variant: plain(.glassBottle)), 0.060 * GlassBottleView.heroScale))
+        #expect(near(SpecimenPrint.restHeight(.crayon, variant: plain(.crayon)), 2 * CrayonView.radius))
+    }
+
+    /// Every pressable object has a print card, square, at the diptych's size.
+    @Test func everyObjectHasAPrintCard() throws {
+        for kind in ObjectKind.allCases {
+            let seed = SpecimenPrint.plainSeed(for: kind)
+            let fractures = SpecimenPrint.fractureCount(kind, seed: seed, maxCompression: 0.96)
+            let specimen = SpecimenRecord(id: UUID(), number: 1, kind: kind, date: Date(),
+                                          variant: PressVariant(kind: kind, seed: seed), fractureCount: fractures,
+                                          maxCompression: 0.96, failureAngle: nil, duration: 5, isPerfect: false,
+                                          wasSlammed: false)
+            let card = try #require(SpecimenPrint.card(for: specimen), "\(kind)")
+            #expect(card.size == CGSize(width: 720, height: 720), "\(kind)")
+            #expect(SpecimenPrint.cachedCard(for: specimen) != nil, "\(kind)")
+        }
+        // Never touched: no print.
+        #expect(SpecimenPrint.printImage(kind: .jelly, variant: PressVariant(kind: .jelly, seed: 3),
+                                         maxCompression: 0, fractureCount: 0) == nil)
+    }
+
+    /// The derived failure angle is the one the engine itself records, for a press opened flat and closed steadily.
+    @Test func derivedFailureAngleMatchesTheEngine() throws {
+        for kind in ObjectKind.allCases where kind.profile.failureIndex != nil {
+            let seed = SpecimenPrint.plainSeed(for: kind, from: 40)
+            let engine = PressEngine()
+            engine.activate(at: 0)
+            engine.load(kind, seed: seed, at: 0)
+            var t = 2.0
+            for _ in 0..<30 {   // open flat, still
+                engine.ingest(angle: 180, closed: false, at: t)
+                t += 1 / Self.sampleRate
+            }
+            var angle = 180.0
+            while angle > 50 {   // 10°/s
+                angle -= 10 / Self.sampleRate
+                engine.ingest(angle: angle, closed: false, at: t)
+                engine.step(now: t, dt: 1 / Self.sampleRate)
+                t += 1 / Self.sampleRate
+            }
+            let recorded = try #require(engine.failureAngle, "\(kind)")
+            let derived = try #require(SpecimenPrint.failureAngle(kind, seed: seed), "\(kind)")
+            #expect(abs(recorded - derived) < 1.0, "\(kind): engine \(recorded)° vs derived \(derived)°")
+        }
+        #expect(SpecimenPrint.failureAngle(.bubbleWrap, seed: 1) == nil)
+    }
+
+    #if DEBUG
+    /// Seeded demo cards are pressed specimens: each carries its print thumbnail, real fracture counts, and a failure
+    /// angle a real press gives (FOLD-REVIEW-8 N2: not intact icons, not "AT 128°").
+    @Test func seededDemoSpecimensCarryPrintsAndRealAngles() throws {
+        let (store, _) = makeStore()
+        store.seedDemo(count: 7, onHinge: true)
+        #expect(store.specimens.count == 7)
+        for specimen in store.specimens {
+            let image = try #require(store.thumbnail(for: specimen), "\(specimen.kind) has no thumbnail")
+            #expect(image.size.width == CollectionStore.thumbnailSize && image.size.height == CollectionStore.thumbnailSize)
+            #expect(store.best(for: specimen.kind)?.thumbnailFile != nil, "\(specimen.kind) best card")
+            #expect(specimen.fractureCount == SpecimenPrint.fractureCount(specimen.kind, seed: specimen.variant.seed,
+                                                                          maxCompression: specimen.maxCompression))
+            #expect(specimen.failureAngle == SpecimenPrint.failureAngle(specimen.kind, seed: specimen.variant.seed))
+            if specimen.kind == .bubbleWrap {
+                #expect(specimen.failureAngle == nil)
+            } else {
+                let angle = try #require(specimen.failureAngle, "\(specimen.kind)")
+                // Every failure lands between the end stop and the contact ceiling (PressConfig: armAngleMin note).
+                #expect(angle > PressConfig.standard.endAngle + 10 && angle < PressConfig.standard.contactCeiling - 30,
+                        "\(specimen.kind) AT \(angle)°")
+            }
+        }
+        // Late failures (the duck's seam, jelly, cake, can) land in the 60–85° the store shots show.
+        for kind: ObjectKind in [.rubberDuck, .jelly, .cakeSlice, .sodaCan] {
+            let angle = try #require(store.specimens.first { $0.kind == kind }?.failureAngle)
+            #expect((60...85).contains(angle), "\(kind) AT \(angle)°")
+        }
+    }
+    #endif
 }

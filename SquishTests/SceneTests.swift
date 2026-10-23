@@ -366,6 +366,107 @@ struct SceneTests {
         #expect(abs(GlassDebris.skidShare(rho: 1) - 1) < 1e-6 && GlassDebris.skidShare(rho: 0) < 0.3)
     }
 
+    @Test func glassCrackStarsFaceTheCameraAndReadBeforeTheFailure() {
+        // FOLD-REVIEW-8 N3: the crack was seven 0.4 × 0.7 mm near-white boxes along the top, under the ram and edge-on to
+        // the P-48's eye. Now two stars of thick, dark-cored lines on bare glass on the camera side.
+        func luma(_ hex: UInt32) -> Float {
+            0.2126 * Float((hex >> 16) & 0xFF) + 0.7152 * Float((hex >> 8) & 0xFF) + 0.0722 * Float(hex & 0xFF)
+        }
+        #expect(GlassCrack.lineWidth >= 0.0012 && GlassCrack.lineWidth <= 0.0018)
+        #expect(GlassCrack.coreWidth <= 0.5 * GlassCrack.lineWidth && GlassCrack.coreWidth >= 0.0005)
+        #expect(luma(GlassCrack.coreTint) < 80 && luma(GlassCrack.edgeTint) > 230)
+        #expect(GlassCrack.coreLift > 0 && GlassCrack.lift > GlassCrack.lineThickness / 2)
+        // One impact faces the Duo's top-down eye (~47° up), one the P-48's (~21° up) low on the front flank, under the
+        // ram's face; both on the bare glass between the base's heel and the label.
+        #expect(GlassCrack.impacts.count >= 2)
+        let duoEye = simd_normalize(SIMD3<Float>(0, sin(47 * .pi / 180), cos(47 * .pi / 180)))
+        let frontEye = simd_normalize(SIMD3<Float>(0, sin(21 * .pi / 180), cos(21 * .pi / 180)))
+        let normals = GlassCrack.impacts.map { GlassCrack.surface(x: $0.x, angle: $0.angle, squash: 1).normal }
+        #expect(normals.contains { simd_dot($0, duoEye) >= 0.95 && $0.y >= 0.6 })
+        #expect(normals.contains { simd_dot($0, frontEye) >= 0.95 && $0.z >= 0.9 })
+        for impact in GlassCrack.impacts {
+            #expect(GlassCrack.axialRange.contains(impact.x))
+        }
+        let front = GlassCrack.impacts.max { $0.angle < $1.angle }!
+        #expect(GlassCrack.surface(x: front.x, angle: front.angle, squash: 1).point.y
+                <= GlassCrack.centreY + 0.5 * GlassCrack.bodyRadius)
+        // The surface and its normal follow the ovalised cross-section (squash 0.96: 4 % lower, 4 % wider).
+        let side = GlassCrack.surface(x: -0.05, angle: .pi / 2, squash: 0.96)
+        #expect(abs(side.point.z - 0.030 / 0.96) < 1e-6 && abs(side.normal.z - 1) < 1e-5)
+        let top = GlassCrack.surface(x: -0.05, angle: 0, squash: 0.96)
+        #expect(abs(top.point.y - (0.030 + 0.030 * 0.96)) < 1e-6 && abs(top.normal.y - 1) < 1e-5)
+        // Growth: the first share at the first crack, all of it at the failure; ≈ 0.65 at P4 (c 0.31 of 0.22 → 0.40).
+        #expect(abs(GlassCrack.grown(compression: 0.22, crackC: 0.22, failC: 0.40) - GlassCrack.firstShare) < 1e-6)
+        #expect(abs(GlassCrack.grown(compression: 0.40, crackC: 0.22, failC: 0.40) - 1) < 1e-6)
+        let p4 = GlassCrack.grown(compression: 0.31, crackC: 0.22, failC: 0.40)
+        #expect(p4 > 0.55 && p4 < 0.75)
+        var lastGrown: Float = 0
+        for k in 0...20 {
+            let g = GlassCrack.grown(compression: 0.2 + Float(k) * 0.012, crackC: 0.22, failC: 0.40)
+            #expect(g >= lastGrown)
+            lastGrown = g
+        }
+        #expect(GlassCrack.widthShare(along: 0) == 1 && abs(GlassCrack.widthShare(along: 1) - GlassCrack.tipTaper) < 1e-6)
+        // Every star, seeded: its rays stay on the bare glass and on the camera's side, and at 55 % grown (P4) the star
+        // already reaches ≥ 5 mm from its impact (≥ 13 px on the 6.9" frame; typically 8–12 mm) of its 16–24 mm rays.
+        for seed in [UInt64(1), 7, 3_000, 0xC2AC_5747] {
+            var rng = SplitMix64(seed: seed)
+            for impact in GlassCrack.impacts {
+                let rays = GlassCrack.star(x: impact.x, angle: impact.angle, rng: &rng)
+                #expect(rays.count == GlassCrack.raysPerStar)
+                let origin = GlassCrack.surface(x: impact.x, angle: impact.angle, squash: 1).point
+                var reach: Float = 0
+                for ray in rays {
+                    #expect(ray.count == GlassCrack.segmentsPerRay + 1 && ray[0] == SIMD2(impact.x, impact.angle))
+                    let lengths = (0..<(ray.count - 1)).map { GlassCrack.chord(ray[$0], ray[$0 + 1]) }
+                    let total = lengths.reduce(0, +)
+                    #expect(total <= GlassCrack.rayLength.upperBound * 1.01)
+                    for p in ray {
+                        #expect(GlassCrack.axialRange.contains(p.x))
+                        #expect(GlassCrack.surface(x: p.x, angle: p.y, squash: 1).normal.z > -0.3)
+                    }
+                    // The point 55 % of the way along this ray.
+                    var left = 0.55 * total
+                    for i in lengths.indices {
+                        let f = lengths[i] > 0 ? min(left / lengths[i], 1) : 0
+                        let tip = ray[i] + (ray[i + 1] - ray[i]) * f
+                        reach = max(reach, simd_distance(GlassCrack.surface(x: tip.x, angle: tip.y, squash: 1).point, origin))
+                        left -= lengths[i]
+                        if left <= 0 { break }
+                    }
+                }
+                #expect(reach >= 0.005, "star at \(impact.angle) reaches \(reach) at 55 %")
+            }
+        }
+        // A segment's line lies along its chord, out of the glass (never sunk into it at the chord's middle).
+        let a = GlassCrack.surface(x: -0.05, angle: 1.0, squash: 1), b = GlassCrack.surface(x: -0.047, angle: 1.2, squash: 1)
+        let pose = GlassCrack.segmentPose(from: a, to: b, lift: GlassCrack.lift)
+        let dir = simd_normalize(b.point - a.point)
+        #expect(simd_dot(pose.orientation.act(SIMD3(1, 0, 0)), dir) > 0.999)
+        #expect(simd_dot(pose.orientation.act(SIMD3(0, 1, 0)), simd_normalize(a.normal + b.normal)) > 0.99)
+        let middle = SIMD2<Float>(pose.position.y - GlassCrack.centreY, pose.position.z)
+        #expect(simd_length(middle) >= GlassCrack.bodyRadius + GlassCrack.lift * 0.9)
+        #expect(abs(pose.length - simd_distance(a.point, b.point)) < 0.001)
+    }
+
+    @Test func cakeCreamShadesInsteadOfClipping() {
+        // FOLD-REVIEW-8 N4: #FFF3F7 with a clearcoat clipped to flat white under the key. The cream is darker and matte,
+        // mottled a little either side of its tint, on planar UVs that cover the whole slice.
+        func luma(_ hex: UInt32) -> Float {
+            0.2126 * Float((hex >> 16) & 0xFF) + 0.7152 * Float((hex >> 8) & 0xFF) + 0.0722 * Float(hex & 0xFF)
+        }
+        #expect(luma(CakeSquash.creamTint) < luma(0xFFF3F7) - 10)
+        #expect(luma(CakeSquash.creamTint) > 200)
+        #expect(luma(CakeSquash.creamDark) < luma(CakeSquash.creamTint) && luma(CakeSquash.creamLight) > luma(CakeSquash.creamTint))
+        #expect(luma(CakeSquash.creamTint) - luma(CakeSquash.creamDark) < 30)
+        #expect(CakeSquash.creamRoughness >= 0.55)
+        let mesh = CakeSquash.bodyMesh()
+        #expect(mesh.uvs.count == mesh.positions.count && mesh.isValid)
+        for uv in mesh.uvs {
+            #expect(uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1)
+        }
+    }
+
     @Test func eggShellLandsRoundTheYolkNotOnIt() {
         // FOLD-REVIEW-6 N9: the shards were pinned over the yolk. Now they land on a ring outside the widest yolk pool.
         for doubleYolk in [false, true] {
@@ -415,18 +516,23 @@ struct SceneTests {
         let flat: (Float) -> Float = { _ in 0 }
         let lumpy = MeshKit.periodicNoise(seed: 9)
         let side = SIMD3<Float>(0.06, 0.026, -0.06 * tan(CakeSquash.halfAngle))   // the filling, on a long side
-        // No squeeze at rest; the base never moves (it sits on the plate); every point only ever moves outward.
+        // No squeeze at rest; the base stays on the plate (FOLD-REVIEW-8 N4: it spreads with the rest of the slice, in
+        // the plane); a point on a side only ever moves outward, away from the centre line and from the centroid.
         #expect(CakeSquash.deform(side, progress: 0, noise: lumpy) == side)
         let base = SIMD3<Float>(0.06, 0, -0.06 * tan(CakeSquash.halfAngle))
-        #expect(simd_distance(CakeSquash.deform(base, progress: 1, noise: lumpy), base) < 1e-6)
+        #expect(CakeSquash.deform(base, progress: 1, noise: lumpy).y == 0)
+        let centroid = SIMD2<Float>(CakeSquash.centroidX, 0)
         var last: Float = 0
+        var lastRadius: Float = 0
         var lastY = side.y
         for k in 0...10 {
             let q = CakeSquash.deform(side, progress: Float(k) / 10, noise: flat)
             // Outward, never back; the squeezed-out filling only ever sags (toward the plate, never through it).
-            #expect(-q.z >= last - 1e-7 && abs(q.x - side.x) < 1e-6)
+            let radius = simd_distance(SIMD2(q.x, q.z), centroid)
+            #expect(-q.z >= last - 1e-7 && radius >= lastRadius - 1e-7)
             #expect(q.y <= lastY + 1e-7 && q.y > 0)
             last = -q.z
+            lastRadius = radius
             lastY = q.y
         }
         // The long side bows sideways by ≥ 1 cm at full squash, the filling further than the sponge above it, and the
@@ -437,16 +543,26 @@ struct SceneTests {
         #expect(-CakeSquash.deform(sponge, progress: 1, noise: flat).z < -CakeSquash.deform(side, progress: 1, noise: flat).z)
         #expect(CakeSquash.profile(0.9) > CakeSquash.profile(0.7))
         #expect(CakeSquash.profile(0) < 1e-6)
-        // The thin apex barely moves; the progress runs from s 0.9 (none) to s 0.3 (full), ≥ 0.8 at the c 0.7 hold.
+        // The point goes (FOLD-REVIEW-8 N4): the apex is drawn back toward the centroid by ≥ 8 mm (~10 mm); the
+        // progress runs from s 0.9 (none) to s 0.3 (full), ≥ 0.8 at the c 0.7 hold.
         let apex = SIMD3<Float>(0.004, 0.03, 0)
-        #expect(simd_distance(CakeSquash.deform(apex, progress: 1, noise: flat), apex) < 0.4 * CakeSquash.bulgeReach * 1.2)
+        let apexMoved = CakeSquash.deform(apex, progress: 1, noise: flat) - apex
+        #expect(apexMoved.x >= 0.008 && abs(apexMoved.z) < 1e-5)
         #expect(CakeSquash.progress(heightRatio: 1) == 0 && CakeSquash.progress(heightRatio: 0.3) > 0.999)
         #expect(CakeSquash.progress(heightRatio: 0.15) == 1)
         #expect(CakeSquash.progress(heightRatio: 0.385) > 0.8)
-        // The tip blunts: near it the sides spread sideways about as much as forward, not into a longer point.
+        // The tip blunts: near it the slice is drawn back (never into a longer point) and spreads sideways.
         let nearTip = SIMD3<Float>(0.015, 0.03, -0.015 * tan(CakeSquash.halfAngle))
         let moved = CakeSquash.deform(nearTip, progress: 1, noise: flat) - nearTip
-        #expect(abs(moved.z) > 0.7 * abs(moved.x) && moved.x <= 0)
+        #expect(moved.x >= 0 && moved.z < -0.001)
+        // The oval remap: the rest outline's distance from the centroid (arc 38 mm, apex 72 mm, across 26 mm), and a
+        // map that only reaches the oval as the squash completes.
+        #expect(abs(CakeSquash.restRadius(angle: 0) - (CakeSquash.radius - CakeSquash.centroidX)) < 1e-5)
+        #expect(abs(CakeSquash.restRadius(angle: .pi) - CakeSquash.centroidX) < 1e-5)
+        #expect(abs(CakeSquash.restRadius(angle: .pi / 2) - CakeSquash.centroidX * tan(CakeSquash.halfAngle)) < 1e-5)
+        #expect(CakeSquash.blobOffset(SIMD2(0.004, 0), height: 0.5, progress: 0, noise: lumpy) == .zero)
+        #expect(CakeSquash.roundness < 1 && CakeSquash.blobLong < CakeSquash.centroidX)
+        #expect(CakeSquash.blobAcross > CakeSquash.centroidX * tan(CakeSquash.halfAngle) * 1.3)
     }
 
     @Test func cakeReadsCrushedFromAbove() {
@@ -502,6 +618,37 @@ struct SceneTests {
         let plate = GlassDebris.containment(restHeight: CakeSquash.restHeight, anvilHalf: SIMD2<Float>(repeating: 1))
         for p in plateTop {
             #expect(abs(p.x) <= plate.x && abs(p.z) <= plate.y && p.y >= 0)
+        }
+        // FOLD-REVIEW-8 N4: from above the cream top is no longer a wedge. Its outline (the top ring and cap centre)
+        // fills ≥ 60 % of the circle about the centroid that holds it (the wedge: 26 %), its reach toward the old apex
+        // is ≤ 1.5× its half width (the wedge: 1.85×), and it is wider than the uniform spread alone would make it.
+        func circleFill(_ points: [SIMD2<Float>]) -> Float {
+            let far = points.map { simd_length($0) }.max() ?? 1
+            return footprint(points) / (.pi * far * far)
+        }
+        var restCream: [SIMD2<Float>] = []
+        var crushedCream: [SIMD2<Float>] = []
+        for (i, p) in mesh.positions.enumerated() where Int(layers[i]) == CakeSquash.creamLayer && p.y > CakeSquash.cakeHeight - 1e-4 {
+            restCream.append(SIMD2(p.x - CakeSquash.centroidX, p.z))
+            let root = CakeSquash.toRoot(CakeSquash.deform(p, layer: CakeSquash.creamLayer, progress: t, noise: noise),
+                                         spread: k, heightRatio: s)
+            crushedCream.append(SIMD2(root.x, root.z))
+        }
+        #expect(restCream.count > 20)
+        let restHalf = restCream.map { abs($0.y) }.max() ?? 0, crushedHalf = crushedCream.map { abs($0.y) }.max() ?? 0
+        let restApex = -(restCream.map { $0.x }.min() ?? 0), crushedApex = -(crushedCream.map { $0.x }.min() ?? 0)
+        #expect(circleFill(restCream) < 0.32 && restApex > 1.7 * restHalf)
+        #expect(circleFill(crushedCream) >= 0.6, "cream top fill \(circleFill(crushedCream))")
+        #expect(crushedApex <= 1.5 * crushedHalf, "apex \(crushedApex) vs half width \(crushedHalf)")
+        #expect(crushedHalf >= 1.05 * k * restHalf)
+        // With every lump at its peak (or trough) the whole slice still stays on the strike plate + 16 pt.
+        for extreme: Float in [1, -1] {
+            let worst: (Float) -> Float = { _ in extreme }
+            for (i, p) in mesh.positions.enumerated() {
+                let q = CakeSquash.rootToAnvil(CakeSquash.toRoot(CakeSquash.deform(p, layer: Int(layers[i]), progress: t, noise: worst),
+                                                                 spread: k, heightRatio: s))
+                #expect(abs(q.x) <= plate.x && abs(q.z) <= plate.y)
+            }
         }
         // The ooze tongues leave the outline, pointing out of it.
         for k in 0...20 {

@@ -51,6 +51,10 @@ on:
         type: choice
         options: [none, applescript]
         default: none
+      verify:
+        description: "Review-only frames in duo-screens/verify/ (FOLD-REVIEW-8 N7): toasts egg; empty = none"
+        type: string
+        default: "toasts egg"
   workflow_call:
     inputs:
       angles: { type: string, default: "180 150 120 100 90 75 60 45" }
@@ -64,6 +68,7 @@ on:
       duo_ui: { type: string, default: "shelf settings cover" }
       storegrid_objects: { type: string, default: "rubberDuck egg cakeSlice sodaCan" }
       orient_fallback: { type: string, default: none }
+      verify: { type: string, default: "toasts egg" }
       artifact_name: { type: string, default: duo-screens }
 
 concurrency:
@@ -207,6 +212,9 @@ jobs:
           # Pass 3: raw duo-shelf / duo-settings / duo-cover-launch. Pass 4: duo-storeshot-grid.png (variety frame).
           DUO_UI: ${{ inputs.duo_ui }}
           STOREGRID_OBJECTS: ${{ inputs.storegrid_objects }}
+          # Pass 5 (FOLD-REVIEW-8 N7): duo-screens/verify/ (toast-on duck reveal, egg tabletop reveal) + VERIFY.txt.
+          # Review only: ci/store-set.sh never reads verify/.
+          VERIFY: ${{ inputs.verify }}
           OUT: duo-screens
         run: bash ci/duo-screenshots.sh
 

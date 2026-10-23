@@ -11,6 +11,10 @@
 # c, fractures, failed, kind, revealed, golden, surprise), e.g. `phase=pressing,fractures>=1,failed=0` for a crack
 # that must not have failed yet. A frame that fails is FLAGGED: its captioned store frame is not written (any old copy
 # is removed), $OUT/store/MANIFEST.txt says why, and the run exits 5 at the end (after every frame is captured).
+# FOLD-REVIEW-8: the MANIFEST's "flagged:" counts every check that can fail (content, raw size against EXPECT_SIZE,
+# the captioned frame's own size and alpha, a caption that failed to draw), with "checks:" saying how many ran; an
+# uncaptioned frame with an expectation (V4-glass-crack, the crack check kept out of the upload set) is listed too.
+# The content check reads the log, not the picture, so the MANIFEST ends with the manual sign-off reminder.
 # Each run's app stdout/stderr goes to $OUT/logs/<name>.txt; a scenario with `exportclip` also
 # copies the rendered share clip to $OUT/<name>.mp4, and one with `storeshot` copies the folded-device store
 # shots the app wrote (Documents/storeshot-*.png, FoldStoreShot.swift) to $OUT/<name>-storeshot-*.png, after the
@@ -148,6 +152,9 @@ content_check() {
 }
 
 SIZE_MISMATCH=0
+SIZE_FLAGGED=0
+STORE_FLAGGED=0
+CHECKS=0
 CONTENT_FLAGGED=0
 STORE_MANIFEST="$OUT/store/MANIFEST.txt"
 if [[ "$STORE_FRAMES" == 1 ]]; then
@@ -201,19 +208,28 @@ while IFS= read -r line; do
     state=$(state_lines "$OUT/logs/$name.at-capture.txt" "$scenario")
     content_problem=$(content_check "$state" "$expect")
     [[ "$state" =~ ^\ *$ ]] && state=""
+    if [[ -n "$caption" || -n "$expect" ]]; then CHECKS=$((CHECKS + 1)); fi
     if [[ -n "$content_problem" ]]; then
       echo "warning: $name FLAGGED: $content_problem"
       # Only store frames (a caption) and explicit expectations fail the run; other frames just warn.
       if [[ -n "$caption" || -n "$expect" ]]; then CONTENT_FLAGGED=$((CONTENT_FLAGGED + 1)); fi
+      # FOLD-REVIEW-8: an uncaptioned frame with an expectation (V4-glass-crack) has no store frame, but its failed
+      # check is counted in "flagged:", so the MANIFEST says which frame it was.
+      if [[ "$STORE_FRAMES" == 1 && -z "$caption" && -n "$expect" ]]; then
+        echo "$name.png FLAGGED (not a store frame): $content_problem (log logs/$name.at-capture.txt)" >> "$STORE_MANIFEST"
+      fi
     elif [[ -n "$state" ]]; then
       echo "content ok for $name: ${state# }"
     fi
   fi
   if [[ -n "$EXPECT_SIZE" ]]; then
+    CHECKS=$((CHECKS + 1))
     got=$(png_size "$OUT/$name.png")
     if [[ "${got%% *}" != "$EXPECT_SIZE" ]]; then
       echo "warning: $name is $got, expected $EXPECT_SIZE"
       SIZE_MISMATCH=1
+      SIZE_FLAGGED=$((SIZE_FLAGGED + 1))
+      [[ "$STORE_FRAMES" == 1 ]] && echo "$name.png FLAGGED: the raw screenshot is $got, not $EXPECT_SIZE" >> "$STORE_MANIFEST"
     fi
   fi
   if [[ "$scenario" == *exportclip* ]]; then
@@ -243,11 +259,22 @@ while IFS= read -r line; do
     else
       island=()
       [[ "$STORE_ISLAND" == pill ]] && island=(--island pill)
+      CHECKS=$((CHECKS + 1))
       if store_frame --in "$OUT/$name.png" --out "$OUT/store/$name.png" --style framed --caption "$caption" ${island[@]+"${island[@]}"}; then
         echo "$name.png <- $name.png \"$caption\"${state:+ [${state# }]}" >> "$STORE_MANIFEST"
+        # FOLD-REVIEW-8: the captioned frame itself must be the raw screenshot's size (EXPECT_SIZE when set), with no
+        # alpha, or App Store Connect rejects it; R8 never looked.
+        want="${EXPECT_SIZE:-$(png_size "$OUT/$name.png" | cut -d' ' -f1)}"
+        got=$(png_size "$OUT/store/$name.png")
+        if [[ "${got%% *}" != "$want" || "$got" != *"alpha=no"* ]]; then
+          echo "warning: store frame $name is $got (want $want, no alpha)"
+          echo "   FLAGGED $name.png: the store frame is $got (want $want, no alpha)" >> "$STORE_MANIFEST"
+          STORE_FLAGGED=$((STORE_FLAGGED + 1))
+        fi
       else
         echo "warning: store frame failed for $name"
-        echo "$name.png FAILED to caption" >> "$STORE_MANIFEST"
+        echo "$name.png FLAGGED: FAILED to caption" >> "$STORE_MANIFEST"
+        STORE_FLAGGED=$((STORE_FLAGGED + 1))
       fi
     fi
   fi
@@ -261,7 +288,13 @@ if [[ -d "$OUT/store" ]]; then
   for f in "$OUT"/store/*.png; do if [[ -e "$f" ]]; then echo "  $(basename "$f") $(png_size "$f")"; fi; done
 fi
 if [[ -f "$STORE_MANIFEST" ]]; then
-  echo "flagged: $CONTENT_FLAGGED" >> "$STORE_MANIFEST"
+  {
+    echo "== checks before upload (manual; FOLD-REVIEW-8 N6): the content check reads the app's log, not the picture."
+    echo "   It can say a crack happened (fractures>=1) when no crack is visible. Eyeball every frame before upload."
+    echo "   Upload set: P1-P5 only (FOLD-REVIEW-8: the glass crack frame is V4, cut until the crack reads)."
+    # Every check that can fail is counted (FOLD-REVIEW-8): content, raw size, store-frame size/alpha, captioning.
+    echo "flagged: $((CONTENT_FLAGGED + SIZE_FLAGGED + STORE_FLAGGED))  (content $CONTENT_FLAGGED, raw size $SIZE_FLAGGED, store frame $STORE_FLAGGED)  checks: $CHECKS"
+  } >> "$STORE_MANIFEST"
   cat "$STORE_MANIFEST"
 fi
 
@@ -315,7 +348,7 @@ if (( SIZE_MISMATCH == 1 )); then
   echo "error: some screenshots are not $EXPECT_SIZE (is $DEVICE_NAME the right device class?)"
   exit 4
 fi
-if (( CONTENT_FLAGGED > 0 )); then
-  echo "error: $CONTENT_FLAGGED frame(s) FLAGGED by the content check (see $STORE_MANIFEST or the warnings above)"
+if (( CONTENT_FLAGGED + STORE_FLAGGED > 0 )); then
+  echo "error: $CONTENT_FLAGGED frame(s) FLAGGED by the content check, $STORE_FLAGGED store frame(s) wrong or not captioned (see $STORE_MANIFEST or the warnings above)"
   exit 5
 fi

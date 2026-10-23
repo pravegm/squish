@@ -79,17 +79,36 @@
 #  - Every tabletop launch pins STORESHOT_SEED (default 3: not Golden, no surprise for any object, a lime can fizz;
 #    FOLD-REVIEW-6 N6); the app logs kind=/seed=/golden=/surprise= on every store-shot line. Empty = random per launch.
 #
-# PASS 3, DUO UI FRAMES (DUO_UI, default "shelf cover settings"; empty = none): raw inner/cover frames for the store set,
+# PASS 3, DUO UI FRAMES (DUO_UI, default "shelf settings cover"; empty = none): raw inner/cover frames for the store set,
 # captioned later by ci/store-set.sh. shelf / settings: portrait launch at 180° with the seeded 7/10 collection
 # (one Golden) and the sheet open → duo-shelf.png (the Duo opens the shelf at .large) / duo-settings.png. Settings shows
-# what its caption says (FOLD-REVIEW-6 N5): Soft sound, Press without folding and Captions on (demo keys, in memory only),
-# and `gamecenter=hidden` hides the Game Center row's "NOT AVAILABLE". It runs last anyway, so no other frame can
-# inherit those settings. cover: launch with the hinge already shut and 7 seeded specimens → duo-cover-launch.png
-# (outer display: the idle cover picker, O2). Nothing presses it; the run warns if the log shows the engine leaving idle.
+# what its caption says (FOLD-REVIEW-6 N5): Soft sound, Press without folding and Captions on (demo keys, in memory only,
+# so no later launch inherits them), and `gamecenter=hidden` hides the Game Center row's "NOT AVAILABLE". cover: launch
+# with the hinge already shut and 7 seeded specimens → duo-cover-launch.png (outer display: the idle cover picker, O2).
+# Nothing presses it; the run warns if the log shows the engine leaving idle.
+# FOLD-REVIEW-8 N1: the cover pass leaves the device closed, and R8's settings frame, launched straight after it (DUO_UI
+# was "shelf cover settings"), came out a 2853 × 2007 landscape capture with the app in its left half. So the inner
+# frames always run before the cover, whatever order DUO_UI lists them in (the run logs a NOTE when it reorders); each
+# one opens the hinge to 180° and waits SETTLE (twice when the hinge was below 150°) before its launch; and every raw UI
+# frame's size is checked against its display (inner 2007 × 2853 portrait, cover 1398 × 2034): a WARN and a line
+# "<frame> ok|bad <WxH>" in logs/ui-checks.txt. ci/store-set.sh re-checks the files themselves.
 #
 # PASS 4, VARIETY GRID (STOREGRID_OBJECTS, default "glassBottle sodaCan cakeSlice jelly"; empty = none): one launch with
 # `duo;storegrid=…` renders the saved heroes side by side → duo-storeshot-grid.png. Objects without a hero this run
 # are skipped, so list only objects in STORESHOT_OBJECTS.
+#
+# PASS 5, VERIFICATION FRAMES (VERIFY, default "toasts egg"; empty = none; FOLD-REVIEW-8 N7): raw frames for review,
+# NEVER for upload, in $OUT/verify/, with notes in $OUT/verify/VERIFY.txt (ci/store-set.sh never reads verify/).
+#  - toasts: the app is reinstalled first (a fresh collection, so the first press earns its toasts; every earlier pass
+#    already pressed the duck), then a tabletop rubberDuck press WITHOUT `notoasts`, swept to the failure, closed to 0°
+#    and reopened to REVEAL_ANGLE. The reopen sweep runs in the background while the script waits for the app's
+#    "SQUISH-F reveal lit" line (the inner display lighting on the reveal), then shoots VERIFY_TOAST_DELAY (2.5) s after
+#    it: verify/duo-reveal-toasts.png (the first toast is due 1.5 s after the light and stays up 3 s). Then
+#    verify/duo-reveal-toasts-settled.png once the hinge has stopped. Runs after pass 4: the reinstall wipes Documents
+#    (the grid's saved heroes).
+#  - egg: the egg's tabletop press (seed STORESHOT_SEED, `notoasts`) at every TABLETOP_ANGLES hold, then closed and
+#    reopened: verify/egg-tabletop-<angle>.png, -closed.png and -reveal.png (the R7 yolk change, never seen in a run),
+#    with the reveal's phase check in VERIFY.txt.
 #
 # Env: UDID (required), OBJECTS, ANGLES, HINGE_DRIVER, SWEEP_SECS_PER_30 (1.5), SWEEP_STEP (10),
 #      SETTLE (2.5), OUT (duo-screens), APP, BUNDLE, DUO_HINGE (path to the duo-hinge binary),
@@ -98,8 +117,9 @@
 #      STORESHOT_SHOTS (112,fail,reveal), STORESHOT_SEED (3; empty = random),
 #      TABLETOP_ANGLES (150 112 90 75 62 45), FAIL_HOLD (62), STORESHOT_SIZE (portrait), STORESHOT_WAIT (60 s per shot),
 #      ORIENT (portrait), ORIENT_WAIT (40 s), ORIENT_FALLBACK (none|applescript), SIM_APP (Simulator),
-#      REVEAL_ANGLE (155), DUO_UI (shelf cover settings), STOREGRID_OBJECTS (glassBottle sodaCan cakeSlice jelly).
-#      OBJECTS, STORESHOT_OBJECTS, DUO_UI and STOREGRID_OBJECTS may be set empty to skip that pass.
+#      REVEAL_ANGLE (155), DUO_UI (shelf settings cover), STOREGRID_OBJECTS (glassBottle sodaCan cakeSlice jelly),
+#      VERIFY (toasts egg), VERIFY_TOAST_DELAY (2.5 s after the light), VERIFY_LIGHT_WAIT (30 s).
+#      OBJECTS, STORESHOT_OBJECTS, DUO_UI, STOREGRID_OBJECTS and VERIFY may be set empty to skip that pass.
 set -uo pipefail
 
 UDID="${UDID:?set UDID to the iPhone Duo simulator}"
@@ -127,15 +147,24 @@ ORIENT_WAIT="${ORIENT_WAIT:-40}"
 ORIENT_FALLBACK="${ORIENT_FALLBACK:-none}"
 SIM_APP="${SIM_APP:-Simulator}"
 REVEAL_ANGLE="${REVEAL_ANGLE:-155}"
-DUO_UI="${DUO_UI-shelf cover settings}"
+DUO_UI="${DUO_UI-shelf settings cover}"
 STOREGRID_OBJECTS="${STOREGRID_OBJECTS-glassBottle sodaCan cakeSlice jelly}"
+VERIFY="${VERIFY-toasts egg}"
+VERIFY_TOAST_DELAY="${VERIFY_TOAST_DELAY:-2.5}"
+VERIFY_LIGHT_WAIT="${VERIFY_LIGHT_WAIT:-30}"
 
 mkdir -p "$OUT/logs" "$OUT/raw"
 OUT_ABS="$(cd "$OUT" && pwd)"
 RUNLOG="$OUT_ABS/logs/run.txt"
 POSTURE_LOG="$OUT_ABS/logs/posture.txt"
 REVEAL_CHECKS="$OUT_ABS/logs/reveal-checks.txt"   # read by ci/store-set.sh: "<object> ok|missing <why>"
+UI_CHECKS="$OUT_ABS/logs/ui-checks.txt"           # "<frame> ok|bad <WxH>" per raw UI frame (FOLD-REVIEW-8 N1)
+VERIFY_DIR="$OUT_ABS/verify"                      # pass 5: review frames, never uploaded
+VERIFY_NOTES="$VERIFY_DIR/VERIFY.txt"
 FAILURES=0
+# png_size (sips) for the raw UI frame size checks.
+# shellcheck source=ci/store-frame.sh
+source "$(dirname "$0")/store-frame.sh"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$RUNLOG" >&2; }
 
@@ -247,8 +276,11 @@ PY
   rm -f "$tmp"
 }
 
-shoot() {   # shoot <name> <expected: inner|cover>
+# shoot <name> <expected: inner|cover>. <name> may have a folder (verify/x). SHOOT_POSTURE=0 skips the posture record
+# (pass 5 shoots while a background sweep holds the hinge tool).
+shoot() {
   local name="$1" expect="$2" ib=-1 cb=-1 pick=""
+  mkdir -p "$(dirname "$OUT_ABS/raw/$name")" "$(dirname "$OUT_ABS/$name")"
   if [[ -n "$INNER_DISPLAY" ]]; then
     to 30 xcrun simctl io "$UDID" screenshot --display="$INNER_DISPLAY" "$OUT_ABS/raw/$name-inner.png" >/dev/null 2>>"$RUNLOG" \
       && ib=$(brightness "$OUT_ABS/raw/$name-inner.png")
@@ -269,7 +301,18 @@ shoot() {   # shoot <name> <expected: inner|cover>
   [[ "$pick" != "$expect" ]] && log "NOTE $name: expected $expect display, lit one is $pick"
   (( ib <= 6 && cb <= 6 )) && { log "WARN $name: both displays black"; FAILURES=$((FAILURES+1)); }
   log "captured $name (inner=$ib cover=$cb -> $pick)"
-  record_posture "$name"
+  [[ "${SHOOT_POSTURE:-1}" == 0 ]] || record_posture "$name"
+}
+
+# size_check <name> <inner|cover>: a raw frame must have its display's portrait size (FOLD-REVIEW-8 N1: R8's settings
+# frame was a 2853 × 2007 landscape capture). Prints "ok <WxH>" or "bad <WxH> (want …)"; returns 1 when bad.
+size_check() {
+  local want got
+  if [[ "$2" == cover ]]; then want=1398x2034; else want=2007x2853; fi
+  if [[ ! -f "$OUT_ABS/$1.png" ]]; then echo "bad none (want $want)"; return 1; fi
+  got=$(png_size "$OUT_ABS/$1.png"); got="${got%% *}"
+  if [[ "$got" == "$want" ]]; then echo "ok $got"; return 0; fi
+  echo "bad $got (want $want)"; return 1
 }
 
 # Wait for the app's "SQUISH-T frame 120" line (DemoMode stdout), at most $2 seconds.
@@ -444,14 +487,31 @@ ui_frame() {
   applog="$OUT_ABS/logs/$name.txt"; : >"$applog"
   log "=== UI frame $name (hinge ${deg}°, $display): $scen"
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
-  if [[ "$DRIVER" != none ]]; then hinge_to "$deg"; fsleep "$SETTLE"; fi
+  if [[ "$DRIVER" != none ]]; then
+    local was="$CUR"
+    hinge_to "$deg"; fsleep "$SETTLE"
+    # FOLD-REVIEW-8 N1: reopening from a closed device, let the posture settle to open portrait before the launch.
+    if [[ "$display" == inner ]] && (( was < 150 )); then
+      log "$name: hinge was ${was}°; extra settle before the launch"; fsleep "$SETTLE"; record_posture "$name-prelaunch"
+    fi
+  fi
   to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
     "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 \
-    || { log "launch failed: $name"; FAILURES=$((FAILURES+1)); return; }
+    || { log "launch failed: $name"; FAILURES=$((FAILURES+1)); echo "$name bad none (launch failed)" >>"$UI_CHECKS"; return; }
   wait_first_render "$applog" 45
-  [[ "$scen" == *orient=* ]] && { wait_orient "$applog" "$ORIENT_WAIT" || log "WARN $name: interface not $ORIENT"; }
+  if [[ "$scen" == *orient=* ]] && ! wait_orient "$applog" "$ORIENT_WAIT"; then
+    log "WARN $name: interface not $ORIENT (ci/store-set.sh flags this frame)"; FAILURES=$((FAILURES+1))
+  fi
   fsleep 4   # the demo sheet opens 1.2 s after launch, then animates in
   shoot "$name" "$display"
+  local size
+  if size=$(size_check "$name" "$display"); then
+    log "$name: size $size"
+  else
+    log "WARN $name: size $size: not a portrait $display capture (ci/store-set.sh flags this frame)"
+    FAILURES=$((FAILURES+1))
+  fi
+  echo "$name $size" >>"$UI_CHECKS"
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 }
 
@@ -471,6 +531,113 @@ grid_pass() {
   n=$(copy_store_shots "duo-")
   log "grid: copied $n file(s)"
   (( n > 0 )) || FAILURES=$((FAILURES+1))
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+}
+
+# ---- pass 5: verification frames (never uploaded) -----------------------------------------------------
+vnote() { echo "$*" >>"$VERIFY_NOTES"; log "verify: $*"; }
+
+# verify_launch <applog> <scenario>: a tabletop launch at 180°, waiting for the first render and portrait.
+verify_launch() {
+  local applog="$1" scen="$2"
+  : >"$applog"
+  drv_set "$DRIVER" 180 >>"$RUNLOG" 2>&1; CUR=180; fsleep "$SETTLE"
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
+    "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 || return 1
+  wait_first_render "$applog" 45
+  wait_orient "$applog" "$ORIENT_WAIT" || vnote "   WARN interface not $ORIENT ($(grep 'SQUISH-T orient' "$applog" | tail -1))"
+  fsleep 1.5
+  return 0
+}
+
+# verify_sweep <object> <shot prefix|->: the TABLETOP_ANGLES holds (shot at each when a prefix is given), then 0°.
+verify_sweep() {
+  local obj="$1" prefix="$2" a
+  for a in $TABLETOP_ANGLES; do
+    hinge_to "$a"; fsleep "$SETTLE"
+    [[ "$prefix" != - ]] && shoot "$prefix-$a" inner
+  done
+  hinge_to 0; fsleep "$SETTLE"; fsleep 1
+  [[ "$prefix" != - ]] && shoot "$prefix-closed" cover
+  return 0
+}
+
+# phase_now <applog>: the engine phase on the app's latest SQUISH-H line.
+phase_now() {
+  local last phase=""
+  last=$(grep "SQUISH-H" "$1" 2>/dev/null | tail -1)
+  if [[ "$last" == *" phase="* ]]; then phase="${last##* phase=}"; phase="${phase%% *}"; fi
+  echo "${phase:-none}"
+}
+
+# hinge_line <applog>: the app's latest SQUISH-H line ("SQUISH-H <t> <angle> <closed> phase= depth= c= virtual=").
+hinge_line() { grep "SQUISH-H" "$1" 2>/dev/null | tail -1 | cut -c1-140; }
+
+# FOLD-REVIEW-8 N7: a Duo duck reveal with toasts ON, shot ~VERIFY_TOAST_DELAY s after the inner display lights.
+verify_toasts() {
+  local applog="$OUT_ABS/logs/verify-toasts.txt" scen sweep_pid t lit="" before
+  log "=== verify: duck reveal with toasts (fresh install, no notoasts)"
+  vnote "== toasts: rubberDuck tabletop reveal WITHOUT notoasts, fresh install (FOLD-REVIEW-8 N7)"
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+  to 60 xcrun simctl uninstall "$UDID" "$BUNDLE" >>"$RUNLOG" 2>&1 || log "WARN uninstall failed (toasts may not fire)"
+  to 180 xcrun simctl install "$UDID" "$APP" >>"$RUNLOG" 2>&1 \
+    || { vnote "   FAILED: reinstall failed"; return 1; }
+  scen="object=rubberDuck;duo;orient=$ORIENT"
+  [[ -n "$STORESHOT_SEED" ]] && scen="$scen;seed=$STORESHOT_SEED"
+  verify_launch "$applog" "$scen" || { vnote "   FAILED: launch failed"; return 1; }
+  verify_sweep rubberDuck -
+  vnote "   closed: $(hinge_line "$applog")"
+  before=$(grep -c "SQUISH-F reveal lit" "$applog" 2>/dev/null)
+  # Reopen in the background so the shot can land at light + delay, mid-sweep, as a player would see it.
+  ( hinge_to "$REVEAL_ANGLE" ) &
+  sweep_pid=$!
+  t=0
+  while (( t < VERIFY_LIGHT_WAIT * 10 )); do
+    if (( $(grep -c "SQUISH-F reveal lit" "$applog" 2>/dev/null) > before )); then
+      lit=$(grep "SQUISH-F reveal lit" "$applog" | tail -1); break
+    fi
+    fsleep 0.1; t=$((t + 1))
+  done
+  if [[ -n "$lit" ]]; then
+    fsleep "$VERIFY_TOAST_DELAY"
+    SHOOT_POSTURE=0 shoot verify/duo-reveal-toasts inner
+    vnote "   verify/duo-reveal-toasts.png: ~${VERIFY_TOAST_DELAY}s after '${lit#*SQUISH-F }' (seen after ~$((t / 10)).$((t % 10))s of the reopen)"
+  else
+    wait "$sweep_pid" 2>/dev/null; sweep_pid=""
+    fsleep "$VERIFY_TOAST_DELAY"
+    SHOOT_POSTURE=0 shoot verify/duo-reveal-toasts inner
+    vnote "   WARN no 'SQUISH-F reveal lit' line within ${VERIFY_LIGHT_WAIT}s (a reveal that began lit logs none; the toasts then wait at most 3 s): shot ${VERIFY_TOAST_DELAY}s after the reopen ended"
+  fi
+  vnote "   at the shot: $(hinge_line "$applog")"
+  [[ -n "$sweep_pid" ]] && wait "$sweep_pid" 2>/dev/null
+  CUR="$REVEAL_ANGLE"
+  fsleep "$SETTLE"
+  shoot verify/duo-reveal-toasts-settled inner
+  vnote "   verify/duo-reveal-toasts-settled.png: hinge stopped at ${REVEAL_ANGLE}°, phase=$(phase_now "$applog")"
+  vnote "   check by eye: a toast (PERFECT SQUISH / NEW OBJECT UNLOCKED / ACHIEVEMENT …) in the fold toast slot, clear of the crown strip and the print label; none on a dark panel"
+  to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+}
+
+# FOLD-REVIEW-8 §2 "Egg": the egg on the tabletop, every hold, closed and reopened (raw frames, notoasts).
+verify_egg() {
+  local applog="$OUT_ABS/logs/verify-egg.txt" scen phase
+  log "=== verify: egg tabletop reveal"
+  vnote "== egg: tabletop press and reveal (the R7 yolk change, FOLD-REVIEW-8 §2)"
+  scen="object=egg;duo;notoasts;orient=$ORIENT"
+  [[ -n "$STORESHOT_SEED" ]] && scen="$scen;seed=$STORESHOT_SEED"
+  verify_launch "$applog" "$scen" || { vnote "   FAILED: launch failed"; return 1; }
+  verify_sweep egg verify/egg-tabletop
+  hinge_to "$REVEAL_ANGLE"; fsleep "$SETTLE"; fsleep 1.5
+  shoot verify/egg-tabletop-reveal inner
+  phase=$(phase_now "$applog")
+  if [[ "$phase" == revealing ]]; then
+    vnote "   verify/egg-tabletop-reveal.png: reveal up (phase=revealing)"
+  else
+    vnote "   WARN verify/egg-tabletop-reveal.png: phase=$phase at the capture, the reveal is NOT up (did the egg fail by ${TABLETOP_ANGLES##* }°?)"
+  fi
+  vnote "   at the capture: $(hinge_line "$applog")"
+  vnote "   frames: verify/egg-tabletop-{$(echo $TABLETOP_ANGLES | tr ' ' ','),closed,reveal}.png"
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 }
 
@@ -540,7 +707,17 @@ if [[ -n "$STORESHOT_OBJECTS" && -n "$STORESHOT_SHOTS" ]]; then
 fi
 
 # ---- pass 3: Duo UI frames (shelf, settings, closed-launch cover) -----------------------------------
+# FOLD-REVIEW-8 N1: inner frames first, the cover (which leaves the device shut) last, whatever order DUO_UI gives.
+ui_order=""; ui_cover=""
 for ui in $DUO_UI; do
+  if [[ "$ui" == cover ]]; then ui_cover="cover"; else ui_order="${ui_order:+$ui_order }$ui"; fi
+done
+ui_order="${ui_order}${ui_cover:+${ui_order:+ }$ui_cover}"
+if [[ -n "$DUO_UI" && "$(echo $DUO_UI)" != "$ui_order" ]]; then
+  log "NOTE DUO_UI '$DUO_UI' runs as '$ui_order': the cover pass leaves the device closed, so it goes last"
+fi
+[[ -n "$ui_order" ]] && : >"$UI_CHECKS"
+for ui in $ui_order; do
   case "$ui" in
     shelf)    ui_frame duo-shelf 180 inner "object=rubberDuck;duo;notoasts;orient=$ORIENT;shelf" ;;
     settings)
@@ -562,6 +739,27 @@ done
 # ---- pass 4: variety grid ---------------------------------------------------------------------------
 if [[ -n "$STOREGRID_OBJECTS" && -n "$STORESHOT_OBJECTS" && "$DRIVER" != none ]]; then
   grid_pass
+fi
+
+# ---- pass 5: verification frames (FOLD-REVIEW-8 N7; never uploaded, ci/store-set.sh ignores verify/) ----------
+if [[ -n "$VERIFY" ]]; then
+  mkdir -p "$VERIFY_DIR"
+  { echo "VERIFICATION FRAMES: for review only, NOT for upload (FOLD-REVIEW-8 N7)."
+    echo "run: driver=$DRIVER seed=${STORESHOT_SEED:-random} reveal=${REVEAL_ANGLE}° toast delay=${VERIFY_TOAST_DELAY}s"; } >"$VERIFY_NOTES"
+  if [[ "$DRIVER" == none ]]; then
+    vnote "skipped: no hinge driver"
+  else
+    # toasts first: its reinstall wipes the app's data, and the egg pass doesn't need any.
+    for v in $VERIFY; do [[ "$v" == toasts ]] && verify_toasts; done
+    for v in $VERIFY; do
+      case "$v" in
+        toasts) ;;
+        egg) verify_egg ;;
+        *) vnote "unknown VERIFY item '$v' (toasts|egg)" ;;
+      esac
+    done
+    hinge_to 180; fsleep "$SETTLE"
+  fi
 fi
 
 to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true

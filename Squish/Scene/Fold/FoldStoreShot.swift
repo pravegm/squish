@@ -21,7 +21,8 @@ import UIKit
 /// FOLD-REVIEW-6 #1 (frame 1 must read as a phone closing on a duck): the hero takes its own camera (the duck at a
 /// 22° elevation and 50° turn, glass at −28°), the key light leans toward the viewer so the lid's shadow lands on the
 /// object (`Options.keyTiltDegrees`), the readout label and V glyph sit on the hero too (`Options.angleMark`), and the
-/// hero hangs from the caption band (`Anchor.top`, fill 0.66 / bleed 0.10) so no dead band opens under it. The
+/// hero hangs from the caption band (`Anchor.top`, fill 0.66 / bleed 0.10, the bleed clamped 2 % inside the frame's
+/// side edges since FOLD-REVIEW-8 N5, `Options.edgeInset`) so no dead band opens under it. The
 /// reveal (FOLD-REVIEW-7 N4: ~151°, wide and short) is width-fitted with no bleed, centred, from a 42° eye, so the
 /// whole device including the hinge spine is in frame (PressDirector.writeStoreShot).
 /// Captions break by `CaptionWrap` (balanced lines, no orphans).
@@ -56,6 +57,33 @@ enum FoldStoreShot {
     /// FOLD-REVIEW-4 §3.3): these are for non-Duo CI runs and comparison only.
     nonisolated static let portrait = CGSize(width: 1320, height: 2868)
     nonisolated static let landscape = CGSize(width: 2868, height: 1320)
+
+    /// The projected device bounds (output pixels) and frame size of the last `render`, `renderPair` or `renderGrid`
+    /// call, for the CI store-shot log (FOLD-REVIEW-8 N5: ci/store-set.sh flags a frame whose device leaves it).
+    /// Empty after a render that drew nothing.
+    private(set) static var lastDeviceFrames: [CGRect] = []
+    private(set) static var lastFrameSize: CGSize = .zero
+
+    /// True when every device of the last render lies inside its frame (half a pixel of slack), false otherwise or
+    /// when nothing was drawn.
+    static var lastDevicesInFrame: Bool {
+        guard !lastDeviceFrames.isEmpty else { return false }
+        let bounds = CGRect(origin: .zero, size: lastFrameSize).insetBy(dx: -0.5, dy: -0.5)
+        return lastDeviceFrames.allSatisfy { bounds.contains($0) }
+    }
+
+    /// The last render's device bounds as "x0-x1/y0-y1" per device (whole pixels, `;` between devices), or "-".
+    static var lastDeviceFramesLabel: String {
+        guard !lastDeviceFrames.isEmpty else { return "-" }
+        return lastDeviceFrames.map {
+            String(format: "%.0f-%.0f/%.0f-%.0f", Double($0.minX), Double($0.maxX), Double($0.minY), Double($0.maxY))
+        }.joined(separator: ";")
+    }
+
+    private static func noteDevices(_ devices: [StoreDevice], size: CGSize) {
+        lastDeviceFrames = devices.map(\.frame)
+        lastFrameSize = size
+    }
 
     enum Eye: String, Sendable {
         /// The marketing view: the content's design eye turned about the vertical (see `Options.azimuthDegrees`).
@@ -139,6 +167,14 @@ enum FoldStoreShot {
         /// Largest device height as a fraction of the frame height, for the width fit (FOLD-REVIEW-5 #1 capped it at
         /// 0.60; R6 N12 wants 0.66, so the cap now sits above the target). Nil = no cap.
         var maxFill: Double? = 0.70
+        /// FOLD-REVIEW-8 N5: the width fit's bleed never pushes the device out of the frame. Its projected bounds stay
+        /// at least this fraction of the frame width inside each side edge: the scale is capped at
+        /// (1 − 2 · inset) × frame width, and the device is slid sideways if it would still cross an edge. At the
+        /// default 0.02 the hero box (x 0.04–0.96) can bleed at most ~4.3 % wider, so bleed 0.10 on the duck (R8:
+        /// x −0.6 % to 100.6 %, the base's front-left corner cut at x 0) now lands at x 2–98 %, the same margin the
+        /// glass hero's bleed 0.04 gives (2.2–97.8 %). The fill target is still chased with the bleed that is left; the
+        /// duck's fill drops from ~62 % to ~59 %. Nil = no clamp (R8 behaviour). `.contain` fits never need it.
+        var edgeInset: Double? = 0.02
         /// Device lighting on the screens (FOLD-REVIEW-5 §3 b): the lid's cast shadow from the studio key and the
         /// wedge occlusion near the crease on the anvil page, a fainter wedge on the lid. Tabletop model only; off for
         /// the E-check composites.
@@ -378,11 +414,13 @@ enum FoldStoreShot {
     /// One device, framed: width fit with bleed into the hero box, bottom-anchored, caption in the top band.
     static func render(_ halves: Halves, options: Options = Options()) -> UIImage? {
         let size = options.size
+        noteDevices([], size: size)
         guard size.width >= 64, size.height >= 64 else { return nil }
         let context = CIContext(options: [.cacheIntermediates: false])
         let unit = options.heroBox ?? defaultHeroBox(size, captioned: options.caption != nil)
         guard let shot = deviceDraws(halves, options: options, box: frameRect(unit, in: size), canvas: size,
                                      context: context) else { return nil }
+        noteDevices([shot], size: size)
         var heroMark: HeroMark?
         if let label = options.angleMark, !label.isEmpty, shot.lidCorners.count == 2 {
             heroMark = HeroMark(label: label, angle: options.hingeAngle, lid: shot.lidCorners,
@@ -395,6 +433,7 @@ enum FoldStoreShot {
     /// The before/after frame: `before` (e.g. 112°) small, `after` (the squish, ~62°) large, an arrow between them.
     static func renderPair(before: Halves, after: Halves, options: PairOptions = PairOptions()) -> UIImage? {
         let size = options.size
+        noteDevices([], size: size)
         guard size.width >= 64, size.height >= 64 else { return nil }
         let context = CIContext(options: [.cacheIntermediates: false])
         let portrait = size.height >= size.width
@@ -425,6 +464,7 @@ enum FoldStoreShot {
                                       context: context),
               let second = deviceDraws(after, options: large, box: frameRect(afterUnit, in: size), canvas: size,
                                        context: context) else { return nil }
+        noteDevices([first, second], size: size)
         // FOLD-REVIEW-5 §3 a: each label says what that device's crown readout says ("111°", then "AT 83°" once it
         // froze at the failure), so a label never contradicts the red number above it. The profile glyph beside it
         // draws the modelled pose.
@@ -445,6 +485,7 @@ enum FoldStoreShot {
     /// mono label. 1 device: the hero box; 2: stacked; 3: two above, one larger below; 4+: rows of two.
     static func renderGrid(_ items: [GridItem], options: GridOptions = GridOptions()) -> UIImage? {
         let size = options.size
+        noteDevices([], size: size)
         guard !items.isEmpty, size.width >= 64, size.height >= 64 else { return nil }
         let context = CIContext(options: [.cacheIntermediates: false])
         let cells = gridCells(count: items.count, portrait: size.height >= size.width)
@@ -468,6 +509,7 @@ enum FoldStoreShot {
             if let label = item.label { labels.append((text: label, frame: drawn.frame)) }
         }
         guard !devices.isEmpty else { return nil }
+        noteDevices(devices, size: size)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -597,18 +639,32 @@ enum FoldStoreShot {
                 scale = min(scale, cap * Double(size.height) / span.y)
             }
             scale = min(scale, heightScale)
+            // FOLD-REVIEW-8 N5: the bleed may not carry the device past the frame's side edges (`Options.edgeInset`).
+            if let inset = options.edgeInset, inset >= 0 {
+                let room = (1 - 2 * inset) * Double(size.width)
+                if room > 0 { scale = min(scale, room / span.x) }
+            }
+        }
+        // Every anchor puts the projected bounds' horizontal centre on `centreX`, so the device spans
+        // centreX ± halfWidth. A width fit is slid sideways (never scaled again) to keep `edgeInset` clear of both edges.
+        var centreX = Double(box.midX)
+        if case .width = options.fit, let inset = options.edgeInset, inset >= 0 {
+            let halfWidth = span.x * scale / 2
+            let low = inset * Double(size.width) + halfWidth
+            let high = (1 - inset) * Double(size.width) - halfWidth
+            if low <= high { centreX = min(max(centreX, low), high) }
         }
         let fit: StoreFit
         switch options.anchor {
         case .centre:
-            fit = StoreFit(scale: scale, reference: (qlo + qhi) / 2, pixel: CGPoint(x: box.midX, y: box.midY))
+            fit = StoreFit(scale: scale, reference: (qlo + qhi) / 2, pixel: CGPoint(x: centreX, y: Double(box.midY)))
         case let .bottom(lift):
             fit = StoreFit(scale: scale, reference: SIMD2<Double>((qlo.x + qhi.x) / 2, qlo.y),
-                           pixel: CGPoint(x: box.midX, y: box.maxY - CGFloat(lift) * box.height))
+                           pixel: CGPoint(x: centreX, y: Double(box.maxY - CGFloat(lift) * box.height)))
         case let .top(drop):
             // Image-plane y is up, so the highest point is qhi.y.
             fit = StoreFit(scale: scale, reference: SIMD2<Double>((qlo.x + qhi.x) / 2, qhi.y),
-                           pixel: CGPoint(x: box.midX, y: box.minY + CGFloat(drop) * box.height))
+                           pixel: CGPoint(x: centreX, y: Double(box.minY + CGFloat(drop) * box.height)))
         }
         func px(_ p: SIMD3<Double>) -> CGPoint { fit.point(camera.project(p)) }
         let devicePixels = span.x * scale
