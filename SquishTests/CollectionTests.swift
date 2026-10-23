@@ -635,7 +635,8 @@ struct CollectionTests {
             context.fill(CGRect(x: 0, y: 360, width: 720, height: 360))   // the specimen half
         }
         store.attachThumbnail(try #require(card.pngData()), to: outcome.specimen.id)
-        let stored = try #require(store.thumbnail(for: try #require(store.specimens.first)))
+        let first = try #require(store.specimens.first)   // #require can't nest inside #require
+        let stored = try #require(store.thumbnail(for: first))
         #expect(stored.size == CGSize(width: CollectionStore.thumbnailSize, height: CollectionStore.thumbnailSize))
         let top = try #require(pixel(stored, x: 8, y: 8))
         let bottom = try #require(pixel(stored, x: 8, y: 500))
