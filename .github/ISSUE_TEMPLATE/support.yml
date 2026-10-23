@@ -1,0 +1,38 @@
+name: Ask a question
+description: Stuck, confused, or just curious about Squish? Ask here and a real person will reply.
+title: "[Support] "
+labels: ["support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for getting in touch! Quick answers to common questions are on the [support page](https://pravegm.github.io/squish/support/).
+
+        **Please note:** issues on GitHub are **public**. Don't include your email address, phone number, Apple Account or anything else personal.
+        **Refunds** are handled by Apple, not by us: request one at [reportaproblem.apple.com](https://reportaproblem.apple.com).
+  - type: textarea
+    id: question
+    attributes:
+      label: What can we help with?
+      description: Tell us what you're trying to do, or what you'd like to know.
+      placeholder: "I'd like to press without folding, but I can't find the setting…"
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Which iPhone are you using?
+      options:
+        - iPhone Duo
+        - Another iPhone
+        - Not sure / doesn't matter
+    validations:
+      required: false
+  - type: input
+    id: ios
+    attributes:
+      label: iOS version (optional)
+      description: Settings › General › About › iOS Version
+      placeholder: "27.1"
+    validations:
+      required: false

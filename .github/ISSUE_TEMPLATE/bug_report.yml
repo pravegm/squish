@@ -1,0 +1,95 @@
+name: Report a bug
+description: Something in Squish didn't work the way it should. Tell us and we'll fix it.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sorry something went wrong, and thanks for taking the time to tell us. The more detail you give, the faster we can fix it.
+
+        **Please note:** issues on GitHub are **public**. Don't include your email address, phone number, Apple Account or anything else personal.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, hear or feel?
+      placeholder: "The egg cracked, but the sound didn't play…"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen again? (optional)
+      placeholder: |
+        1. Open the Shelf and pick the Egg
+        2. Close the phone slowly to about halfway
+        3. …
+    validations:
+      required: false
+  - type: dropdown
+    id: device
+    attributes:
+      label: Which iPhone?
+      options:
+        - iPhone Duo
+        - Another iPhone
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: iPhone model and iOS version
+      description: Settings › General › About
+      placeholder: "iPhone Duo, iOS 27.1"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Squish version (optional)
+      description: In Squish, open the Shelf, tap the cog, and look under About › Version.
+      placeholder: "1.0 (1)"
+    validations:
+      required: false
+  - type: dropdown
+    id: object
+    attributes:
+      label: Which object were you pressing? (optional)
+      options:
+        - Bubble Wrap
+        - Rubber Duck
+        - Jelly
+        - Crayon
+        - Egg
+        - Cake Slice
+        - Soda Can
+        - Gummy Bear
+        - Glass Bottle
+        - The secret one
+        - Not about an object
+    validations:
+      required: false
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How were you pressing? (optional)
+      options:
+        - Folding the phone (iPhone Duo)
+        - Dragging (Press without folding, or a non-folding iPhone)
+        - Not sure
+    validations:
+      required: false
+  - type: textarea
+    id: media
+    attributes:
+      label: Screen recording or screenshot (optional)
+      description: A screen recording helps a lot. Drag it in here.
+    validations:
+      required: false

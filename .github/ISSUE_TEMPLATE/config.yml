@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Request a refund
+    url: https://reportaproblem.apple.com
+    about: App Store purchases are refunded by Apple. Request one here with the Apple Account you used.
+  - name: Squish support page
+    url: https://pravegm.github.io/squish/support/
+    about: Quick answers about pressing, settings, Game Center and more.
+  - name: Privacy policy
+    url: https://pravegm.github.io/squish/privacy/
+    about: Squish collects no data. Read the full policy.
