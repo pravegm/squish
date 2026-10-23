@@ -1,0 +1,202 @@
+name: App Preview videos
+
+# The App Store App Previews (docs/appstore/preview-video.md), manual only. Real screen recordings of the app
+# (Guideline 2.3.4) with `simctl io recordVideo`, while scripted demo presses play (`-squishDemo …;slowpress;pressaudio`,
+# DemoMode.swift); the app re-renders each press's own sound offline and ci/preview-lib.sh lines it up by wall clock.
+#  • p69: iPhone 18 Pro Max simulator (the ci/screenshots.sh `auto:Pro Max` pick), Pinch Press: duck → reveal, can,
+#    glass, shelf → preview-69.mp4 (886 × 1920, 30 fps, H.264 High 4.0, AAC 256k stereo) plus the social clips and the
+#    loop for docs/press/. Artifact: preview-69.
+#  • duo: the real iPhone Duo simulator in tabletop pose, hinge driven by the `hinge` CLI (the duo.yml setup) →
+#    preview-duo.mp4 (native inner aspect, 1350 × 1920) and preview-duo-886x1920.mp4 (the size App Store Connect takes
+#    for iPhone Duo). Artifact: preview-duo.
+# Each artifact has REPORT.txt (ffprobe facts, loudness, sync check, cut list), POSTER.txt and frames/*.png.
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "6.9-inch simulator: exact name, or auto:Pro Max (newest available Pro Max)"
+        type: string
+        default: "auto:Pro Max"
+      duo:
+        description: "Also record the iPhone Duo preview (slow: 27.1 runtime download + hinge)"
+        type: boolean
+        default: true
+      social:
+        description: "Also cut the social clips and the loop (docs/press/) from the 6.9-inch recordings"
+        type: boolean
+        default: true
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+jobs:
+  p69:
+    runs-on: xcode-27
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          xcodebuild -version
+          xcrun simctl list devicetypes | grep -i "pro max" || true
+          bash --version | head -1
+
+      - name: Tools
+        run: |
+          brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          ffmpeg -version | head -1
+          ffmpeg -hide_banner -filters 2>/dev/null | grep -E " (loudnorm|ebur128|signalstats|palettegen|boxblur) " || true
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build
+        id: build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Squish.xcodeproj -scheme Squish \
+            -destination "platform=iOS Simulator,name=iPhone 18 Pro" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|warning: .*Squish/|\*\* " || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+
+      - name: Record and cut the 6.9-inch preview
+        timeout-minutes: 40
+        env:
+          DEVICE: ${{ inputs.device }}
+          OUT: preview-69
+          SOCIAL: ${{ inputs.social && '1' || '0' }}
+        run: bash ci/preview.sh
+
+      - name: Report
+        if: always()
+        run: cat preview-69/REPORT.txt 2>/dev/null || true
+
+      - name: Upload the 6.9-inch preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-69
+          path: |
+            preview-69/
+            build.log
+          if-no-files-found: ignore
+
+  duo:
+    if: inputs.duo
+    runs-on: xcode-27
+    timeout-minutes: 120
+    env:
+      XCODE_APP: /Applications/Xcode_27.1.app
+      RUNTIME_ID: com.apple.CoreSimulator.SimRuntime.iOS-27-1
+      DUO_TYPE_FALLBACK: com.apple.CoreSimulator.SimDeviceType.iPhone-Duo
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runtime, device and hinge steps are duo.yml's (docs/DUO-CI.md).
+      - name: Select Xcode 27.1
+        timeout-minutes: 8
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          command -v gtimeout >/dev/null || brew install coreutils
+
+      - name: Install the iOS 27.1 runtime if missing
+        timeout-minutes: 30
+        run: |
+          installed() {
+            xcrun simctl list runtimes -j | python3 -c "import json,sys,os; sys.exit(0 if any(r['identifier']==os.environ['RUNTIME_ID'] and r.get('isAvailable') for r in json.load(sys.stdin)['runtimes']) else 1)"
+          }
+          if installed; then echo "iOS 27.1 runtime already installed"; exit 0; fi
+          for attempt in 1 2 3; do
+            echo "::group::download attempt $attempt"
+            gtimeout 1500 xcodebuild -downloadPlatform iOS 2>&1 | grep -v "Downloading iOS" | tail -20 || true
+            echo "::endgroup::"
+            installed && break
+            sleep 15
+          done
+          installed || { echo "::error::iOS 27.1 runtime not installed"; exit 1; }
+
+      - name: Create and boot the iPhone Duo
+        id: sim
+        timeout-minutes: 10
+        run: |
+          type=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; print(next((d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']=='iPhone Duo'), ''))")
+          type="${type:-$DUO_TYPE_FALLBACK}"
+          udid=$(xcrun simctl create "Squish Duo Preview" "$type" "$RUNTIME_ID")
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid"
+
+      - name: Tools (hinge, ffmpeg, xcodegen)
+        timeout-minutes: 15
+        run: |
+          gtimeout 300 brew install artemnovichkov/tap/hinge || echo "::warning::hinge install failed"
+          if gtimeout 60 git clone --depth 1 https://github.com/tosbaha/duo-fold-control "$HOME/duo-fold-control"; then
+            (cd "$HOME/duo-fold-control/tools" && clang -fobjc-arc -framework Foundation -o duo-hinge duo-hinge.m) \
+              || echo "::warning::duo-hinge build failed"
+          fi
+          brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build for the Duo
+        timeout-minutes: 30
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          gtimeout 1700 xcodebuild build \
+            -project Squish.xcodeproj -scheme Squish \
+            -destination "id=$UDID" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|warning: .*Squish/|\*\* " || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+
+      - name: Wait for boot and warm up the hinge helper
+        timeout-minutes: 15
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          gtimeout 840 xcrun simctl bootstatus "$UDID" -b
+          if command -v hinge >/dev/null; then gtimeout 120 hinge -d "$UDID" get || true; fi
+          gtimeout 30 xcrun simctl io "$UDID" enumerate || true
+
+      - name: Record and cut the Duo preview
+        timeout-minutes: 45
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+          OUT: preview-duo
+        run: bash ci/preview-duo.sh
+
+      - name: Report
+        if: always()
+        run: cat preview-duo/REPORT.txt 2>/dev/null || true
+
+      - name: Upload the Duo preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-duo
+          path: |
+            preview-duo/
+            build.log
+          if-no-files-found: ignore
+
+      - name: Shut down simulator
+        if: always()
+        continue-on-error: true
+        run: xcrun simctl shutdown all || true

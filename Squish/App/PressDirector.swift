@@ -449,6 +449,11 @@ final class PressDirector {
             #if DEBUG
             if demo.has("storeshot") { watchStoreShots(demo) }
             if demo.has("storegrid") { writeStoreGrid(demo) }
+            if demo.has("pressaudio") || demo.has("previewmarks") { watchPreviewMarks() }
+            if demo.has("pressaudio") {
+                // The CI script drives the real hinge (press, close, reopen), so the reveal can take minutes.
+                Task { @MainActor [weak self] in await self?.writeDemoPressAudio(waitingUpTo: 900) }
+            }
             #endif
             return
         }
@@ -510,6 +515,9 @@ final class PressDirector {
         }
         hingeUnavailable()
         if let kind = demo.object { load(kind) }
+        #if DEBUG
+        if demo.has("pressaudio") || demo.has("previewmarks") { watchPreviewMarks() }
+        #endif
         let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
         guard let targetDepth else { return }
         // The touch press arms at armAngleMax, so map with the contact point captured there (floating contact).
@@ -524,13 +532,24 @@ final class PressDirector {
                          engine.phase.rawValue, usesTouchPress ? 1 : 0))
             virtualPress(0)
             try? await Task.sleep(for: .milliseconds(300))
-            let steps = 90
-            for step in 1...steps {
-                let angle = 180 + (targetAngle - 180) * Double(step) / Double(steps)
-                virtualPress((180 - angle) / 180)
-                try? await Task.sleep(for: .milliseconds(16))
+            #if DEBUG
+            let slow = demo.has("slowpress")
+            #else
+            let slow = false
+            #endif
+            if slow {
+                #if DEBUG
+                await slowDemoPress(demo, targetDepth: targetDepth, start: start)
+                #endif
+            } else {
+                let steps = 90
+                for step in 1...steps {
+                    let angle = 180 + (targetAngle - 180) * Double(step) / Double(steps)
+                    virtualPress((180 - angle) / 180)
+                    try? await Task.sleep(for: .milliseconds(16))
+                }
             }
-            for _ in 0..<30 {
+            for _ in 0..<(slow ? 45 : 30) {
                 virtualPress((180 - targetAngle) / 180)
                 try? await Task.sleep(for: .milliseconds(16))
             }
@@ -545,6 +564,9 @@ final class PressDirector {
             if demo.has("exportclip") {
                 await exportDemoClip()
             }
+            #if DEBUG
+            if demo.has("pressaudio") { await writeDemoPressAudio(waitingUpTo: 20) }
+            #endif
         }
     }
 
@@ -595,6 +617,216 @@ final class PressDirector {
             print("SQUISH-CLIP failed: \(error.localizedDescription)")
         }
     }
+
+    #if DEBUG
+    // MARK: Preview-video hooks (docs/appstore/preview-video.md, ci/preview.sh, ci/preview-duo.sh)
+
+    /// `slowpress[=seconds]` (default 5; with `depth=` or `reveal`): the touch press as a hand would make it, for the
+    /// App Preview. The linear 1.5 s scripted press reads as a robot on video. A 0.35 s lead-in eases the ram to
+    /// the arm angle, then `slowPressDepth` takes over: ease down onto the object, a slow squeeze, a hold just short of
+    /// most failures (depth 0.52–0.535: glass seed 3 fails at 0.588, the duck's seam at 0.572), then an ease through to
+    /// the target. Paced on the wall clock, so a slow CI simulator keeps the timing, not the frame count. Logs
+    /// `SQUISH-T demo slowpress <s>s begins at …`. Peak closing speed stays under `perfectMaxSpeed` (~50°/s).
+    private func slowDemoPress(_ demo: DemoScenario, targetDepth: Double, start: Double) async {
+        let duration = max(demo.double("slowpress") ?? 5, 1.5)
+        let mapping = engine.config.armed(at: start)
+        let leadIn = 0.35
+        print(String(format: "SQUISH-T demo slowpress %.1fs begins at %.2fs target=%.2f", duration,
+                     CACurrentMediaTime() - launchTime, targetDepth))
+        let began = CACurrentMediaTime()
+        while true {
+            let t = CACurrentMediaTime() - began
+            var done = false
+            let angle: Double
+            if t < leadIn {
+                angle = 180 + (start - 180) * PressDirector.smooth(t / leadIn)
+            } else {
+                let curve = PressDirector.slowPressDepth(at: t - leadIn, duration: duration)
+                done = curve >= targetDepth - 0.0005 || t - leadIn >= duration + 0.5
+                angle = PressMapping.angle(forDepth: min(curve, targetDepth), start: start, config: mapping)
+            }
+            virtualPress((180 - angle) / 180)
+            if done { break }
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+    }
+
+    /// The `slowpress` depth curve (0…1) at `t` seconds of a `duration`-second press. Monotonic (never reverses, so
+    /// no `reversedWhileLoaded`): the pace wavers at 1.3 Hz by ±0.04 s, whose slope (0.33) is below 1.
+    nonisolated static func slowPressDepth(at t: Double, duration: Double) -> Double {
+        guard duration > 0 else { return 1 }
+        let paced = t + 0.04 * sin(2 * Double.pi * 1.3 * t)
+        let u = min(max(paced / duration, 0), 1)
+        switch u {
+        case ..<0.16: return 0.30 * smooth(u / 0.16)                       // down onto the object (contact ≈ 0.30)
+        case ..<0.52: return 0.30 + 0.22 * smooth((u - 0.16) / 0.36)       // the slow squeeze
+        case ..<0.66: return 0.52 + 0.015 * ((u - 0.52) / 0.14)            // the hold: it creaks
+        default: return 0.535 + 0.465 * smooth((u - 0.66) / 0.34)          // through it, easing onto the bottom
+        }
+    }
+
+    nonisolated private static func smooth(_ x: Double) -> Double {
+        let c = min(max(x, 0), 1)
+        return c * c * (3 - 2 * c)
+    }
+
+    /// Wall-clock seconds (Unix epoch) for a `CACurrentMediaTime()` value. The simulator shares the host's clock, so
+    /// ci/preview.sh can line these up with the moment `simctl io recordVideo` started.
+    private static func epoch(_ mediaTime: Double) -> Double {
+        Date().timeIntervalSince1970 - (CACurrentMediaTime() - mediaTime)
+    }
+
+    /// `pressaudio` (part 1): Documents/preview-marks.txt, rewritten at every mark, one line per moment the preview
+    /// cut needs: `<name> epoch=<unix s> t=<s since the object was placed>`, starting with `origin` (the object's
+    /// placement, which is t = 0 of the press trace and of press-audio.wav). Marks: `phase-<phase>` on every engine
+    /// phase change, `fracture-<n>`, `failure`, `closed` / `opened` (hinge), `reveal`. Polled every 15 ms (so ±15 ms);
+    /// stops 8 s after the reveal or after 15 min. Log lines arrive late in CI; the file carries exact times.
+    private func watchPreviewMarks() {
+        let origin = traceStart
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let file = documents.appendingPathComponent("preview-marks.txt")
+            var lines: [String] = []
+            func mark(_ name: String, at time: Double = CACurrentMediaTime()) {
+                lines.append(String(format: "%@ epoch=%.3f t=%.3f", name, PressDirector.epoch(time), time - origin))
+                try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+            }
+            mark("origin", at: origin)
+            print(String(format: "SQUISH-T preview marks origin epoch=%.3f", PressDirector.epoch(origin)))
+            var phase = self.engine.phase
+            var fractures = self.engine.firedCount
+            var failures = self.failureFlashCount
+            var closed = self.hingeClosed
+            var revealAt: Double?
+            let deadline = CACurrentMediaTime() + 900
+            while CACurrentMediaTime() < deadline {
+                if self.engine.phase != phase {
+                    phase = self.engine.phase
+                    mark("phase-\(phase.rawValue)")
+                }
+                if self.engine.firedCount > fractures {
+                    fractures = self.engine.firedCount
+                    mark("fracture-\(fractures)")
+                }
+                if self.failureFlashCount > failures {
+                    failures = self.failureFlashCount
+                    mark("failure")
+                }
+                if self.hingeClosed != closed {
+                    closed = self.hingeClosed
+                    mark(closed ? "closed" : "opened")
+                }
+                if revealAt == nil, self.revealed != nil {
+                    revealAt = CACurrentMediaTime()
+                    mark("reveal")
+                }
+                if let revealAt, CACurrentMediaTime() - revealAt > 8 { break }
+                try? await Task.sleep(for: .milliseconds(15))
+            }
+            print("SQUISH-T preview marks done: \(lines.count) mark(s)")
+        }
+    }
+
+    /// Seconds of sound kept after the last trace sample: the reveal sting and the room after it.
+    private static let pressAudioTail: Double = 5
+    /// Seconds the reveal is left alone before the sound is rendered (see `writeDemoPressAudio`).
+    private static let pressAudioDelay: Double = 8
+
+    /// `pressaudio` (part 2): once the reveal is up, re-render this press's sound offline from its trace, exactly as
+    /// the share clip does (OfflineAudio, the live controller's twin) but in real time (rate 1, no retiming), and write
+    /// Documents/press-audio.wav (48 kHz mono 16-bit) whose sample 0 is the `origin` mark, plus press-audio.txt
+    /// (`origin=<epoch> seconds= rate=48000 kind= style=`). ci/preview.sh muxes it under the screen recording in sync.
+    /// Logs `SQUISH-T pressaudio ok seconds= origin= bytes= kind=` or `SQUISH-T pressaudio failed: …`.
+    private func writeDemoPressAudio(waitingUpTo timeout: Double) async {
+        let origin = traceStart
+        let started = CACurrentMediaTime()
+        while revealed == nil, CACurrentMediaTime() - started < timeout {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard revealed != nil, let trace = lastTrace, let last = trace.samples.last else {
+            print("SQUISH-T pressaudio failed: no reveal or no trace after \(Int(timeout))s")
+            return
+        }
+        // Render only after the reveal has been on screen for a while: building the score runs on the main actor, and
+        // the screen recording of the reveal card must not stall (ci/preview.sh stops recording ~4.5 s after it).
+        try? await Task.sleep(for: .seconds(Self.pressAudioDelay))
+        let seconds = last.time + Self.pressAudioTail
+        let style = settings.soundStyle
+        let score = Self.pressAudioScore(trace: trace, seconds: seconds, style: style)
+        let frames = Int(seconds * OfflineAudio.sampleRate)
+        let pcm = await Task.detached(priority: .userInitiated) {
+            OfflineAudio.render(score, frames: frames)
+        }.value
+        let wav = Self.wavData(pcm, sampleRate: Int(OfflineAudio.sampleRate))
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let info = String(format: "origin=%.3f seconds=%.3f rate=%ld kind=%@ style=%@\n", Self.epoch(origin), seconds,
+                          Int(OfflineAudio.sampleRate), trace.kind.rawValue, style.rawValue)
+        do {
+            try wav.write(to: documents.appendingPathComponent("press-audio.wav"), options: .atomic)
+            try info.write(to: documents.appendingPathComponent("press-audio.txt"), atomically: true, encoding: .utf8)
+            print(String(format: "SQUISH-T pressaudio ok seconds=%.2f origin=%.3f bytes=%ld kind=%@ notes=%ld",
+                         seconds, Self.epoch(origin), wav.count, trace.kind.rawValue, score.notes.count))
+        } catch {
+            print("SQUISH-T pressaudio failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// The press replayed into the offline audio controller at a fixed 120 Hz step, clip time = source time.
+    private static func pressAudioScore(trace: PressTrace, seconds: Double, style: SoundStyle) -> OfflineAudio.Score {
+        let audio = OfflineAudio(style: style)
+        let replay = PressReplay(trace: trace)
+        let engine = replay.engine
+        let context = { () -> FeedbackContext in
+            FeedbackContext(kind: trace.kind, variant: trace.variant, compression: Float(engine.measuredCompression),
+                            closingSpeed: Float(engine.closingSpeed), soundStyle: style, reduceMotion: false)
+        }
+        replay.onEvent = { event, time in
+            audio.seek(to: time, rate: 1)
+            audio.handle(event, context: context())
+        }
+        replay.load()
+        audio.seek(to: 0, rate: 1)
+        audio.place(context: context())
+        let step = 1.0 / 120
+        var index = 1
+        while Double(index) * step <= seconds {
+            let time = Double(index) * step
+            let dt = max(time - replay.clock, 0)
+            replay.advance(to: time)
+            audio.seek(to: time, rate: 1)
+            audio.update(engine: engine, context: context(), dt: dt)
+            index += 1
+        }
+        return audio.score
+    }
+
+    /// 16-bit PCM mono WAV (little-endian, as on every Apple CPU).
+    nonisolated static func wavData(_ samples: [Float], sampleRate: Int) -> Data {
+        let pcm: [Int16] = samples.map { value in
+            let clipped = value.isFinite ? max(-1, min(1, value)) : 0
+            return Int16((clipped * 32767).rounded())
+        }
+        let bytes = pcm.count * 2
+        var data = Data(capacity: 44 + bytes)
+        func append32(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        func append16(_ value: UInt16) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        data.append(contentsOf: Array("RIFF".utf8))
+        append32(UInt32(36 + bytes))
+        data.append(contentsOf: Array("WAVEfmt ".utf8))
+        append32(16)
+        append16(1)                                // PCM
+        append16(1)                                // mono
+        append32(UInt32(sampleRate))
+        append32(UInt32(sampleRate * 2))           // byte rate
+        append16(2)                                // block align
+        append16(16)                               // bits per sample
+        data.append(contentsOf: Array("data".utf8))
+        append32(UInt32(bytes))
+        pcm.withUnsafeBytes { data.append(contentsOf: $0) }
+        return data
+    }
+    #endif
 
     /// Store-frame captions (docs/appstore/screenshots.md, FOLD-REVIEW-5 N3 and §5); " / " starts the sub-line.
     /// Override with `storeshotcaption=` (hero), `paircaption=`, `revealcaption=` and `gridcaption=`.

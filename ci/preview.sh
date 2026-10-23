@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# The 6.9-inch App Preview (docs/appstore/preview-video.md §C): real screen recordings of the app on the iPhone 18 Pro
+# Max simulator (Pinch Press: no folded device is ever in the 6.9" set, Guideline 2.3), cut into one 886 × 1920,
+# 30 fps H.264 file with the app's own press sound. Also cuts the social clips and loops from the same recordings.
+#
+# Per segment: start `simctl io recordVideo --codec=h264`, launch `-squishDemo "<scenario>"`, wait for the app's marks
+# (Documents/preview-marks.txt: `pressaudio` / `previewmarks`, DemoMode.swift), stop, copy the raw recording, the marks
+# and Documents/press-audio.wav (the press's sound rendered offline from its own trace, sample 0 = the `origin` mark).
+# Then each segment is cut between two mark-relative points (SEGMENTS below), scaled to cover 886 × 1920 (1320 × 2868
+# scales to 886 × 1925; 2–3 px of status bar and home indicator are cropped, never UI), with its audio placed by
+# wall-clock epoch (ci/preview-lib.sh explains the timing), and the segments are joined with hard cuts.
+#
+# Env: DEVICE (auto:Pro Max: the newest "… Pro Max" simulator, created if missing; same pick as ci/screenshots.sh),
+#      OUT (preview-69), APP, BUNDLE, SOCIAL (1 = also cut the social clips and loops into $OUT/social).
+# Outputs in $OUT: preview-69.mp4, poster-69.png (+ POSTER.txt), frames/*.png (stills for review), raw/<seg>.mp4 + marks
+# + wav + timing, seg/<seg>.mov, social/*.mp4|gif, logs/, REPORT.txt (ffprobe facts, sync check, durations).
+set -euo pipefail
+
+DEVICE="${DEVICE:-auto:Pro Max}"
+OUT="${OUT:-preview-69}"
+APP="${APP:-build/Build/Products/Debug-iphonesimulator/Squish.app}"
+BUNDLE="${BUNDLE:-com.pravegm.squish}"
+SOCIAL="${SOCIAL:-1}"
+mkdir -p "$OUT/raw" "$OUT/seg" "$OUT/logs" "$OUT/frames" "$OUT/social"
+OUT_ABS="$(cd "$OUT" && pwd)"
+REPORT="$OUT_ABS/REPORT.txt"
+: > "$REPORT"
+# shellcheck source=ci/preview-lib.sh
+source "$(dirname "$0")/preview-lib.sh"
+say() { echo "$*" | tee -a "$REPORT"; }
+
+# name|scenario|cut start|cut end. Cut points are "<mark>±<s>" with comma fallbacks (preview-lib.sh spec_epoch).
+# The order is the cut order. Durations at slowpress 5 / 4.5: duck ≈ 9.5 s, can ≈ 6 s, glass ≈ 6 s, shelf 4 s.
+SEGMENTS=(
+  "duck|object=rubberDuck;reveal;seed=3;notoasts;slowpress=5;pressaudio|phase-pressing-0.6|reveal+3.0"
+  "can|object=sodaCan;reveal;seed=3;notoasts;slowpress=4.5;pressaudio|phase-pressing-0.4|phase-sealed+0.9,reveal+0.2"
+  "glass|object=glassBottle;reveal;seed=3;notoasts;slowpress=5;pressaudio|phase-pressing-0.4|failure+2.2,phase-sealed+0.6"
+  "shelf|object=rubberDuck;shelf;notoasts;previewmarks|origin+1.1|origin+5.1"
+)
+VF="fps=30,scale=886:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=886:1920,setsar=1,format=yuv420p"
+
+# ---- simulator (the ci/screenshots.sh pick) -------------------------------------------------------------------------
+RESOLVE_PY='
+import json, re, subprocess, sys
+want = sys.argv[1]
+auto = want.startswith("auto:")
+suffix = want[5:] if auto else ""
+def model(name):
+    m = re.search(r"iPhone (\d+)", name)
+    return int(m.group(1)) if m else 0
+def runtime_version(identifier):
+    m = re.search(r"iOS-(\d+)-(\d+)", identifier)
+    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))["devices"]
+found = []
+for runtime, entries in devices.items():
+    if "iOS" not in runtime:
+        continue
+    for d in entries:
+        name = d["name"]
+        if (auto and name.startswith("iPhone") and name.endswith(suffix)) or (not auto and name == want):
+            found.append(((model(name), runtime_version(runtime)), d["udid"], name))
+if found:
+    found.sort(reverse=True)
+    print(found[0][1] + "\t" + found[0][2])
+    sys.exit(0)
+if not auto:
+    sys.exit(1)
+listing = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "-j", "devicetypes", "runtimes"]))
+types = sorted((t for t in listing["devicetypes"] if t["name"].startswith("iPhone") and t["name"].endswith(suffix)),
+               key=lambda t: model(t["name"]), reverse=True)
+runtimes = sorted((r for r in listing["runtimes"] if r.get("isAvailable") and "iOS" in r["identifier"]),
+                  key=lambda r: runtime_version(r["identifier"]), reverse=True)
+for t in types:
+    for r in runtimes:
+        supported = r.get("supportedDeviceTypes")
+        if supported is None or any(s.get("identifier") == t["identifier"] for s in supported):
+            print("CREATE\t" + t["identifier"] + "\t" + r["identifier"] + "\t" + t["name"])
+            sys.exit(0)
+sys.exit(1)
+'
+RESOLVED=$(python3 -I -c "$RESOLVE_PY" "$DEVICE") \
+  || { echo "error: no simulator matches DEVICE='$DEVICE'"; xcrun simctl list devices available; exit 1; }
+if [[ "$RESOLVED" == CREATE* ]]; then
+  IFS=$'\t' read -r _ TYPE_ID RUNTIME_ID DEVICE_NAME <<< "$RESOLVED"
+  echo "creating '$DEVICE_NAME' ($TYPE_ID, $RUNTIME_ID)"
+  UDID=$(xcrun simctl create "$DEVICE_NAME" "$TYPE_ID" "$RUNTIME_ID")
+else
+  IFS=$'\t' read -r UDID DEVICE_NAME <<< "$RESOLVED"
+fi
+say "simulator: $DEVICE_NAME ($UDID)"
+xcrun simctl boot "$UDID" || true
+xcrun simctl bootstatus "$UDID" -b
+xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 \
+  --cellularMode active --cellularBars 4 --wifiBars 3 || true
+xcrun simctl install "$UDID" "$APP"
+# Warm-up launch: the first launch after install compiles shaders and is the slowest; never record it.
+xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE" -squishDemo "object=rubberDuck" >/dev/null
+sleep 12
+xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
+
+app_docs() { echo "$(xcrun simctl get_app_container "$UDID" "$BUNDLE" data)/Documents"; }
+
+# ---- record every segment -------------------------------------------------------------------------------------------
+record_segment() {
+  local name="$1" scen="$2" docs log="$OUT_ABS/logs/$1.txt" launch
+  say "=== record $name: $scen"
+  xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
+  docs="$(app_docs)"
+  mkdir -p "$docs"
+  rm -f "$docs/preview-marks.txt" "$docs/press-audio.wav" "$docs/press-audio.txt"
+  : > "$log"
+  start_recording "$UDID" "$OUT_ABS/raw/$name.mp4" "$OUT_ABS/logs/$name.rec.txt"
+  fsleep 0.8   # a still frame or two of the home screen first, so the app's first frame is never the file's first
+  launch=$(now_epoch)
+  xcrun simctl launch --terminate-running-process --stdout="$log" --stderr="$log" \
+    "$UDID" "$BUNDLE" -squishDemo "$scen" >/dev/null
+  if [[ "$scen" == *pressaudio* ]]; then
+    if wait_for_mark "$docs/preview-marks.txt" reveal 120; then
+      fsleep 4.5     # the reveal card on screen; the app renders the sound 8 s after the reveal, after this stop
+    else
+      say "warning: $name: no reveal mark after 120 s"
+    fi
+  else
+    sleep 7.5
+  fi
+  stop_recording
+  if [[ "$scen" == *pressaudio* ]]; then
+    wait_for_log "$log" "SQUISH-T pressaudio (ok|failed)" 90 || say "warning: $name: no pressaudio line after 90 s"
+    grep -h "SQUISH-T pressaudio" "$log" | tee -a "$REPORT" || true
+  fi
+  cp "$docs/preview-marks.txt" "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null || say "warning: $name: no marks file"
+  cp "$docs/press-audio.wav" "$OUT_ABS/raw/$name.wav" 2>/dev/null || true
+  cp "$docs/press-audio.txt" "$OUT_ABS/raw/$name.audio.txt" 2>/dev/null || true
+  echo "rec_epoch=$REC_EPOCH launch_epoch=$launch" > "$OUT_ABS/raw/$name.timing"
+  say "   raw: $(probe_video "$OUT_ABS/raw/$name.mp4")"
+  say "   rec_epoch=$REC_EPOCH launch=$launch marks: $(tr '\n' ' ' < "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null | cut -c1-600)"
+  xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
+}
+
+for seg in "${SEGMENTS[@]}"; do
+  IFS='|' read -r name scen _ _ <<< "$seg"
+  record_segment "$name" "$scen"
+done
+
+# ---- cut ------------------------------------------------------------------------------------------------------------
+# seg_window <name> <start spec> <end spec>: sets A (video seconds), DUR, OFF (wav offset) for a segment.
+seg_window() {
+  local name="$1" marks="$OUT_ABS/raw/$1.marks.txt" rec s e origin
+  rec=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$name.timing")
+  s=$(spec_epoch "$marks" "$2"); e=$(spec_epoch "$marks" "$3")
+  origin=$(mark_epoch "$marks" origin)
+  if [[ -z "$s" || -z "$e" || -z "$origin" ]]; then
+    say "error: $name: missing marks for '$2' / '$3' (origin=${origin:-none})"; return 1
+  fi
+  A=$(calc "$s - $rec"); DUR=$(calc "$e - $s"); OFF=$(calc "$origin - $rec")
+  calc_ok "$A >= 0" || { say "error: $name: cut starts before the recording (A=$A)"; return 1; }
+}
+
+SEGS=()
+FINAL_AT=0
+for seg in "${SEGMENTS[@]}"; do
+  IFS='|' read -r name scen from to <<< "$seg"
+  seg_window "$name" "$from" "$to" || exit 6
+  wav="$OUT_ABS/raw/$name.wav"; [[ -f "$wav" ]] || wav=""
+  [[ "$scen" == *pressaudio* && -z "$wav" ]] && say "warning: $name has no press audio; its segment is silent"
+  cut_segment "$OUT_ABS/raw/$name.mp4" "$A" "$DUR" "$wav" "$OFF" "$VF" "$OUT_ABS/seg/$name.mov"
+  printf -v "SEG_AT_$name" %s "$FINAL_AT"; printf -v "SEG_A_$name" %s "$A"   # bash 3.2: no associative arrays
+  say "cut $name: video ${A}s +${DUR}s (wav offset ${OFF}s) -> final ${FINAL_AT}s$( [[ -n "$wav" ]] && echo ' with sound' || echo ' silent')"
+  FINAL_AT=$(calc "$FINAL_AT + $DUR")
+  SEGS+=("$OUT_ABS/seg/$name.mov")
+done
+say "total cut: ${FINAL_AT}s"
+
+finish_preview "$OUT_ABS/preview-69.mp4" 4.0 "${SEGS[@]}"
+report_media "$OUT_ABS/preview-69.mp4" | tee -a "$REPORT"
+TOTAL=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT_ABS/preview-69.mp4")
+SIZE=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$OUT_ABS/preview-69.mp4")
+RATE=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 "$OUT_ABS/preview-69.mp4")
+FAILED=0
+[[ "$SIZE" == "886x1920" ]] || { say "FAIL size $SIZE (want 886x1920)"; FAILED=1; }
+[[ "$RATE" == "30/1" ]] || { say "FAIL frame rate $RATE (want 30/1)"; FAILED=1; }
+calc_ok "$TOTAL >= 15 && $TOTAL <= 30" || { say "FAIL duration $TOTAL s (Apple: 15–30 s)"; FAILED=1; }
+calc_ok "$TOTAL >= 20 && $TOTAL <= 28" || say "warning: duration $TOTAL s is outside the 20–28 s target"
+
+# Poster: the duck mid-squash, in its hold (slowpress u ≈ 0.59 of 5 s after the lead-in, ≈ phase-pressing + 2.95 s).
+DUCK_MARKS="$OUT_ABS/raw/duck.marks.txt"
+DUCK_REC=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/duck.timing")
+POSTER=$(calc "$(spec_epoch "$DUCK_MARKS" "phase-pressing+2.95") - $DUCK_REC - ${SEG_A_duck} + ${SEG_AT_duck}")
+ffmpeg -nostdin -y -v error -ss "$POSTER" -i "$OUT_ABS/preview-69.mp4" -frames:v 1 "$OUT_ABS/poster-69.png"
+printf 'poster frame: %.2f s (duck mid-squash, in the hold before the seam)\n' "$POSTER" | tee "$OUT_ABS/POSTER.txt" | tee -a "$REPORT"
+
+# Review stills: segment starts and ends, the poster, the duck reveal, the can buckle, the glass break, the shelf.
+STILLS=(0.3 "$POSTER")
+for name in duck can glass shelf; do
+  at="SEG_AT_$name"; STILLS+=("$(calc "${!at} + 0.5")")
+done
+GLASS_FAIL=$(spec_epoch "$OUT_ABS/raw/glass.marks.txt" "failure+0.25")
+GLASS_REC=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/glass.timing")
+[[ -n "$GLASS_FAIL" ]] && STILLS+=("$(calc "$GLASS_FAIL - $GLASS_REC - ${SEG_A_glass} + ${SEG_AT_glass}")")
+DUCK_REVEAL=$(spec_epoch "$DUCK_MARKS" "reveal+2.0")
+[[ -n "$DUCK_REVEAL" ]] && STILLS+=("$(calc "$DUCK_REVEAL - $DUCK_REC - ${SEG_A_duck} + ${SEG_AT_duck}")")
+CAN_SEAL=$(spec_epoch "$OUT_ABS/raw/can.marks.txt" "phase-sealed-0.8")
+CAN_REC=$(sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/can.timing")
+[[ -n "$CAN_SEAL" ]] && STILLS+=("$(calc "$CAN_SEAL - $CAN_REC - ${SEG_A_can} + ${SEG_AT_can}")")
+STILLS+=("$(calc "$TOTAL - 0.3")")
+frames "$OUT_ABS/preview-69.mp4" "$OUT_ABS/frames" "${STILLS[@]}"
+say "stills: ${STILLS[*]}"
+
+# Sync check: the glass failure flashes the screen. Find the brightest frame jump in the glass segment of the final
+# file and compare it with where the failure mark says it is (both in final seconds).
+if [[ -n "$GLASS_FAIL" ]]; then
+  want=$(calc "$(mark_epoch "$OUT_ABS/raw/glass.marks.txt" failure) - $GLASS_REC - ${SEG_A_glass} + ${SEG_AT_glass}")
+  got=$(ffmpeg -nostdin -v error -ss "${SEG_AT_glass}" -t 5 -i "$OUT_ABS/preview-69.mp4" \
+          -vf "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - 2>/dev/null \
+        | awk -v base="${SEG_AT_glass}" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
+                                         /YAVG/ { split($0, y, "="); v = y[2] + 0; if (have && v - last > best) { best = v - last; at = t }; last = v; have = 1 }
+                                         END { if (have) printf "%.3f %.1f", base + at, best }')
+  say "sync check (glass failure): mark at ${want}s, biggest brightness jump at ${got:-none} (s, ΔY)"
+fi
+
+# ---- social clips and loops (docs/press/) ---------------------------------------------------------------------------
+if [[ "$SOCIAL" == 1 ]]; then
+  # social_cut <out> <segment> <start spec> <end spec> [min seconds]
+  social_cut() {
+    local out="$1" name="$2" min="${5:-6}" wav="$OUT_ABS/raw/$2.wav"
+    seg_window "$name" "$3" "$4" || return 0
+    calc_ok "$DUR < $min" && DUR="$min"
+    calc_ok "$DUR > 10" && DUR=10
+    [[ -f "$wav" ]] || wav=""
+    social_clip "$OUT_ABS/raw/$name.mp4" "$A" "$DUR" "$wav" "$OFF" "$OUT_ABS/social/$out"
+    say "social $out: ${DUR}s, $(du -h "$OUT_ABS/social/$out" | cut -f1)"
+  }
+  social_cut x-duck.mp4 duck "phase-pressing-0.6" "reveal+2.6" 8
+  social_cut bluesky-glass.mp4 glass "phase-pressing-0.5" "failure+2.6,phase-sealed+1.0" 7
+  social_cut mastodon-can.mp4 can "phase-pressing-0.5" "reveal+2.4" 7
+  # Loop: the glass going, 3.4 s, silent; MP4 (1080 × 1920) and a 360 px GIF, each kept under 5 MB.
+  seg_window glass "failure-1.4,phase-sealed-1.6" "failure+2.0,phase-sealed+1.8" && {
+    social_clip "$OUT_ABS/raw/glass.mp4" "$A" "$DUR" "" 0 "$OUT_ABS/social/loop-glass.mp4"
+    for spec in "15 360" "12 320" "10 270"; do
+      read -r fps width <<< "$spec"
+      ffmpeg -nostdin -y -v error -i "$OUT_ABS/social/loop-glass.mp4" \
+        -vf "fps=$fps,scale=$width:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
+        -loop 0 "$OUT_ABS/social/loop-glass.gif"
+      bytes=$(stat -f %z "$OUT_ABS/social/loop-glass.gif")
+      say "loop-glass.gif at ${fps} fps ${width} px: $bytes bytes"
+      (( bytes < 5000000 )) && break
+    done
+  }
+  for f in "$OUT_ABS"/social/*; do [[ -f "$f" ]] && report_media "$f" | tee -a "$REPORT"; done
+  frames "$OUT_ABS/social/x-duck.mp4" "$OUT_ABS/frames" 1.0 4.0 || true
+fi
+
+say "files:"; ls -la "$OUT_ABS" "$OUT_ABS/social" | tee -a "$REPORT"
+(( FAILED == 0 )) || { say "error: preview-69.mp4 does not meet the App Store spec (see above)"; exit 5; }

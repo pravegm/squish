@@ -50,6 +50,23 @@ import UIKit
 /// passes use `seed=3`: plain (not Golden, no surprise) for every object, and the can sprays lime (scratchpad
 /// r7tools/variant.mjs replicates PressVariant); `golden` / `surprise=<name>` force them.
 ///
+/// App Preview capture (PressDirector "Preview-video hooks"; ci/preview.sh and ci/preview-duo.sh, .github/workflows/
+/// preview.yml; docs/appstore/preview-video.md):
+/// - `slowpress[=seconds]` (default 5, with `depth=` or `reveal`, touch press only): a human-paced press instead of the
+///   linear 1.5 s one: 0.35 s lead-in, ease onto the object, slow squeeze, a ~1 s hold at depth 0.52–0.535 (just short
+///   of the glass and duck failures at seed 3), then an ease through to the target, held 0.75 s. Paced on the wall
+///   clock, monotonic, under `perfectMaxSpeed`. Logs `SQUISH-T demo slowpress <s>s begins at …`.
+/// - `pressaudio` (touch press, or `duo` with the CI script driving the hinge): writes Documents/preview-marks.txt
+///   (`<name> epoch=<unix s> t=<s>` per line: `origin` = the object's placement, then `phase-<phase>`, `fracture-<n>`,
+///   `failure`, `closed`/`opened`, `reveal`), and 8 s after the reveal is up (so the render never stalls a recorded
+///   reveal) re-renders the press's own sound offline from its trace (OfflineAudio, as the share clip does, but at
+///   rate 1) into Documents/press-audio.wav (48 kHz mono, sample 0 = `origin`) and press-audio.txt (`origin=<epoch>
+///   seconds= rate= kind= style=`). The simulator shares the host clock, so the script lines the WAV up with
+///   `simctl io recordVideo`. Logs `SQUISH-T preview marks origin epoch=…` and `SQUISH-T pressaudio ok|failed …`.
+///   `previewmarks` writes the marks file only (the shelf segment: `origin` is ~when RootView's demo timer starts).
+/// - Also used by the preview: `object=`, `reveal`, `seed=3`, `notoasts`, `shelf` (UI key, RootView: opens the shelf
+///   1.2 s after launch with the seeded collection), `duo`, `orient=portrait`.
+///
 /// Orientation (iPhone Duo):
 /// - `orient=portrait` asks the window scene for portrait (`requestGeometryUpdate`) and keeps asking if the system
 ///   rotates back, so the Duo simulator (book pose by default) runs the tabletop layout: 669 × 951 pt, horizontal
