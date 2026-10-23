@@ -464,7 +464,15 @@ tabletop_pass() {
     hinge_to 0; fsleep "$SETTLE"; fsleep 1; shoot "$obj-tabletop-closed" cover
     hinge_to "$REVEAL_ANGLE"; fsleep "$SETTLE"; fsleep 1.5; shoot "$obj-tabletop-reveal" inner
     check_reveal "$obj" "$applog"
-    wait_storeshot "$applog" reveal "$STORESHOT_WAIT"
+    # Store run 39971788282: the simulator kept the cover display lit at 155°, so the app's reveal shot never came.
+    # Re-closing would collect the reveal, so nudge the hinge further open and back to wake the inner display instead.
+    local nudge
+    for nudge in 1 2 3; do
+      wait_storeshot "$applog" reveal "$STORESHOT_WAIT" && break
+      log "WARN $obj: no reveal store shot yet (nudge $nudge): opening to 175° and back to wake the inner display"
+      hinge_to 175; fsleep "$SETTLE"; hinge_to "$REVEAL_ANGLE"; fsleep "$SETTLE"
+      shoot "$obj-tabletop-reveal" inner
+    done
   fi
   for _ in $(seq 1 10); do grep -q "SQUISH-T storeshot done" "$applog" 2>/dev/null && break; sleep 1; done
   log "$obj: $(grep -E 'SQUISH-T storeshot done' "$applog" 2>/dev/null | tail -1)"
@@ -495,20 +503,29 @@ ui_frame() {
       log "$name: hinge was ${was}°; extra settle before the launch"; fsleep "$SETTLE"; record_posture "$name-prelaunch"
     fi
   fi
-  to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
-    "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 \
-    || { log "launch failed: $name"; FAILURES=$((FAILURES+1)); echo "$name bad none (launch failed)" >>"$UI_CHECKS"; return; }
-  wait_first_render "$applog" 45
-  if [[ "$scen" == *orient=* ]] && ! wait_orient "$applog" "$ORIENT_WAIT"; then
-    log "WARN $name: interface not $ORIENT (ci/store-set.sh flags this frame)"; FAILURES=$((FAILURES+1))
-  fi
-  fsleep 4   # the demo sheet opens 1.2 s after launch, then animates in
-  shoot "$name" "$display"
-  local size
-  if size=$(size_check "$name" "$display"); then
+  # The Duo simulator sometimes lands a launch on the wrong display shape (store run 39971788282: settings came out
+  # 2853x2007). Relaunch up to twice before counting the frame as bad.
+  local size attempt ok=0
+  for attempt in 1 2 3; do
+    : >"$applog"
+    to 60 xcrun simctl launch --terminate-running-process --stdout="$applog" --stderr="$applog" \
+      "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 \
+      || { log "launch failed: $name"; FAILURES=$((FAILURES+1)); echo "$name bad none (launch failed)" >>"$UI_CHECKS"; return; }
+    wait_first_render "$applog" 45
+    if [[ "$scen" == *orient=* ]] && ! wait_orient "$applog" "$ORIENT_WAIT"; then
+      log "WARN $name: interface not $ORIENT (attempt $attempt)"
+    fi
+    fsleep 4   # the demo sheet opens 1.2 s after launch, then animates in
+    shoot "$name" "$display"
+    if size=$(size_check "$name" "$display"); then ok=1; break; fi
+    log "WARN $name: size $size: not a portrait $display capture (attempt $attempt)"
+    to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+    fsleep "$SETTLE"
+  done
+  if (( ok )); then
     log "$name: size $size"
   else
-    log "WARN $name: size $size: not a portrait $display capture (ci/store-set.sh flags this frame)"
+    log "WARN $name: size $size after 3 attempts (ci/store-set.sh flags this frame)"
     FAILURES=$((FAILURES+1))
   fi
   echo "$name $size" >>"$UI_CHECKS"
