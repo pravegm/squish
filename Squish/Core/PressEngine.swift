@@ -187,7 +187,13 @@ final class PressEngine {
         ingestSample(angle: raw, closed: closed, at: time, virtual: false)
     }
 
-    private func ingestSample(angle raw: Double, closed: Bool, at time: Double, virtual: Bool) {
+    /// A `closed` status whose angle reads above this is stale: the iPhone Duo simulator keeps reporting `closed` while
+    /// the phone reopens all the way to ~150° (store run 39895066549), which left every sealed press unrevealed.
+    /// The angle wins, as in RevealCollectGate. Not in PressConfig, so saved tunings keep decoding.
+    static let staleClosedAngle = 90.0
+
+    private func ingestSample(angle raw: Double, closed reportedClosed: Bool, at time: Double, virtual: Bool) {
+        let closed = reportedClosed && raw <= Self.staleClosedAngle
         // The first sample from an input (at launch, or after switching between touch and hinge) is a state, not a
         // transition: launching with the phone shut is not "closing" it, and an earlier arm was taken on another
         // input's angle, so it must be re-anchored on this one (FOLD-REVIEW-6 N3).

@@ -132,6 +132,20 @@ struct PressEngineTests {
         _ = time
     }
 
+    /// Store run 39895066549: the Duo simulator kept reporting `.closed` all the way back open to 151°, so no sealed
+    /// press ever revealed. A `.closed` status the angle contradicts (> 90°) is stale and must not block the reveal.
+    @Test func staleClosedStatusOnReopenStillReveals() {
+        let log = EventLog()
+        let engine = makeEngine(.rubberDuck, log: log)
+        var time = sweep(engine, from: 180, to: 5, duration: 4, startTime: 0, closedAtEnd: true)
+        #expect(engine.phase == .sealed)
+        time = sweep(engine, from: 0, to: 151, duration: 3, startTime: time, closed: true)
+        time = sweep(engine, from: 151, to: 151, duration: 0.5, startTime: time, closed: true)   // never reports open
+        _ = time
+        #expect(engine.phase == .revealing)
+        #expect(log.count { $0 == .reveal } == 1)
+    }
+
     @Test func reopeningAfterSealReveals() {
         let log = EventLog()
         let engine = makeEngine(.rubberDuck, log: log)
@@ -233,7 +247,9 @@ struct PressEngineTests {
             var time = 4.73
             engine.ingest(angle: 0, closed: true, at: time)
             time = sweep(engine, from: 0, to: flagClearsAt, duration: 1.2, startTime: time, closed: true)
-            #expect(engine.phase == .idle)
+            // A stale `.closed` above 90° counts as open, so a phone that is really open may already have armed.
+            #expect(engine.phase == .idle || engine.phase == .armed)
+            #expect(engine.measuredDepth == 0)
             time = sweep(engine, from: flagClearsAt, to: 170, duration: 0.8, startTime: time)
             time = hold(engine, at: 170, seconds: 1, startTime: time)
             #expect(engine.phase == .armed)

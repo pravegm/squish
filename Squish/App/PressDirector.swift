@@ -179,12 +179,15 @@ final class PressDirector {
             hingeAvailable = true
         }
         hingeClosed = closed
-        // CI (ci/duo-screenshots.sh) counts these to prove onHingeChange fired on the Duo simulator.
-        if DemoScenario.current != nil, CACurrentMediaTime() - lastHingeLogTime > 0.25 {
-            lastHingeLogTime = CACurrentMediaTime()
-            print(String(format: "SQUISH-H %.2f %.1f %d phase=%@ depth=%.3f c=%.3f virtual=%d", lastHingeLogTime - launchTime,
-                         angle, closed ? 1 : 0, engine.phase.rawValue, engine.measuredDepth, engine.measuredCompression,
-                         engine.usesVirtualHinge ? 1 : 0))
+        // CI (ci/duo-screenshots.sh) counts these to prove onHingeChange fired on the Duo simulator, and reads the
+        // phase from them, so log after the engine has taken this sample (deferred), not before.
+        defer {
+            if DemoScenario.current != nil, CACurrentMediaTime() - lastHingeLogTime > 0.25 {
+                lastHingeLogTime = CACurrentMediaTime()
+                print(String(format: "SQUISH-H %.2f %.1f %d phase=%@ depth=%.3f c=%.3f virtual=%d", lastHingeLogTime - launchTime,
+                             angle, closed ? 1 : 0, engine.phase.rawValue, engine.measuredDepth, engine.measuredCompression,
+                             engine.usesVirtualHinge ? 1 : 0))
+            }
         }
 
         // The reveal card is dismissed with the hinge too: closing the phone collects it, and folding ~20° from the
