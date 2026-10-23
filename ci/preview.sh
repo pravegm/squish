@@ -126,7 +126,7 @@ record_segment() {
     "$UDID" "$BUNDLE" -squishDemo "$scen" >/dev/null
   if [[ "$scen" == *pressaudio* ]]; then
     if wait_for_mark "$docs/preview-marks.txt" reveal 120; then
-      fsleep 4.5     # the reveal card on screen; the app renders the sound 8 s after the reveal, after this stop
+      fsleep 6.0     # the reveal card on screen; the app renders the sound 8 s after the reveal, after this stop
     else
       say "warning: $name: no reveal mark after 120 s"
     fi
@@ -166,6 +166,8 @@ take_gap() {
   if [[ -z "$rec" || -z "$s" || -z "$e" || ! -f "$OUT_ABS/raw/$1.wav" || -f "$OUT_ABS/raw/$1.retime-failed" ]]; then
     echo 99; return 0
   fi
+  local len; len=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT_ABS/raw/$1.mp4")
+  if ! calc_ok "$e - $rec <= $len"; then say "   $1: the cut ends after the (re-timed) file" >&2; echo 99; return 0; fi
   g=$(frame_gaps "$OUT_ABS/raw/$1.mp4" "$(calc "$s - $rec")" "$(calc "$e - $rec")")
   say "   $1 cut window: $g" >&2
   g="${g#*maxgap=}"; echo "${g%% *}"

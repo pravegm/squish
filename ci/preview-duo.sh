@@ -127,8 +127,15 @@ rec_begin() {
 }
 rec_end() {
   [[ -n "${REC_PID:-}" ]] && stop_recording "$REC_PID"
-  [[ -f "$OUT_ABS/raw/$1.mp4" ]] && say "$1 $(retime "$OUT_ABS/raw/$1.mp4")"
-  [[ -f "$OUT_ABS/raw/$1.mp4" ]] && say "$1 raw: $(probe_video "$OUT_ABS/raw/$1.mp4")"
+  # Re-time (preview-lib.sh); without it the recording keeps a display matrix that turns the tabletop UI sideways and
+  # ffmpeg's timeline drifts (run 39987522022's glass). Retry once; RETIMED says whether it worked.
+  RETIMED=0
+  if [[ -f "$OUT_ABS/raw/$1.mp4" ]]; then
+    local r; r=$(retime "$OUT_ABS/raw/$1.mp4"); say "$1 $r"
+    if [[ "$r" != *"retimed "* ]]; then sleep 3; r=$(retime "$OUT_ABS/raw/$1.mp4"); say "$1 (retry) $r"; fi
+    [[ "$r" == *"retimed "* ]] && RETIMED=1
+    say "$1 raw: $(probe_video "$OUT_ABS/raw/$1.mp4")"
+  fi
   REC_PID=""
 }
 collect() {   # collect <press> <scenario>: marks and wav, once the app has rendered the sound
@@ -164,7 +171,7 @@ press_take() {
     "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 || say "launch failed: $name"
   if [[ "$scen" == *hingescript* ]]; then
     wait_for_mark "$docs/preview-script.txt" script-160 150 || say "WARN $name: the hinge script never reached its end"
-    fsleep 3.5
+    fsleep 5
   else
     wait_for_mark "$docs/preview-marks.txt" origin 120 || say "WARN $name: no origin mark"
     fsleep 6.5
@@ -178,8 +185,13 @@ press_take() {
 press_take warmup "object=rubberDuck;duo;$BASE;hingescript=4"
 rm -f "$OUT_ABS/raw/warmup.mp4"
 
-press_take duck "object=rubberDuck;duo;$BASE;pressaudio;hingescript=7"
-press_take glass "object=glassBottle;duo;$BASE;pressaudio;hingescript=7"
+for take in duck:rubberDuck glass:glassBottle; do
+  for attempt in 1 2; do
+    press_take "${take%%:*}" "object=${take##*:};duo;$BASE;pressaudio;hingescript=7"
+    (( RETIMED == 1 )) && break
+    say "WARN ${take%%:*}: the recording could not be re-timed (attempt $attempt); recording it again"
+  done
+done
 # No shelf beat on the Duo: launched straight into the shelf, the open-lying simulator stays in book layout behind
 # the sheet (run 39983207065), and the duck and glass already make a 19 s cut. The 6.9" preview carries the shelf.
 

@@ -79,9 +79,16 @@ do {
         last = time
         written += 1
     }
+    // A recording stopped with SIGINT can end on a frame AVFoundation won't decode ("Cannot Decode", run 39987522022).
+    // Keep everything up to it; the scripts check that the cut ends before the file does.
+    var partial = ""
     if reader.status == .failed {
-        print("retime failed: reading: \(reader.error?.localizedDescription ?? "unknown")")
-        exit(1)
+        guard written > 0 else {
+            print("retime failed: reading: \(reader.error?.localizedDescription ?? "unknown")")
+            exit(1)
+        }
+        partial = String(format: " (partial: reading stopped at %.3f s: %@)", last.seconds,
+                         reader.error?.localizedDescription ?? "unknown")
     }
     writerInput.markAsFinished()
     let finished = DispatchSemaphore(value: 0)
@@ -91,9 +98,9 @@ do {
         print("retime failed: finishing: \(writer.error?.localizedDescription ?? "unknown")")
         exit(1)
     }
-    print(String(format: "retimed %@: %ld frames, %ld out of order dropped, %.0fx%.0f, first %.3f s, last %.3f s",
+    print(String(format: "retimed %@: %ld frames, %ld out of order dropped, %.0fx%.0f, first %.3f s, last %.3f s%@",
                  inputURL.lastPathComponent, written, dropped, Double(size.width), Double(size.height), first,
-                 last.seconds))
+                 last.seconds, partial))
 } catch {
     print("retime failed: \(error.localizedDescription)")
     exit(1)
