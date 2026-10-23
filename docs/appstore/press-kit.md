@@ -1,6 +1,6 @@
 # Squish: Press kit
 
-*Host as a single page at `https://[domain]/press`, with a zip of the assets. Everything here is **embargo-free**: write about it whenever you like, from the day you receive it.*
+*Live at **https://pravegm.github.io/squish/press/** (source: `site/press/index.html`; keep the two in step). Full-size assets go on the GitHub Release `press-kit`: https://github.com/pravegm/squish/releases/tag/press-kit (**not created yet**; the press page already links to it). Everything here is **embargo-free**: write about it whenever you like, from the day you receive it.*
 
 ---
 
@@ -17,21 +17,21 @@
 | | |
 |---|---|
 | **Name** | Squish (App Store: "Squish: Fold-to-Crush Press") |
-| **Developer** | [Studio name], [city, UK] |
-| **Founder** | [Founder name] |
-| **Release date** | [Tue 24 Nov 2026], worldwide. Pre-order from [~7 Nov 2026] |
-| **Platform** | iPhone (universal), designed for iPhone Duo's hinge; Pinch Press on every other iPhone. Requires iOS [27.0 / confirm minimum] |
+| **Developer** | Squish, an independent developer (GitHub `pravegm`) |
+| **Founder** | [Founder name] (deliberately not on the live page) |
+| **Release date** | Tue 24 Nov 2026, worldwide. Pre-order from [~7 Nov 2026] |
+| **Platform** | iPhone, designed for iPhone Duo's hinge; drag-to-press (the P-48) on every other iPhone. Requires iOS 18.0 or later (`project.yml` deployment target; the hinge press uses iOS 27.1 APIs, which the Duo ships with) |
 | **Price** | £2.99 / $2.99 / €2.99 one-off. No ads, no in-app purchases. Family Sharing on |
 | **Age rating** | 9+ |
 | **Launch content** | 10 objects: Bubble Wrap, Rubber Duck, Jelly, Crayon, Egg, Cake Slice, Soda Can, Gummy Bear, Glass Bottle, and one secret |
 | **Features** | Hinge-driven analogue press · real-time haptics and sound · pressed-specimen collection · Perfect Squish and Golden variants · cover-display "sealed" card · share clip and image · Game Center achievements |
-| **Accessibility** | Press without folding · VoiceOver · Reduce Motion · Soft sound mode · haptic levels · visual sound cues · flashes under 3 Hz |
+| **Accessibility** | Press without folding · VoiceOver · Reduce Motion · Soft sound mode · haptic levels (Off/Soft/Full) · Captions (on-screen words for sound moments) · flashes under 3 Hz *(not verified in code; left off the live page)* |
 | **Privacy** | Data Not Collected. No accounts, no tracking, no third-party SDKs |
 | **Size** | ~[XX] MB (target ≤ 80 MB) |
 | **Languages** | English |
 | **Updates** | Free object drops every 3–4 weeks. Holiday Object Drop in mid-December |
-| **Links** | App Store: [link] · Website: [domain] · Press assets: [domain]/press |
-| **Press contact** | [Founder name], [press email], [phone] |
+| **Links** | App Store: [link] · Website: https://pravegm.github.io/squish/ · Press page: https://pravegm.github.io/squish/press/ · Full-size assets: https://github.com/pravegm/squish/releases/tag/press-kit · Support: https://pravegm.github.io/squish/support/ |
+| **Press contact** | Live page: GitHub Issues (https://github.com/pravegm/squish/issues/new?template=support.yml). [Founder to decide: a press email, which would replace this on the page] |
 
 ---
 
@@ -47,7 +47,7 @@
 
 ---
 
-## Founder quote (placeholder)
+## Founder quote (placeholder; left off the live press page until the founder writes one)
 
 > "[Founder to write in their own words. Suggested angle: the moment the first bubble popped under a real hinge and you laughed out loud. Why it's a toy, not a game. Why no ads.]"
 > — [Founder name], founder, [Studio name]
@@ -56,11 +56,13 @@
 
 ---
 
-## Asset list (zip: `squish-press-kit.zip`)
+## Asset list (zip: `squish-press-kit.zip`, attached to the `press-kit` GitHub Release)
+
+The live page already shows web-sized copies (≈900 px tall JPEGs in `site/assets/shots/`, from `store.yml` run 39952047687) and a 512 px icon. At minimum the release needs the 1024 icon and the full-size store PNGs from that run; the rest below can follow.
 
 | File | Spec | Notes |
 |---|---|---|
-| `icon-1024.png` | 1024 × 1024 | Yellow ram flattening a raspberry gummy bear, on graphite |
+| `icon-1024.png` | 1024 × 1024 | A folding phone closing on a rubber duck, hazard-striped edges, on graphite (`Squish/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`) |
 | `logo-wordmark.svg` / `.png` | Vector + 2000 px PNG, dark and light | SF Pro Rounded Heavy wordmark (check the font licence for logo use; outline it) |
 | `screens-duo-inner-01…06.png` | 2007 × 2853 | Caption-free versions of the App Store frames |
 | `screens-duo-outer-01…02.png` | 1398 × 2034 | Cover display |
@@ -75,7 +77,7 @@
 
 **Never include** the secret object, Hydraulic Press Channel imagery, or any shot with real objects between the halves.
 
-**Embargo-free launch note (put at the top of the press page):** *No embargo. Everything on this page is free to use now with a link to the App Store. Need a promo code, a TestFlight invite or a different format? Email [press email] and you'll hear back the same day.*
+**Embargo-free launch note (put at the top of the press page):** *No embargo. Everything on this page is free to use now with a link to the App Store. Need a promo code, a TestFlight invite or a different format? Email [press email] and you'll hear back the same day.* (Live page today: "Need something else, such as a different format? Get in touch", linking to the GitHub support form, with no promo-code or same-day promise until there's a private channel.)
 
 **Promo codes:** App promo codes are still available for paid app downloads (Apple retired the in-app purchase promo codes in March 2026, which doesn't affect us). Generate them in App Store Connect after approval. **Check the current per-version cap and expiry there**: historically 100 codes per version, valid 28 days. Track every code issued in a sheet (who, when, outlet).
 
@@ -109,7 +111,7 @@ General rules:
 > Happy to send TestFlight, hi-res clips, or a quote. No embargo.
 >
 > [Founder name], [Studio name]
-> [press page link]
+> https://pravegm.github.io/squish/press/
 
 ### 2. Digital Trends: Vikhyaat Vivek (wrote "The iPhone Duo has developers going wild", 10 Oct 2026)
 *To: [find via Digital Trends author page / X / Muck Rack]*

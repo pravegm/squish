@@ -106,25 +106,29 @@ section { padding: clamp(40px, 8vw, 80px) 0; }
 .hero-top { display: grid; gap: 20px; align-items: center; }
 .hero-icon { width: 112px; height: 112px; border-radius: 26px; box-shadow: 0 18px 40px -20px rgba(43, 45, 49, .7); }
 .pill {
-  display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  background: var(--graphite); color: var(--cream); border-radius: 999px; padding: 10px 18px 10px 12px; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--graphite); color: var(--cream); border-radius: 24px; padding: 10px 18px 10px 14px; font-weight: 700; line-height: 1.35;
 }
 .pill .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--yellow); box-shadow: 0 0 0 4px rgba(255, 184, 28, .25); flex: none; }
 @media (prefers-color-scheme: dark) { .pill { background: var(--paper); color: var(--graphite); } }
 .price { margin-top: 14px; color: var(--ink-2); font-weight: 600; }
 
-.shots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(10px, 2.4vw, 24px); margin-top: clamp(28px, 5vw, 48px); align-items: end; }
+/* Columns in the frames' aspect ratios (633, 633, 414 px wide at 900 tall), so all three share one height. */
+.shots { display: grid; grid-template-columns: minmax(0, 633fr) minmax(0, 633fr) minmax(0, 414fr); gap: clamp(10px, 2.4vw, 24px); margin-top: clamp(28px, 5vw, 48px); align-items: end; }
 .shots figure { margin: 0; }
 .shots img { border-radius: 14px; box-shadow: var(--shadow); background: var(--cream-deep); }
 .shots figcaption { margin-top: 10px; font-size: .9rem; color: var(--ink-2); text-align: center; }
 @media (max-width: 640px) {
-  .shots { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 72%; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 10px; margin-right: calc(-1 * var(--gutter)); padding-right: var(--gutter); }
+  .shots { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: auto; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 10px; margin-right: calc(-1 * var(--gutter)); padding-right: var(--gutter); }
   .shots figure { scroll-snap-align: start; }
+  .shots img { height: min(440px, 62vh); width: auto; max-width: none; }
 }
 
 /* Cards and steps */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(18px, 3vw, 28px); box-shadow: var(--shadow); }
-.steps { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); counter-reset: step; }
+.steps { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 16px; grid-template-columns: 1fr; counter-reset: step; }
+@media (min-width: 560px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 960px) { .steps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .steps li { counter-increment: step; position: relative; padding-top: 58px; }
 .steps li::before {
   content: counter(step); position: absolute; top: 18px; left: clamp(18px, 3vw, 28px);
@@ -142,7 +146,9 @@ section { padding: clamp(40px, 8vw, 80px) 0; }
 @media (min-width: 820px) { .split { grid-template-columns: 1.1fr .9fr; } }
 .split img { border-radius: 16px; max-height: 560px; width: auto; margin: 0 auto; }
 
-.facts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 24px; }
+.facts { display: grid; gap: 12px; grid-template-columns: 1fr; margin-top: 24px; }
+@media (min-width: 560px) { .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 960px) { .facts { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .fact { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
 .fact strong { display: block; font-size: 1.1rem; }
 .fact span { color: var(--ink-2); font-size: .95rem; }
@@ -190,6 +196,7 @@ section { padding: clamp(40px, 8vw, 80px) 0; }
 .gallery a { display: block; text-decoration: none; }
 .gallery img { border-radius: 10px; box-shadow: var(--shadow); background: var(--cream-deep); }
 .gallery figcaption { font-size: .85rem; color: var(--ink-2); margin-top: 6px; }
+.assets h3 { margin: 2em 0 .6em; }
 .icon-dl { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
 .icon-dl img { width: 128px; height: 128px; border-radius: 28px; }
 
