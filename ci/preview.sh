@@ -35,7 +35,7 @@ SEGMENTS=(
   "duck|object=rubberDuck;reveal;seed=3;notoasts;prewarm;slowpress=5;pressaudio|phase-pressing-0.6|reveal+4.0"
   "can|object=sodaCan;reveal;seed=3;notoasts;prewarm;slowpress=4.5;pressaudio|phase-pressing-0.4|phase-sealed+0.9,reveal+0.2"
   "glass|object=glassBottle;reveal;seed=3;notoasts;prewarm;slowpress=5;pressaudio|phase-pressing-0.4|failure+2.2,phase-sealed+0.6"
-  "shelf|object=rubberDuck;shelf;notoasts;previewmarks|origin+1.1|origin+5.1"
+  "shelf|object=rubberDuck;shelf;notoasts;previewmarks|origin+7.5|origin+11.5"
 )
 VF="fps=30,scale=886:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=886:1920,setsar=1,format=yuv420p"
 
@@ -131,9 +131,10 @@ record_segment() {
       say "warning: $name: no reveal mark after 120 s"
     fi
   else
-    # The shelf: the app takes ~11–13 s from launch to its demo on the CI simulator; the sheet opens 1.2 s after.
+    # The shelf: ~11–13 s from launch to the demo, then the scene and the sheet only appear ~5 s after that (run
+    # 39983207065: a blank screen at origin + 1–5 s), so record to origin + 12.5 s and cut the settled sheet.
     wait_for_mark "$docs/preview-marks.txt" origin 90 || say "warning: $name: no origin mark after 90 s"
-    sleep 6.5
+    sleep 12.5
   fi
   stop_recording
   retime "$OUT_ABS/raw/$name.mp4" | tee -a "$REPORT" || true
@@ -203,7 +204,7 @@ for seg in "${SEGMENTS[@]}"; do
   ft=$(flash_time "$OUT_ABS/raw/$name.mp4" "$(calc "$fv - 0.3")" "$(calc "$fv + 0.8")")
   if [[ -n "$ft" ]]; then
     d=$(calc "${ft%% *} - $fv"); rise="${ft##* }"
-    if calc_ok "$d >= 0 && $d <= 0.5 && $rise >= 8"; then
+    if calc_ok "$d >= -0.5 && $d <= 0.7 && $rise >= 8"; then
       printf -v "CAL_$name" %s "$d"
       say "calibrate $name: failure mark at ${fv}s, flash at ${ft%% *}s (dY $rise): sound delayed ${d}s"
     else

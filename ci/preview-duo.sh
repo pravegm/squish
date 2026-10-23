@@ -8,7 +8,7 @@
 #  - duck: `hingescript=7`: a human-paced close 180° → 58°, then a hard cut (the script goes on to 44° and seals, out of
 #    shot: a real inner display is dark below ~55°) to the reopen, from just before the reveal card to 3 s after.
 #  - glass: the same close; it fails at ~80°; cut 1.8 s after the failure.
-#  - shelf: the seeded shelf sheet (`shelf;previewmarks`).
+#  (No shelf beat: see the note at the takes.)
 # There is no cover-display shot: only one recordVideo runs at a time, and the scripted hinge never really closes.
 # Outputs in $OUT (preview-duo): preview-duo.mp4 at the inner display's native aspect (2007 × 2853 → 1350 × 1920), and
 # preview-duo-886x1920.mp4, the size App Store Connect accepts for iPhone Duo previews (inner screen 886 × 1260 centred
@@ -180,7 +180,8 @@ rm -f "$OUT_ABS/raw/warmup.mp4"
 
 press_take duck "object=rubberDuck;duo;$BASE;pressaudio;hingescript=7"
 press_take glass "object=glassBottle;duo;$BASE;pressaudio;hingescript=7"
-press_take shelf "object=rubberDuck;duo;$BASE;shelf;previewmarks"
+# No shelf beat on the Duo: launched straight into the shelf, the open-lying simulator stays in book layout behind
+# the sheet (run 39983207065), and the duck and glass already make a 19 s cut. The 6.9" preview carries the shelf.
 
 # ---- cut ------------------------------------------------------------------------------------------------------------
 rec_of() { sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing" 2>/dev/null; }
@@ -209,7 +210,7 @@ calibrate() {
   ft=$(flash_time "$OUT_ABS/raw/$2.mp4" "$(calc "$fv - 0.3")" "$(calc "$fv + 0.8")")
   if [[ -n "$ft" ]]; then
     d=$(calc "${ft%% *} - $fv"); rise="${ft##* }"
-    if calc_ok "$d >= 0 && $d <= 0.5 && $rise >= 8"; then
+    if calc_ok "$d >= -0.5 && $d <= 0.7 && $rise >= 8"; then
       printf -v "CAL_$1" %s "$d"; say "calibrate $1: flash ${d}s after the failure mark (dY $rise): sound delayed ${d}s"
     else say "calibrate $1: flash at +${d}s (dY $rise) is implausible; sound by clock only"; fi
   else say "calibrate $1: no flash found; sound by clock only"; fi
@@ -247,17 +248,13 @@ if window duck duck "phase-pressing-0.5" "script-58+0.3,phase-pressing+7"; then
   pe=$(spec_epoch "$OUT_ABS/raw/duck.marks.txt" "script-begin+3.6")   # the hold near 115°: mid-squash
   [[ -n "$pe" ]] && POSTER=$(calc "$pe - $(rec_of duck) - $P_A + $P_AT")
 fi
-window duck duck "reveal-0.25" "reveal+3.0" && add_cut duck-reveal duck "$DUCK_WAV" "$A" "$DUR" "$OFF"
+window duck duck "reveal-0.25" "reveal+4.0" && add_cut duck-reveal duck "$DUCK_WAV" "$A" "$DUR" "$OFF"
 DUCK_END_AT=$AT
 GLASS_WAV="$OUT_ABS/raw/glass.wav"; [[ -f "$GLASS_WAV" ]] || GLASS_WAV=""
 GLASS_AT=""; GLASS_DUR=""
 if window glass glass "phase-pressing-0.4" "failure+1.8,script-58+0.3"; then
   GLASS_AT=$AT; GLASS_DUR=$DUR
   add_cut glass glass "$GLASS_WAV" "$A" "$DUR" "$OFF"
-fi
-# shelf: from 3 s after the demo starts (the tabletop rotation and the sheet have settled), 3.5 s.
-if window shelf shelf "origin+3.0" "origin+6.5" && calc_ok "$AT + $DUR <= 29.5"; then
-  add_cut shelf shelf "" "$A" "$DUR" 0
 fi
 say "total cut: ${AT}s"
 
