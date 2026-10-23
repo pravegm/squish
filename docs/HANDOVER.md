@@ -99,6 +99,45 @@ How the set is made, and the order of the frames, is in `docs/appstore/screensho
 - whether App Store Connect offers the Duo screenshot slots yet;
 - the subtitle.
 
+## 8. Launch status (design critique round 9, `design/FOLD-REVIEW-9.md`)
+
+- **Scores:** store set 8.6/10, app 8.7/10.
+- **Launch call:** the code and art can be submitted as 1.0.
+- **Upload exactly these 19 frames**, from the latest green "App Store screenshots" run:
+  - Duo inner `01–07`
+  - Duo outer `O1–O2`
+  - 6.9" `P1–P5`
+  - 6.1" `P1–P5`
+- **Never upload:**
+  - `verify/` frames
+  - `V4`
+  - `-eye` composites
+  - anything from the iPhone 18 Pro folded scenarios (`9A–9D`, `90–99`). That phone doesn't fold.
+- **Before Submit:** look at the achievement toast frame in `verify/duo-reveal-toasts.png`. It is the last thing never yet seen on screen.
+- **Ranked 1.0.1 list:** in the review. It includes the orange hero can on the shelf, the cake top clipping to white, and the P2 photo framing.
+
+**Only you can do:**
+- sign off the captions and frame list;
+- fill the metadata, privacy, support and press-kit placeholders, and set up the domain;
+- set the release date;
+- enrol in the Small Business Program;
+- create the 10 Game Center achievements (IDs in `achievements.md`);
+- choose the subtitle;
+- write the App Review notes. Reviewers may not have a Duo, so point them to Settings → Press without folding;
+- fill in the Accessibility Nutrition Labels;
+- decide on an App Preview.
+
+**Only the real Duo can settle:**
+- the display-off angle against the reveal timing;
+- whether `closed` sticks above 90°;
+- battery and thermals while shut;
+- cold launch on the cover;
+- book-pose letterboxing;
+- haptics;
+- the share clip.
+
+Start with §3 above.
+
 ## 6. Where things are
 
 - **Design:**
