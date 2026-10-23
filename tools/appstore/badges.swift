@@ -128,6 +128,26 @@ func sparkle(_ ctx: CGContext, at c: CGPoint, radius r: CGFloat) {
     ctx.addPath(p)
 }
 
+/// Draws several fills as one shadowed group (so a shape and its rounding stroke never cancel or double-shadow).
+func shadowedGroup(_ ctx: CGContext, _ body: () -> Void) {
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 22, color: rgb(0x000000, 0.38))
+    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+    ctx.setShadow(offset: .zero, blur: 0, color: nil)
+    body()
+    ctx.endTransparencyLayer()
+    ctx.restoreGState()
+}
+
+/// Fills `path` and a round-joined stroke of it, which rounds the corners the way SF Symbols are drawn.
+func fillRounded(_ ctx: CGContext, _ path: CGPath, _ color: CGColor, radius: CGFloat) {
+    ctx.setFillColor(color)
+    ctx.addPath(path)
+    ctx.fillPath()
+    ctx.addPath(path.copy(strokingWithWidth: radius * 2, lineCap: .round, lineJoin: .round, miterLimit: 10))
+    ctx.fillPath()
+}
+
 /// Fills the current path in `color`, with the soft drop shadow every glyph casts on its plate.
 func fillGlyph(_ ctx: CGContext, _ color: CGColor, shadow: Bool = true, evenOdd: Bool = false) {
     ctx.saveGState()
@@ -151,15 +171,15 @@ func glyphFirstSquish(_ ctx: CGContext) {
     // 1.circle.fill, squashed a touch: the first press.
     ctx.addEllipse(in: CGRect(x: -232, y: -212, width: 464, height: 424))
     fillGlyph(ctx, graphite)
-    // The numeral 1, knocked out in yellow.
-    let one = CGMutablePath()
-    one.addRoundedRect(in: CGRect(x: -38, y: -132, width: 82, height: 272), cornerWidth: 12, cornerHeight: 12)
-    one.addLines(between: [CGPoint(x: 44, y: 140), CGPoint(x: -6, y: 140), CGPoint(x: -108, y: 78),
-                           CGPoint(x: -108, y: 18), CGPoint(x: -38, y: 58), CGPoint(x: -38, y: 140)])
-    one.closeSubpath()
-    one.addRoundedRect(in: CGRect(x: -112, y: -150, width: 230, height: 62), cornerWidth: 14, cornerHeight: 14)
-    ctx.addPath(one)
-    fillGlyph(ctx, yellow, shadow: false)
+    // The numeral 1 (stem and flag as one outline, then the foot), knocked out in yellow.
+    let stem = CGMutablePath()
+    stem.addLines(between: [CGPoint(x: -30, y: 132), CGPoint(x: 36, y: 132), CGPoint(x: 36, y: -124),
+                            CGPoint(x: -30, y: -124), CGPoint(x: -30, y: 62), CGPoint(x: -100, y: 22),
+                            CGPoint(x: -100, y: 82)])
+    stem.closeSubpath()
+    fillRounded(ctx, stem, yellow, radius: 9)
+    let foot = CGPath(roundedRect: CGRect(x: -112, y: -150, width: 230, height: 62), cornerWidth: 16, cornerHeight: 16, transform: nil)
+    fillRounded(ctx, foot, yellow, radius: 0.5)
 }
 
 func glyphPopStar(_ ctx: CGContext) {
@@ -245,7 +265,7 @@ func glyphPatience(_ ctx: CGContext) {
     fillGlyph(ctx, graphite, shadow: false)
 }
 
-func arrow(_ ctx: CGContext, x: CGFloat, up: Bool) {
+func arrowPath(x: CGFloat, up: Bool) -> CGPath {
     let s: CGFloat = up ? 1 : -1
     let p = CGMutablePath()
     p.addLines(between: [
@@ -254,16 +274,15 @@ func arrow(_ ctx: CGContext, x: CGFloat, up: Bool) {
         CGPoint(x: x, y: 214 * s), CGPoint(x: x - 98, y: 70 * s), CGPoint(x: x - 30, y: 70 * s),
     ])
     p.closeSubpath()
-    // Round the corners like SF Symbols: fill plus a same-colour rounded stroke.
-    ctx.addPath(p)
-    ctx.addPath(p.copy(strokingWithWidth: 22, lineCap: .round, lineJoin: .round, miterLimit: 10))
+    return p
 }
 
 func glyphPumped(_ ctx: CGContext) {
     // arrow.up.arrow.down
-    arrow(ctx, x: -100, up: true)
-    arrow(ctx, x: 100, up: false)
-    fillGlyph(ctx, graphite)
+    shadowedGroup(ctx) {
+        fillRounded(ctx, arrowPath(x: -100, up: true), graphite, radius: 11)
+        fillRounded(ctx, arrowPath(x: 100, up: false), graphite, radius: 11)
+    }
 }
 
 func glyphPerfectionist(_ ctx: CGContext) {
@@ -300,13 +319,16 @@ func glyphMidas(_ ctx: CGContext) {
         CGPoint(x: 104, y: 30), CGPoint(x: 0, y: 188), CGPoint(x: -104, y: 30), CGPoint(x: -232, y: 140),
     ])
     body.closeSubpath()
-    ctx.addPath(body)
-    ctx.addPath(body.copy(strokingWithWidth: 22, lineCap: .round, lineJoin: .round, miterLimit: 10))
-    roundedRect(ctx, CGRect(x: -200, y: -186, width: 400, height: 70), 16)
-    ctx.addEllipse(in: circle(CGPoint(x: -232, y: 160), 28))
-    ctx.addEllipse(in: circle(CGPoint(x: 0, y: 212), 28))
-    ctx.addEllipse(in: circle(CGPoint(x: 232, y: 160), 28))
-    fillGlyph(ctx, graphite)
+    shadowedGroup(ctx) {
+        fillRounded(ctx, body, graphite, radius: 11)
+        ctx.setFillColor(graphite)
+        roundedRect(ctx, CGRect(x: -200, y: -186, width: 400, height: 70), 16)
+        ctx.fillPath()
+        for c in [CGPoint(x: -232, y: 160), CGPoint(x: 0, y: 212), CGPoint(x: 232, y: 160)] {
+            ctx.addEllipse(in: circle(c, 28))
+            ctx.fillPath()
+        }
+    }
     // Three gems in the band.
     for gx: CGFloat in [-110, 0, 110] {
         ctx.addEllipse(in: circle(CGPoint(x: gx, y: -151), 15))

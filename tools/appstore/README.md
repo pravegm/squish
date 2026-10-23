@@ -59,14 +59,17 @@ What each command does:
 - **`push` resumes.** If anything fails (for example, an image is still processing), run `push` again.
 - **One part at a time:** `push --only gamecenter,price`, or `push --skip screenshots`.
   - Steps: `appinfo categories agerating version localizations review gamecenter screenshots price accessibility`.
-- **Screenshots from a store run:** `upload-screenshots <dir>`. Download a green "App Store screenshots" run first:
+- **Screenshots.** The metadata lists the frames by their path inside a downloaded "App Store screenshots" run, for example `store-69/store/P1-duck-mid.png`. Download a green run first and point the tool at it:
 
   ```bash
   gh run download <run-id> -R pravegm/squish -D ~/squish-store
-  xcrun swift tools/appstore/asc.swift upload-screenshots ~/squish-store
+  export ASC_SCREENSHOTS_DIR=~/squish-store
+  xcrun swift tools/appstore/asc.swift push      # uploads the frames listed in the metadata, in order
   ```
 
-  The tool picks only frames inside `store/` folders, never `verify/`. It sorts each frame into its set by pixel size, and refuses a set whose `MANIFEST.txt` doesn't say `missing: 0  flagged: 0`.
+  Without `ASC_SCREENSHOTS_DIR`, the screenshot step is skipped and everything else still goes up.
+
+  Or skip the list: `upload-screenshots ~/squish-store` takes every frame inside a `store/` folder, never `verify/`. It sorts each frame into its set by pixel size and refuses a set whose `MANIFEST.txt` doesn't say `missing: 0  flagged: 0`.
 
 ## What the tool pushes
 

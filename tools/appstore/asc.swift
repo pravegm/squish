@@ -22,6 +22,8 @@
 //                    individual key
 //   ASC_KEY_PATH     path to AuthKey_<KEYID>.p8 (default ~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8)
 //   ASC_VERSION      the App Store version to edit (default 1.0)
+//   ASC_SCREENSHOTS_DIR    base folder for the JSON's screenshot paths (a `gh run download` of a store.yml run);
+//                          default the repo root
 //   ASC_SCREENSHOT_API     library (default: App Asset Library, API 4.5.1+) | legacy (deprecated screenshot sets)
 //   ASC_DUO_SCREENSHOTS    auto (default: upload the Duo sets only if the API's reference data offers an IPHONE_DUO
 //                          screenshot group of that pixel size) | skip
@@ -231,8 +233,12 @@ struct ImageFile {
     var ext: String { info.format == "png" ? "png" : "jpg" }
 }
 
-func loadImage(_ path: String) -> Result<ImageFile, ToolError> {
-    let url = repoPath(path)
+/// Screenshot paths in the JSON are relative to ASC_SCREENSHOTS_DIR (where you ran `gh run download` for a store.yml
+/// run, so `store-69/store/P1-….png` resolves), or to the repo root when it isn't set.
+let screenshotsBase: URL? = env["ASC_SCREENSHOTS_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+
+func loadImage(_ path: String, base: URL? = nil) -> Result<ImageFile, ToolError> {
+    let url = path.hasPrefix("/") || base == nil ? repoPath(path) : base!.appendingPathComponent(path)
     guard let data = try? Data(contentsOf: url) else { return .failure(ToolError("\(path): file not found")) }
     guard let info = imageInfo(data) else { return .failure(ToolError("\(path): not a PNG or JPEG")) }
     return .success(ImageFile(path: path, url: url, data: data, info: info))
@@ -511,6 +517,7 @@ func loadMetadata(_ v: Validation) -> Metadata? {
             guard let obj = locs[locale] as? JSON else { v.error("core", "$.localizations.\(locale): must be an object"); continue }
             unknownKeys(obj, fieldKeys, "$.localizations.\(locale)", "core")
             var lt = LocaleText()
+            var placeholders: Set<String> = []
             for f in localeFieldLimits {
                 let path = "$.localizations.\(locale).\(f.key)"
                 var value: String? = nil
@@ -525,6 +532,7 @@ func loadMetadata(_ v: Validation) -> Metadata? {
                 guard let s = value, !s.isEmpty else { continue }
                 if isPlaceholder(s) {
                     v.block(f.step, "\(path) is still a placeholder (\(short(s))); not pushed")
+                    placeholders.insert(f.key)
                     continue
                 }
                 let count = f.bytes ? s.utf8.count : s.count
@@ -543,7 +551,7 @@ func loadMetadata(_ v: Validation) -> Metadata? {
                 lt.fields[f.key] = s
             }
             if locale == m.primaryLocale {
-                for k in requiredLocaleFields where lt.fields[k] == nil {
+                for k in requiredLocaleFields where lt.fields[k] == nil && !placeholders.contains(k) {
                     v.block(k == "name" || k == "privacyPolicyUrl" ? "appinfo" : "localizations",
                             "$.localizations.\(locale).\(k) is empty: App Store Connect needs it before submission")
                 }
@@ -762,7 +770,7 @@ func loadMetadata(_ v: Validation) -> Metadata? {
                 if lower.contains("/verify/") || lower.contains("-eye") || lower.contains("book-storeshot") {
                     v.error("screenshots", "$.screenshots.\(key): \(p) is a review-only frame (never upload verify/, -eye, book store shots)")
                 }
-                switch loadImage(p) {
+                switch loadImage(p, base: screenshotsBase) {
                 case .failure(let e): missing = true; v.block("screenshots", "\(key): \(e.description)")
                 case .success(let f):
                     if !sizeMatches(key, f.info) {
@@ -773,7 +781,7 @@ func loadMetadata(_ v: Validation) -> Metadata? {
                 }
             }
             if missing {
-                v.block("screenshots", "\(key): set skipped until every file exists (download the store.yml artifacts, or use upload-screenshots <dir>)")
+                v.block("screenshots", "\(key): set skipped until every file exists (gh run download a green store.yml run, then set ASC_SCREENSHOTS_DIR to that folder, or use upload-screenshots <dir>)")
             } else {
                 m.screenshots.append(ScreenshotSet(key: key, files: files))
             }
