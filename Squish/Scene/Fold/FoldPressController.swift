@@ -194,7 +194,7 @@ final class FoldPressController {
             printCompression = max(printCompression, renderCompression)
         }
         let angle = engine.angle
-        lastAngle = angle
+        lastAngle = engine.failureAngle ?? angle
         let objectPresent = sinceSet > (firstObject ? 0.9 : 1.2) || phase == .pressing
 
         guard let layout else { return }

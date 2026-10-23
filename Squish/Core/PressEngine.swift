@@ -109,7 +109,9 @@ final class PressEngine {
     @ObservationIgnored private var releaseFired = false
     @ObservationIgnored private var maxDepthReached = 0.0
     @ObservationIgnored private var pressStartTime: Double?
-    @ObservationIgnored private var failureAngle: Double?
+    /// The hinge angle at the moment the failure threshold was crossed (before the hush delay). The Fold readout
+    /// freezes on this same value, so the crown and the specimen's "AT nn°" always agree.
+    @ObservationIgnored private(set) var failureAngle: Double?
     @ObservationIgnored private var peakClosingSpeed = 0.0
     @ObservationIgnored private var reversedWhileLoaded = false
     @ObservationIgnored private var isReversing = false

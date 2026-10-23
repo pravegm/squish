@@ -317,7 +317,7 @@ final class PressDirector {
         // Demo store shots only: the angle the crown readout freezes on (see `storeShotReadout`).
         if DemoScenario.current != nil, case .fracture(_, true) = event, usesFoldPress, foldVariantSeed == variant.seed,
            storeShotFrozen?.seed != variant.seed {
-            storeShotFrozen = (seed: variant.seed, angle: storeShotReadoutAngle)
+            storeShotFrozen = (seed: variant.seed, angle: engine.failureAngle ?? storeShotReadoutAngle)
         }
         #endif
         haptics.handle(event, context: context)
