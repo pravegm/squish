@@ -793,9 +793,10 @@ struct PressEngineTests {
         #expect(engine.phase == .revealing)
         // Continuous between reports 0.2 s apart: no frame jumps (a 1:1 track of the hand moves ~0.01 a frame here).
         #expect(maxStep <= 0.06, "max render-depth step \(maxStep) per frame")
-        // The duck failed on the way down, lit and with the lid near.
+        // The duck failed on the way down, while lit. (This excerpt jumps 84° → 64° in one report, so the failure is
+        // recorded at that report: below the full-rate floor, still well above the ~45° display-off.)
         let failure = try #require(engine.failureAngle)
-        #expect(failure >= PressFeel.failureFloorAngle && failure <= PressConfig.standard.contactCeiling)
+        #expect(failure > PressConfig.standard.displayOffAngle + 10 && failure <= PressConfig.standard.contactCeiling)
     }
 
     /// The `.closed` status alone is never shut: closing to 60° with `.closed` set neither seals nor ka-chunks.
