@@ -181,3 +181,16 @@ Signing (team, certificates) and App Store Connect access stay with the founder.
   - `design/ARCHITECTURE.md` describes the code contracts.
 - **Research:** `research/01–06`.
 - **App Store:** `docs/appstore/` has the metadata, screenshot plan, preview script, review notes (θ_end must match what you measure), privacy policy, press kit and social plan.
+
+## 10. Builds without a Mac that runs Xcode 27 (24 Oct 2026)
+
+The founder's Mac is **Intel**, and Xcode 27 doesn't run on Intel Macs, so that Mac can't build or run Squish.
+
+**Every device build goes through `.github/workflows/testflight.yml`.** It runs on GitHub's Apple-silicon runner with Xcode 27.1:
+- it archives a signed Release, letting Xcode create the signing assets from the App Store Connect API key;
+- it uploads the build to App Store Connect;
+- the founder installs it on the Duo from the **TestFlight** app.
+
+The one-time setup is in `docs/appstore/SUBMISSION.md` §5a: the Developer Program, the app record, an Admin API key, and 4 repo secrets (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`, `APPLE_TEAM_ID`).
+
+The §2 "Build and run" steps apply only on an Apple-silicon Mac.

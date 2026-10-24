@@ -17,8 +17,8 @@ Everything else is decided, written or automated.
 | | a. Accept the Paid Apps agreement; fill in tax and banking | Business | |
 | | b. Enrol in the Small Business Program | developer.apple.com | |
 | | c. Register the bundle ID and create the app record (§1) | | |
-| | d. Create the App Store Connect API key the tool uses (§3) | | |
-| | e. Sign, archive and upload the build in Xcode (§5) | | |
+| | d. Create the App Store Connect API key (Admin) and add the 4 GitHub secrets (§5a). Builds and listing pushes then run on GitHub | | |
+| | e. Nothing to build yourself: GitHub builds with Xcode 27.1 and uploads to TestFlight (§5a). Your Mac is Intel and can't run Xcode 27 | | |
 | | f. Press **Submit** for the featuring nomination (§9) and for review (§7) | | |
 | | g. On launch day, publish the Accessibility labels (§8) | | |
 
@@ -141,15 +141,40 @@ The API can't do these, so do them in the web UI after the push.
    - No French declaration is needed.
 6. **Accessibility Nutrition Labels:** **not yet**. They can only be published once 1.0 is live (§8).
 
-## 5. Archive and upload from Xcode (founder, Mac)
+## 5. Build and upload
 
-**Before the release-candidate archive, Claude makes sure `main` has:**
-- `MARKETING_VERSION: "1.0"` in `project.yml` (it currently says `0.1.0`);
-- the `NSPhotoLibraryAddUsageDescription` purpose string (`DECISIONS.md` §6 #1);
-- the Settings credits fix (§6 #3);
-- the tuned defaults from your Duo.
+**The founder's Mac is Intel, and Xcode 27 doesn't run on Intel Macs.** So builds are made and uploaded by GitHub Actions on Apple-silicon runners with Xcode 27.1: the **CI route** below. The Xcode route after it is for anyone who later works from an Apple-silicon Mac.
 
-All of that must be green on CI.
+### 5a. CI route (the default): Actions → TestFlight
+
+**One-time setup (founder, about 15 minutes, all in a web browser):**
+1. **Join the Apple Developer Program** at developer.apple.com/programs/enroll, as an individual, with your legal name. It costs £79 or $99 a year, and approval can take up to 48 h.
+2. **Create the app record** as described in §1.
+3. **Create an API key:**
+   - In App Store Connect, go to **Users and Access → Integrations → App Store Connect API → Team Keys → +**.
+   - Name: `Squish CI`. Access: **Admin**. Admin lets Xcode on the runner create the signing certificate and profile itself.
+   - **Download** the `.p8` file. Apple lets you download it only once.
+   - Note the **Key ID** (in the table) and the **Issuer ID** (above the table).
+4. **Find your Team ID:** developer.apple.com → Account → **Membership details** → Team ID (10 characters).
+5. **Add four secrets** on GitHub: the repo → **Settings → Secrets and variables → Actions → New repository secret**.
+
+   | Name | Value |
+   |---|---|
+   | `ASC_KEY_ID` | the Key ID |
+   | `ASC_ISSUER_ID` | the Issuer ID |
+   | `ASC_PRIVATE_KEY` | open the `.p8` in TextEdit and paste **all** of it, including the BEGIN and END lines |
+   | `APPLE_TEAM_ID` | the Team ID |
+
+   Secrets are encrypted and never shown in logs. The same three `ASC_*` secrets also let `asc.yml` push the listing (§4) without your Mac.
+
+**Every build after that:**
+- Go to Actions → **TestFlight** → Run workflow, or ask Claude to run it.
+- About 20 minutes later the build is in App Store Connect → TestFlight. Then follow §6.
+- The build number is the run number, so every upload is unique.
+
+**Before the release-candidate build, Claude makes sure `main` has the tuned defaults from your Duo.** The 1.0 version, the `NSPhotoLibraryAddUsageDescription` string, the Settings credits fix and the privacy manifest are already in. Everything must be green on CI.
+
+### 5b. Xcode route (Apple-silicon Mac only)
 
 1. Pull `main` and generate the project:
    ```bash
