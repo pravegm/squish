@@ -678,11 +678,13 @@ struct PressEngineTests {
     }
 
     // MARK: - APPLE-DUO-GUIDE: a nil hinge is not "no hinge"
+    // (Mutating calls are hoisted out of #expect: the macro can't take them.)
 
     /// Before any hinge this launch, nil means a regular iPhone: fall back at once.
     @Test func nilBeforeAnyHingeFallsBackAtOnce() {
         var presence = HingePresence()
-        #expect(presence.lost(at: 1))
+        let fallBack = presence.lost(at: 1)
+        #expect(fallBack)
         #expect(!presence.available && !presence.seen && presence.deadline == nil)
     }
 
@@ -690,29 +692,33 @@ struct PressEngineTests {
     @Test func transientNilHoldsTheFoldStage() {
         var presence = HingePresence()
         presence.reading(at: 0)
-        #expect(!presence.lost(at: 10))
-        #expect(presence.available)
-        #expect(!presence.shouldFallBack(at: 10 + HingePresence.grace / 2))
+        let fallBack = presence.lost(at: 10)
+        #expect(!fallBack && presence.available)
+        let early = presence.shouldFallBack(at: 10 + HingePresence.grace / 2)
+        #expect(!early && presence.available)
         presence.reading(at: 11)
         #expect(presence.available && presence.deadline == nil)
-        #expect(!presence.shouldFallBack(at: 100))
+        let later = presence.shouldFallBack(at: 100)
+        #expect(!later && presence.available)
     }
 
     /// A hinge missing for the whole grace, with no window or scene change, falls back; a scene change restarts it.
     @Test func sustainedLossFallsBackUnlessTheSceneChanged() {
         var presence = HingePresence()
         presence.reading(at: 0)
-        #expect(!presence.lost(at: 10))
-        #expect(!presence.lost(at: 11))   // a second nil doesn't restart the gap
+        let first = presence.lost(at: 10)
+        let second = presence.lost(at: 11)   // a second nil doesn't restart the gap
+        #expect(!first && !second && presence.deadline == 10 + HingePresence.grace)
         presence.sceneChanged(at: 13)
         #expect(presence.deadline == 13 + HingePresence.grace)
-        #expect(!presence.shouldFallBack(at: 10 + HingePresence.grace))
-        #expect(presence.shouldFallBack(at: 13 + HingePresence.grace))
-        #expect(!presence.available && presence.seen)
+        let beforeRestartedGrace = presence.shouldFallBack(at: 10 + HingePresence.grace)
+        #expect(!beforeRestartedGrace && presence.available)
+        let afterGrace = presence.shouldFallBack(at: 13 + HingePresence.grace)
+        #expect(afterGrace && !presence.available && presence.seen)
         // A hinge comes back: available again, and the next nil waits again.
         presence.reading(at: 30)
-        #expect(presence.available)
-        #expect(!presence.lost(at: 31))
+        let again = presence.lost(at: 31)
+        #expect(presence.available && !again)
         // A scene change with no gap running does nothing.
         var steady = HingePresence()
         steady.reading(at: 0)
