@@ -34,6 +34,9 @@ enum PressBeat: Equatable, Sendable {
 
     // Touch on the object (inspection, only while nothing is pressed). A tap is `PressDirector.poke()` (Feedback
     // plays the material's answer); the scene jiggles the object.
+    /// A tap poked the object. Reserved: the views call `PressDirector.poke()` for the sound and haptic directly, so
+    /// the engine does not emit this today (the director's beat switch already lists it).
+    case poke(strength: Double)
     /// A flick set the object spinning on the plate. `speed` in turns per second.
     case spin(speed: Double)
 }
