@@ -141,7 +141,7 @@ final class FoldStageHostView: UIView {
         guard recognizer === spinPan || recognizer === pokeTap || recognizer === zoomPinch else {
             return super.gestureRecognizerShouldBegin(recognizer)
         }
-        touchIsOnObject(recognizer.location(in: self))
+        return touchIsOnObject(recognizer.location(in: self))
     }
     private lazy var spinPan = UIPanGestureRecognizer(target: self, action: #selector(handleSpin(_:)))
     private lazy var pokeTap = UITapGestureRecognizer(target: self, action: #selector(handlePoke(_:)))
