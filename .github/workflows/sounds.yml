@@ -1,0 +1,55 @@
+name: Sounds (fetch, decode, cut)
+
+# Manual. Rebuilds the bundled sample set from public CC0 sources (design/SOUND-2.md §5):
+#   1. fetch every source in ci/sounds/sources.tsv and check its sha256,
+#   2. decode to 48 kHz mono WAV (artifact `sound-decoded`, for analysis and re-cutting),
+#   3. cut, fade, loudness-normalise and write CAF files from ci/sounds/cuts.tsv
+#      (artifact `sound-bundle`: the Squish/Resources/Sounds tree plus a report).
+# The cut step is plain Node, so it also runs on any laptop against the decoded WAVs.
+on:
+  workflow_dispatch:
+    inputs:
+      cut:
+        description: "Also cut the bundle from ci/sounds/cuts.tsv"
+        type: boolean
+        default: true
+
+jobs:
+  sounds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Fetch and decode sources
+        run: bash ci/sounds/fetch-decode.sh ci/sounds/sources.tsv "$RUNNER_TEMP/sound-source" decoded
+
+      - name: Upload decoded sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: sound-decoded
+          path: decoded/
+          retention-days: 14
+
+      - name: Cut the bundle
+        if: ${{ inputs.cut && hashFiles('ci/sounds/cuts.tsv') != '' }}
+        run: |
+          node ci/sounds/cut.mjs decoded ci/sounds/cuts.tsv bundle/Sounds
+          # Cross-check our loudness numbers with ffmpeg's EBU R128 meter.
+          for f in bundle/Sounds/*/*.caf; do
+            printf '%s\t' "$f"
+            ffmpeg -nostdin -hide_banner -i "$f" -af ebur128=peak=true -f null - 2>&1 \
+              | grep -E '^\s+(I|Peak):' | tr -s ' ' | tr '\n' ' '
+            echo
+          done > bundle/ffmpeg-loudness.txt
+
+      - name: Upload bundle
+        if: ${{ inputs.cut && hashFiles('ci/sounds/cuts.tsv') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sound-bundle
+          path: bundle/
+          retention-days: 14
