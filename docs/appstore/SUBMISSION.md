@@ -79,7 +79,7 @@ Everything else is decided, written or automated.
 ## 3. API key for the tool (founder, web, once)
 
 1. Go to Users and Access → **Integrations** → App Store Connect API → **Team Keys** → **Generate API Key**.
-2. Name it `squish-asc`, with role **App Manager**.
+2. Name it `Squish CI`, with role **Admin**. Admin is needed so the TestFlight workflow can create signing certificates (§5a), and this one key also runs the listing tool, so don't make a second key.
 3. Download the `.p8` (you only get one chance), and note the **Key ID** and **Issuer ID**.
 4. Store all three outside the repo, as `tools/appstore/README.md` says.
 
