@@ -527,15 +527,16 @@ enum FoldCamera {
 // MARK: - The hinge curve, as seen from the Duo (§4)
 
 enum FoldCurve {
-    /// The hinge angle at which compression `c` is reached for a press armed at `start` (FOLD-PRESS §4.3:
-    /// θ = 132 − 84·c^(1/1.7) for θ0 = 168).
+    /// The hinge angle at which compression `c` is reached for a press armed at `start`. With the provisional fold
+    /// mapping (PressConfig, 24 Oct 2026): θ = 106 − 58·c for any θ0 ≥ 118 (FOLD-PRESS §4.3's 132 − 84·c^(1/1.7) was
+    /// the 1.0 mapping, which the touch press keeps).
     static func angle(forCompression c: Double, start: Double = 168, config: PressConfig = .standard) -> Double {
-        let armed = config.armed(at: start)
+        let armed = config.armed(at: start, hinge: true)
         let depth = armed.contactT + (1 - armed.contactT) * clamp(c, 0, 1)
         return PressMapping.angle(forDepth: depth, start: min(start, config.armAngleMax), config: armed)
     }
 
-    /// The contact angle for a press armed at `start`: min(132, θ0 − 12).
+    /// The contact angle for a press armed at `start`: min(contactCeiling, θ0 − 12), 106° provisionally.
     static func contactAngle(start: Double = 168, config: PressConfig = .standard) -> Double {
         angle(forCompression: 0, start: start, config: config)
     }
@@ -602,6 +603,16 @@ enum FoldLean {
     static func angle(compression c: Double, contacted: Bool, failed: Bool, kind: ObjectKind) -> Double {
         guard contacted, !failed, leans(kind) else { return 0 }
         return degreesAtFullCompression * .pi / 180 * clamp(c, 0, 1)
+    }
+
+    /// Radians before contact: the object anticipates the lid (founder, real Duo). It leans away from the hinge as the
+    /// virtual gap closes (up to 1.2° at contact, `approach`²) and wobbles at ~4 Hz with the hinge's speed (up to
+    /// ±0.6° at 150°/s, either way).
+    static func anticipation(approach: Double, closingSpeed: Double, time: Double) -> Double {
+        let a = clamp(approach, 0, 1)
+        let lean = 1.2 * a * a
+        let wobble = 0.6 * min(abs(closingSpeed) / 150, 1) * sin(time * 2 * .pi * 4)
+        return (lean + wobble) * .pi / 180
     }
 
     /// The translation that turns a rotation by `lean` about +x through the slot origin into the same rotation about

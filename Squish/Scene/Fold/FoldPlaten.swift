@@ -26,6 +26,9 @@ struct FoldFrame {
     var inviting = false
     /// The hinge angle the object failed at, once it has (the crown readout freezes on it, in red).
     var failureAngle: Double? = nil
+    /// 0…1: the anvil's edges darken as the tension narrows attention onto the object (the tell, a held press, the
+    /// hush; EXPERIENCE-2 §A3.1: 0 → 12 % edge darkening).
+    var vignette: Double = 0
 }
 
 /// One object's print on the platen (§9.5 items 5–7), in print space: approach shadows, the growing ink (masked by a
@@ -402,6 +405,8 @@ final class FoldPlaten {
     /// The stamp in red ink, and in paper-white ink with a red keyline for prints too close to red to show it.
     private var pressedRed: CGImage?
     private var pressedPaper: CGImage?
+    /// The stamp's word: how the press was closed (`CloseStyle`), PRESSED until the press seals.
+    private var pressedText = CloseStyle.pressed.stampText
     private var poppedBolt: (layer: CALayer, age: Double, start: CGPoint)?
     private let softDisc = FoldStamps.softDisc()
     private let ringImage = FoldStamps.newtonRings()
@@ -533,8 +538,8 @@ final class FoldPlaten {
         printHolder.bounds = half
         for s in [stack].compactMap({ $0 }) + outgoing { position(s) }
         if pressedRed == nil {
-            pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width)
-            pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true)
+            pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width, text: pressedText)
+            pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true, text: pressedText)
         }
         pressed.bounds = CGRect(origin: .zero, size: Self.pressedSize)
         placePressed()
@@ -603,6 +608,17 @@ final class FoldPlaten {
 
     func reveal() {
         pressedAge = 0
+        placePressed()
+    }
+
+    /// The close-style stamp (EXPERIENCE-2 §A6.1): PERFECT for a slow close, SLAMMED for a slam (no reward), PUMPED ×N
+    /// for a pumped press, PRESSED otherwise. Same size and pose rules as PRESSED.
+    func setPressedText(_ text: String) {
+        guard text != pressedText else { return }
+        pressedText = text
+        guard layout != nil else { return }   // `build` renders it
+        pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width, text: text)
+        pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true, text: text)
         placePressed()
     }
 

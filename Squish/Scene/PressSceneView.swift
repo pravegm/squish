@@ -34,6 +34,9 @@ struct PressSceneView: UIViewRepresentable {
 
         let host = PressSceneHostView(arView: view, scene: director.scene)
         let director = self.director
+        // Touch on the object: a tap is the director's poke (Feedback answers in the material); a flick is a beat.
+        host.onPoke = { [weak director] _ in director?.poke() }
+        host.onSpin = { [weak director] turns in director?.engine.spun(turnsPerSecond: turns) }
         // RootView's `@AppStorage("squish.hasHinge")`: a hinge has reported on this device before.
         let knownHinge = UserDefaults.standard.bool(forKey: "squish.hasHinge")
         host.onFrame = { [weak director] dt in director?.frame(dt: dt) }
@@ -102,6 +105,70 @@ final class PressSceneHostView: UIView {
                     canvasOK: self.bounds.width > 1 && self.bounds.height > 1,
                     shut: self.isShut?() ?? false)
         }
+        for recognizer in [spinPan, pokeTap, zoomPinch] as [UIGestureRecognizer] {
+            recognizer.delegate = self
+            recognizer.cancelsTouchesInView = false
+            addGestureRecognizer(recognizer)
+        }
+        spinPan.maximumNumberOfTouches = 1
+    }
+
+    // MARK: - Touch on the object (founder, real Duo)
+    // The P-48's vertical drag is the touch press (RootView), so a spin is a horizontal drag that starts on the
+    // object; a tap pokes it; a pinch zooms a little. All only while nothing is pressed (`PressScene.canInspectObject`):
+    // once the ram moves, the spin hands back and springs home, so touch never fights the press.
+
+    var onPoke: ((Double) -> Void)?
+    var onSpin: ((Double) -> Void)?
+    private lazy var spinPan = UIPanGestureRecognizer(target: self, action: #selector(handleSpin(_:)))
+    private lazy var pokeTap = UITapGestureRecognizer(target: self, action: #selector(handlePoke(_:)))
+    private lazy var zoomPinch = UIPinchGestureRecognizer(target: self, action: #selector(handleZoom(_:)))
+    private var lastPan: CGPoint = .zero
+
+    /// On the object's projected bounds (+24 pt), while it may be inspected.
+    fileprivate func touchIsOnObject(_ point: CGPoint) -> Bool {
+        guard let scene, scene.canInspectObject, let rect = scene.objectScreenRect() else { return false }
+        return rect.insetBy(dx: -24, dy: -24).contains(arView.convert(point, from: self))
+    }
+
+    /// A spin is a horizontal drag (the vertical one presses).
+    fileprivate func isHorizontal(_ pan: UIPanGestureRecognizer) -> Bool {
+        let v = pan.velocity(in: self)
+        return abs(v.x) > 1.5 * abs(v.y)
+    }
+
+    @objc private func handleSpin(_ pan: UIPanGestureRecognizer) {
+        guard let scene else { return }
+        let point = pan.location(in: self)
+        switch pan.state {
+        case .began:
+            lastPan = point
+            scene.inspectBegan()
+        case .changed:
+            // Only the horizontal component: a drift down is the touch press's, not a tilt.
+            scene.inspectMoved(dx: Double(point.x - lastPan.x), dy: 0)
+            lastPan = point
+        case .ended, .cancelled, .failed:
+            let turns = scene.inspectEnded(vx: pan.state == .ended ? Double(pan.velocity(in: self).x) : 0)
+            onSpin?(turns)
+        default:
+            break
+        }
+    }
+
+    @objc private func handlePoke(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let scene, scene.poke(strength: 0.7) else { return }
+        onPoke?(0.7)
+    }
+
+    @objc private func handleZoom(_ pinch: UIPinchGestureRecognizer) {
+        guard let scene else { return }
+        switch pinch.state {
+        case .began, .changed:
+            scene.inspectPinch(scale: Double(pinch.scale), began: pinch.state == .began)
+        default:
+            scene.inspectPinchEnded()
+        }
     }
 
     @available(*, unavailable)
@@ -165,6 +232,8 @@ final class PressSceneHostView: UIView {
     }
 
     func teardown() {
+        onPoke = nil
+        onSpin = nil
         gate.stop()
         updates?.cancel()
         updates = nil
@@ -173,5 +242,20 @@ final class PressSceneHostView: UIView {
         hasHinge = nil
         pendingBusy = nil
         pendingWatch = nil
+    }
+}
+
+extension PressSceneHostView: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        let point = recognizer.location(in: self)
+        guard touchIsOnObject(point) else { return false }
+        if let pan = recognizer as? UIPanGestureRecognizer { return isHorizontal(pan) }
+        return true
+    }
+
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // Alongside SwiftUI's touch-press drag (it only presses on a downward drag; the engine then ends the spin).
+        true
     }
 }

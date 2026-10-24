@@ -123,24 +123,32 @@ struct FoldPressTests {
 
     // MARK: Mapping (§4.1–4.3)
 
-    @Test func eventAnglesMatchTheFoldPressTable() {
-        // (kind, base fracture c → θ from FOLD-PRESS §4.3)
-        let table: [(ObjectKind, [Double])] = [
-            (.rubberDuck, [82, 66]), (.jelly, [91, 73]), (.sodaCan, [92, 82, 73, 65, 58]), (.cakeSlice, [98, 82, 69]),
-            (.unsquishable, [98, 79, 64]), (.glassBottle, [98, 83, 69]), (.gummyBear, [86, 69]),
-            (.crayon, [91, 75, 62]), (.egg, [108, 96, 76]),
-        ]
-        #expect(near(FoldCurve.contactAngle(), 132, 0.01))
-        for (kind, expected) in table {
-            let angles = kind.profile.fractures.map { FoldCurve.angle(forCompression: $0) }
-            #expect(angles.count == expected.count, "\(kind)")
-            for (got, want) in zip(angles, expected) {
-                #expect(abs(got - want) <= 3, "\(kind): \(got)° vs \(want)°")
+    /// The provisional fold mapping (PressConfig, 24 Oct 2026; EXPERIENCE-PLAN decision 3): contact at 106°, where the
+    /// lid is visibly near, and compression linear in θ after it: θ = 106 − 58·c, whatever the arm angle ≥ 118°.
+    @Test func eventAnglesFollowTheProvisionalFoldMapping() {
+        #expect(near(FoldCurve.contactAngle(), 106, 0.01))
+        #expect(near(FoldCurve.contactAngle(start: 130), 106, 0.01))
+        for kind in ObjectKind.allCases {
+            for c in kind.profile.fractures {
+                #expect(near(FoldCurve.angle(forCompression: c), 106 - 58 * c, 0.01), "\(kind) c=\(c)")
+            }
+            // Resistance you can feel: every failure, even at its earliest jitter, lands ≥ 10° after contact.
+            if let index = kind.profile.failureIndex {
+                let earliest = kind.profile.fractures[index] - kind.profile.thresholdJitter
+                #expect(FoldCurve.angle(forCompression: earliest) <= FoldCurve.contactAngle() - 10, "\(kind)")
             }
         }
-        // Bubble wrap: 24 pops spread ~121° → ~57°.
+        // Bubble wrap: 24 pops from just after contact (~104°) to ~58°.
         let pops = MaterialProfile.bubbleWrap.fractures.map { FoldCurve.angle(forCompression: $0) }
-        #expect(abs((pops.first ?? 0) - 121) <= 3 && abs((pops.last ?? 0) - 57) <= 3)
+        #expect(abs((pops.first ?? 0) - 104.3) <= 1 && abs((pops.last ?? 0) - 57.9) <= 1)
+    }
+
+    /// The touch press (P-48) keeps the 1.0 mapping its store frames and CI expectations were made on.
+    @Test func touchPressKeepsItsOneZeroMapping() {
+        let touch = PressConfig.standard.armed(at: 168)
+        #expect(near(touch.contactT, 0.3, 1e-9) && touch.easeExponent == 1.7)
+        let fold = PressConfig.standard.armed(at: 168, hinge: true)
+        #expect(near(fold.contactT, (168.0 - 106) / 120, 1e-9) && fold.easeExponent == 1.0)
     }
 
     @Test func everyFailureStaysAboveSixtyTwoDegrees() {
@@ -151,18 +159,20 @@ struct FoldPressTests {
             // lands at 62.7°, still well above the 55° display-off floor.)
             let worst = min(1, profile.fractures[index] + profile.thresholdJitter)
             let angle = FoldCurve.angle(forCompression: worst)
-            #expect(angle >= 62, "\(kind) fails at \(angle)°")
+            #expect(angle >= PressFeel.failureFloorAngle, "\(kind) fails at \(angle)°")
+            // …and well clear of the ~55° display-off angle, so the hit stop, burst and slow debris are lit.
+            #expect(angle >= PressFeel.displayOffAngle + 7, "\(kind) fails at \(angle)°")
             // Arming at the lowest angle (130°) keeps it above the 55° display-off floor too.
             #expect(FoldCurve.angle(forCompression: worst, start: 130) >= 55, "\(kind) at θ0 130")
         }
     }
 
     @Test func printAndShadowCurves() {
-        // §12: kiss/print radius 0.15–0.3 R at 120°, ≥ 0.55 R at 90°.
-        let c120 = pow((132.0 - 120) / 84, 1.7), c90 = pow((132.0 - 90) / 84, 1.7)
-        let f120 = FoldCurve.printFraction(compression: c120)
-        #expect(f120 >= 0.15 && f120 <= 0.3)
-        #expect(FoldCurve.printFraction(compression: c90) >= 0.55)
+        // §12, on the provisional mapping: the kiss/print radius is 0.15–0.3 R 3° past contact, ≥ 0.55 R at 90°.
+        let pressed: (Double) -> Double = { θ in (FoldCurve.contactAngle() - θ) / (FoldCurve.contactAngle() - 48) }
+        let kiss = FoldCurve.printFraction(compression: pressed(FoldCurve.contactAngle() - 3))
+        #expect(kiss >= 0.15 && kiss <= 0.3)
+        #expect(FoldCurve.printFraction(compression: pressed(90)) >= 0.55)
         let open = FoldCurve.shadow(gap: 1), shut = FoldCurve.shadow(gap: 0)
         #expect(near(open.blur, 40) && near(open.alpha, 0.08) && near(open.scale, 1.25))
         #expect(near(shut.blur, 4) && near(shut.alpha, 0.35) && near(shut.scale, 1))
@@ -734,5 +744,107 @@ struct FoldPressTests {
         // A real move restarts the hold.
         still.track(angle: 45, clock: 1.0)
         #expect(!still.isLit(angle: 45, clock: 1.0 + FoldRevealLight.stillHold / 2))
+    }
+
+    // MARK: The press, beat by beat (EXPERIENCE-PLAN; Fold side)
+
+    private func tapeFrame(_ t: Double, c: Float, frozen: Bool = false) -> PressTape.Frame {
+        PressTape.Frame(time: t, compression: c, ramCompression: c, approach: 1, closingSpeed: 20, loaded: true,
+                        frozen: frozen, phase: .pressing)
+    }
+
+    /// The reveal replay keeps the last ~2 s of the press, centred on the break: 1.2 s before it, 0.8 s after.
+    @Test func replayTapeIsCentredOnTheBreak() throws {
+        var recorder = PressTapeRecorder()
+        var t = 0.0
+        while t < 3 {
+            recorder.record(tapeFrame(t, c: Float(t / 10)))
+            t += 1.0 / 60
+        }
+        recorder.mark(.contact, at: 0.5)
+        recorder.mark(.fracture(index: 1, isFailure: true), at: 3)
+        while t < 6 {
+            recorder.record(tapeFrame(t, c: 0.5))
+            t += 1.0 / 60
+        }
+        let tape = try #require(recorder.tape)
+        #expect(recorder.isFinished)
+        #expect(abs(tape.start - (3 - PressTapeRecorder.beforeBreak)) < 0.02)
+        #expect(abs(tape.end - (3 + PressTapeRecorder.afterBreak)) < 0.02)
+        #expect(abs(tape.duration - 2) < 0.03)
+        #expect(tape.breakTime == Double(3))
+        // Earlier events stay on the tape (they are applied at once when a replay starts).
+        #expect(tape.marks.count == 2)
+        // Interpolated in between frames, clamped outside.
+        let mid = try #require(tape.frame(at: 2.5))
+        #expect(abs(Double(mid.compression) - 0.25) < 0.003)
+        #expect(tape.frame(at: -5)?.time == tape.start)
+        // The push-in: wide early on, all the way in at the break, back out by the end.
+        #expect(tape.focus(at: tape.start) == 0)
+        #expect(tape.focus(at: 3) == 1 && tape.focus(at: 3.3) == 1)
+        #expect(tape.focus(at: tape.end) < 0.01)
+        // No break: the most recent 2 s, no push-in.
+        var plain = PressTapeRecorder()
+        for i in 0..<300 { plain.record(tapeFrame(Double(i) / 60, c: 0.1)) }
+        let p = try #require(plain.tape)
+        #expect(abs(p.duration - PressTapeRecorder.window) < 0.03 && p.focus(at: p.end) == 0)
+    }
+
+    @Test func inspectionSpinsWithInertiaThenSpringsHome() {
+        var look = ObjectInspection()
+        look.beginDrag()
+        look.drag(dx: 50, dy: 400)
+        #expect(abs(look.yaw - 50 * ObjectInspection.yawPerPoint) < 1e-9)
+        look.step(dt: 0.5, allowed: true)
+        #expect(look.tilt > 0 && look.tilt <= ObjectInspection.maxTilt + 1e-9)
+        let turns = look.endDrag(vx: 800)
+        #expect(turns > 1)
+        let before = look.yaw
+        look.step(dt: 1.0 / 60, allowed: true)
+        #expect(look.yaw > before)   // inertia carries it on
+        for _ in 0..<600 { look.step(dt: 1.0 / 60, allowed: true) }
+        #expect(look.isAtRest)   // springs back to the nearest whole turn, then reads 0
+        // A press under way: everything goes home quickly, and a drag is dropped.
+        var pressed = ObjectInspection()
+        pressed.beginDrag()
+        pressed.drag(dx: 80, dy: 0)
+        pressed.pinch(scale: 3, began: true)
+        #expect(pressed.zoom == ObjectInspection.maxZoom)
+        for _ in 0..<30 { pressed.step(dt: 1.0 / 60, allowed: false) }
+        #expect(!pressed.dragging && abs(pressed.yaw) < 0.02 && abs(pressed.zoom - 1) < 0.02)
+    }
+
+    @Test func burstLooksAndTremorFollowTheScore() {
+        // The tremor peaks in the hush and is frozen (held) through the hit stop, never above ~3 px.
+        let hush = PressScene.tremorAmplitude(tell: true, held: true, tension: 1, phase: .hush)
+        let tell = PressScene.tremorAmplitude(tell: true, held: false, tension: 0, phase: .none)
+        let held = PressScene.tremorAmplitude(tell: false, held: true, tension: 0.5, phase: .none)
+        #expect(hush > tell && tell > held && held > 0)
+        #expect(PressScene.tremorAmplitude(tell: true, held: true, tension: 1, phase: .hitStop) == 0)
+        #expect(hush <= 0.0006)
+        #expect(PressScene.tremorAmplitude(tell: false, held: false, tension: 1, phase: .none) == 0)
+        // Soft things squash under a poke, hard ones rattle.
+        #expect(PressScene.pokeSoftness(.jelly) > PressScene.pokeSoftness(.egg))
+        #expect(PressScene.pokeSoftness(.egg) > PressScene.pokeSoftness(.unsquishable))
+    }
+
+    /// The object anticipates the lid: a small lean as it comes, a wobble with the hinge speed, all within 2°.
+    @Test func objectAnticipatesTheLid() {
+        #expect(FoldLean.anticipation(approach: 0, closingSpeed: 0, time: 0.3) == 0)
+        let near = FoldLean.anticipation(approach: 1, closingSpeed: 0, time: 0)
+        #expect(abs(near * 180 / .pi - 1.2) < 1e-9)
+        for i in 0..<100 {
+            let a = FoldLean.anticipation(approach: 1, closingSpeed: 400, time: Double(i) * 0.013)
+            #expect(abs(a * 180 / .pi) <= 1.8 + 1e-9)
+        }
+    }
+
+    /// The close-style stamp renders for every word at the PRESSED stamp size (the pose rules depend on it).
+    @Test func closeStyleStampsRenderAtOneSize() throws {
+        let base = try #require(FoldTextures.pressedStamp(width: FoldPlaten.pressedSize.width))
+        for style in [CloseStyle.perfect, .slammed, .pumped(3), .pumped(12)] {
+            let image = try #require(FoldTextures.pressedStamp(width: FoldPlaten.pressedSize.width, text: style.stampText))
+            #expect(image.width == base.width && image.height == base.height, "(style)")
+        }
     }
 }

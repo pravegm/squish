@@ -399,4 +399,277 @@ struct PressEngineTests {
         #expect((collected ?? 0) >= 1 + RevealCollectGate.closedHold - 0.04)
         #expect((collected ?? 9) <= 1 + RevealCollectGate.closedHold + 0.1)
     }
+
+    // MARK: - The press, beat by beat (design/EXPERIENCE-PLAN.md; Core/PressFeel.swift)
+
+    /// Events and beats with the time they arrived, for a hinge press fed at `rate` Hz.
+    @MainActor
+    final class Timeline {
+        var now = 0.0
+        var events: [(time: Double, event: PressEvent)] = []
+        var beats: [(time: Double, beat: PressBeat)] = []
+        func time(of event: PressEvent) -> Double? { events.first { $0.event == event }?.time }
+        func count(_ predicate: (PressBeat) -> Bool) -> Int { beats.filter { predicate($0.beat) }.count }
+    }
+
+    private func timedEngine(_ kind: ObjectKind, _ timeline: Timeline) -> PressEngine {
+        let engine = PressEngine()
+        engine.onEvent = { timeline.events.append((time: timeline.now, event: $0)) }
+        engine.onBeat = { timeline.beats.append((time: timeline.now, beat: $0)) }
+        engine.ingest(angle: 180, closed: false, at: 0)
+        engine.load(kind, seed: 42, at: 0)
+        return engine
+    }
+
+    @discardableResult
+    private func drive(_ engine: PressEngine, _ timeline: Timeline, from start: Double, to end: Double,
+                       duration: Double, startTime: Double, closedAtEnd: Bool = false) -> Double {
+        let steps = max(Int(duration * rate), 1)
+        var time = startTime
+        for i in 1...steps {
+            time = startTime + Double(i) / rate
+            timeline.now = time
+            engine.ingest(angle: start + (end - start) * Double(i) / Double(steps), closed: closedAtEnd && i == steps,
+                          at: time)
+            engine.step(now: time, dt: 1 / rate)
+        }
+        return time
+    }
+
+    /// The hinge angle (on this press's mapping) at hand compression `c`.
+    private func angle(_ engine: PressEngine, compression c: Double) -> Double {
+        let m = engine.mapping
+        return PressMapping.angle(forDepth: m.contactT + (1 - m.contactT) * c, start: engine.startAngle, config: m)
+    }
+
+    private static func isHitStop(_ beat: PressBeat) -> Bool {
+        if case .hitStop = beat { return true }
+        return false
+    }
+
+    private static func isDebris(_ beat: PressBeat) -> Bool {
+        if case .debris = beat { return true }
+        return false
+    }
+
+    private static func isSettleTick(_ beat: PressBeat) -> Bool {
+        if case .settleTick = beat { return true }
+        return false
+    }
+
+    private static func isCreak(_ beat: PressBeat) -> Bool {
+        if case .creak = beat { return true }
+        return false
+    }
+
+    private static func detentAngle(_ beat: PressBeat, closing: Bool) -> Double? {
+        if case let .detent(angle, isClosing, _) = beat, isClosing == closing { return angle }
+        return nil
+    }
+
+    /// Lag, then give: near the failure the eye falls behind the hand while measured depth stays honest; at the
+    /// burst the backlog is released within ~80 ms (plus the render spring).
+    @Test func lagThenGiveIsRenderSideOnly() throws {
+        let timeline = Timeline()
+        let engine = timedEngine(.glassBottle, timeline)
+        let failure = try #require(engine.failureThreshold)
+        let target = failure - 0.02
+        let held = angle(engine, compression: target)
+        var time = drive(engine, timeline, from: 180, to: held, duration: 3, startTime: 0)
+        time = drive(engine, timeline, from: held, to: held, duration: 0.6, startTime: time)
+        #expect(engine.phase == .pressing)
+        #expect(abs(engine.measuredCompression - target) < 0.01)   // the hand, exactly
+        #expect(timeline.time(of: .hush) == nil)
+        let backlog = engine.resistance.backlog(failure: failure)
+        #expect(backlog > 0.05)
+        #expect(engine.renderCompression < engine.measuredCompression - 0.05)
+        #expect(abs(engine.eyeCompression(engine.measuredCompression) - engine.renderCompression) < 0.01)
+        // Through the failure: hush, hit stop (frozen), burst, then the give catches up with the hand.
+        let past = angle(engine, compression: failure + 0.05)
+        time = drive(engine, timeline, from: held, to: past, duration: 0.2, startTime: time)
+        time = drive(engine, timeline, from: past, to: past, duration: 0.6, startTime: time)
+        let burst = try #require(timeline.time(of: .fracture(index: 1, isFailure: true)))
+        #expect(time - burst > 0.25)
+        #expect(abs(engine.renderCompression - engine.measuredCompression) < 0.01)
+        // The material ordering of the lag: glass deepest, jelly almost none, bubble wrap none.
+        #expect(PressResistance.of(.glassBottle).gain < PressResistance.of(.rubberDuck).gain)
+        #expect(PressResistance.of(.rubberDuck).gain < PressResistance.of(.jelly).gain)
+        #expect(!PressResistance.of(.bubbleWrap).lags)
+    }
+
+    @Test func resistanceMathIsContinuousMonotonicAndGives() {
+        for kind in ObjectKind.allCases {
+            let r = PressResistance.of(kind)
+            let f = 0.5
+            var previous = -1.0
+            for i in 0...200 {
+                let c = Double(i) / 200
+                let v = r.lagged(c, failure: f)
+                #expect(v <= c + 1e-12 && v >= previous - 1e-12, "\(kind) c=\(c)")
+                previous = v
+            }
+            // Continuous at the window start; the give lands on the hand at `give`, ease-out (past halfway at half).
+            #expect(abs(r.lagged(f - r.window, failure: f) - (f - r.window)) < 1e-12)
+            #expect(r.released(from: 0.4, to: 0.6, after: r.give) == 0.6)
+            #expect(r.released(from: 0.4, to: 0.6, after: r.give / 2) > 0.5)
+        }
+    }
+
+    /// The break scored in five parts: hush 50–80 ms, hit stop 70–140 ms, burst, debris at 0.3× for 250–400 ms, a
+    /// 1–2 s settle. The burst lands hush + hit stop after the crossing, and the beats come in order.
+    @Test func breakIsScoredInFiveParts() throws {
+        for kind in ObjectKind.allCases {
+            let score = BreakScore.of(kind)
+            #expect(BreakScore.hushRange.contains(score.hush))
+            #expect(score.hitStop >= 0.07 && score.hitStop <= 0.14, "\(kind)")
+            #expect(score.slowDebris >= 0.25 && score.slowDebris <= 0.4 && score.slowRate == 0.3, "\(kind)")
+            #expect(score.settle >= 1 && score.settle <= 2, "\(kind)")
+            #expect((3...6).contains(score.debrisGrains) && (4...8).contains(score.settleTicks), "\(kind)")
+            let beats = score.beatsAfterBurst()
+            #expect(zip(beats, beats.dropFirst()).allSatisfy { $0.time <= $1.time })
+            #expect(score.phase(at: 0.01) == .hush && score.phase(at: score.hush + 0.01) == .hitStop)
+            #expect(score.phase(at: score.burst + 0.01) == .slowDebris)
+            #expect(score.phase(at: score.slowEnd + 0.01) == .settle)
+            #expect(score.phase(at: score.end + 0.01) == .none)
+        }
+        #expect(BreakScore.of(.egg, hush: 0.2).hush == 0.08 && BreakScore.of(.egg, hush: 0).hush == 0.05)
+
+        let timeline = Timeline()
+        let engine = timedEngine(.rubberDuck, timeline)
+        let score = engine.breakScore
+        var time = drive(engine, timeline, from: 180, to: 60, duration: 5, startTime: 0)
+        time = drive(engine, timeline, from: 60, to: 60, duration: 3, startTime: time)
+        _ = time
+        let hush = try #require(timeline.time(of: .hush))
+        let burst = try #require(timeline.time(of: .fracture(index: 1, isFailure: true)))
+        #expect(burst - hush >= score.burst - 1e-6 && burst - hush <= score.burst + 1 / rate + 1e-6)
+        let hitStop = try #require(timeline.beats.first { Self.isHitStop($0.beat) })
+        #expect(hitStop.time >= hush + score.hush - 1e-6 && hitStop.time <= burst + 1e-6)
+        #expect(timeline.count(Self.isDebris) == score.debrisGrains)
+        #expect(timeline.count(Self.isSettleTick) == score.settleTicks)
+        #expect(timeline.count { $0 == .settle(duration: score.settle) } == 1)
+        #expect(timeline.count { $0 == .settled } == 1)
+        // The failure is where the lid is near and the display lit.
+        let failureAngle = try #require(engine.failureAngle)
+        #expect(failureAngle >= PressFeel.failureFloorAngle && failureAngle <= 100)
+    }
+
+    /// The tell lands ~150–300 ms before the break at a steady close (here 20°/s), and before the burst for a slam.
+    @Test func tellLeadsTheBreak() throws {
+        for kind: ObjectKind in [.glassBottle, .egg, .rubberDuck] {
+            let timeline = Timeline()
+            let engine = timedEngine(kind, timeline)
+            drive(engine, timeline, from: 180, to: 50, duration: 6.5, startTime: 0)
+            let tell = try #require(timeline.time(of: .preFailureTell), "\(kind)")
+            let hush = try #require(timeline.time(of: .hush), "\(kind)")
+            #expect(hush - tell >= 0.1 && hush - tell <= 0.35, "\(kind): \(hush - tell) s")
+        }
+        let timeline = Timeline()
+        let engine = timedEngine(.glassBottle, timeline)
+        drive(engine, timeline, from: 180, to: 50, duration: 0.4, startTime: 0)
+        drive(engine, timeline, from: 50, to: 50, duration: 0.5, startTime: 0.4)
+        let tell = try #require(timeline.time(of: .preFailureTell))
+        let burst = try #require(timeline.time(of: .fracture(index: 1, isFailure: true)))
+        #expect(burst - tell >= engine.breakScore.burst - 1e-6)
+    }
+
+    /// Tension you can hold: held still under load, the tension never decays, the press creaks every 0.6–1.2 s, and
+    /// the strain-bed floor stays above 0.
+    @Test func heldPressKeepsItsTension() throws {
+        let timeline = Timeline()
+        let engine = timedEngine(.rubberDuck, timeline)
+        let failure = try #require(engine.failureThreshold)
+        let held = angle(engine, compression: failure * 0.6)
+        var time = drive(engine, timeline, from: 180, to: held, duration: 3, startTime: 0)
+        time = drive(engine, timeline, from: held, to: held, duration: 1, startTime: time)
+        let early = engine.tension
+        let creaksBefore = timeline.count(Self.isCreak)
+        time = drive(engine, timeline, from: held, to: held, duration: 5, startTime: time)
+        #expect(engine.isHeldUnderLoad)
+        #expect(early > 0.2 && engine.tension >= early - 1e-3)   // never decays on the hold
+        #expect(engine.holdBedFloor > 0)
+        let creaks = timeline.count(Self.isCreak) - creaksBefore
+        #expect(creaks >= 4 && creaks <= 9, "\(creaks) creaks in 5 s")
+        // Through the failure the cadence ends for good.
+        time = drive(engine, timeline, from: held, to: 50, duration: 2, startTime: time)
+        time = drive(engine, timeline, from: 50, to: 50, duration: 2, startTime: time)
+        _ = time
+        #expect(!engine.isHeldUnderLoad)
+    }
+
+    /// How you closed it becomes the stamp: PUMPED ×N over SLAMMED over PERFECT over PRESSED.
+    @Test func closeStyleComesFromTheResult() {
+        var result = PressResult(kind: .egg, seed: 1, failureAngle: 80, fractureCount: 3, maxCompression: 1,
+                                 duration: 3, wasSlammed: false, isPerfect: true, reversals: 0)
+        #expect(result.closeStyle == .perfect && result.closeStyle.stampText == "PERFECT")
+        result.isPerfect = false
+        #expect(result.closeStyle == .pressed && result.closeStyle.stampText == "PRESSED")
+        result.wasSlammed = true
+        #expect(result.closeStyle == .slammed && result.closeStyle.stampText == "SLAMMED")
+        result.reversals = 2
+        #expect(result.closeStyle == .pumped(3) && result.closeStyle.stampText == "PUMPED ×3")
+    }
+
+    /// The hinge as a living control: a detent every 6° both ways, and the machine powers down as the phone shuts and
+    /// up again (the release) as it reopens.
+    @Test func hingeDetentsAndPowerFollowTheLid() {
+        #expect(HingeMotion.linesCrossed(from: 125, to: 113) == [120, 114])
+        #expect(HingeMotion.linesCrossed(from: 113, to: 125) == [114, 120])
+        #expect(HingeMotion.linesCrossed(from: 121, to: 122).isEmpty)
+        #expect(HingeMotion.power(angle: 30, closed: false) == 0 && HingeMotion.power(angle: 150, closed: false) == 1)
+        #expect(HingeMotion.power(angle: 150, closed: true) == 0)
+
+        let timeline = Timeline()
+        let engine = timedEngine(.rubberDuck, timeline)
+        var time = drive(engine, timeline, from: 180, to: 120, duration: 3, startTime: 0)
+        time = drive(engine, timeline, from: 120, to: 120, duration: 0.5, startTime: time)
+        let closing = timeline.beats.compactMap { Self.detentAngle($0.beat, closing: true) }
+        #expect((9...10).contains(closing.count), "\(closing)")
+        #expect(closing.first == Double(174))
+        time = drive(engine, timeline, from: 120, to: 175, duration: 2, startTime: time)
+        let opening = timeline.beats.compactMap { Self.detentAngle($0.beat, closing: false) }
+        #expect(opening.count >= 8)
+        // Press, shut, reopen: power down on the shut, power up (the release) on the reopen.
+        time = drive(engine, timeline, from: 175, to: 5, duration: 4, startTime: time, closedAtEnd: true)
+        time = drive(engine, timeline, from: 5, to: 5, duration: 1, startTime: time)
+        #expect(engine.phase == .sealed)
+        #expect(engine.hingePower < 0.1)
+        time = drive(engine, timeline, from: 5, to: 170, duration: 1.5, startTime: time)
+        time = drive(engine, timeline, from: 170, to: 170, duration: 1, startTime: time)
+        _ = time
+        #expect(engine.hingePower > 0.99)
+        let down = timeline.beats.firstIndex { $0.beat == .powerDown }
+        let up = timeline.beats.lastIndex { $0.beat == .powerUp }
+        #expect(down != nil && up != nil && (down ?? 0) < (up ?? 0))
+        #expect(engine.powerUpCount >= 1)
+    }
+
+    /// Touch on the object only while nothing is pressed; a flick during a press does nothing.
+    @Test func inspectionOnlyWhileNothingIsPressed() {
+        let timeline = Timeline()
+        let engine = timedEngine(.jelly, timeline)
+        #expect(engine.canInspect)
+        engine.spun(turnsPerSecond: 1.5)
+        engine.spun(turnsPerSecond: 0.05)   // not a spin
+        #expect(timeline.count { $0 == .spin(speed: 1.5) } == 1)
+        #expect(timeline.count { if case .spin = $0 { return true } else { return false } } == 1)
+        drive(engine, timeline, from: 180, to: 95, duration: 2, startTime: 0)
+        #expect(!engine.canInspect)
+        engine.spun(turnsPerSecond: 2)
+        #expect(timeline.count { $0 == .spin(speed: 2) } == 0)
+    }
+
+    /// Saved tunings missing a later field keep the rest (the CLAUDE.md gotcha), and unknown keys are ignored.
+    @Test func savedTuningsDecodeLeniently() throws {
+        let data = try JSONEncoder().encode(PressConfig.standard)
+        let decoded = try JSONSerialization.jsonObject(with: data)
+        var object = try #require(decoded as? [String: Any])
+        object["contactCeiling"] = 111.0
+        object.removeValue(forKey: "slamSpeed")
+        object["someFutureKnob"] = 3
+        let partial = try JSONSerialization.data(withJSONObject: object)
+        let config = try #require(PressConfig.decodeLeniently(partial))
+        #expect(config.contactCeiling == 111 && config.slamSpeed == PressConfig.standard.slamSpeed)
+        #expect(PressConfig.decodeLeniently(Data("nope".utf8)) == nil)
+    }
 }

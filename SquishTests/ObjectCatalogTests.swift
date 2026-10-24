@@ -90,11 +90,12 @@ struct ObjectCatalogTests {
                 engine.step(now: time, dt: 1 / rate)
             }
         }
-        sweep(180, 110, 2)
-        sweep(110, 125, 0.5)
-        sweep(125, 100, 0.8)
-        sweep(100, 115, 0.5)
-        sweep(115, 40, 2)
+        // Every reversal happens loaded: past the provisional fold contact (106°, PressConfig).
+        sweep(180, 95, 2)
+        sweep(95, 104, 0.5)
+        sweep(104, 85, 0.8)
+        sweep(85, 98, 0.5)
+        sweep(98, 40, 2)
         for _ in 0..<30 {
             time += 1 / rate
             engine.ingest(angle: 40, closed: false, at: time)

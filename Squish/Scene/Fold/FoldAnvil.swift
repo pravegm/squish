@@ -79,6 +79,11 @@ final class FoldAnvil {
         buildPlate()
     }
 
+    /// The escaped mess hides while a break replay hasn't reached its burst yet.
+    func setSprayVisible(_ visible: Bool) {
+        if sprayGroup.isEnabled != visible { sprayGroup.isEnabled = visible }
+    }
+
     var hasSpray: Bool { !sprayDrops.isEmpty }
 
     /// Scene metres per millimetre (FoldMetrics.metresPerMM for the current object's fold scale).

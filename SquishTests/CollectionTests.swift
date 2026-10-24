@@ -716,8 +716,9 @@ struct CollectionTests {
                 #expect(specimen.failureAngle == nil)
             } else {
                 let angle = try #require(specimen.failureAngle, "\(specimen.kind)")
-                // Every failure lands between the end stop and the contact ceiling (PressConfig: armAngleMin note).
-                #expect(angle > PressConfig.standard.endAngle + 10 && angle < PressConfig.standard.contactCeiling - 30,
+                // Every failure lands between the display-off floor and the contact (the provisional fold mapping,
+                // PressConfig: failures at ~94–64°, at least 10° of resistance after contact).
+                #expect(angle >= PressFeel.failureFloorAngle && angle < PressConfig.standard.contactCeiling - 10,
                         "\(specimen.kind) AT \(angle)°")
             }
         }

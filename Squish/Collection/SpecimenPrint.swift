@@ -64,7 +64,7 @@ enum SpecimenPrint {
         let thresholds = profile.jitteredFractures(seed: seed)
         guard let index = profile.failureIndex, index < thresholds.count else { return nil }
         let start = config.armAngleMax
-        let armed = config.armed(at: start)
+        let armed = config.armed(at: start, hinge: true)   // a real fold (the provisional fold mapping)
         let depth = armed.contactT + thresholds[index] * (1 - armed.contactT)
         return PressMapping.angle(forDepth: depth, start: start, config: armed)
     }

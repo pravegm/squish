@@ -389,7 +389,8 @@ enum FoldTextures {
     /// The red PRESSED stamp (§6.3 step 4), drawn upright (it never mirrors with the print). `paperInk`: paper-white
     /// ink over a red keyline, for prints too close to red to show red ink (FOLD-REVIEW-3 N12: jelly).
     @MainActor
-    static func pressedStamp(width: CGFloat = 150, paperInk: Bool = false) -> CGImage? {
+    /// `text`: the close style's word (`CloseStyle.stampText`: PRESSED, PERFECT, SLAMMED, PUMPED ×N), shrunk to fit.
+    static func pressedStamp(width: CGFloat = 150, paperInk: Bool = false, text word: String = "PRESSED") -> CGImage? {
         let height = width * 0.38
         let format = UIGraphicsImageRendererFormat()
         format.scale = 3
@@ -403,8 +404,13 @@ enum FoldTextures {
                                cornerHeight: 7, transform: nil)
             let inner = CGPath(roundedRect: CGRect(x: 8, y: 8, width: width - 16, height: height - 16), cornerWidth: 4,
                                cornerHeight: 4, transform: nil)
-            let font = UIFont.monospacedSystemFont(ofSize: height * 0.42, weight: .heavy)
-            let text = "PRESSED" as NSString
+            let text = word as NSString
+            var font = UIFont.monospacedSystemFont(ofSize: height * 0.42, weight: .heavy)
+            let natural = text.size(withAttributes: [.font: font, .kern: 3])
+            let room = width - 22
+            if natural.width > room {
+                font = UIFont.monospacedSystemFont(ofSize: height * 0.42 * room / natural.width, weight: .heavy)
+            }
             let size = text.size(withAttributes: [.font: font, .kern: 3])
             let origin = CGPoint(x: (width - size.width) / 2, y: (height - size.height) / 2)
             if paperInk {

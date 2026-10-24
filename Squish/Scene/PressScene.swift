@@ -43,8 +43,6 @@ final class PressScene {
     // Ram
     private var ramFace: Float = PressRig.homeFace
     private var ramVelocity: Float = 0
-    private var failureHold: Float = 0
-    private var heldFace: Float = 0
 
     // Juice
     private var clock: Float = 0
@@ -58,6 +56,30 @@ final class PressScene {
     private var steamTimer: Float = 0
     /// Fold Press: the reveal's glint, held until the inner display lights (`foldRevealLit`).
     private var pendingRevealGlint = false
+
+    // The break score (Core/PressFeel.swift, EXPERIENCE-PLAN "Break"): the burst's light punch and warm afterglow, the
+    // slow debris and its ramp back to 1×, the tension tremor.
+    private var lightPunch: Float = 0
+    private var afterglow: Float = 0
+    private var flashWarm = false
+    /// 0…1, decaying from the burst: the Duo anvil camera's kick (FoldPressController reads it). 0 under Reduce Motion.
+    private(set) var cameraKick: Float = 0
+    private var slowMoRate: Float = 0.3
+    private var slowRamp: Float = 0
+    private var lastCreakCount = 0
+    /// The tremor's offset as the hit stop froze it ("tremor peaks, then freezes").
+    private var frozenTremor = SIMD3<Float>.zero
+
+    // The reveal ceremony's slow-mo replay of the break (FoldPressController.playBreakReplay).
+    private var recorder = PressTapeRecorder()
+    private var replay: ReplayRun?
+
+    // Touch on the object (Core/PressFeel.swift, ObjectInspection): spin, tilt, zoom a little, poke.
+    private var inspection = ObjectInspection()
+    /// Touch may inspect the object right now: nothing pressed, no replay, the object landed.
+    private(set) var canInspectObject = false
+    /// A drag or pinch is turning the object (the UI can hold off its touch press while true).
+    var isInspecting: Bool { inspection.dragging }
 
     // Placement, rest beat and power-on
     /// Holds the previous object while it slides off the anvil (the mess moves with `fx.root`).
@@ -176,9 +198,14 @@ final class PressScene {
         ramVelocity = 0
         hitStop = 0
         slowMo = 0
-        failureHold = 0
+        slowRamp = 0
         kick = 0
+        cameraKick = 0
+        frozenTremor = .zero
         tell = false
+        replay = nil
+        recorder.reset()
+        inspection = ObjectInspection()
         peakTons = 0
         dropHeight = 0
         dropVelocity = 0
@@ -215,6 +242,19 @@ final class PressScene {
         fovScale = Deform.approach(fovScale, fovTarget, halfLife: 0.15, dt: dt)
         camera.camera.fieldOfViewInDegrees = baseFieldOfView * fovScale
 
+        canInspectObject = engine.canInspect && replay == nil && view.entity.isEnabled && dropHeight == 0
+            && !outgoingActive
+        inspection.step(dt: Double(dt), allowed: canInspectObject)
+        if replay != nil {
+            updateReplay(view: view, engine: engine, context: context, dt: dt)
+            return
+        }
+        // A creak of the held press: a small jolt on the object (Core/PressFeel.swift, HoldTension).
+        if engine.creakCount != lastCreakCount {
+            lastCreakCount = engine.creakCount
+            if !context.reduceMotion { kick = max(kick, style.failureKick * 0.18 * Float(max(engine.tension, 0.3))) }
+        }
+
         let contactT = Float(engine.mapping.contactT)
         let renderDepth = Float(engine.renderDepth)
         let renderC = Float(engine.renderCompression)
@@ -224,15 +264,11 @@ final class PressScene {
         let approach = clamp(renderDepth / max(contactT, 0.01), 0, 1)
 
         // Ram target: the free approach from home, then wherever the object's surface is at the hand's compression.
-        var target: Float
+        let target: Float
         if renderDepth < contactT {
             target = start - (start - rest) * approach
         } else {
             target = view.surfaceHeight(compression: renderC)
-        }
-        if failureHold > 0 {
-            failureHold -= dt
-            target = max(target, heldFace)
         }
         // The hand owns the ram; a fast spring only smooths lurches (failure drops) so they read as "it gave".
         if ramFace - target > 0.002 {
@@ -245,12 +281,14 @@ final class PressScene {
             ramVelocity = 0
         }
 
-        // Hit-stop freezes the object's response and its debris; the ram stays with the hand.
+        // Hit-stop freezes the object's response and its debris; the ram stays with the hand. Break part 2 is the
+        // object-only hit stop between the hush and the burst: frozen at peak strain (EXPERIENCE-PLAN "Break").
         var objectDt = dt
         if hitStop > 0 {
             hitStop -= dt
             objectDt = 0
         }
+        if engine.breakPhase == .hitStop { objectDt = 0 }
         let state = makeState(compression: visualC, ramCompression: renderC, approach: approach, dt: objectDt,
                               loaded: engine.isLoaded, closingSpeed: Float(engine.closingSpeed),
                               reduceMotion: context.reduceMotion, phase: engine.phase)
@@ -258,12 +296,23 @@ final class PressScene {
         if objectDt > 0 || state.compression == 0 {
             view.update(state)
         }
+        if framing == .foldAnvil, view.entity.isEnabled,
+           engine.phase == .armed || engine.phase == .pressing || engine.phase == .sealed {
+            recorder.record(PressTape.Frame(time: Double(clock), compression: visualC, ramCompression: renderC,
+                                            approach: approach, closingSpeed: Float(engine.closingSpeed),
+                                            loaded: engine.isLoaded, frozen: objectDt == 0, phase: engine.phase))
+        }
 
-        // Secondary systems: 0.3× slow motion for 250 ms after failure (bible §9). Reduce Motion: none.
+        // Secondary systems, break part 4: the debris at 0.3× for 250–400 ms after the burst, then a short ramp
+        // back to 1× (the settle). Reduce Motion: none.
         var fxDt = objectDt
-        if objectDt > 0 && slowMo > 0 {
-            slowMo -= dt
-            if !context.reduceMotion { fxDt *= style.slowMoRate }
+        if objectDt > 0 {
+            if context.reduceMotion {
+                slowMo = 0
+                slowRamp = 0
+            } else {
+                fxDt *= slowFactor(dt: dt)
+            }
         }
         // Fold Press: the whole top half is the platen, so its virtual face is a ceiling over the entire anvil
         // (FOLD-REVIEW-1 #2: shards must flatten to the platen height, not only under the P-48 plate).
@@ -281,6 +330,17 @@ final class PressScene {
     func handle(_ event: PressEvent, context: FeedbackContext) {
         guard let view = objectView else { return }
         fx.reduceMotion = context.reduceMotion
+        // The replay tape keeps every object event of the press (on the scene clock).
+        switch event {
+        case .contact, .preFailureTell, .hush, .fracture, .released:
+            if replay == nil { recorder.mark(event, at: Double(clock)) }
+        case .reveal:
+            recorder.finish()
+        default:
+            break
+        }
+        // A replay owns the object until it hands back; the live press is over by then.
+        guard replay == nil else { return }
         let state = lastState ?? makeState(compression: 0, ramCompression: 0, approach: 0, dt: 0, loaded: false,
                                            closingSpeed: 0, reduceMotion: context.reduceMotion, phase: .idle)
         switch event {
@@ -290,13 +350,17 @@ final class PressScene {
             rig.kickGauge(2)
             view.handle(event, state: state)
         case .preFailureTell:
+            // The tell, ~150–300 ms before the break: the 14 Hz tremor starts (`tremorAmplitude`) with a strain
+            // spike, one jolt.
             tell = true
+            if !context.reduceMotion { kick = max(kick, style.failureKick * 0.3) }
+            rig.kickGauge(1.5)
             view.handle(event, state: state)
         case .reveal:
             isFirstPress = false
-            // A 4% push-in as the ram lifts (VISUAL-TARGET §3.2) and a glint over the specimen. The bible's 2 s slow-mo
-            // replay isn't done live: the pieces are already settled and flattened, so a replay needs a second
-            // deterministic re-simulation from the trace — that belongs to the offline clip renderer (Share).
+            // A 4% push-in as the ram lifts (VISUAL-TARGET §3.2) and a glint over the specimen. On the Duo the reveal
+            // ceremony can also replay the break in slow motion (`playBreakReplay`): a fresh copy of the object re-run
+            // through the recorded tape (the P-48's replay is the offline share clip).
             if !context.reduceMotion {
                 fovTarget = 0.96
                 // FOLD PRESS (FOLD-REVIEW-7 N10): a reopen from closed reveals in the dark (~20°); the glint waits for
@@ -314,15 +378,10 @@ final class PressScene {
             ShadowCasting.offForTranslucent(in: view.entity)
             ShadowCasting.offForTranslucent(in: fx.root)
             if isFailure {
+                // Break part 3, the burst. The hit stop came before it (between the hush and now), so nothing freezes
+                // here: the pieces launch and the backlog of compression gives (`PressEngine.eyeCompression`).
                 tell = false
-                hitStop = max(hitStop, style.failureHitStop)
-                slowMo = style.failureSlowMo
-                failureHold = style.failureHitStop
-                heldFace = ramFace
-                flashLevel = context.reduceMotion ? style.flashPeakReducedMotion : style.flashPeak
-                kick = context.reduceMotion ? 0 : style.failureKick
-                rig.flashRed()
-                rig.kickGauge(5)
+                burst(reduceMotion: context.reduceMotion, slowDebris: true)
             } else {
                 kick = max(kick, context.reduceMotion ? 0 : style.failureKick * 0.35)
             }
@@ -370,6 +429,10 @@ final class PressScene {
     /// Renders clones of the object, its debris/mess and grounding decals in a small offscreen `ARView` on paper
     /// (`Palette.gaugePaper`), lit by the same studio IBL and key, from straight above with a long lens (≈ orthographic).
     func specimenSnapshot(size: CGSize = CGSize(width: 360, height: 360)) async -> UIImage? {
+        // A break replay rebuilds the object and re-breaks it: shoot the specimen once it has handed back.
+        for _ in 0..<80 where replay != nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
         guard let host = arView, var container = host.superview, objectView != nil else { return nil }
         // FOLD PRESS: the Duo anvil ARView sits in a clipping, warped half; park the offscreen view on the stage host.
         if framing == .foldAnvil, let stage = container.superview { container = stage }
@@ -755,6 +818,18 @@ final class PressScene {
                 offset.x += amplitude * sin(clock * 97) * cos(clock * 41)
                 offset.z += amplitude * sin(clock * 73 + 1.3)
             }
+            // Tension you can hold, the tell and the hush: a 14 Hz micro-tremor that peaks in the hush and freezes
+            // where it is for the hit stop.
+            let phase = engine.breakPhase
+            if phase == .hitStop {
+                offset += frozenTremor
+            } else {
+                let a = Self.tremorAmplitude(tell: tell, held: engine.isHeldUnderLoad, tension: Float(engine.tension),
+                                             phase: phase)
+                let w = clock * 2 * .pi * 14
+                frozenTremor = a > 0 ? SIMD3<Float>(a * sin(w), 0, a * 0.6 * sin(w * 1.37 + 0.7)) : .zero
+                offset += frozenTremor
+            }
             if engine.isLoaded {
                 jitter = SIMD2(sin(clock * 131), cos(clock * 117)) * 0.0003 * min(c * 2, 1)
             }
@@ -768,8 +843,84 @@ final class PressScene {
             }
         }
         objectSlot.position = offset
-        objectSlot.scale = scale
+        objectSlot.scale = scale * Float(inspection.zoom)
+        // Touch inspection turns the object itself (the Duo anvil applies it in `setFoldStage`, under its lean).
+        if framing == .machine {
+            objectSlot.orientation = simd_quatf(angle: Float(inspection.tilt), axis: [1, 0, 0])
+                * simd_quatf(angle: Float(inspection.yaw), axis: [0, 1, 0])
+        }
         return jitter
+    }
+
+    // MARK: - Touch on the object (founder, real Duo: "on touch I should be able to move around and see it")
+
+    /// A drag on the object begins. False (ignored) while a press is armed-and-moving, sealed, revealed or replaying.
+    @discardableResult
+    func inspectBegan() -> Bool {
+        guard canInspectObject else { return false }
+        inspection.beginDrag()
+        return true
+    }
+
+    /// The drag moved by (`dx`, `dy`) points: `dx` spins the object about its vertical axis, `dy` tilts it a little.
+    func inspectMoved(dx: Double, dy: Double) {
+        guard inspection.dragging else { return }
+        guard canInspectObject else {
+            _ = inspection.endDrag(vx: 0)
+            return
+        }
+        inspection.drag(dx: dx, dy: dy)
+    }
+
+    /// The drag ended with a horizontal velocity (points/s): inertia, then a spring back. Returns turns per second.
+    @discardableResult
+    func inspectEnded(vx: Double) -> Double {
+        guard inspection.dragging else { return 0 }
+        return inspection.endDrag(vx: canInspectObject ? vx : 0)
+    }
+
+    /// Pinch to look closer (1…1.25×); it springs back when released.
+    func inspectPinch(scale: Double, began: Bool) {
+        guard canInspectObject else { return }
+        inspection.pinch(scale: scale, began: began)
+    }
+
+    func inspectPinchEnded() { inspection.endPinch() }
+
+    /// A tap pokes the object: soft things squash and jiggle, hard ones rattle. Returns whether it was allowed (the
+    /// caller then fires `PressEngine.poke`, the sound and haptic).
+    @discardableResult
+    func poke(strength: Double) -> Bool {
+        guard canInspectObject else { return false }
+        let s = Float(clamp(strength, 0, 1))
+        let soft = Self.pokeSoftness(kind)
+        landingSquash.value = min(landingSquash.value, -0.14 * soft * s)
+        landingSquash.velocity = 0
+        if !fx.reduceMotion { kick = max(kick, style.failureKick * 0.25 * (1 - soft) * s) }
+        return true
+    }
+
+    /// How much a poke squashes the object (1 = jelly) versus rattling it.
+    static func pokeSoftness(_ kind: ObjectKind) -> Float {
+        switch kind {
+        case .jelly: 1.0
+        case .gummyBear: 0.85
+        case .rubberDuck: 0.75
+        case .cakeSlice: 0.65
+        case .bubbleWrap: 0.5
+        case .egg: 0.2
+        case .crayon, .sodaCan: 0.18
+        case .glassBottle: 0.1
+        case .unsquishable: 0.04
+        }
+    }
+
+    /// The object's on-screen rectangle in the P-48 view (points), for hit-testing a touch on it.
+    func objectScreenRect() -> CGRect? {
+        guard framing == .machine, let view = arView, let object = objectView, object.entity.isEnabled else { return nil }
+        let bounds = objectSlot.visualBounds(relativeTo: nil, excludeInactive: true)
+        guard !bounds.isEmpty else { return nil }
+        return projectedRect(bounds, in: view)
     }
 
     /// First-run teaching: the platen dips a few mm every ~1.6 s (ease in-out) with a glow on the crosshead.
@@ -792,11 +943,84 @@ final class PressScene {
         return context.reduceMotion ? 0 : 0.004 * wave
     }
 
+    /// Object-local tremor amplitude (metres; ~1–3 px at our framing). Pure, for tests.
+    static func tremorAmplitude(tell: Bool, held: Bool, tension: Float, phase: BreakPhase) -> Float {
+        switch phase {
+        case .hush:
+            return 0.0005
+        case .hitStop, .slowDebris, .settle:
+            return 0
+        case .none:
+            var a: Float = 0
+            if tell { a = max(a, 0.00025) }
+            if held { a = max(a, 0.00018 * clamp(tension, 0, 1)) }
+            return a
+        }
+    }
+
+    /// The burst's look (EXPERIENCE-2 §A3.1): the flash, the key light +30 % for 60 ms, a warm afterglow decaying
+    /// over 400 ms, an object kick and the Duo anvil camera's kick. Reduce Motion: no kicks, half the light.
+    private enum BurstLook {
+        static let keyPunch: Float = 0.3
+        static let punchTime: Float = 0.06
+        static let afterglowTime: Float = 0.4
+        static let afterglowPeak: Float = 9_000
+        static let afterglowColor = UIColor(hex: 0xFFB46E)
+        static let cameraKickHalfLife: Float = 0.05
+        static let slowRampTime: Float = 0.15
+    }
+
+    /// Break part 3. `slowDebris`: start part 4's 0.3× debris (a replay is already slow, so it doesn't).
+    private func burst(reduceMotion: Bool, slowDebris: Bool) {
+        if slowDebris {
+            let score = BreakScore.of(kind)
+            slowMo = Float(score.slowDebris)
+            slowMoRate = Float(score.slowRate)
+            slowRamp = 0
+        }
+        flashLevel = reduceMotion ? style.flashPeakReducedMotion : style.flashPeak
+        kick = reduceMotion ? 0 : style.failureKick
+        lightPunch = reduceMotion ? 0.5 : 1
+        afterglow = reduceMotion ? 0.5 : 1
+        cameraKick = reduceMotion ? 0 : 1
+        rig.flashRed()
+        rig.kickGauge(5)
+    }
+
+    /// The debris time scale this frame: `slowMoRate` through the slow window, then a ramp back to 1×.
+    private func slowFactor(dt: Float) -> Float {
+        if slowMo > 0 {
+            slowMo -= dt
+            if slowMo <= 0 { slowRamp = BurstLook.slowRampTime }
+            return slowMoRate
+        }
+        if slowRamp > 0 {
+            slowRamp = max(slowRamp - dt, 0)
+            return slowMoRate + (1 - slowMoRate) * (1 - slowRamp / BurstLook.slowRampTime)
+        }
+        return 1
+    }
+
     private func updateFlash(dt: Float) {
         flashLevel *= pow(0.5, dt / style.flashHalfLife)
         if flashLevel < 50 { flashLevel = 0 }
-        flash.isEnabled = flashLevel > 0
-        flash.light.intensity = flashLevel
+        lightPunch = max(0, lightPunch - dt / BurstLook.punchTime)
+        afterglow = max(0, afterglow - dt / BurstLook.afterglowTime)
+        cameraKick *= pow(0.5, dt / BurstLook.cameraKickHalfLife)
+        if cameraKick < 0.01 { cameraKick = 0 }
+        let glow = BurstLook.afterglowPeak * afterglow * afterglow
+        let total = flashLevel + glow
+        flash.isEnabled = total > 0
+        flash.light.intensity = total
+        let warm = glow > flashLevel
+        if warm != flashWarm {
+            flashWarm = warm
+            flash.light.color = warm ? BurstLook.afterglowColor : style.flashColor
+        }
+        // The key's punch. Fold framing applies it in `setFoldStage` (which runs after this, with the stage's gain).
+        if framing == .machine {
+            foldKeyLight?.light.intensity = style.keyIntensity * (1 + BurstLook.keyPunch * lightPunch)
+        }
     }
 
     private func updateInstruments(engine: PressEngine, context: FeedbackContext, dt: Float, renderC: Float, approach: Float) {
@@ -1028,6 +1252,173 @@ final class PressScene {
         }
     }
 
+    // MARK: - Break replay (the reveal ceremony; FoldPressController.playBreakReplay)
+
+    private struct ReplayRun {
+        let tape: PressTape
+        let speed: Double
+        /// Tape time (the scene clock as recorded).
+        var t: Double
+        var nextMark: Int
+        var burstPlayed = false
+        /// Seconds into the hand-back blend once the tape has run out.
+        var outro: Double?
+        var last: PressTape.Frame
+    }
+
+    /// Wall seconds of the blend from the tape's last frame back to the live specimen.
+    static let replayOutro = 0.35
+
+    /// True while a break replay owns the object.
+    var isReplaying: Bool { replay != nil }
+    /// A replay can be played: the Duo stage recorded this press.
+    var hasBreakReplay: Bool { framing == .foldAnvil && recorder.tape != nil }
+    /// 0…1: how far the anvil camera should push in on the break right now (0 when not replaying).
+    var replayFocus: Double {
+        guard let replay, replay.outro == nil else { return 0 }
+        return replay.tape.focus(at: replay.t)
+    }
+    /// False while a replay hasn't reached its burst yet (the escaped mess on the anvil waits for it).
+    var replayShowsBurst: Bool { replay?.burstPlayed ?? true }
+
+    /// Re-runs the recorded break on a fresh copy of the object (same kind and seed: the same cracks and pieces), at
+    /// `speed` (0.3 = 0.3×), then blends back to the live specimen. Returns the wall-clock duration, or nil if there is
+    /// nothing to replay (not on the Duo stage, no tape, a replay already running, or the next object arriving).
+    func playBreakReplay(speed: Double) -> Double? {
+        guard framing == .foldAnvil, replay == nil, !outgoingActive, objectView != nil, let tape = recorder.tape,
+              let first = tape.frames.first else { return nil }
+        let speed = clamp(speed, 0.1, 1)
+        if let old = objectView?.entity { old.removeFromParent() }
+        fx.clear()
+        let view = PressObjectFactory.make(kind, variant: variant, fx: fx)
+        objectSlot.addChild(view.entity)
+        ShadowCasting.offForTranslucent(in: view.entity)
+        view.entity.isEnabled = true
+        objectView = view
+        hitStop = 0
+        slowMo = 0
+        slowRamp = 0
+        kick = 0
+        tell = false
+        dropHeight = 0
+        dropVelocity = 0
+        inspection = ObjectInspection()
+        let reduceMotion = fx.reduceMotion
+        ramFace = replayRamFace(view, first)
+        let state = replayState(first, dt: 0, reduceMotion: reduceMotion)
+        view.update(state)
+        lastState = state
+        var run = ReplayRun(tape: tape, speed: speed, t: tape.start, nextMark: 0, last: first)
+        // What happened before the tape starts (early cracks, pops) is there at once.
+        while run.nextMark < tape.marks.count, tape.marks[run.nextMark].time < tape.start {
+            applyReplayMark(tape.marks[run.nextMark].event, view: view, state: state, reduceMotion: reduceMotion,
+                            run: &run)
+            run.nextMark += 1
+        }
+        replay = run
+        return tape.duration / speed + Self.replayOutro
+    }
+
+    /// Skips to the end of a running replay (its remaining events land at once, then it hands back).
+    func stopBreakReplay() {
+        guard var run = replay, run.outro == nil else { return }
+        run.t = run.tape.end
+        replay = run
+    }
+
+    private func replayRamFace(_ view: PressObjectView, _ f: PressTape.Frame) -> Float {
+        let start = PressRig.homeFace
+        if f.approach < 0.999 && f.ramCompression <= 0 {
+            return start - (start - view.restHeight) * f.approach
+        }
+        return view.surfaceHeight(compression: f.ramCompression)
+    }
+
+    private func replayState(_ f: PressTape.Frame, dt: Float, reduceMotion: Bool) -> PressVisualState {
+        PressVisualState(compression: f.compression, ramCompression: f.ramCompression, ramFace: ramFace,
+                         approach: f.approach, dt: dt, time: clock, closingSpeed: f.closingSpeed, loaded: f.loaded,
+                         reduceMotion: reduceMotion, phase: f.phase)
+    }
+
+    private func applyReplayMark(_ event: PressEvent, view: PressObjectView, state: PressVisualState, reduceMotion: Bool,
+                                 run: inout ReplayRun) {
+        switch event {
+        case let .fracture(index, isFailure):
+            view.fracture(index: index, isFailure: isFailure, state: state)
+            ShadowCasting.offForTranslucent(in: view.entity)
+            ShadowCasting.offForTranslucent(in: fx.root)
+            if isFailure {
+                tell = false
+                run.burstPlayed = true
+                burst(reduceMotion: reduceMotion, slowDebris: false)
+            } else if !reduceMotion {
+                kick = max(kick, style.failureKick * 0.35)
+            }
+        case .preFailureTell:
+            tell = true
+            view.handle(event, state: state)
+        default:
+            view.handle(event, state: state)
+        }
+    }
+
+    private func updateReplay(view: PressObjectView, engine: PressEngine, context: FeedbackContext, dt: Float) {
+        guard var run = replay else { return }
+        let reduceMotion = context.reduceMotion
+        let tape = run.tape
+        var frame: PressTape.Frame
+        var objectDt = dt * Float(run.speed)
+        var fxDt = objectDt
+        var done = false
+        if let outro = run.outro {
+            // The tape has run out: blend to the live specimen (the engine's state), then hand back.
+            let elapsed = outro + Double(dt)
+            run.outro = elapsed
+            let k = Float(clamp(elapsed / Self.replayOutro, 0, 1))
+            frame = run.last
+            frame.compression += (Float(engine.visualCompression) - frame.compression) * k
+            frame.ramCompression += (Float(engine.renderCompression) - frame.ramCompression) * k
+            frame.loaded = false
+            frame.frozen = false
+            frame.closingSpeed = 0
+            frame.phase = engine.phase
+            objectDt = dt
+            fxDt = dt
+            done = k >= 1
+        } else {
+            run.t += Double(dt) * run.speed
+            frame = tape.frame(at: min(run.t, tape.end)) ?? run.last
+            if frame.frozen { objectDt = 0 }
+            let marked = lastState ?? replayState(frame, dt: 0, reduceMotion: reduceMotion)
+            while run.nextMark < tape.marks.count, tape.marks[run.nextMark].time <= run.t {
+                applyReplayMark(tape.marks[run.nextMark].event, view: view, state: marked, reduceMotion: reduceMotion,
+                                run: &run)
+                run.nextMark += 1
+            }
+            if run.t >= tape.end {
+                run.outro = 0
+                run.last = frame
+            }
+        }
+        ramFace = replayRamFace(view, frame)
+        let state = replayState(frame, dt: objectDt, reduceMotion: reduceMotion)
+        lastState = state
+        if objectDt > 0 || state.compression == 0 { view.update(state) }
+        fx.step(dt: fxDt, ceiling: ramFace, plateHalfExtent: SIMD2<Float>(repeating: 1))
+        // The object's kick only (no load shake, no tremor: this is a memory of the press).
+        kick *= pow(0.5, dt / style.kickHalfLife)
+        var offset = SIMD3<Float>.zero
+        if !reduceMotion && kick > 1e-6 {
+            offset.x = kick * sin(clock * 97) * cos(clock * 41)
+            offset.z = kick * sin(clock * 73 + 1.3)
+        }
+        objectSlot.position = offset
+        objectSlot.scale = SIMD3<Float>(repeating: 1)
+        updateDecals(view: view, approach: frame.approach)
+        updateFlash(dt: dt)
+        replay = done ? nil : run
+    }
+
     // MARK: - FOLD PRESS (design/FOLD-PRESS.md §2, §9.1): anvil-only framing for the iPhone Duo
 
     /// `.machine` is the P-48; `.foldAnvil` hides the rig and sweep, shows the Fold Press anvil plates and hands the
@@ -1105,11 +1496,15 @@ final class PressScene {
         // Clamshell lean (§2.4, FOLD-REVIEW-3 N2): the squash tips the top away from the real hinge (+z), pivoting on
         // the base edge it tips toward, so the footprint stays put and no part of the base sinks into the plate. Book
         // pose also turns the object to the eye (yaw about the slot origin, applied first).
-        objectSlot.orientation = simd_quatf(angle: stage.lean, axis: [1, 0, 0]) * simd_quatf(angle: stage.yaw, axis: [0, 1, 0])
+        // Touch inspection turns the object itself, never the camera, so the anamorphic illusion holds: its tilt adds to
+        // the lean (same pivot rule), its spin to the yaw.
+        let lean = stage.lean + Float(inspection.tilt)
+        objectSlot.orientation = simd_quatf(angle: lean, axis: [1, 0, 0])
+            * simd_quatf(angle: stage.yaw + Float(inspection.yaw), axis: [0, 1, 0])
         let current = objectSlot.position
         let unshifted = foldLeanPosition == current ? current - foldLeanShift : current
         let baseRadius = (objectView.map { $0.footprint * $0.shadowSpread } ?? 0) * objectSlot.scale.z
-        foldLeanShift = FoldLean.pivotShift(lean: stage.lean, baseRadius: baseRadius)
+        foldLeanShift = FoldLean.pivotShift(lean: lean, baseRadius: baseRadius)
         objectSlot.position = unshifted + foldLeanShift
         foldLeanPosition = objectSlot.position
         // Wedge shadow (FOLD-REVIEW-3 N13): the soft contact shadow (1.8× footprint) and the plate shade spilled past
@@ -1126,7 +1521,7 @@ final class PressScene {
         foldYaw = stage.yaw
         flash.position = stage.flashPosition
         foldRimLight?.light.intensity = style.rimIntensity * stage.rimGain
-        foldKeyLight?.light.intensity = style.keyIntensity * stage.keyGain
+        foldKeyLight?.light.intensity = style.keyIntensity * stage.keyGain * (1 + BurstLook.keyPunch * lightPunch)
         setFoldIBLOffset(stage.iblOffset)
         if let foldAnvil, let iblHolder, !foldAnvil.components.has(ImageBasedLightReceiverComponent.self) {
             foldAnvil.components.set(ImageBasedLightReceiverComponent(imageBasedLight: iblHolder))

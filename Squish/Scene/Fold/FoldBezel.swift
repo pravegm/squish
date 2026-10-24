@@ -8,6 +8,10 @@ struct FoldInstruments {
     /// 0 off, 1 green / amber, 2 red.
     var ready: Int
     var load: Int
+    /// 0…1: the machine's power with the hinge (`PressEngine.hingePower`): lamps, gauge and readout dim toward 0.
+    var power: Double = 1
+    /// Points the hazard stripes have slid (the ratchet: one stripe per detent), unwrapped.
+    var stripeOffset: Double = 0
 }
 
 /// "The phone becomes the press" (§5): the 40 pt graphite crease band, the anvil's back lips, the yellow rails
@@ -24,10 +28,18 @@ final class FoldBezel {
     private var rails: [CALayer] = []
     private let platenJaw = CALayer()
     private let anvilJaw = CALayer()
+    private let platenStripes = CALayer()
+    private let anvilStripes = CALayer()
+    private var stripeAlongX = true
+    /// One yellow + one graphite stripe (`FoldTextures.hazardJaw`: 8 pt each).
+    static let stripePeriod: CGFloat = 16
     private let crown = CALayer()
     private let console = CALayer()
     private let platenFoot = CALayer()
     private let plateShade = CALayer()
+    /// The tension vignette over the anvil half (`FoldFrame.vignette`): up to 12 % edge darkening.
+    private let vignette = CAGradientLayer()
+    static let vignetteMax = 0.12
     private let creaseShadePlaten = CAGradientLayer()
     private var readyLabelImage: CGImage?
     private var loadLabelImage: CGImage?
@@ -91,6 +103,14 @@ final class FoldBezel {
         platenFoot.backgroundColor = Palette.graphite.cgColor
         layer.insertSublayer(platenFoot, above: console)
         layer.insertSublayer(plateShade, at: 0)
+        vignette.type = .radial
+        vignette.colors = [UIColor(white: 0, alpha: 0).cgColor, UIColor(white: 0, alpha: 0).cgColor,
+                           UIColor(white: 0, alpha: 1).cgColor]
+        vignette.locations = [0, 0.5, 1]
+        vignette.startPoint = CGPoint(x: 0.5, y: 0.5)
+        vignette.endPoint = CGPoint(x: 1.05, y: 1.05)
+        vignette.opacity = 0
+        layer.insertSublayer(vignette, above: plateShade)
         creaseShadePlaten.colors = [Palette.graphite.withAlphaComponent(0).cgColor, Palette.graphite.withAlphaComponent(0.22).cgColor]
         layer.insertSublayer(creaseShadePlaten, above: creaseShade)
     }
@@ -155,10 +175,26 @@ final class FoldBezel {
         }
 
         // Hazard jaws on the two free edges, mirrored so they mesh when closed.
+        // The stripes are a sublayer one period longer each way, so they can slide with the hinge (the ratchet) and
+        // wrap seamlessly; the jaw clips them.
         platenJaw.frame = layout.platenJaw
         anvilJaw.frame = layout.anvilJaw
-        platenJaw.contents = FoldTextures.hazardJaw(size: layout.platenJaw.size, alongX: !layout.isBook, mirror: true)
-        anvilJaw.contents = FoldTextures.hazardJaw(size: layout.anvilJaw.size, alongX: !layout.isBook, mirror: false)
+        let alongX = !layout.isBook
+        for (jaw, stripes, mirror) in [(platenJaw, platenStripes, true), (anvilJaw, anvilStripes, false)] {
+            jaw.masksToBounds = true
+            jaw.contents = nil
+            jaw.backgroundColor = Palette.graphite.cgColor
+            let size = jaw.bounds.size
+            let p = Self.stripePeriod
+            let long = alongX ? CGSize(width: size.width + 2 * p, height: size.height)
+                : CGSize(width: size.width, height: size.height + 2 * p)
+            stripes.contents = FoldTextures.hazardJaw(size: long, alongX: alongX, mirror: mirror)
+            stripes.bounds = CGRect(origin: .zero, size: long)
+            stripes.anchorPoint = .zero
+            stripes.position = alongX ? CGPoint(x: -p, y: 0) : CGPoint(x: 0, y: -p)
+            if stripes.superlayer !== jaw { jaw.addSublayer(stripes) }
+        }
+        stripeAlongX = alongX
 
         // Crown strip: gauge (left / outer corner), READY + LOAD lamps, the P-48 nameplate.
         let cr = layout.crownStrip
@@ -233,6 +269,8 @@ final class FoldBezel {
                                                       clipRadius: CGFloat(FoldMetrics.plateRadius) + 8)
         plateShade.frame = canvas
         plateShade.opacity = 0
+        vignette.frame = layout.anvilHalf
+        vignette.opacity = 0
 
         let cb = layout.consoleBand
         pilotLamp.bounds = CGRect(x: 0, y: 0, width: 16, height: 16)
@@ -249,8 +287,24 @@ final class FoldBezel {
         needle.setAffineTransform(CGAffineTransform(rotationAngle: FoldTextures.needleRotation(tons: tons)))
         // Plate shade (FOLD-REVIEW-2 #3): driven by the virtual gap, never latched, so it lifts as the press opens
         // and is gone at the reveal; 0.18·a² peak.
-        let a = clamp(f.approach, 0, 1)
+        // The lid's shade also tracks the real angle continuously, press or not (founder: everything moves with the
+        // hinge): it gathers from 160° and is gone by the reveal's open lid.
+        let lid = 0.75 * clamp((160 - f.angle) / 110, 0, 1)
+        let a = max(clamp(f.approach, 0, 1), lid)
         plateShade.opacity = Float(0.18 * a * a)
+        vignette.opacity = Float(Self.vignetteMax * clamp(f.vignette, 0, 1))
+        // Power with the hinge: the instruments dim as the phone closes outside a press, and light as it opens.
+        let lit = Float(0.3 + 0.7 * clamp(instruments.power, 0, 1))
+        for l in [readyLamp, loadLamp, pilotLamp, readout, needle, gaugeFace] as [CALayer] where l.opacity != lit {
+            l.opacity = lit
+        }
+        // The ratchet: the stripes slide one stripe per detent (both jaws, opposite ways, so they mesh when shut).
+        let p = Double(Self.stripePeriod)
+        let shift = CGFloat(instruments.stripeOffset.truncatingRemainder(dividingBy: p) + (instruments.stripeOffset < 0 ? p : 0))
+        for (stripes, sign) in [(platenStripes, CGFloat(1)), (anvilStripes, CGFloat(-1))] {
+            let s = sign > 0 ? shift : CGFloat(p) - shift
+            stripes.position = stripeAlongX ? CGPoint(x: -CGFloat(p) + s, y: 0) : CGPoint(x: 0, y: -CGFloat(p) + s)
+        }
         if lampState != (instruments.ready, instruments.load) {
             readyLamp.contents = lampImages[instruments.ready == 1 ? 1 : (instruments.ready == 2 ? 2 : 0)]
             let load = instruments.load == 1 ? 3 : (instruments.load == 2 ? 2 : 0)

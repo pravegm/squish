@@ -86,6 +86,21 @@ final class FoldPressController {
     /// One settling step on resume: every transient (ripples, wipe, splat spread, needle, lean) is past its end by then.
     private static let resumeSettle = 1.0
 
+    // The press, beat by beat (design/EXPERIENCE-PLAN.md; Core/PressFeel.swift)
+    /// The tension vignette on the anvil, eased (0…1).
+    private var vignette: Double = 0
+    /// The close-style stamp (PERFECT / SLAMMED / PUMPED ×N) has been set for this press.
+    private var closeStyleApplied = false
+    private var lastCreakCount = 0
+    // The hinge as a living control: the ratchet's stripes, the power-up wake sweep.
+    private var lastDetentCount = 0
+    private var lastPowerUpCount = 0
+    private var stripeTarget: Double = 0
+    private var stripeShown: Double = 0
+    /// Seconds into the needle's wake-up sweep after a power-up, nil when none is running.
+    private var wakeAge: Double?
+    private var reduceMotion = false
+
     // Instruments (same feel as the P-48's, VISUAL-TARGET §4.4–4.5)
     private var needleTons: Double = 0
     private var needleVelocity: Double = 0
@@ -146,6 +161,36 @@ final class FoldPressController {
             lightWaiters.append(continuation)
         }
     }
+
+    // MARK: - The reveal ceremony's slow-mo replay of the break (EXPERIENCE-PLAN "Reveal ceremony")
+
+    /// The replay's push-in: 1.4× (a dolly toward the object's middle, ~8 mm up).
+    static let replayZoom = 1.4
+    static let replayTargetHeightMM = 8.0
+    /// The burst's camera kick: the vertical FOV narrows by this fraction at its peak (decays in ~50 ms).
+    static let burstKickFOV = 0.015
+
+    /// A replay can be played now: this press was recorded on the Duo stage (the last ~2 s, centred on the break).
+    var hasBreakReplay: Bool { host != nil && (scene?.hasBreakReplay ?? false) }
+    /// True while a break replay is playing.
+    var isPlayingBreakReplay: Bool { scene?.isReplaying ?? false }
+
+    /// For the reveal ceremony (UI): replays the press's break in slow motion on the anvil, pushing in on it, then hands
+    /// back to the specimen. A fresh copy of the object (same seed: the same cracks and pieces) re-runs the recorded
+    /// frames and events; the platen's print is left as it is, and no sound or haptic plays (cue them from the
+    /// returned duration if wanted). `speed` 0.3 = 0.3×. Returns the wall-clock duration in seconds, or nil when there
+    /// is nothing to replay (no recorded press, not on the Duo stage, the inner display dark: call it after
+    /// `revealLit()`). Reduce Motion: plays without the push-in. The card's specimen photo waits for it to finish.
+    @discardableResult
+    func playBreakReplay(speed: Double = 0.35) -> TimeInterval? {
+        guard host != nil, !renderPaused, !revealPending, let scene else { return nil }
+        guard let duration = scene.playBreakReplay(speed: speed) else { return nil }
+        log(String(format: "break replay %.2fs at %.2fx", duration, speed))
+        return duration
+    }
+
+    /// Ends a running replay early (it lands its remaining events and hands back to the specimen).
+    func stopBreakReplay() { scene?.stopBreakReplay() }
 
     private func resumeLightWaiters() {
         let waiters = lightWaiters
@@ -236,6 +281,10 @@ final class FoldPressController {
         revealAge = nil
         revealPending = false
         revealBeganDark = false
+        vignette = 0
+        closeStyleApplied = false
+        platen.setPressedText(CloseStyle.pressed.stampText)
+        anvil.setSprayVisible(true)
         resumeLightWaiters()
         // The last print wipes off with a squeegee while the next object drops (§6.3 step 6), and the escaped splat
         // goes with it.
@@ -276,6 +325,14 @@ final class FoldPressController {
         revealLight.track(angle: rawAngle, clock: clock)
         let objectPresent = sinceSet > (firstObject ? 0.9 : 1.2) || phase == .pressing
 
+        // How the press was closed: the platen's stamp says PERFECT, SLAMMED or PUMPED ×N (EXPERIENCE-2 §A6.1).
+        if !closeStyleApplied, let result = engine.lastResult, phase == .sealed || phase == .revealing {
+            closeStyleApplied = true
+            platen.setPressedText(result.closeStyle.stampText)
+        }
+        reduceMotion = context.reduceMotion
+        trackHingeMotion(engine: engine)
+
         // N10: nothing to draw while the inner display can't be seen. The first frame back settles every transient
         // in one step, so the relit display shows the finished state, never a ripple or a wipe caught mid-way.
         guard !renderPaused, let layout else { return }
@@ -284,12 +341,21 @@ final class FoldPressController {
         resizeAnvilViewIfNeeded()
         let sweepPosition = sweep(engine: engine, angle: angle, objectPresent: objectPresent,
                                   reduceMotion: context.reduceMotion, dt: vdt)
-        let frame = FoldFrame(angle: angle, approach: approach, compression: renderCompression,
+        // The tell, a held press and the hush narrow attention onto the object (EXPERIENCE-2 §A3.1).
+        let breakPhase = engine.breakPhase
+        var vignetteTarget = engine.isHeldUnderLoad ? 0.6 * engine.tension : 0
+        if tell || breakPhase == .hush || breakPhase == .hitStop { vignetteTarget = 1 }
+        let vignetteHalfLife = vignetteTarget > vignette ? 0.08 : 0.25
+        vignette += (vignetteTarget - vignette) * (1 - pow(0.5, vdt / vignetteHalfLife))
+        // A replay re-breaks the object: the escaped mess waits for its burst.
+        anvil.setSprayVisible(scene?.replayShowsBurst ?? true)
+        var frame = FoldFrame(angle: angle, approach: approach, compression: renderCompression,
                               printCompression: printCompression, contacted: contacted, tell: tell,
                               failureCompression: failureCompression, objectPresent: objectPresent,
                               tabletop: !layout.isBook, reduceMotion: context.reduceMotion, time: clock, dt: vdt,
                               sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil && !revealPending,
                               failureAngle: failureAngle)
+        frame.vignette = vignette
         platen.update(frame)
         // The escaped droplets land clear of the spreading specimen (FOLD-REVIEW-5): its live extent, 10 Hz.
         if anvil.hasSpray {
@@ -304,7 +370,8 @@ final class FoldPressController {
         anvil.updateSpray(spread: platen.stack?.splatScale ?? 1, dt: vdt, reduceMotion: context.reduceMotion)
         bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: vdt),
                      frame: frame)
-        updateCamera(layout: layout, angle: angle, dt: vdt)
+        updateCamera(layout: layout, angle: angle, closingSpeed: engine.closingSpeed, approach: approach,
+                     reduceMotion: context.reduceMotion, dt: vdt)
 
         // N10: a reveal from the dark plays its beats once the display is lit (after this frame's settled platen).
         if revealPending && revealLight.isLit(angle: rawAngle, clock: clock) {
@@ -322,7 +389,9 @@ final class FoldPressController {
             needleVelocity += 2 * 18
             platen.kiss(reduceMotion: context.reduceMotion)
         case .preFailureTell:
+            // The tell's strain spike: the needle jumps toward the red line (and trembles there, `instruments`).
             tell = true
+            if !context.reduceMotion { needleVelocity += 3 * 18 }
         case let .fracture(index, isFailure):
             let c = max(printCompression, renderCompression)
             if kind == .egg && index >= 2 { yolkBroke = true }
@@ -455,6 +524,11 @@ final class FoldPressController {
         case .idle, .revealing:
             tons = 0
         }
+        // Power-up as the phone opens: the needle wakes, sweeping up and back (the P-48's power-on beat).
+        if let age = wakeAge {
+            if !reduceMotion && age < 0.22 { tons = max(tons, dialMax * 0.55) }
+            wakeAge = age + dt < 0.7 ? age + dt : nil
+        }
         // Needle: spring response ≈ 0.18 s, damping 0.55 (as the P-48's).
         if dt > 0 {
             let omega = 2 * Double.pi / 0.18, zeta = 0.55
@@ -471,6 +545,8 @@ final class FoldPressController {
         let buzz = kind == .unsquishable && engine.phase != .revealing && engine.phase != .idle && tons >= dialMax
         if !reduceMotion {
             if tell { shown += 0.8 / 4.5 * sin(clock * 2 * .pi * 14) }
+            // Tension you can hold: the needle quivers while the press is held still under load, never going dead.
+            if engine.isHeldUnderLoad && !tell { shown += 0.5 / 4.5 * engine.tension * sin(clock * 2 * .pi * 11) }
             if slamming { shown += 3.5 * sin(clock * 2 * .pi * 19) * sin(clock * 2 * .pi * 3.1) }
             if buzz { shown = dialMax + 2 + 0.6 * sin(clock * 2 * .pi * 23) }
             if !tell && !buzz && tons < 0.01 { shown += 0.3 / 4.5 * sin(clock * 2 * .pi * 0.4) }
@@ -493,12 +569,37 @@ final class FoldPressController {
             ready = 0
             load = 1
         }
-        return FoldInstruments(needle: shown, ready: ready, load: load)
+        // The ratchet's stripes ease one stripe per detent (70 ms), a visual tick.
+        stripeShown += (stripeTarget - stripeShown) * (reduceMotion ? 1 : 1 - pow(0.5, dt / 0.025))
+        return FoldInstruments(needle: shown, ready: ready, load: load, power: engine.hingePower,
+                               stripeOffset: stripeShown)
+    }
+
+    /// The hinge as a living control (founder, real Duo): every detent ticks the stripes and the needle; each creak of a
+    /// held press twitches the needle; a power-up wakes it.
+    private func trackHingeMotion(engine: PressEngine) {
+        if engine.detentCount != lastDetentCount {
+            let steps = engine.detentCount &- lastDetentCount
+            lastDetentCount = engine.detentCount
+            // Closing slides the stripes toward the crease, opening back (one stripe per detent).
+            let direction: Double = engine.closingSpeed >= 0 ? 1 : -1
+            stripeTarget += direction * Double(min(max(steps, 0), 3)) * Double(FoldBezel.stripePeriod) / 2
+            if !reduceMotion { needleVelocity += 0.5 * 18 }
+        }
+        if engine.creakCount != lastCreakCount {
+            lastCreakCount = engine.creakCount
+            if !reduceMotion { needleVelocity += 1.2 * 18 * max(engine.tension, 0.3) }
+        }
+        if engine.powerUpCount != lastPowerUpCount {
+            lastPowerUpCount = engine.powerUpCount
+            wakeAge = 0
+        }
     }
 
     // MARK: - Anvil camera (§2.2, §9.3 Tier B)
 
-    private func updateCamera(layout: FoldLayout, angle: Double, dt: Double) {
+    private func updateCamera(layout: FoldLayout, angle: Double, closingSpeed: Double, approach: Double,
+                              reduceMotion: Bool, dt: Double) {
         let pose: FoldPose
         if layout.isBook {
             // Book: the eye rides the wedge bisector, so it moves every frame with θ (gently smoothed).
@@ -525,18 +626,35 @@ final class FoldPressController {
         func toScene(_ v: SIMD3<Double>) -> SIMD3<Float> { SIMD3<Float>(v * k) }
         let rotation = simd_float3x3(columns: (SIMD3<Float>(solution.right), SIMD3<Float>(solution.up),
                                                SIMD3<Float>(-solution.forward)))
-        let distance = Float(simd_length(solution.eye) * k)
+        // The camera never moves for the press (the anamorphic illusion), except: the burst's small kick (a ~1.5 %
+        // punch-in, none under Reduce Motion), and the reveal replay's push-in on the break (a dolly toward the
+        // object, 1.4×: EXPERIENCE-2 §A3.2).
+        var eyeMM = solution.eye
+        let focus = reduceMotion ? 0 : (scene?.replayFocus ?? 0)
+        if focus > 0 {
+            let target = SIMD3<Double>(0, Self.replayTargetHeightMM, 0)
+            let pushIn = 1 - 1 / (1 + (Self.replayZoom - 1) * focus)
+            eyeMM += (target - eyeMM) * pushIn
+        }
+        let kick = Double(scene?.cameraKick ?? 0)
+        let fov = solution.verticalFOV * (1 - Self.burstKickFOV * kick)
+        let distance = Float(simd_length(eyeMM) * k)
         let creaseZ = -(FoldMetrics.footprintFromAxisMM - FoldMetrics.creaseHalf / FoldMetrics.pointsPerMM)
         // Clamshell lean (FOLD-REVIEW-3 N2): 2.5°·c, none for sheets, eased back to 0 once the object has failed.
-        let leanTarget = FoldLean.angle(compression: renderCompression, contacted: contacted,
+        // Before contact the object anticipates the lid: it leans away a little as the lid comes (founder, real
+        // Duo), and wobbles with the hinge's speed.
+        var leanTarget = FoldLean.angle(compression: renderCompression, contacted: contacted,
                                         failed: failureCompression != nil, kind: kind)
+        if !contacted && FoldLean.leans(kind) && !reduceMotion {
+            leanTarget += FoldLean.anticipation(approach: approach, closingSpeed: closingSpeed, time: clock)
+        }
         leanAngle += (leanTarget - leanAngle) * (1 - pow(0.5, dt / 0.06))
         if abs(leanAngle) < 1e-5 && leanTarget == 0 { leanAngle = 0 }
         let exposure = FoldCurve.exposure(eyeElevation: eye.renderElevation(pose))
         let ppm = FoldMetrics.pointsPerMM
         let plateHalf = SIMD2<Double>((FoldMetrics.plateLateral / 2 + 8) / ppm, (FoldMetrics.plateDepth / 2 + 8) / ppm) * k
-        let stage = FoldStage(cameraPosition: toScene(solution.eye), cameraOrientation: simd_quatf(rotation),
-                              verticalFOV: Float(solution.verticalFOV), near: max(0.01, distance * 0.1),
+        let stage = FoldStage(cameraPosition: toScene(eyeMM), cameraOrientation: simd_quatf(rotation),
+                              verticalFOV: Float(fov), near: max(0.01, distance * 0.1),
                               far: distance * 4, lean: Float(leanAngle),
                               flashPosition: toScene(SIMD3<Double>(0, 30, creaseZ)),
                               rimGain: Float(FoldCurve.rimGain(angle: angle)),

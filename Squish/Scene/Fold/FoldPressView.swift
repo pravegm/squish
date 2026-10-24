@@ -27,6 +27,9 @@ private struct FoldStageRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> FoldStageHostView {
         let host = FoldStageHostView(scene: director.scene, controller: director.fold)
         let director = self.director
+        // Touch on the object: a tap is the director's poke (Feedback answers in the material); a flick is a beat.
+        host.onPoke = { [weak director] _ in director?.poke() }
+        host.onSpin = { [weak director] turns in director?.engine.spun(turnsPerSecond: turns) }
         // The per-frame loop runs off this ARView's render updates (it replaces PressSceneView's on a Duo), and off
         // the render gate's blind clock while the inner display can't be seen (FOLD-REVIEW-7 N10).
         host.onFrame = { [weak director] dt in director?.frame(dt: dt) }
@@ -104,6 +107,7 @@ final class FoldStageHostView: UIView {
         arView.scene.addAnchor(anchor)
         claimScene()
         controller.attach(host: self, scene: scene)
+        installInspectGestures()
 
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             let dt = event.deltaTime
@@ -123,6 +127,90 @@ final class FoldStageHostView: UIView {
 
     /// The hinge reads shut (set by `startRenderGate`).
     private var isShut: (() -> Bool)?
+
+    // MARK: - Touch on the object (founder, real Duo)
+    // Drag on the object spins it on the plate (with a little tilt, inertia and a spring back), a pinch zooms a little,
+    // a tap pokes it. The anamorphic camera never moves: the object itself turns, so the illusion holds. Only while
+    // nothing is pressed (`PressScene.canInspectObject`); folding is the press on the Duo, so touch never fights it.
+
+    var onPoke: ((Double) -> Void)?
+    var onSpin: ((Double) -> Void)?
+    private lazy var spinPan = UIPanGestureRecognizer(target: self, action: #selector(handleSpin(_:)))
+    private lazy var pokeTap = UITapGestureRecognizer(target: self, action: #selector(handlePoke(_:)))
+    private lazy var zoomPinch = UIPinchGestureRecognizer(target: self, action: #selector(handleZoom(_:)))
+    private var lastPan: CGPoint = .zero
+    /// The touch reaches this far from the footprint centre and still counts as on the object (points).
+    static let inspectRadius: CGFloat = 150
+
+    private func installInspectGestures() {
+        for recognizer in [spinPan, pokeTap, zoomPinch] as [UIGestureRecognizer] {
+            recognizer.delegate = self
+            recognizer.cancelsTouchesInView = false
+            addGestureRecognizer(recognizer)
+        }
+        spinPan.maximumNumberOfTouches = 1
+    }
+
+    /// A touch on the object (on the anvil half, near the footprint), while it may be inspected.
+    fileprivate func touchIsOnObject(_ point: CGPoint) -> Bool {
+        guard let scene, scene.canInspectObject, let layout = controller?.layout, layout.anvilHalf.contains(point)
+        else { return false }
+        let c = layout.footprintCentre
+        return hypot(point.x - c.x, point.y - c.y) <= Self.inspectRadius
+    }
+
+    /// Book pose turns the plate's vertical axis toward the eye, so the spin follows the finger around the footprint;
+    /// tabletop spins with a horizontal drag. Returns the equivalent horizontal drag in points.
+    private func spinDrag(from a: CGPoint, to b: CGPoint) -> (dx: Double, dy: Double) {
+        guard let layout = controller?.layout, layout.isBook else { return (Double(b.x - a.x), Double(b.y - a.y)) }
+        let c = layout.footprintCentre
+        var turn = Double(atan2(b.y - c.y, b.x - c.x) - atan2(a.y - c.y, a.x - c.x))
+        if turn > .pi { turn -= 2 * .pi }
+        if turn < -.pi { turn += 2 * .pi }
+        return (turn / ObjectInspection.yawPerPoint, 0)
+    }
+
+    @objc private func handleSpin(_ pan: UIPanGestureRecognizer) {
+        guard let scene else { return }
+        let point = pan.location(in: self)
+        switch pan.state {
+        case .began:
+            lastPan = point
+            scene.inspectBegan()
+        case .changed:
+            let d = spinDrag(from: lastPan, to: point)
+            lastPan = point
+            scene.inspectMoved(dx: d.dx, dy: d.dy)
+        case .ended, .cancelled, .failed:
+            var vx = Double(pan.velocity(in: self).x)
+            if let layout = controller?.layout, layout.isBook {
+                // Tangential speed around the footprint → the equivalent horizontal flick.
+                let v = pan.velocity(in: self), c = layout.footprintCentre
+                let r = max(hypot(point.x - c.x, point.y - c.y), 30)
+                let ω = Double((point.x - c.x) * v.y - (point.y - c.y) * v.x) / Double(r * r)
+                vx = ω / ObjectInspection.yawPerPoint
+            }
+            let turns = scene.inspectEnded(vx: pan.state == .ended ? vx : 0)
+            onSpin?(turns)
+        default:
+            break
+        }
+    }
+
+    @objc private func handlePoke(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let scene, scene.poke(strength: 0.7) else { return }
+        onPoke?(0.7)
+    }
+
+    @objc private func handleZoom(_ pinch: UIPinchGestureRecognizer) {
+        guard let scene else { return }
+        switch pinch.state {
+        case .began, .changed:
+            scene.inspectPinch(scale: Double(pinch.scale), began: pinch.state == .began)
+        default:
+            scene.inspectPinchEnded()
+        }
+    }
 
     /// Starts pausing this stage while the inner display can't be seen (FOLD-REVIEW-7 N10). `shut`: the hinge reads
     /// closed; `busy`: a press is live; `watch`: reads the observable hinge state, so a reopen resumes at once.
@@ -277,6 +365,19 @@ final class FoldStageHostView: UIView {
         if let scene, scene.arView === arView, scene.framing == .foldAnvil {
             scene.setFraming(.machine)
         }
+    }
+}
+
+extension FoldStageHostView: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        touchIsOnObject(recognizer.location(in: self))
+    }
+
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // Spin and pinch together; nothing else of ours competes.
+        (recognizer is UIPanGestureRecognizer && other is UIPinchGestureRecognizer)
+            || (recognizer is UIPinchGestureRecognizer && other is UIPanGestureRecognizer)
     }
 }
 

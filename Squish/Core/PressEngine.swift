@@ -11,9 +11,11 @@ enum PressEvent: Equatable, Sendable {
     case contact
     /// One "grain" of the compliance illusion, emitted per `grainSpacing` degrees of fresh closing.
     case grain(compression: Double)
-    /// The final stretch before the big failure: tremor and accelerating micro-cracks.
+    /// The tell: the final stretch before the big failure (tremor, strain spike, accelerating micro-cracks), fired
+    /// ~150–300 ms before the hand crosses the failure threshold (`PressTell`), or at the crossing for a slam.
     case preFailureTell
-    /// Emitted `failureHushDelay` before the failure: beds and grains drop to silence.
+    /// Break part 1: the hand crossed the failure threshold. Beds and grains drop to silence. The hit stop follows after
+    /// `breakScore.hush` (`PressBeat.hitStop`) and the burst, `.fracture(isFailure: true)`, after `breakScore.burst`.
     case hush
     case fracture(index: Int, isFailure: Bool)
     /// The press reached full depth.
@@ -47,14 +49,18 @@ final class PressEngine {
     var config: PressConfig
 
     /// The config used to map this press: `config` with the contact point captured at arm
-    /// (FOLD-PRESS.md §4.1), so tuning applies live but contact never moves mid-press.
+    /// (FOLD-PRESS.md §4.1), so tuning applies live but contact never moves mid-press. A touch press keeps the
+    /// P-48's own ease (`PressConfig.armed(at:hinge:)`).
     var mapping: PressConfig {
         guard let armedContactT else { return config }
         var mapped = config
         mapped.contactT = armedContactT
+        if !armedOnHinge { mapped.easeExponent = PressConfig.touchEaseExponent }
         return mapped
     }
     @ObservationIgnored private var armedContactT: Double?
+    /// The current arm was taken on a real hinge reading (the provisional fold mapping), not the touch press.
+    @ObservationIgnored private var armedOnHinge = false
 
     private(set) var phase: PressPhase = .idle
     private(set) var kind: ObjectKind?
@@ -72,11 +78,12 @@ final class PressEngine {
     private(set) var isHolding = true
     private(set) var startAngle: Double
 
-    /// Depth from the latest filtered sample. Drives every irreversible event.
+    /// Depth from the latest filtered sample. Drives every irreversible event. Always the hand, never the lag.
     private(set) var measuredDepth = 0.0
-    /// Spring-smoothed depth at render rate. Drives the ram.
+    /// Spring-smoothed depth at render rate. Drives the ram. Render side: it lags the hand near the failure and gives
+    /// at the burst ("lag, then give", `PressResistance`), so it can sit behind `measuredDepth`.
     private(set) var renderDepth = 0.0
-    /// The plastic part of the deformation, ratcheted. The object never re-inflates past this.
+    /// The plastic part of the deformation as the eye sees it, ratcheted. The object never re-inflates past this.
     private(set) var plasticDepth = 0.0
     private(set) var maxCompression = 0.0
     private(set) var lastResult: PressResult?
@@ -93,6 +100,125 @@ final class PressEngine {
     var isLowRate: Bool { !usesVirtualHinge && sampleInterval > 0.1 }
 
     @ObservationIgnored var onEvent: ((PressEvent) -> Void)?
+    /// The break score's beats and the held press's creaks (`PressBeat`), from `step(now:)`, in the frame they happen.
+    @ObservationIgnored var onBeat: ((PressBeat) -> Void)?
+
+    // MARK: Feel (design/EXPERIENCE-PLAN.md "The press, beat by beat"; Core/PressFeel.swift)
+
+    /// "Lag, then give" for the object on the anvil (render side only).
+    @ObservationIgnored private(set) var resistance = PressResistance.none
+    /// The five-part break score for the object on the anvil.
+    @ObservationIgnored private(set) var breakScore = BreakScore.of(.bubbleWrap)
+    /// 0…1: how much tension the press holds right now. Rises toward the failure, holds while the hinge is still
+    /// (never decays on a hold), 0 when unloaded. Feedback can hold its strain bed on `holdBedFloor`.
+    @ObservationIgnored private(set) var tension = 0.0
+    /// Loaded, before the failure, and the hinge held still: the creak cadence and the micro-tremor run.
+    @ObservationIgnored private(set) var isHeldUnderLoad = false
+    /// Counts every creak ever emitted (never reset), so views can catch each one without a callback.
+    @ObservationIgnored private(set) var creakCount = 0
+    /// The tell has fired and the failure hasn't been crossed yet.
+    @ObservationIgnored private(set) var isTelling = false
+    /// The strain-bed floor while held under load (`HoldTension.bedFloor`): ~0.4 in the tell, never 0 while loaded.
+    var holdBedFloor: Double { isHeldUnderLoad ? HoldTension.bedFloor(level: tension, inTell: isTelling) : 0 }
+
+    /// This press's failure threshold (compression), if the material has one.
+    var failureThreshold: Double? {
+        guard let index = material?.failureIndex, index < thresholds.count else { return nil }
+        return thresholds[index]
+    }
+
+    /// Where the break score is, as of the last `step(now:)`.
+    var breakPhase: BreakPhase {
+        guard let crossedAt else { return .none }
+        if let burstAt {
+            let e = clockNow - burstAt
+            if e < breakScore.slowDebris { return .slowDebris }
+            if e < breakScore.slowDebris + breakScore.settle { return .settle }
+            return .none
+        }
+        return clockNow - crossedAt < breakScore.hush ? .hush : .hitStop
+    }
+
+    /// Seconds since the burst (`.fracture(isFailure: true)`), nil before it.
+    var sinceBurst: Double? { burstAt.map { clockNow - $0 } }
+
+    // MARK: The hinge as a living control (any phase; Core/PressFeel.swift, HingeMotion)
+    // Continuous signal: `angle` (filtered, °), `closingSpeed` (°/s, + closing), `hingePower`, `detentCount`.
+
+    /// 0…1: how powered-up the machine looks. Rises as the phone opens (lamps light, the needle wakes) and falls as it
+    /// closes outside a press; 1 throughout a press and on the touch press. Eased, ~0.25 s.
+    @ObservationIgnored private(set) var hingePower = 1.0
+    /// Counts every detent crossed (never reset), so views can catch each one without a callback.
+    @ObservationIgnored private(set) var detentCount = 0
+    /// Counts every power-up (never reset): the Fold bezel's wake-up sweep and the reveal's "release".
+    @ObservationIgnored private(set) var powerUpCount = 0
+    @ObservationIgnored private var detentAngle: Double?
+    @ObservationIgnored private var powered: Bool?
+
+    /// Touch on the object is allowed: nothing is pressed (open and resting, or idle). Never during a press, the
+    /// seal or the reveal.
+    var canInspect: Bool {
+        (phase == .idle || phase == .armed) && measuredDepth < 0.01 && !isClosed
+    }
+
+    /// A flick set the object spinning (`turnsPerSecond`): emits `.spin` if inspection is allowed and it is a spin.
+    func spun(turnsPerSecond: Double) {
+        guard canInspect, turnsPerSecond > 0.15 else { return }
+        onBeat?(.spin(speed: turnsPerSecond))
+    }
+
+    private func trackDetents(_ θ: Double) {
+        guard let last = detentAngle else {
+            detentAngle = θ
+            return
+        }
+        let lines = HingeMotion.linesCrossed(from: last, to: θ)
+        guard let final = lines.last, abs(θ - final) >= HingeMotion.detentHysteresis else { return }
+        let closing = θ < last
+        detentAngle = θ
+        for line in lines.prefix(3) {
+            detentCount &+= 1
+            onBeat?(.detent(angle: line, closing: closing, speed: abs(closingSpeed)))
+        }
+    }
+
+    private func updateHingePower(dt: Double) {
+        let target: Double
+        if lastSampleVirtual != false || phase == .pressing {
+            target = 1
+        } else {
+            target = HingeMotion.power(angle: angle, closed: isClosed)
+        }
+        hingePower += (target - hingePower) * (1 - pow(0.5, max(dt, 0) / 0.08))
+        if abs(target - hingePower) < 1e-3 { hingePower = target }
+        switch powered {
+        case nil:
+            powered = hingePower >= 0.5
+        case true?:
+            if hingePower < 0.1 {
+                powered = false
+                onBeat?(.powerDown)
+            }
+        case false?:
+            if hingePower > 0.9 {
+                powered = true
+                powerUpCount &+= 1
+                onBeat?(.powerUp)
+            }
+        }
+    }
+
+    @ObservationIgnored private var clockNow = 0.0
+    /// When the hand crossed the failure threshold (`.hush`), and when the burst fired.
+    @ObservationIgnored private var crossedAt: Double?
+    @ObservationIgnored private var burstAt: Double?
+    /// The eye's compression, frozen from the crossing to the burst (hush + hit stop); the give releases from it.
+    @ObservationIgnored private var heldEyeCompression: Double?
+    /// The hinge angle at which this press reaches its failure threshold (for the tell's lead).
+    @ObservationIgnored private var failureThresholdAngle: Double?
+    @ObservationIgnored private var pendingBeats: [(time: Double, beat: PressBeat)] = []
+    @ObservationIgnored private var nextCreakAt: Double?
+    @ObservationIgnored private var creakRNG = SplitMix64(seed: 1)
 
     @ObservationIgnored private var filter: OneEuroFilter
     @ObservationIgnored private var spring = CriticalSpring()
@@ -175,7 +301,20 @@ final class PressEngine {
         reversals = 0
         lastResult = nil
         armedContactT = nil
+        armedOnHinge = false
         armObserved = false
+        resistance = PressResistance.of(kind)
+        breakScore = BreakScore.of(kind, hush: config.failureHushDelay)
+        tension = 0
+        isHeldUnderLoad = false
+        isTelling = false
+        crossedAt = nil
+        burstAt = nil
+        heldEyeCompression = nil
+        failureThresholdAngle = nil
+        pendingBeats = []
+        nextCreakAt = nil
+        creakRNG = SplitMix64(seed: seed ^ 0xC4EA_C4EA)
         phase = .idle
         tryArm(at: time)
     }
@@ -222,6 +361,9 @@ final class PressEngine {
         isClosed = closed
 
         guard time - activationTime >= config.ignoreInputAfterActivation else { return }
+        // The ratchet, any phase: the first reading from an input is a state, not motion.
+        if newInput { detentAngle = nil }
+        trackDetents(filtered)
 
         if closed && !wasClosed {
             handleClose(at: time)
@@ -240,12 +382,12 @@ final class PressEngine {
                 }
                 armObserved = true
                 startAngle = min(filtered, config.armAngleMax)
-                if pressStartTime == nil { armedContactT = config.armed(at: startAngle).contactT }
+                if pressStartTime == nil { captureMapping(hinge: !virtual) }
             }
             guard !closed else { break }
             if filtered > startAngle {
                 startAngle = min(filtered, config.armAngleMax)
-                if pressStartTime == nil { armedContactT = config.armed(at: startAngle).contactT }
+                if pressStartTime == nil { captureMapping(hinge: !virtual) }
             }
             if filtered <= startAngle - config.hysteresis {
                 phase = .pressing
@@ -285,9 +427,14 @@ final class PressEngine {
     // MARK: - Per frame
 
     func step(now: Double, dt: Double) {
+        clockNow = now
         if let pendingTime = pendingFailure?.time, now >= pendingTime {
-            flushPendingFailure()
+            // On schedule: the hit stop's beat first, then the burst exactly hush + hit stop after the crossing,
+            // whatever the frame rate.
+            fireBeats(upTo: pendingTime)
+            flushPendingFailure(at: pendingTime)
         }
+        fireBeats(upTo: now)
 
         if phase == .pressing {
             if measuredDepth >= config.sealDepth {
@@ -334,6 +481,8 @@ final class PressEngine {
 
         let age = now - lastSampleTime
         isHolding = age > 0.25 || abs(closingSpeed) < 3
+        updateTension(at: now)
+        updateHingePower(dt: dt)
 
         let target: Double
         switch phase {
@@ -344,13 +493,81 @@ final class PressEngine {
             // Low-rate mode: when samples arrive slower than ~10 Hz (thermal, Low Power), don't predict.
             let fresh = age < max(config.staleAfter, sampleInterval * 1.5)
             let lead = fresh && !isLowRate ? min(age + 1.0 / 60.0, config.maxPredict) : 0
-            target = PressMapping.depth(angle: angle - closingSpeed * lead, start: startAngle, config: mapping)
+            // "Lag, then give": the eye's depth, never the hand's (the prediction can't cross a threshold: only
+            // `updatePress` fires events, from the measured depth).
+            target = eyeDepth(PressMapping.depth(angle: angle - closingSpeed * lead, start: startAngle, config: mapping))
+            if phase == .pressing, let material {
+                // The give ratchets the plastic part with it (as the eye sees it).
+                plasticDepth = max(plasticDepth, eyeDepth(measuredDepth) * material.plasticity)
+            }
         case .sealed:
             target = 1
         }
-        let omega = isLowRate ? config.springOmega * 0.6 : config.springOmega
+        var omega = isLowRate ? config.springOmega * 0.6 : config.springOmega
+        // The give is one lurch (~80 ms): a stiff spring while the backlog releases.
+        if let since = sinceBurst, since < resistance.give + 0.06, resistance.lags { omega = max(omega, 70) }
         spring.step(toward: target, omega: omega, dt: dt)
         renderDepth = clamp(spring.value, 0, 1)
+    }
+
+    // MARK: - Feel (Core/PressFeel.swift)
+
+    /// The compression the eye sees for hand compression `c`: 1:1, then lagging inside the resistance window, frozen
+    /// from the crossing through the hit stop, then released to the hand over `resistance.give` at the burst.
+    func eyeCompression(_ c: Double) -> Double {
+        guard resistance.lags, let failure = failureThreshold else { return c }
+        if let since = sinceBurst {
+            return resistance.released(from: heldEyeCompression ?? c, to: c, after: since)
+        }
+        let lagged = resistance.lagged(c, failure: failure)
+        if let held = heldEyeCompression { return min(held, lagged) }
+        return lagged
+    }
+
+    /// `eyeCompression` as a depth (the free approach before contact is untouched).
+    private func eyeDepth(_ depth: Double) -> Double {
+        let contact = mapping.contactT
+        guard depth > contact, contact < 1 else { return depth }
+        let c = (depth - contact) / (1 - contact)
+        return contact + (1 - contact) * eyeCompression(min(c, 1))
+    }
+
+    /// Tension you can hold (EXPERIENCE-2 §A1.3): the level never decays on a hold, and a held, loaded press creaks
+    /// every 0.6–1.2 s until it fails.
+    private func updateTension(at now: Double) {
+        let c = measuredCompression
+        let loaded = phase == .pressing && c > 0
+        let broken = crossedAt != nil
+        isTelling = tellFired && !broken
+        tension = loaded ? HoldTension.level(compression: c, failure: failureThreshold, failed: broken, inTell: isTelling) : 0
+        isHeldUnderLoad = loaded && isHolding && !broken
+        guard isHeldUnderLoad else {
+            nextCreakAt = nil
+            return
+        }
+        guard let due = nextCreakAt else {
+            nextCreakAt = now + HoldTension.firstCreak
+            return
+        }
+        if now >= due {
+            creakCount &+= 1
+            onBeat?(.creak(intensity: tension))
+            let roll = Double.random(in: 0...1, using: &creakRNG)
+            nextCreakAt = now + HoldTension.creakInterval(level: tension, roll: roll)
+        }
+    }
+
+    private func fireBeats(upTo time: Double) {
+        while let first = pendingBeats.first, first.time <= time {
+            pendingBeats.removeFirst()
+            onBeat?(first.beat)
+        }
+    }
+
+    /// Captures this press's mapping at arm: the floating contact, and which input (touch or hinge) it maps.
+    private func captureMapping(hinge: Bool) {
+        armedOnHinge = hinge
+        armedContactT = config.armed(at: startAngle, hinge: hinge).contactT
     }
 
     /// Called when the reveal is done; the director loads the next object.
@@ -373,7 +590,8 @@ final class PressEngine {
               time - activationTime >= config.ignoreInputAfterActivation else { return }
         armObserved = lastSampleVirtual != nil
         startAngle = min(angle, config.armAngleMax)
-        armedContactT = config.armed(at: startAngle).contactT
+        // Before any sample the arm is the touch press's (provisional, re-anchored by the first reading).
+        captureMapping(hinge: lastSampleVirtual == false)
         phase = .armed
         emit(.armed)
     }
@@ -383,8 +601,12 @@ final class PressEngine {
         let depth = PressMapping.depth(angle: θ, start: startAngle, config: mapping)
         measuredDepth = depth
         maxDepthReached = max(maxDepthReached, depth)
-        plasticDepth = max(plasticDepth, depth * material.plasticity)
         let c = PressMapping.compression(depth: depth, config: mapping)
+        if failureThresholdAngle == nil, let failure = failureThreshold {
+            let m = mapping
+            failureThresholdAngle = PressMapping.angle(forDepth: m.contactT + (1 - m.contactT) * failure,
+                                                       start: startAngle, config: m)
+        }
 
         if !contactFired && depth >= mapping.contactT {
             contactFired = true
@@ -395,6 +617,8 @@ final class PressEngine {
         if c > maxCompression {
             advanceCompression(to: c, angle: θ, at: time)
         }
+        // The plastic ratchet follows the eye, so "lag, then give" isn't undone by it (honest depth: `measuredDepth`).
+        plasticDepth = max(plasticDepth, eyeDepth(depth) * material.plasticity)
 
         if c > 0 {
             peakClosingSpeed = max(peakClosingSpeed, closingSpeed)
@@ -445,27 +669,49 @@ final class PressEngine {
     private func advanceCompression(to c: Double, angle θ: Double, at time: Double) {
         guard let material else { return }
         maxCompression = c
-        if let failure = material.failureIndex, !tellFired, failure < thresholds.count,
-           firedCount <= failure, c >= thresholds[failure] - 0.08 {
-            tellFired = true
-            emit(.preFailureTell)
+        // The tell: ~150–300 ms before the predicted crossing, or once very near it (a crawl or a hold), or at the
+        // crossing itself for a slam (the hush + hit stop still leave ≥ 120 ms before the burst).
+        if let failure = material.failureIndex, !tellFired, failure < thresholds.count, firedCount <= failure {
+            let threshold = thresholds[failure]
+            let fire = c >= threshold || PressTell.shouldFire(compression: c, failure: threshold, angle: θ,
+                                                              failureAngle: failureThresholdAngle ?? θ,
+                                                              closingSpeed: closingSpeed)
+            if fire {
+                tellFired = true
+                isTelling = true
+                emit(.preFailureTell)
+            }
         }
         while firedCount < thresholds.count && c >= thresholds[firedCount] {
             let index = firedCount
             firedCount += 1
             if index == material.failureIndex {
+                // Break part 1, the hush. The eye freezes at peak strain (lagged) until the burst gives.
                 failureAngle = θ
+                heldEyeCompression = resistance.lags ? resistance.lagged(c, failure: thresholds[index]) : nil
+                crossedAt = time
+                isTelling = false
                 emit(.hush)
-                pendingFailure = (index, time + config.failureHushDelay)
+                // Part 2, the hit stop, then part 3, the burst.
+                pendingBeats.append((time: time + breakScore.hush, beat: PressBeat.hitStop(duration: breakScore.hitStop)))
+                pendingFailure = (index, time + breakScore.burst)
             } else {
                 emit(.fracture(index: index, isFailure: false))
             }
         }
     }
 
-    private func flushPendingFailure() {
+    /// The burst (break part 3), at `time`: on schedule from `step`, or at once when the press is sealed or closed
+    /// first. Schedules parts 4–5 (slow debris, settle) from it.
+    private func flushPendingFailure(at time: Double) {
         guard let pending = pendingFailure else { return }
         pendingFailure = nil
+        // A burst brought forward (sealed / closed mid-score) skips the rest of the hit stop.
+        pendingBeats.removeAll { if case .hitStop = $0.beat { return true } else { return false } }
+        if crossedAt == nil { crossedAt = time }
+        burstAt = time
+        pendingBeats += breakScore.beatsAfterBurst().map { (time: time + $0.time, beat: $0.beat) }
+        pendingBeats.sort { $0.time < $1.time }
         emit(.fracture(index: pending.index, isFailure: true))
     }
 
@@ -491,6 +737,7 @@ final class PressEngine {
         phase = .idle
         armObserved = false
         armedContactT = nil
+        armedOnHinge = false
         nextGrainAngle = nil
     }
 
@@ -507,7 +754,7 @@ final class PressEngine {
             failureAngle = rawAngle
         }
         advanceCompression(to: 1, angle: rawAngle, at: time)
-        flushPendingFailure()
+        flushPendingFailure(at: time)
         if !bottomFired {
             bottomFired = true
             emit(.bottomOut)
@@ -516,7 +763,7 @@ final class PressEngine {
 
     private func seal(blind: Bool, at time: Double) {
         guard phase != .sealed, let kind else { return }
-        flushPendingFailure()
+        flushPendingFailure(at: time)
         phase = .sealed
         sealHoldStart = nil
         let duration = pressStartTime.map { time - $0 } ?? 0
