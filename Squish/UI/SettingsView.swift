@@ -171,7 +171,7 @@ struct SettingsView: View {
             }
             divider
             ToggleRow(title: "Captions", isOn: $settings.showCaptions,
-                      footnote: "Big comic words like POP! and CRACK!. Always on for your first \(CoachLine.presses) presses.")
+                      footnote: "Big comic words like POP! and CRACK! Always on for your first \(CoachLine.presses) presses.")
             divider
             if director.hingeAvailable || hasHinge {
                 ToggleRow(title: "Press without folding", isOn: $settings.pressWithoutFolding,

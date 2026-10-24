@@ -18,12 +18,16 @@ struct RevealBadge: Identifiable, Equatable {
     let tone: SpecimenRecord.Trait.Tone
 
     static func list(for outcome: RecordOutcome, specimen: SpecimenRecord) -> [RevealBadge] {
-        var badges = specimen.traits.map { RevealBadge(id: "trait-\($0.text)", text: $0.text, symbol: $0.systemImage, tone: $0.tone) }
+        // Short words: the ticket has one line for them.
+        var badges = specimen.traits.map {
+            RevealBadge(id: "trait-\($0.text)", text: $0.text == "PERFECT SQUISH" ? "PERFECT" : $0.text, symbol: $0.systemImage,
+                        tone: $0.tone)
+        }
         badges += outcome.newAchievements.map {
             RevealBadge(id: "ach-\($0.rawValue)", text: $0.title.uppercased(), symbol: $0.symbolName, tone: .perfect)
         }
         badges += outcome.newlyUnlocked.map {
-            RevealBadge(id: "unlock-\($0.rawValue)", text: "NEW: \($0.chipName)", symbol: "lock.open.fill", tone: .surprise)
+            RevealBadge(id: "unlock-\($0.rawValue)", text: "NEW \($0.coverName)", symbol: "lock.open.fill", tone: .surprise)
         }
         return badges
     }
@@ -84,18 +88,16 @@ struct RevealTicket: View {
         let measure = specimen.measurement
         let after = measure.before + (measure.after - measure.before) * state.squash
         let shown = Array(badges.prefix(state.badges))
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
+            // The right end stays clear for the stamp.
             HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
                 Text(specimen.kind.displayName.uppercased())
                     .font(.system(.subheadline, design: .rounded, weight: .heavy))
                     .foregroundStyle(Theme.ink)
-                Text(specimen.numberLabel)
+                Text("\(specimen.numberLabel) · \(specimen.kind.breaksLine(fractureCount: specimen.fractureCount))".gluingDotSeparators)
                     .font(Theme.micro)
                     .foregroundStyle(Theme.inkSecondary)
-                Spacer(minLength: 0)
-                Text(specimen.kind.breaksLine(fractureCount: specimen.fractureCount))
-                    .font(Theme.micro)
-                    .foregroundStyle(Theme.inkSecondary)
+                Spacer(minLength: 96)
             }
             .lineLimit(1)
             .minimumScaleFactor(0.75)
@@ -103,7 +105,7 @@ struct RevealTicket: View {
                 BeforeAfterGlyph(kind: specimen.kind, ratio: measure.before > 0 ? after / measure.before : 1)
                     .frame(width: 44, height: 26)
                 Text("\(SpecimenRecord.PressedSize.mm(measure.before)) → \(SpecimenRecord.PressedSize.mm(after))")
-                    .font(.system(.title3, design: .monospaced, weight: .bold))
+                    .font(.system(.headline, design: .monospaced, weight: .bold))
                     .foregroundStyle(Theme.ink)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -111,7 +113,7 @@ struct RevealTicket: View {
                 Spacer(minLength: 0)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text("\(state.tons)")
-                        .font(.system(.title3, design: .monospaced, weight: .bold))
+                        .font(.system(.headline, design: .monospaced, weight: .bold))
                         .monospacedDigit()
                         .contentTransition(.numericText(value: Double(state.tons)))
                     Text("TONS")
@@ -121,21 +123,18 @@ struct RevealTicket: View {
                 .foregroundStyle(Theme.ink)
             }
             if !badges.isEmpty {
-                HStack(spacing: 5) {
-                    ForEach(shown) { badge in
-                        TraitChip(text: badge.text, systemImage: badge.symbol, tone: badge.tone)
-                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                // As many whole badges as fit, then "+N".
+                ViewThatFits(in: .horizontal) {
+                    ForEach(Array(stride(from: shown.count, through: 1, by: -1)), id: \.self) { count in
+                        badgeRow(Array(shown.prefix(count)), hidden: shown.count - count)
                     }
-                    Spacer(minLength: 0)
+                    Color.clear.frame(height: 1)
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
                 .frame(height: 24, alignment: .leading)
-                .clipped()
             }
         }
         .padding(.horizontal, Theme.s3)
-        .padding(.vertical, Theme.s2)
+        .padding(.vertical, 6)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.paper).elevation(.e2)
         }
@@ -143,13 +142,29 @@ struct RevealTicket: View {
             PressedStamp(seed: specimen.variant.seed, text: specimen.stampText)
                 .scaleEffect(state.stamped ? 0.62 : 1.1)
                 .opacity(state.stamped ? 1 : 0)
-                .offset(x: 18, y: -22)
+                .offset(x: 14, y: -26)
                 .allowsHitTesting(false)
         }
         .rotationEffect(.degrees(-1.2))
         .dynamicTypeSize(...DynamicTypeSize.large)   // a fixed composition, like the card
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(specimen.accessibilitySentence) \(measure.spoken).")
+    }
+
+    private func badgeRow(_ list: [RevealBadge], hidden: Int) -> some View {
+        HStack(spacing: 5) {
+            ForEach(list) { badge in
+                TraitChip(text: badge.text, systemImage: badge.symbol, tone: badge.tone)
+                    .fixedSize()
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
+            if hidden > 0 {
+                Text("+\(hidden)")
+                    .font(Theme.label)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .fixedSize()
+            }
+        }
     }
 }
 
@@ -199,7 +214,7 @@ struct MuseumStrip: View {
                     .fill(filled ? Theme.tint(for: item) : Color.white.opacity(0.12))
                     .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .strokeBorder(item == kind ? Theme.yellow : Color.white.opacity(0.18), lineWidth: item == kind ? 1.5 : 1))
-                    .frame(width: 12, height: 12)
+                    .frame(width: 10, height: 10)
                     .scaleEffect(item == kind && state.slotFlash && !reduceMotion ? 1.5 : 1)
                     .shadow(color: Theme.yellow.opacity(item == kind && state.slotFlash ? 0.9 : 0), radius: 6)
             }
@@ -214,7 +229,9 @@ struct MuseumStrip: View {
                         .font(.system(size: 10, weight: .bold))
                     Text("FOLD TO KEEP")
                         .font(Theme.micro)
-                        .tracking(Theme.microTracking * 0.6)
+                        .tracking(Theme.microTracking * 0.4)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
                 .foregroundStyle(Theme.yellow)
                 .transition(.opacity.combined(with: .move(edge: .trailing)))

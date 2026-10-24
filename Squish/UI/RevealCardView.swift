@@ -217,13 +217,13 @@ struct RevealCardView: View {
             .accessibilityLabel("Settings")
 
             Button(action: again) {
-                KeyLabel(title: "Again", systemImage: "arrow.counterclockwise")
+                Text("Again")
             }
             .buttonStyle(KeycapStyle(kind: .console, fullWidth: true, compact: true))
             .accessibilityHint("Press another \(outcome.specimen.kind.displayName).")
 
             Button(action: shareDefault) {
-                KeyLabel(title: "Share", systemImage: "square.and.arrow.up")
+                Text("Share")
             }
             .buttonStyle(KeycapStyle(kind: .console, fullWidth: true, compact: true))
             .disabled(share.isExporting)
@@ -342,14 +342,14 @@ struct RevealCardView: View {
             .accessibilityLabel("Settings")
 
             Button(action: onAgain) {
-                KeyLabel(title: "Again", systemImage: "arrow.counterclockwise")
+                Text("Again")
             }
             .buttonStyle(KeycapStyle(kind: .secondary))
             .accessibilityHint("Press another \(outcome.specimen.kind.displayName).")
 
             // One tap shares the clip when there is one (bible §10); the still is in the context menu.
             Button(action: shareDefault) {
-                KeyLabel(title: "Share", systemImage: "square.and.arrow.up")
+                Text("Share")
             }
             .buttonStyle(KeycapStyle(kind: .secondary))
             .disabled(share.isExporting)

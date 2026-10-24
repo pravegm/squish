@@ -44,12 +44,14 @@ struct PressConsole: View {
                     shelf
                 }
             } else {
-                // Two fixed slots, so nothing shifts between objects (VISUAL-REVIEW-1 #14).
-                let flexible = max(120, width - ConsoleMetrics.menuWidth - Theme.hit - spacing * 3)
+                // Fixed slots, so nothing shifts between objects (VISUAL-REVIEW-1 #14). Narrow consoles (a 6.1" phone,
+                // the Duo's book page) stack the Menu key's word under its icon instead of beside it.
+                let menuWidth = labelledMenu ? ConsoleMetrics.menuWidth : ConsoleMetrics.compactMenuWidth
+                let flexible = max(120, width - menuWidth - Theme.hit - spacing * 3)
                 HStack(spacing: spacing) {
-                    menuKey.frame(width: ConsoleMetrics.menuWidth)
-                    tray.frame(width: flexible * 0.6)
-                    shelf.frame(width: flexible * 0.4)
+                    menuKey.frame(width: menuWidth)
+                    tray.frame(width: flexible * 0.62)
+                    shelf.frame(width: flexible * 0.38)
                     settingsKey
                 }
             }
@@ -60,8 +62,11 @@ struct PressConsole: View {
 
     private var hidden: Bool { shelfOnly }
 
+    /// Room for "☰ Menu" side by side (the Duo's tabletop console is 455 pt; a 6.1" phone's ~370).
+    private var labelledMenu: Bool { landscape || width >= 420 }
+
     private var menuKey: some View {
-        MenuKeycap(action: onMenu)
+        MenuKeycap(compact: !labelledMenu, action: onMenu)
             .opacity(hidden ? 0 : (pressing ? 0.4 : 1))
             .allowsHitTesting(!hidden && !pressing)
             .accessibilityHidden(hidden)
@@ -99,24 +104,45 @@ struct PressConsole: View {
 enum ConsoleMetrics {
     /// The labelled ☰ Menu key: wide enough for the icon and the word, so nobody has to guess what it is.
     static let menuWidth: CGFloat = 96
+    /// The stacked form: the icon with MENU under it.
+    static let compactMenuWidth: CGFloat = 58
 }
 
 /// "☰ Menu": a dark console keycap with a yellow icon. Labelled, because the founder looked for a menu and found none.
+/// `compact` stacks the word under the icon for narrow consoles.
 struct MenuKeycap: View {
+    var compact = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
-                    .foregroundStyle(Theme.yellow)
-                Text("Menu")
+            Group {
+                if compact {
+                    VStack(spacing: 0) {
+                        icon
+                        Text("MENU")
+                            .font(.system(size: 9, weight: .heavy, design: .rounded))
+                            .tracking(0.8)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        icon
+                        Text("Menu")
+                    }
+                }
             }
+            // The keycap's own padding is for words; this key is narrow on purpose.
+            .padding(.horizontal, -10)
         }
         .buttonStyle(KeycapStyle(kind: .console, fullWidth: true))
         .accessibilityLabel("Menu")
         .accessibilityHint("Resume, objects, shelf, how to press, settings and about.")
+    }
+
+    private var icon: some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(.subheadline, design: .rounded, weight: .heavy))
+            .foregroundStyle(Theme.yellow)
     }
 }
 
@@ -151,8 +177,8 @@ struct TrayChip: View {
                     .font(.system(.caption2, weight: .heavy))
                     .foregroundStyle(Theme.inkSecondary)
             }
-            .padding(.leading, -6)
-            .padding(.trailing, -4)
+            .padding(.leading, -10)
+            .padding(.trailing, -6)
         }
         .buttonStyle(KeycapStyle(kind: .chip, fullWidth: true))
         .scaleEffect(bounced ? 1.06 : 1)
@@ -196,6 +222,7 @@ struct ShelfKey: View {
                     count
                 }
             }
+            .padding(.horizontal, -10)
         }
         .buttonStyle(KeycapStyle(kind: .console, fullWidth: true))
         .overlay {
@@ -267,12 +294,12 @@ struct NextUnlockLine: View {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 9, weight: .heavy))
                     .foregroundStyle(Theme.yellow)
-                Text("NEXT UNLOCK · \(name) · \(next.progress.line.uppercased())".gluingDotSeparators)
-                    .font(Theme.micro)
-                    .tracking(Theme.microTracking * 0.5)
-                    .foregroundStyle(Theme.paper.opacity(0.92))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                // The longest form that fits: the full line, then without the label, then name and count only.
+                ViewThatFits(in: .horizontal) {
+                    unlockText("NEXT UNLOCK · \(name) · \(next.progress.line.uppercased())")
+                    unlockText("NEXT: \(name) · \(next.progress.line.uppercased())")
+                    unlockText("NEXT: \(name) · \(min(next.progress.done, next.progress.total))/\(next.progress.total)")
+                }
                 ProgressPips(fraction: next.progress.fraction)
                     .frame(width: 34, height: 4)
             }
@@ -283,6 +310,17 @@ struct NextUnlockLine: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Next unlock: \(next.kind.isSecret ? "a secret object" : next.kind.displayName). \(next.progress.task.capitalizedFirstLetter), \(min(next.progress.done, next.progress.total)) of \(next.progress.total).")
         }
+    }
+}
+
+extension NextUnlockLine {
+    fileprivate func unlockText(_ text: String) -> some View {
+        Text(text.gluingDotSeparators)
+            .font(Theme.micro)
+            .tracking(Theme.microTracking * 0.5)
+            .foregroundStyle(Theme.paper.opacity(0.92))
+            .lineLimit(1)
+            .fixedSize()
     }
 }
 

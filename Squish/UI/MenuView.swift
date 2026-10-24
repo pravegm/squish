@@ -71,9 +71,12 @@ struct MenuPanel: View {
         .background {
             ZStack(alignment: .top) {
                 shape.fill(LinearGradient(colors: [Theme.rgb(0x3A3D43), Theme.graphite], startPoint: .top, endPoint: .bottom))
+                // Inside the rounded corners, so the stripe follows the panel's curve (HIG: concentric corners).
                 MenuHazard()
-                    .frame(height: 8)
-                    .clipShape(shape)
+                    .frame(height: 6)
+                    .clipShape(Capsule())
+                    .padding(.horizontal, Theme.sheetRadius)
+                    .padding(.top, 6)
                     .opacity(0.9)
             }
             .elevation(.e3)
