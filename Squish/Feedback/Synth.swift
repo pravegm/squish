@@ -452,7 +452,13 @@ final class Synth: @unchecked Sendable {
     private var duck: Float = 1
     private var lowPass1: Float = 0
     private var lowPass2: Float = 0
-    private var limiterEnvelope: Float = 0
+    // Look-ahead limiter state (audio thread only).
+    private static let lookahead = 64 // 1.3 ms at 48 kHz
+    private let limiterDelay: UnsafeMutablePointer<Float>
+    private var limiterIndex = 0
+    private var limiterHold: Float = 1
+    private var limiterHoldCount = 0
+    private var limiterGain: Float = 1
     private var loopPosition: Double = 0
     private var speakerLowMid = Biquad()
     private var speakerHighPass = Biquad()
@@ -463,6 +469,7 @@ final class Synth: @unchecked Sendable {
     private let duckUp: Float
     private let lowPassCoefficient: Float
     private let limiterRelease: Float
+    private let limiterAttack: Float
     private let creakExciteDecay: Float
     /// `AudioMix.bedBus`, read once here so the audio thread never runs a global initialiser.
     private let bedBus: Float
@@ -480,7 +487,10 @@ final class Synth: @unchecked Sendable {
         duckUp = 1 - exp(-1 / (0.12 * sampleRate))
         // Two cascaded one-poles at 6 kHz (bible §8 Soft style).
         lowPassCoefficient = 1 - exp(-2 * Float.pi * 6000 / sampleRate)
-        limiterRelease = exp(-1 / (0.08 * sampleRate))
+        limiterRelease = 1 - exp(-1 / (0.08 * sampleRate))
+        limiterAttack = 1 - exp(-1 / (Float(Synth.lookahead) / 5))
+        limiterDelay = UnsafeMutablePointer<Float>.allocate(capacity: Synth.lookahead)
+        limiterDelay.initialize(repeating: 0, count: Synth.lookahead)
         creakExciteDecay = exp(-1 / (0.0015 * sampleRate))
         let capacity = Synth.voiceCount * Synth.maxPartials * Synth.partialStride
         bank = UnsafeMutablePointer<Float>.allocate(capacity: capacity)
@@ -496,6 +506,7 @@ final class Synth: @unchecked Sendable {
 
     deinit {
         bank.deallocate()
+        limiterDelay.deallocate()
     }
 
     func trigger(_ command: SynthCommand) {
@@ -595,12 +606,24 @@ final class Synth: @unchecked Sendable {
             lowPass2 += lowPassCoefficient * (lowPass1 - lowPass2)
             sample += (lowPass2 - sample) * beds.softAmount
 
-            // Peak limiter: instant attack, 80 ms release, so stacked climaxes never clip.
+            // Look-ahead peak limiter (−1 dBFS): the gain needed by a peak is held for the look-ahead and reached
+            // smoothly before that peak leaves the delay line, then released over 80 ms. Hot breaks get gain
+            // reduction, not a clipped first cycle; a final clamp is the safety net.
             let magnitude = abs(sample)
-            limiterEnvelope = magnitude > limiterEnvelope ? magnitude : magnitude + (limiterEnvelope - magnitude) * limiterRelease
-            if limiterEnvelope > Synth.ceiling {
-                sample *= Synth.ceiling / limiterEnvelope
+            let needed = magnitude > Synth.ceiling ? Synth.ceiling / magnitude : 1
+            if needed <= limiterHold {
+                limiterHold = needed
+                limiterHoldCount = Synth.lookahead
+            } else if limiterHoldCount > 0 {
+                limiterHoldCount -= 1
+            } else {
+                limiterHold += (1 - limiterHold) * limiterRelease
             }
+            limiterGain += (limiterHold - limiterGain) * (limiterHold < limiterGain ? limiterAttack : 1)
+            let delayed = limiterDelay[limiterIndex]
+            limiterDelay[limiterIndex] = sample
+            limiterIndex = (limiterIndex + 1) % Synth.lookahead
+            sample = min(max(delayed * limiterGain, -Synth.ceiling), Synth.ceiling)
             blockPeak = max(blockPeak, abs(sample))
             out[frame] = sample
         }

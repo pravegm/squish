@@ -67,18 +67,20 @@ enum AudioMix {
     /// 1.0 (1) ran 0.8: measured (BS.1770, `FeedbackTests.pressMixLandsNearTheLoudnessTarget`, every object's press)
     /// at about −26 LUFS, 10 dB under the −16 LUFS target (02 §6). At 1.6 the mean was −20.3 LUFS with every peak
     /// already at the −1 dBFS limiter, so the rest comes from the beds (`bedBus`), not from pushing the climaxes
-    /// harder into the limiter. The climaxes ride the limiter for a few milliseconds, which on a phone speaker reads
-    /// as punch.
-    static let masterGain: Float = 1.8
-    /// Extra gain on the continuous layers (strain, crush, hiss, motor, creak) before the master. They sat near
-    /// −30 dBFS, which a phone speaker in a hand can't carry; +6.8 dB brings the press bed up where the strain is heard.
-    static let bedBus: Float = 2.2
+    /// harder into the limiter. With the recorded foley (24 Oct), 1.8 measured −17.8 LUFS with only 3.9 LU between
+    /// bed and break; 2.0 with the quieter bed bus, the louder sample bus and the look-ahead limiter targets −16 with
+    /// the break standing clear. The climaxes ride the limiter for a few milliseconds: punch on a phone speaker.
+    static let masterGain: Float = 2.0
+    /// Extra gain on the synthesised continuous layers (strain, crush, hiss, motor, creak) before the master. They sat
+    /// near −30 dBFS; +6.8 dB (2.2) brought them up but measured only 3.9 LU under the break, against SOUND-2's 10–12
+    /// (`FeedbackTests` prints the contrast). 1.2 (+1.6 dB) keeps the strain audible and leaves the break room.
+    static let bedBus: Float = 1.2
     /// Recorded samples arrive loudness-normalised per category (the manifest's `gainDb` is the trim on top); this
     /// sets them against the synth layers before the master, so a "hero" break peaks just into the limiter.
-    static let sampleBus: Float = 0.5
+    static let sampleBus: Float = 0.8
     /// The recorded strain loops (normalised around −24 LUFS, then the manifest's −14 dB trim). This sits the held
     /// strain bed ~10–12 LU under the break (SOUND-2 §5.1 item 6).
-    static let loopBus: Float = 2.5
+    static let loopBus: Float = 1.6
 
     /// Linear → dBFS, for the diagnostics.
     static func decibels(_ linear: Float) -> String {

@@ -780,7 +780,10 @@ struct FeedbackTests {
         let mean = all.reduce(0, +) / Double(max(all.count, 1))
         print(String(format: "SQUISH-LOUD mean lufs=%.1f", mean))
         if !contrasts.isEmpty {
-            print(String(format: "SQUISH-LOUD mean contrast=%.1f LU", contrasts.reduce(0, +) / Double(contrasts.count)))
+            let contrast = contrasts.reduce(0, +) / Double(contrasts.count)
+            print(String(format: "SQUISH-LOUD mean contrast=%.1f LU", contrast))
+            // SOUND-2: the bed 10–12 LU under the break. Bound loosely; the log shows the real figure.
+            #expect(contrast >= 6, "bed only \(contrast) LU under the break")
         }
         // Target −16 ±2 (02 §6); the bound is ±3 so a small recipe change never blocks CI, and the log shows it.
         #expect(mean > -19 && mean < -13, "mean press loudness \(mean) LUFS")
