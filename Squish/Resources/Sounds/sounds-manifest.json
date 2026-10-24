@@ -1,11 +1,16 @@
 {
  "generatedBy": "ci/sounds/cut.mjs",
  "format": "CAF, 48 kHz, mono, 16-bit little-endian PCM",
- "note": "Group = the files sharing a prefix. Pick round-robin without immediate repeats; apply pitch (± semitones) and ±2 dB per play. gainDb is the starting bus trim. wet groups are dropped in the Soft style. Loops loop seamlessly as cut.",
+ "note": "Group = the files sharing a prefix. Pick round-robin without immediate repeats; apply pitch (± semitones) and ±2 dB per play. gainDb is the starting bus trim. wet groups are dropped in the Soft style. Loops loop seamlessly as cut. Look files up by name (Xcode flattens the folders into the bundle root). haptics = [time s, intensity, sharpness] transients derived from the audio onsets, for a Core Haptics pattern started on the same clock as the sample.",
  "groups": {
   "press_hiss_loop": {
    "files": [
-    "press/press_hiss_loop_01.caf"
+    {
+     "name": "press_hiss_loop_01",
+     "path": "press/press_hiss_loop_01.caf",
+     "dur": 3,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -15,9 +20,332 @@
   },
   "press_release": {
    "files": [
-    "press/press_release_01.caf",
-    "press/press_release_02.caf",
-    "press/press_release_03.caf"
+    {
+     "name": "press_release_01",
+     "path": "press/press_release_01.caf",
+     "dur": 1.48,
+     "haptics": [
+      [
+       0.336,
+       0.6,
+       0.95
+      ],
+      [
+       0.384,
+       0.69,
+       0.95
+      ],
+      [
+       0.406,
+       0.7,
+       0.95
+      ],
+      [
+       0.449,
+       0.78,
+       0.95
+      ],
+      [
+       0.539,
+       0.81,
+       0.95
+      ],
+      [
+       0.603,
+       0.88,
+       0.95
+      ],
+      [
+       0.636,
+       0.88,
+       0.95
+      ],
+      [
+       0.664,
+       0.94,
+       0.95
+      ],
+      [
+       0.699,
+       0.95,
+       0.95
+      ],
+      [
+       0.747,
+       0.95,
+       0.95
+      ],
+      [
+       0.801,
+       0.96,
+       0.95
+      ],
+      [
+       0.875,
+       1,
+       0.95
+      ],
+      [
+       0.891,
+       1,
+       0.95
+      ],
+      [
+       0.917,
+       0.98,
+       0.95
+      ],
+      [
+       0.961,
+       0.98,
+       0.95
+      ],
+      [
+       0.992,
+       0.96,
+       0.95
+      ],
+      [
+       1.013,
+       0.96,
+       0.95
+      ],
+      [
+       1.12,
+       0.91,
+       0.95
+      ],
+      [
+       1.136,
+       0.9,
+       0.95
+      ],
+      [
+       1.264,
+       0.69,
+       0.95
+      ],
+      [
+       1.328,
+       0.46,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "press_release_02",
+     "path": "press/press_release_02.caf",
+     "dur": 1.376,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.91
+      ],
+      [
+       0.086,
+       0.71,
+       0.95
+      ],
+      [
+       0.101,
+       0.72,
+       0.95
+      ],
+      [
+       0.144,
+       0.72,
+       0.91
+      ],
+      [
+       0.203,
+       0.7,
+       0.93
+      ],
+      [
+       0.23,
+       0.7,
+       0.92
+      ],
+      [
+       0.299,
+       0.7,
+       0.95
+      ],
+      [
+       0.347,
+       0.65,
+       0.94
+      ],
+      [
+       0.39,
+       0.65,
+       0.95
+      ],
+      [
+       0.528,
+       0.6,
+       0.95
+      ],
+      [
+       0.549,
+       0.6,
+       0.94
+      ],
+      [
+       0.577,
+       0.59,
+       0.95
+      ],
+      [
+       0.592,
+       0.63,
+       0.95
+      ],
+      [
+       0.651,
+       0.63,
+       0.95
+      ],
+      [
+       0.688,
+       0.59,
+       0.95
+      ],
+      [
+       0.72,
+       0.59,
+       0.95
+      ],
+      [
+       0.747,
+       0.59,
+       0.95
+      ],
+      [
+       0.875,
+       0.59,
+       0.95
+      ],
+      [
+       0.928,
+       0.57,
+       0.95
+      ],
+      [
+       1.035,
+       0.5,
+       0.95
+      ],
+      [
+       1.062,
+       0.5,
+       0.95
+      ],
+      [
+       1.131,
+       0.33,
+       0.95
+      ],
+      [
+       1.2,
+       0.2,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "press_release_03",
+     "path": "press/press_release_03.caf",
+     "dur": 1.399,
+     "haptics": [
+      [
+       0.138,
+       0.63,
+       0.86
+      ],
+      [
+       0.436,
+       0.82,
+       0.95
+      ],
+      [
+       0.449,
+       0.99,
+       0.95
+      ],
+      [
+       0.555,
+       0.94,
+       0.95
+      ],
+      [
+       0.683,
+       0.84,
+       0.94
+      ],
+      [
+       0.716,
+       0.84,
+       0.94
+      ],
+      [
+       0.784,
+       0.7,
+       0.94
+      ],
+      [
+       0.822,
+       0.69,
+       0.94
+      ],
+      [
+       0.866,
+       0.66,
+       0.93
+      ],
+      [
+       0.923,
+       0.64,
+       0.93
+      ],
+      [
+       0.961,
+       0.64,
+       0.93
+      ],
+      [
+       1.008,
+       0.58,
+       0.91
+      ],
+      [
+       1.04,
+       0.5,
+       0.91
+      ],
+      [
+       1.078,
+       0.44,
+       0.92
+      ],
+      [
+       1.126,
+       0.38,
+       0.92
+      ],
+      [
+       1.184,
+       0.18,
+       0.92
+      ],
+      [
+       1.216,
+       0.15,
+       0.93
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -27,8 +355,75 @@
   },
   "press_kachunk_latch": {
    "files": [
-    "press/press_kachunk_latch_01.caf",
-    "press/press_kachunk_latch_02.caf"
+    {
+     "name": "press_kachunk_latch_01",
+     "path": "press/press_kachunk_latch_01.caf",
+     "dur": 0.5,
+     "haptics": [
+      [
+       0.036,
+       0.82,
+       0.64
+      ],
+      [
+       0.053,
+       0.91,
+       0.65
+      ],
+      [
+       0.089,
+       0.91,
+       0.77
+      ],
+      [
+       0.159,
+       0.96,
+       0.42
+      ],
+      [
+       0.322,
+       0.92,
+       0.8
+      ]
+     ]
+    },
+    {
+     "name": "press_kachunk_latch_02",
+     "path": "press/press_kachunk_latch_02.caf",
+     "dur": 0.806,
+     "haptics": [
+      [
+       0.176,
+       0.8,
+       0.5
+      ],
+      [
+       0.216,
+       1,
+       0.56
+      ],
+      [
+       0.238,
+       1,
+       0.57
+      ],
+      [
+       0.353,
+       0.67,
+       0.51
+      ],
+      [
+       0.496,
+       0.15,
+       0.44
+      ],
+      [
+       0.512,
+       0.15,
+       0.45
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -4,
@@ -38,11 +433,91 @@
   },
   "press_kachunk_metal": {
    "files": [
-    "press/press_kachunk_metal_01.caf",
-    "press/press_kachunk_metal_02.caf",
-    "press/press_kachunk_metal_03.caf",
-    "press/press_kachunk_metal_04.caf",
-    "press/press_kachunk_metal_05.caf"
+    {
+     "name": "press_kachunk_metal_01",
+     "path": "press/press_kachunk_metal_01.caf",
+     "dur": 0.115,
+     "haptics": [
+      [
+       0,
+       1,
+       0.48
+      ]
+     ]
+    },
+    {
+     "name": "press_kachunk_metal_02",
+     "path": "press/press_kachunk_metal_02.caf",
+     "dur": 0.216,
+     "haptics": [
+      [
+       0,
+       1,
+       0.53
+      ],
+      [
+       0.027,
+       0.63,
+       0.65
+      ],
+      [
+       0.053,
+       0.51,
+       0.65
+      ],
+      [
+       0.075,
+       0.36,
+       0.65
+      ],
+      [
+       0.112,
+       0.15,
+       0.65
+      ]
+     ]
+    },
+    {
+     "name": "press_kachunk_metal_03",
+     "path": "press/press_kachunk_metal_03.caf",
+     "dur": 0.084,
+     "haptics": [
+      [
+       0,
+       1,
+       0.45
+      ]
+     ]
+    },
+    {
+     "name": "press_kachunk_metal_04",
+     "path": "press/press_kachunk_metal_04.caf",
+     "dur": 0.144,
+     "haptics": [
+      [
+       0,
+       1,
+       0.47
+      ],
+      [
+       0.059,
+       0.26,
+       0.54
+      ]
+     ]
+    },
+    {
+     "name": "press_kachunk_metal_05",
+     "path": "press/press_kachunk_metal_05.caf",
+     "dur": 0.091,
+     "haptics": [
+      [
+       0,
+       1,
+       0.42
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -4,
@@ -52,11 +527,91 @@
   },
   "press_contact_soft": {
    "files": [
-    "press/press_contact_soft_01.caf",
-    "press/press_contact_soft_02.caf",
-    "press/press_contact_soft_03.caf",
-    "press/press_contact_soft_04.caf",
-    "press/press_contact_soft_05.caf"
+    {
+     "name": "press_contact_soft_01",
+     "path": "press/press_contact_soft_01.caf",
+     "dur": 0.115,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.05
+      ]
+     ]
+    },
+    {
+     "name": "press_contact_soft_02",
+     "path": "press/press_contact_soft_02.caf",
+     "dur": 0.18,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.05
+      ],
+      [
+       0.086,
+       0.35,
+       0.05
+      ],
+      [
+       0.103,
+       0.17,
+       0.05
+      ]
+     ]
+    },
+    {
+     "name": "press_contact_soft_03",
+     "path": "press/press_contact_soft_03.caf",
+     "dur": 0.132,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.05
+      ],
+      [
+       0.048,
+       0.48,
+       0.05
+      ]
+     ]
+    },
+    {
+     "name": "press_contact_soft_04",
+     "path": "press/press_contact_soft_04.caf",
+     "dur": 0.137,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.05
+      ],
+      [
+       0.043,
+       0.6,
+       0.05
+      ],
+      [
+       0.065,
+       0.33,
+       0.05
+      ]
+     ]
+    },
+    {
+     "name": "press_contact_soft_05",
+     "path": "press/press_contact_soft_05.caf",
+     "dur": 0.144,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.05
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -66,9 +621,97 @@
   },
   "press_stamp": {
    "files": [
-    "press/press_stamp_01.caf",
-    "press/press_stamp_02.caf",
-    "press/press_stamp_03.caf"
+    {
+     "name": "press_stamp_01",
+     "path": "press/press_stamp_01.caf",
+     "dur": 0.432,
+     "haptics": [
+      [
+       0,
+       1,
+       0.5
+      ],
+      [
+       0.037,
+       0.48,
+       0.34
+      ],
+      [
+       0.091,
+       0.19,
+       0.22
+      ],
+      [
+       0.108,
+       0.16,
+       0.22
+      ]
+     ]
+    },
+    {
+     "name": "press_stamp_02",
+     "path": "press/press_stamp_02.caf",
+     "dur": 0.555,
+     "haptics": [
+      [
+       0,
+       1,
+       0.59
+      ],
+      [
+       0.059,
+       0.38,
+       0.31
+      ],
+      [
+       0.086,
+       0.36,
+       0.23
+      ],
+      [
+       0.116,
+       0.3,
+       0.23
+      ],
+      [
+       0.129,
+       0.15,
+       0.2
+      ],
+      [
+       0.152,
+       0.15,
+       0.18
+      ],
+      [
+       0.197,
+       0.15,
+       0.14
+      ]
+     ]
+    },
+    {
+     "name": "press_stamp_03",
+     "path": "press/press_stamp_03.caf",
+     "dur": 0.409,
+     "haptics": [
+      [
+       0,
+       1,
+       0.53
+      ],
+      [
+       0.037,
+       0.48,
+       0.34
+      ],
+      [
+       0.113,
+       0.15,
+       0.22
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -78,18 +721,205 @@
   },
   "bubblewrap_pop": {
    "files": [
-    "bubblewrap/bubblewrap_pop_01.caf",
-    "bubblewrap/bubblewrap_pop_02.caf",
-    "bubblewrap/bubblewrap_pop_03.caf",
-    "bubblewrap/bubblewrap_pop_04.caf",
-    "bubblewrap/bubblewrap_pop_05.caf",
-    "bubblewrap/bubblewrap_pop_06.caf",
-    "bubblewrap/bubblewrap_pop_07.caf",
-    "bubblewrap/bubblewrap_pop_08.caf",
-    "bubblewrap/bubblewrap_pop_09.caf",
-    "bubblewrap/bubblewrap_pop_10.caf",
-    "bubblewrap/bubblewrap_pop_11.caf",
-    "bubblewrap/bubblewrap_pop_12.caf"
+    {
+     "name": "bubblewrap_pop_01",
+     "path": "bubblewrap/bubblewrap_pop_01.caf",
+     "dur": 0.114,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.89
+      ],
+      [
+       0.016,
+       0.35,
+       0.9
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_02",
+     "path": "bubblewrap/bubblewrap_pop_02.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_03",
+     "path": "bubblewrap/bubblewrap_pop_03.caf",
+     "dur": 0.143,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.87
+      ],
+      [
+       0.048,
+       0.32,
+       0.84
+      ],
+      [
+       0.064,
+       0.22,
+       0.81
+      ],
+      [
+       0.08,
+       0.15,
+       0.76
+      ],
+      [
+       0.096,
+       0.15,
+       0.75
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_04",
+     "path": "bubblewrap/bubblewrap_pop_04.caf",
+     "dur": 0.064,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.91
+      ],
+      [
+       0.016,
+       0.15,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_05",
+     "path": "bubblewrap/bubblewrap_pop_05.caf",
+     "dur": 0.103,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.86
+      ],
+      [
+       0.028,
+       0.34,
+       0.85
+      ],
+      [
+       0.057,
+       0.34,
+       0.86
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_06",
+     "path": "bubblewrap/bubblewrap_pop_06.caf",
+     "dur": 0.103,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.85
+      ],
+      [
+       0.022,
+       0.45,
+       0.85
+      ],
+      [
+       0.07,
+       0.15,
+       0.84
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_07",
+     "path": "bubblewrap/bubblewrap_pop_07.caf",
+     "dur": 0.073,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.85
+      ],
+      [
+       0.016,
+       0.15,
+       0.85
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_08",
+     "path": "bubblewrap/bubblewrap_pop_08.caf",
+     "dur": 0.063,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_09",
+     "path": "bubblewrap/bubblewrap_pop_09.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.9
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_10",
+     "path": "bubblewrap/bubblewrap_pop_10.caf",
+     "dur": 0.083,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.9
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_11",
+     "path": "bubblewrap/bubblewrap_pop_11.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.86
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_pop_12",
+     "path": "bubblewrap/bubblewrap_pop_12.caf",
+     "dur": 0.053,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.91
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -4,
@@ -99,13 +929,105 @@
   },
   "bubblewrap_popbig": {
    "files": [
-    "bubblewrap/bubblewrap_popbig_01.caf",
-    "bubblewrap/bubblewrap_popbig_02.caf",
-    "bubblewrap/bubblewrap_popbig_03.caf",
-    "bubblewrap/bubblewrap_popbig_04.caf",
-    "bubblewrap/bubblewrap_popbig_05.caf",
-    "bubblewrap/bubblewrap_popbig_06.caf",
-    "bubblewrap/bubblewrap_popbig_07.caf"
+    {
+     "name": "bubblewrap_popbig_01",
+     "path": "bubblewrap/bubblewrap_popbig_01.caf",
+     "dur": 0.134,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.89
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popbig_02",
+     "path": "bubblewrap/bubblewrap_popbig_02.caf",
+     "dur": 0.103,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.87
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popbig_03",
+     "path": "bubblewrap/bubblewrap_popbig_03.caf",
+     "dur": 0.113,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.83
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popbig_04",
+     "path": "bubblewrap/bubblewrap_popbig_04.caf",
+     "dur": 0.124,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.83
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popbig_05",
+     "path": "bubblewrap/bubblewrap_popbig_05.caf",
+     "dur": 0.124,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.83
+      ],
+      [
+       0.038,
+       0.39,
+       0.8
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popbig_06",
+     "path": "bubblewrap/bubblewrap_popbig_06.caf",
+     "dur": 0.113,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.86
+      ],
+      [
+       0.064,
+       0.15,
+       0.78
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popbig_07",
+     "path": "bubblewrap/bubblewrap_popbig_07.caf",
+     "dur": 0.093,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.91
+      ],
+      [
+       0.017,
+       0.47,
+       0.9
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -4,
@@ -115,16 +1037,161 @@
   },
   "bubblewrap_popsmall": {
    "files": [
-    "bubblewrap/bubblewrap_popsmall_01.caf",
-    "bubblewrap/bubblewrap_popsmall_02.caf",
-    "bubblewrap/bubblewrap_popsmall_03.caf",
-    "bubblewrap/bubblewrap_popsmall_04.caf",
-    "bubblewrap/bubblewrap_popsmall_05.caf",
-    "bubblewrap/bubblewrap_popsmall_06.caf",
-    "bubblewrap/bubblewrap_popsmall_07.caf",
-    "bubblewrap/bubblewrap_popsmall_08.caf",
-    "bubblewrap/bubblewrap_popsmall_09.caf",
-    "bubblewrap/bubblewrap_popsmall_10.caf"
+    {
+     "name": "bubblewrap_popsmall_01",
+     "path": "bubblewrap/bubblewrap_popsmall_01.caf",
+     "dur": 0.106,
+     "haptics": [
+      [
+       0.003,
+       0.83,
+       0.95
+      ],
+      [
+       0.035,
+       1,
+       0.95
+      ],
+      [
+       0.066,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_02",
+     "path": "bubblewrap/bubblewrap_popsmall_02.caf",
+     "dur": 0.063,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_03",
+     "path": "bubblewrap/bubblewrap_popsmall_03.caf",
+     "dur": 0.054,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_04",
+     "path": "bubblewrap/bubblewrap_popsmall_04.caf",
+     "dur": 0.053,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_05",
+     "path": "bubblewrap/bubblewrap_popsmall_05.caf",
+     "dur": 0.093,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.93
+      ],
+      [
+       0.034,
+       1,
+       0.91
+      ],
+      [
+       0.058,
+       0.69,
+       0.89
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_06",
+     "path": "bubblewrap/bubblewrap_popsmall_06.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_07",
+     "path": "bubblewrap/bubblewrap_popsmall_07.caf",
+     "dur": 0.079,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.032,
+       0.92,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_08",
+     "path": "bubblewrap/bubblewrap_popsmall_08.caf",
+     "dur": 0.073,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.92
+      ],
+      [
+       0.03,
+       0.93,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_09",
+     "path": "bubblewrap/bubblewrap_popsmall_09.caf",
+     "dur": 0.077,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.93
+      ],
+      [
+       0.021,
+       1,
+       0.93
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_popsmall_10",
+     "path": "bubblewrap/bubblewrap_popsmall_10.caf",
+     "dur": 0.064,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.94
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -4,
@@ -134,7 +1201,12 @@
   },
   "bubblewrap_crinkle_loop": {
    "files": [
-    "bubblewrap/bubblewrap_crinkle_loop_01.caf"
+    {
+     "name": "bubblewrap_crinkle_loop_01",
+     "path": "bubblewrap/bubblewrap_crinkle_loop_01.caf",
+     "dur": 2.65,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -144,8 +1216,85 @@
   },
   "bubblewrap_crinkle": {
    "files": [
-    "bubblewrap/bubblewrap_crinkle_01.caf",
-    "bubblewrap/bubblewrap_crinkle_02.caf"
+    {
+     "name": "bubblewrap_crinkle_01",
+     "path": "bubblewrap/bubblewrap_crinkle_01.caf",
+     "dur": 0.4,
+     "haptics": [
+      [
+       0.043,
+       0.83,
+       0.95
+      ],
+      [
+       0.076,
+       0.9,
+       0.95
+      ],
+      [
+       0.109,
+       0.9,
+       0.95
+      ],
+      [
+       0.129,
+       0.9,
+       0.95
+      ],
+      [
+       0.145,
+       0.89,
+       0.94
+      ],
+      [
+       0.17,
+       0.98,
+       0.9
+      ],
+      [
+       0.206,
+       1,
+       0.95
+      ],
+      [
+       0.256,
+       1,
+       0.95
+      ],
+      [
+       0.364,
+       0.75,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "bubblewrap_crinkle_02",
+     "path": "bubblewrap/bubblewrap_crinkle_02.caf",
+     "dur": 0.259,
+     "haptics": [
+      [
+       0.013,
+       0.79,
+       0.93
+      ],
+      [
+       0.049,
+       1,
+       0.75
+      ],
+      [
+       0.137,
+       0.95,
+       0.95
+      ],
+      [
+       0.155,
+       0.82,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -155,12 +1304,148 @@
   },
   "duck_squeak": {
    "files": [
-    "duck/duck_squeak_01.caf",
-    "duck/duck_squeak_02.caf",
-    "duck/duck_squeak_03.caf",
-    "duck/duck_squeak_04.caf",
-    "duck/duck_squeak_05.caf",
-    "duck/duck_squeak_06.caf"
+    {
+     "name": "duck_squeak_01",
+     "path": "duck/duck_squeak_01.caf",
+     "dur": 0.385,
+     "haptics": [
+      [
+       0.004,
+       0.77,
+       0.95
+      ],
+      [
+       0.034,
+       1,
+       0.95
+      ],
+      [
+       0.134,
+       0.97,
+       0.95
+      ],
+      [
+       0.198,
+       0.72,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "duck_squeak_02",
+     "path": "duck/duck_squeak_02.caf",
+     "dur": 0.393,
+     "haptics": [
+      [
+       0.004,
+       0.99,
+       0.95
+      ],
+      [
+       0.085,
+       1,
+       0.95
+      ],
+      [
+       0.248,
+       0.65,
+       0.95
+      ],
+      [
+       0.267,
+       0.65,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "duck_squeak_03",
+     "path": "duck/duck_squeak_03.caf",
+     "dur": 0.27,
+     "haptics": [
+      [
+       0.004,
+       0.97,
+       0.95
+      ],
+      [
+       0.075,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "duck_squeak_04",
+     "path": "duck/duck_squeak_04.caf",
+     "dur": 0.336,
+     "haptics": [
+      [
+       0.003,
+       0.87,
+       0.95
+      ],
+      [
+       0.038,
+       0.99,
+       0.95
+      ],
+      [
+       0.101,
+       1,
+       0.95
+      ],
+      [
+       0.192,
+       0.88,
+       0.95
+      ],
+      [
+       0.208,
+       0.79,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "duck_squeak_05",
+     "path": "duck/duck_squeak_05.caf",
+     "dur": 0.243,
+     "haptics": [
+      [
+       0.004,
+       0.89,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "duck_squeak_06",
+     "path": "duck/duck_squeak_06.caf",
+     "dur": 0.328,
+     "haptics": [
+      [
+       0.012,
+       0.81,
+       0.94
+      ],
+      [
+       0.198,
+       0.16,
+       0.88
+      ],
+      [
+       0.23,
+       0.15,
+       0.87
+      ],
+      [
+       0.272,
+       0.15,
+       0.87
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -170,7 +1455,113 @@
   },
   "duck_honk": {
    "files": [
-    "duck/duck_honk_01.caf"
+    {
+     "name": "duck_honk_01",
+     "path": "duck/duck_honk_01.caf",
+     "dur": 1.878,
+     "haptics": [
+      [
+       0.388,
+       0.62,
+       0.95
+      ],
+      [
+       0.427,
+       0.64,
+       0.94
+      ],
+      [
+       0.48,
+       0.64,
+       0.94
+      ],
+      [
+       0.496,
+       0.62,
+       0.94
+      ],
+      [
+       0.555,
+       0.71,
+       0.93
+      ],
+      [
+       0.654,
+       0.9,
+       0.87
+      ],
+      [
+       0.779,
+       0.97,
+       0.85
+      ],
+      [
+       0.848,
+       0.98,
+       0.86
+      ],
+      [
+       0.944,
+       0.99,
+       0.87
+      ],
+      [
+       1.136,
+       0.9,
+       0.92
+      ],
+      [
+       1.179,
+       0.93,
+       0.92
+      ],
+      [
+       1.195,
+       0.96,
+       0.93
+      ],
+      [
+       1.232,
+       0.96,
+       0.93
+      ],
+      [
+       1.456,
+       0.87,
+       0.93
+      ],
+      [
+       1.52,
+       0.95,
+       0.92
+      ],
+      [
+       1.557,
+       0.99,
+       0.89
+      ],
+      [
+       1.595,
+       0.99,
+       0.88
+      ],
+      [
+       1.643,
+       0.96,
+       0.88
+      ],
+      [
+       1.776,
+       0.82,
+       0.9
+      ],
+      [
+       1.792,
+       0.81,
+       0.91
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -180,8 +1571,95 @@
   },
   "duck_squeaklow": {
    "files": [
-    "duck/duck_squeaklow_01.caf",
-    "duck/duck_squeaklow_02.caf"
+    {
+     "name": "duck_squeaklow_01",
+     "path": "duck/duck_squeaklow_01.caf",
+     "dur": 1.179,
+     "haptics": [
+      [
+       0.009,
+       0.97,
+       0.59
+      ],
+      [
+       0.027,
+       0.99,
+       0.6
+      ],
+      [
+       0.159,
+       0.97,
+       0.57
+      ],
+      [
+       0.171,
+       0.97,
+       0.55
+      ],
+      [
+       0.391,
+       0.32,
+       0.59
+      ],
+      [
+       0.48,
+       0.9,
+       0.4
+      ],
+      [
+       0.526,
+       0.9,
+       0.57
+      ],
+      [
+       0.539,
+       0.9,
+       0.55
+      ]
+     ]
+    },
+    {
+     "name": "duck_squeaklow_02",
+     "path": "duck/duck_squeaklow_02.caf",
+     "dur": 0.876,
+     "haptics": [
+      [
+       0.006,
+       0.85,
+       0.74
+      ],
+      [
+       0.022,
+       1,
+       0.81
+      ],
+      [
+       0.218,
+       0.71,
+       0.83
+      ],
+      [
+       0.235,
+       0.71,
+       0.77
+      ],
+      [
+       0.435,
+       0.88,
+       0.62
+      ],
+      [
+       0.656,
+       0.76,
+       0.74
+      ],
+      [
+       0.688,
+       0.73,
+       0.78
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -191,8 +1669,195 @@
   },
   "duck_wheeze": {
    "files": [
-    "duck/duck_wheeze_01.caf",
-    "duck/duck_wheeze_02.caf"
+    {
+     "name": "duck_wheeze_01",
+     "path": "duck/duck_wheeze_01.caf",
+     "dur": 0.769,
+     "haptics": [
+      [
+       0.069,
+       0.96,
+       0.86
+      ],
+      [
+       0.145,
+       1,
+       0.79
+      ],
+      [
+       0.2,
+       0.92,
+       0.89
+      ],
+      [
+       0.225,
+       0.92,
+       0.86
+      ],
+      [
+       0.352,
+       0.93,
+       0.81
+      ],
+      [
+       0.374,
+       0.8,
+       0.88
+      ],
+      [
+       0.431,
+       0.83,
+       0.91
+      ],
+      [
+       0.479,
+       0.81,
+       0.88
+      ],
+      [
+       0.544,
+       0.84,
+       0.86
+      ],
+      [
+       0.563,
+       0.88,
+       0.86
+      ],
+      [
+       0.592,
+       0.88,
+       0.9
+      ]
+     ]
+    },
+    {
+     "name": "duck_wheeze_02",
+     "path": "duck/duck_wheeze_02.caf",
+     "dur": 1.322,
+     "haptics": [
+      [
+       0.059,
+       0.9,
+       0.71
+      ],
+      [
+       0.154,
+       1,
+       0.64
+      ],
+      [
+       0.208,
+       1,
+       0.31
+      ],
+      [
+       0.221,
+       0.99,
+       0.29
+      ],
+      [
+       0.239,
+       0.99,
+       0.43
+      ],
+      [
+       0.259,
+       0.95,
+       0.49
+      ],
+      [
+       0.304,
+       0.98,
+       0.35
+      ],
+      [
+       0.321,
+       0.98,
+       0.29
+      ],
+      [
+       0.35,
+       0.87,
+       0.48
+      ],
+      [
+       0.391,
+       0.87,
+       0.48
+      ],
+      [
+       0.478,
+       0.75,
+       0.45
+      ],
+      [
+       0.533,
+       0.85,
+       0.53
+      ],
+      [
+       0.561,
+       0.85,
+       0.42
+      ],
+      [
+       0.574,
+       0.77,
+       0.52
+      ],
+      [
+       0.592,
+       0.68,
+       0.68
+      ],
+      [
+       0.667,
+       0.78,
+       0.49
+      ],
+      [
+       0.701,
+       0.78,
+       0.43
+      ],
+      [
+       0.78,
+       0.7,
+       0.47
+      ],
+      [
+       0.827,
+       0.74,
+       0.6
+      ],
+      [
+       0.955,
+       0.73,
+       0.65
+      ],
+      [
+       0.97,
+       0.73,
+       0.63
+      ],
+      [
+       1.027,
+       0.64,
+       0.58
+      ],
+      [
+       1.084,
+       0.68,
+       0.51
+      ],
+      [
+       1.157,
+       0.5,
+       0.42
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -202,7 +1867,12 @@
   },
   "duck_wheeze_loop": {
    "files": [
-    "duck/duck_wheeze_loop_01.caf"
+    {
+     "name": "duck_wheeze_loop_01",
+     "path": "duck/duck_wheeze_loop_01.caf",
+     "dur": 2.5,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -212,8 +1882,18 @@
   },
   "jelly_squelch_loop": {
    "files": [
-    "jelly/jelly_squelch_loop_01.caf",
-    "jelly/jelly_squelch_loop_02.caf"
+    {
+     "name": "jelly_squelch_loop_01",
+     "path": "jelly/jelly_squelch_loop_01.caf",
+     "dur": 2.7,
+     "haptics": []
+    },
+    {
+     "name": "jelly_squelch_loop_02",
+     "path": "jelly/jelly_squelch_loop_02.caf",
+     "dur": 2.7,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -223,20 +1903,274 @@
   },
   "jelly_squelch": {
    "files": [
-    "jelly/jelly_squelch_01.caf",
-    "jelly/jelly_squelch_02.caf",
-    "jelly/jelly_squelch_03.caf",
-    "jelly/jelly_squelch_04.caf",
-    "jelly/jelly_squelch_05.caf",
-    "jelly/jelly_squelch_06.caf",
-    "jelly/jelly_squelch_07.caf",
-    "jelly/jelly_squelch_08.caf",
-    "jelly/jelly_squelch_09.caf",
-    "jelly/jelly_squelch_10.caf",
-    "jelly/jelly_squelch_11.caf",
-    "jelly/jelly_squelch_12.caf",
-    "jelly/jelly_squelch_13.caf",
-    "jelly/jelly_squelch_14.caf"
+    {
+     "name": "jelly_squelch_01",
+     "path": "jelly/jelly_squelch_01.caf",
+     "dur": 0.229,
+     "haptics": [
+      [
+       0.003,
+       0.71,
+       0.9
+      ],
+      [
+       0.038,
+       0.98,
+       0.88
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_02",
+     "path": "jelly/jelly_squelch_02.caf",
+     "dur": 0.109,
+     "haptics": [
+      [
+       0.005,
+       0.85,
+       0.95
+      ],
+      [
+       0.033,
+       1,
+       0.95
+      ],
+      [
+       0.077,
+       0.86,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_03",
+     "path": "jelly/jelly_squelch_03.caf",
+     "dur": 0.164,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.056,
+       0.93,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_04",
+     "path": "jelly/jelly_squelch_04.caf",
+     "dur": 0.088,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.038,
+       0.83,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_05",
+     "path": "jelly/jelly_squelch_05.caf",
+     "dur": 0.197,
+     "haptics": [
+      [
+       0.003,
+       0.92,
+       0.95
+      ],
+      [
+       0.02,
+       1,
+       0.95
+      ],
+      [
+       0.038,
+       1,
+       0.92
+      ],
+      [
+       0.174,
+       0.15,
+       0.89
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_06",
+     "path": "jelly/jelly_squelch_06.caf",
+     "dur": 0.118,
+     "haptics": [
+      [
+       0.003,
+       0.86,
+       0.95
+      ],
+      [
+       0.021,
+       1,
+       0.95
+      ],
+      [
+       0.06,
+       0.93,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_07",
+     "path": "jelly/jelly_squelch_07.caf",
+     "dur": 0.109,
+     "haptics": [
+      [
+       0.003,
+       0.96,
+       0.95
+      ],
+      [
+       0.027,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_08",
+     "path": "jelly/jelly_squelch_08.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_09",
+     "path": "jelly/jelly_squelch_09.caf",
+     "dur": 0.078,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_10",
+     "path": "jelly/jelly_squelch_10.caf",
+     "dur": 0.108,
+     "haptics": [
+      [
+       0.003,
+       0.86,
+       0.95
+      ],
+      [
+       0.027,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_11",
+     "path": "jelly/jelly_squelch_11.caf",
+     "dur": 0.195,
+     "haptics": [
+      [
+       0.017,
+       0.98,
+       0.87
+      ],
+      [
+       0.036,
+       1,
+       0.84
+      ],
+      [
+       0.091,
+       0.96,
+       0.9
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_12",
+     "path": "jelly/jelly_squelch_12.caf",
+     "dur": 0.143,
+     "haptics": [
+      [
+       0.008,
+       0.88,
+       0.92
+      ],
+      [
+       0.086,
+       0.97,
+       0.93
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_13",
+     "path": "jelly/jelly_squelch_13.caf",
+     "dur": 0.131,
+     "haptics": [
+      [
+       0.001,
+       0.89,
+       0.95
+      ],
+      [
+       0.021,
+       1,
+       0.93
+      ],
+      [
+       0.051,
+       1,
+       0.9
+      ],
+      [
+       0.081,
+       0.93,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "jelly_squelch_14",
+     "path": "jelly/jelly_squelch_14.caf",
+     "dur": 0.131,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.95
+      ],
+      [
+       0.043,
+       0.87,
+       0.85
+      ],
+      [
+       0.082,
+       0.82,
+       0.84
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -246,11 +2180,121 @@
   },
   "jelly_splat": {
    "files": [
-    "jelly/jelly_splat_01.caf",
-    "jelly/jelly_splat_02.caf",
-    "jelly/jelly_splat_03.caf",
-    "jelly/jelly_splat_04.caf",
-    "jelly/jelly_splat_05.caf"
+    {
+     "name": "jelly_splat_01",
+     "path": "jelly/jelly_splat_01.caf",
+     "dur": 0.42,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.68
+      ],
+      [
+       0.016,
+       0.99,
+       0.75
+      ],
+      [
+       0.038,
+       0.96,
+       0.87
+      ],
+      [
+       0.096,
+       0.95,
+       0.89
+      ],
+      [
+       0.135,
+       0.93,
+       0.92
+      ],
+      [
+       0.278,
+       0.22,
+       0.94
+      ]
+     ]
+    },
+    {
+     "name": "jelly_splat_02",
+     "path": "jelly/jelly_splat_02.caf",
+     "dur": 0.383,
+     "haptics": [
+      [
+       0.039,
+       0.89,
+       0.51
+      ],
+      [
+       0.076,
+       1,
+       0.65
+      ],
+      [
+       0.292,
+       0.84,
+       0.83
+      ]
+     ]
+    },
+    {
+     "name": "jelly_splat_03",
+     "path": "jelly/jelly_splat_03.caf",
+     "dur": 0.201,
+     "haptics": [
+      [
+       0.004,
+       0.97,
+       0.9
+      ],
+      [
+       0.048,
+       1,
+       0.9
+      ],
+      [
+       0.121,
+       0.85,
+       0.8
+      ]
+     ]
+    },
+    {
+     "name": "jelly_splat_04",
+     "path": "jelly/jelly_splat_04.caf",
+     "dur": 0.18,
+     "haptics": [
+      [
+       0.009,
+       0.86,
+       0.92
+      ],
+      [
+       0.05,
+       1,
+       0.88
+      ],
+      [
+       0.125,
+       0.43,
+       0.65
+      ]
+     ]
+    },
+    {
+     "name": "jelly_splat_05",
+     "path": "jelly/jelly_splat_05.caf",
+     "dur": 0.228,
+     "haptics": [
+      [
+       0.009,
+       0.77,
+       0.73
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -260,9 +2304,147 @@
   },
   "jelly_wobble": {
    "files": [
-    "jelly/jelly_wobble_01.caf",
-    "jelly/jelly_wobble_02.caf",
-    "jelly/jelly_wobble_03.caf"
+    {
+     "name": "jelly_wobble_01",
+     "path": "jelly/jelly_wobble_01.caf",
+     "dur": 0.87,
+     "haptics": [
+      [
+       0.477,
+       0.71,
+       0.89
+      ],
+      [
+       0.51,
+       0.66,
+       0.95
+      ],
+      [
+       0.598,
+       0.56,
+       0.83
+      ],
+      [
+       0.627,
+       1,
+       0.89
+      ],
+      [
+       0.721,
+       0.52,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_wobble_02",
+     "path": "jelly/jelly_wobble_02.caf",
+     "dur": 0.9,
+     "haptics": [
+      [
+       0.284,
+       1,
+       0.94
+      ],
+      [
+       0.32,
+       0.75,
+       0.71
+      ],
+      [
+       0.348,
+       0.75,
+       0.95
+      ],
+      [
+       0.395,
+       0.75,
+       0.89
+      ],
+      [
+       0.451,
+       0.72,
+       0.65
+      ],
+      [
+       0.495,
+       0.54,
+       0.95
+      ],
+      [
+       0.603,
+       0.93,
+       0.95
+      ],
+      [
+       0.746,
+       0.79,
+       0.89
+      ],
+      [
+       0.787,
+       0.24,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "jelly_wobble_03",
+     "path": "jelly/jelly_wobble_03.caf",
+     "dur": 0.678,
+     "haptics": [
+      [
+       0.006,
+       0.97,
+       0.18
+      ],
+      [
+       0.032,
+       1,
+       0.14
+      ],
+      [
+       0.075,
+       0.99,
+       0.2
+      ],
+      [
+       0.118,
+       0.99,
+       0.17
+      ],
+      [
+       0.229,
+       0.85,
+       0.05
+      ],
+      [
+       0.251,
+       0.81,
+       0.05
+      ],
+      [
+       0.305,
+       0.81,
+       0.05
+      ],
+      [
+       0.32,
+       0.69,
+       0.07
+      ],
+      [
+       0.393,
+       0.69,
+       0.14
+      ],
+      [
+       0.544,
+       0.15,
+       0.05
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -272,8 +2454,170 @@
   },
   "jelly_slurp": {
    "files": [
-    "jelly/jelly_slurp_01.caf",
-    "jelly/jelly_slurp_02.caf"
+    {
+     "name": "jelly_slurp_01",
+     "path": "jelly/jelly_slurp_01.caf",
+     "dur": 1.167,
+     "haptics": [
+      [
+       0.01,
+       0.87,
+       0.83
+      ],
+      [
+       0.303,
+       0.89,
+       0.38
+      ],
+      [
+       0.424,
+       0.66,
+       0.36
+      ],
+      [
+       0.629,
+       0.7,
+       0.71
+      ],
+      [
+       0.753,
+       0.96,
+       0.87
+      ],
+      [
+       0.842,
+       1,
+       0.68
+      ],
+      [
+       0.86,
+       0.91,
+       0.73
+      ],
+      [
+       0.938,
+       0.84,
+       0.69
+      ],
+      [
+       1.018,
+       0.94,
+       0.65
+      ]
+     ]
+    },
+    {
+     "name": "jelly_slurp_02",
+     "path": "jelly/jelly_slurp_02.caf",
+     "dur": 1.551,
+     "haptics": [
+      [
+       0.011,
+       0.74,
+       0.65
+      ],
+      [
+       0.037,
+       0.68,
+       0.85
+      ],
+      [
+       0.055,
+       0.15,
+       0.95
+      ],
+      [
+       0.122,
+       0.79,
+       0.95
+      ],
+      [
+       0.307,
+       0.7,
+       0.95
+      ],
+      [
+       0.323,
+       0.58,
+       0.83
+      ],
+      [
+       0.422,
+       0.88,
+       0.95
+      ],
+      [
+       0.498,
+       0.78,
+       0.66
+      ],
+      [
+       0.593,
+       0.59,
+       0.95
+      ],
+      [
+       0.662,
+       0.98,
+       0.7
+      ],
+      [
+       0.749,
+       0.71,
+       0.84
+      ],
+      [
+       0.847,
+       0.91,
+       0.25
+      ],
+      [
+       0.927,
+       0.44,
+       0.94
+      ],
+      [
+       0.998,
+       1,
+       0.71
+      ],
+      [
+       1.074,
+       0.42,
+       0.86
+      ],
+      [
+       1.141,
+       0.98,
+       0.7
+      ],
+      [
+       1.205,
+       0.5,
+       0.95
+      ],
+      [
+       1.283,
+       0.9,
+       0.63
+      ],
+      [
+       1.347,
+       0.43,
+       0.89
+      ],
+      [
+       1.362,
+       0.43,
+       0.81
+      ],
+      [
+       1.431,
+       0.73,
+       0.74
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -283,12 +2627,138 @@
   },
   "crayon_snap": {
    "files": [
-    "crayon/crayon_snap_01.caf",
-    "crayon/crayon_snap_02.caf",
-    "crayon/crayon_snap_03.caf",
-    "crayon/crayon_snap_04.caf",
-    "crayon/crayon_snap_05.caf",
-    "crayon/crayon_snap_06.caf"
+    {
+     "name": "crayon_snap_01",
+     "path": "crayon/crayon_snap_01.caf",
+     "dur": 0.283,
+     "haptics": [
+      [
+       0.006,
+       1,
+       0.66
+      ],
+      [
+       0.05,
+       0.52,
+       0.95
+      ],
+      [
+       0.189,
+       0.52,
+       0.8
+      ]
+     ]
+    },
+    {
+     "name": "crayon_snap_02",
+     "path": "crayon/crayon_snap_02.caf",
+     "dur": 0.302,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.93
+      ],
+      [
+       0.16,
+       0.15,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "crayon_snap_03",
+     "path": "crayon/crayon_snap_03.caf",
+     "dur": 0.283,
+     "haptics": [
+      [
+       0.02,
+       0.92,
+       0.92
+      ],
+      [
+       0.092,
+       1,
+       0.92
+      ],
+      [
+       0.222,
+       0.62,
+       0.81
+      ]
+     ]
+    },
+    {
+     "name": "crayon_snap_04",
+     "path": "crayon/crayon_snap_04.caf",
+     "dur": 0.242,
+     "haptics": [
+      [
+       0.012,
+       1,
+       0.95
+      ],
+      [
+       0.026,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "crayon_snap_05",
+     "path": "crayon/crayon_snap_05.caf",
+     "dur": 0.154,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.89
+      ],
+      [
+       0.043,
+       0.42,
+       0.88
+      ],
+      [
+       0.07,
+       0.42,
+       0.88
+      ],
+      [
+       0.084,
+       0.41,
+       0.88
+      ]
+     ]
+    },
+    {
+     "name": "crayon_snap_06",
+     "path": "crayon/crayon_snap_06.caf",
+     "dur": 0.39,
+     "haptics": [
+      [
+       0.006,
+       1,
+       0.93
+      ],
+      [
+       0.027,
+       1,
+       0.94
+      ],
+      [
+       0.061,
+       0.81,
+       0.95
+      ],
+      [
+       0.199,
+       0.31,
+       0.8
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -298,17 +2768,218 @@
   },
   "crayon_crumb": {
    "files": [
-    "crayon/crayon_crumb_01.caf",
-    "crayon/crayon_crumb_02.caf",
-    "crayon/crayon_crumb_03.caf",
-    "crayon/crayon_crumb_04.caf",
-    "crayon/crayon_crumb_05.caf",
-    "crayon/crayon_crumb_06.caf",
-    "crayon/crayon_crumb_07.caf",
-    "crayon/crayon_crumb_08.caf",
-    "crayon/crayon_crumb_09.caf",
-    "crayon/crayon_crumb_10.caf",
-    "crayon/crayon_crumb_11.caf"
+    {
+     "name": "crayon_crumb_01",
+     "path": "crayon/crayon_crumb_01.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       0.9,
+       0.74
+      ],
+      [
+       0.053,
+       1,
+       0.95
+      ],
+      [
+       0.081,
+       0.82,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_02",
+     "path": "crayon/crayon_crumb_02.caf",
+     "dur": 0.047,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.023,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_03",
+     "path": "crayon/crayon_crumb_03.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.87
+      ],
+      [
+       0.076,
+       0.16,
+       0.41
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_04",
+     "path": "crayon/crayon_crumb_04.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.58
+      ],
+      [
+       0.018,
+       0.25,
+       0.52
+      ],
+      [
+       0.043,
+       0.22,
+       0.48
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_05",
+     "path": "crayon/crayon_crumb_05.caf",
+     "dur": 0.105,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.91
+      ],
+      [
+       0.021,
+       0.57,
+       0.92
+      ],
+      [
+       0.048,
+       0.29,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_06",
+     "path": "crayon/crayon_crumb_06.caf",
+     "dur": 0.056,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_07",
+     "path": "crayon/crayon_crumb_07.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.005,
+       0.63,
+       0.47
+      ],
+      [
+       0.054,
+       1,
+       0.84
+      ],
+      [
+       0.094,
+       0.66,
+       0.82
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_08",
+     "path": "crayon/crayon_crumb_08.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.8
+      ],
+      [
+       0.079,
+       0.77,
+       0.79
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_09",
+     "path": "crayon/crayon_crumb_09.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.76
+      ],
+      [
+       0.038,
+       0.62,
+       0.89
+      ],
+      [
+       0.05,
+       0.62,
+       0.92
+      ],
+      [
+       0.069,
+       0.15,
+       0.84
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_10",
+     "path": "crayon/crayon_crumb_10.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.81
+      ],
+      [
+       0.017,
+       0.15,
+       0.83
+      ]
+     ]
+    },
+    {
+     "name": "crayon_crumb_11",
+     "path": "crayon/crayon_crumb_11.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.013,
+       0.75,
+       0.85
+      ],
+      [
+       0.06,
+       1,
+       0.84
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -318,7 +2989,38 @@
   },
   "crayon_tap": {
    "files": [
-    "crayon/crayon_tap_01.caf"
+    {
+     "name": "crayon_tap_01",
+     "path": "crayon/crayon_tap_01.caf",
+     "dur": 0.414,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.74
+      ],
+      [
+       0.128,
+       0.69,
+       0.69
+      ],
+      [
+       0.167,
+       0.44,
+       0.7
+      ],
+      [
+       0.289,
+       1,
+       0.95
+      ],
+      [
+       0.353,
+       0.61,
+       0.92
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -328,12 +3030,293 @@
   },
   "egg_crack": {
    "files": [
-    "egg/egg_crack_01.caf",
-    "egg/egg_crack_02.caf",
-    "egg/egg_crack_03.caf",
-    "egg/egg_crack_04.caf",
-    "egg/egg_crack_05.caf",
-    "egg/egg_crack_06.caf"
+    {
+     "name": "egg_crack_01",
+     "path": "egg/egg_crack_01.caf",
+     "dur": 0.816,
+     "haptics": [
+      [
+       0.228,
+       0.63,
+       0.55
+      ],
+      [
+       0.304,
+       1,
+       0.87
+      ],
+      [
+       0.392,
+       0.99,
+       0.95
+      ],
+      [
+       0.413,
+       1,
+       0.95
+      ],
+      [
+       0.435,
+       1,
+       0.95
+      ],
+      [
+       0.529,
+       0.69,
+       0.94
+      ],
+      [
+       0.571,
+       0.4,
+       0.95
+      ],
+      [
+       0.662,
+       0.45,
+       0.62
+      ],
+      [
+       0.679,
+       0.53,
+       0.77
+      ],
+      [
+       0.747,
+       0.59,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_crack_02",
+     "path": "egg/egg_crack_02.caf",
+     "dur": 0.95,
+     "haptics": [
+      [
+       0.021,
+       0.75,
+       0.95
+      ],
+      [
+       0.039,
+       0.8,
+       0.95
+      ],
+      [
+       0.093,
+       1,
+       0.93
+      ],
+      [
+       0.127,
+       1,
+       0.94
+      ],
+      [
+       0.141,
+       1,
+       0.93
+      ],
+      [
+       0.264,
+       0.73,
+       0.84
+      ],
+      [
+       0.369,
+       1,
+       0.95
+      ],
+      [
+       0.392,
+       0.83,
+       0.67
+      ],
+      [
+       0.407,
+       0.78,
+       0.59
+      ],
+      [
+       0.458,
+       0.18,
+       0.35
+      ],
+      [
+       0.597,
+       0.15,
+       0.64
+      ]
+     ]
+    },
+    {
+     "name": "egg_crack_03",
+     "path": "egg/egg_crack_03.caf",
+     "dur": 0.145,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_crack_04",
+     "path": "egg/egg_crack_04.caf",
+     "dur": 0.298,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "egg_crack_05",
+     "path": "egg/egg_crack_05.caf",
+     "dur": 0.688,
+     "haptics": [
+      [
+       0.038,
+       1,
+       0.4
+      ],
+      [
+       0.096,
+       0.38,
+       0.34
+      ],
+      [
+       0.144,
+       0.15,
+       0.25
+      ],
+      [
+       0.278,
+       0.46,
+       0.7
+      ],
+      [
+       0.416,
+       0.88,
+       0.74
+      ],
+      [
+       0.451,
+       1,
+       0.85
+      ],
+      [
+       0.554,
+       0.84,
+       0.82
+      ],
+      [
+       0.582,
+       0.84,
+       0.86
+      ]
+     ]
+    },
+    {
+     "name": "egg_crack_06",
+     "path": "egg/egg_crack_06.caf",
+     "dur": 1.057,
+     "haptics": [
+      [
+       0.095,
+       0.82,
+       0.73
+      ],
+      [
+       0.164,
+       0.83,
+       0.91
+      ],
+      [
+       0.305,
+       1,
+       0.45
+      ],
+      [
+       0.367,
+       0.89,
+       0.95
+      ],
+      [
+       0.423,
+       0.58,
+       0.6
+      ],
+      [
+       0.52,
+       0.33,
+       0.58
+      ],
+      [
+       0.563,
+       0.4,
+       0.53
+      ],
+      [
+       0.621,
+       0.76,
+       0.75
+      ],
+      [
+       0.648,
+       0.41,
+       0.72
+      ],
+      [
+       0.662,
+       0.41,
+       0.8
+      ],
+      [
+       0.698,
+       0.34,
+       0.95
+      ],
+      [
+       0.718,
+       0.34,
+       0.72
+      ],
+      [
+       0.793,
+       0.54,
+       0.78
+      ],
+      [
+       0.825,
+       0.17,
+       0.88
+      ],
+      [
+       0.903,
+       0.99,
+       0.95
+      ],
+      [
+       0.931,
+       1,
+       0.95
+      ],
+      [
+       0.949,
+       1,
+       0.95
+      ],
+      [
+       0.984,
+       0.44,
+       0.73
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -343,14 +3326,137 @@
   },
   "egg_tick": {
    "files": [
-    "egg/egg_tick_01.caf",
-    "egg/egg_tick_02.caf",
-    "egg/egg_tick_03.caf",
-    "egg/egg_tick_04.caf",
-    "egg/egg_tick_05.caf",
-    "egg/egg_tick_06.caf",
-    "egg/egg_tick_07.caf",
-    "egg/egg_tick_08.caf"
+    {
+     "name": "egg_tick_01",
+     "path": "egg/egg_tick_01.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.009,
+       0.6,
+       0.95
+      ],
+      [
+       0.065,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_tick_02",
+     "path": "egg/egg_tick_02.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_tick_03",
+     "path": "egg/egg_tick_03.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.005,
+       0.89,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_tick_04",
+     "path": "egg/egg_tick_04.caf",
+     "dur": 0.078,
+     "haptics": [
+      [
+       0.007,
+       0.91,
+       0.95
+      ],
+      [
+       0.028,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_tick_05",
+     "path": "egg/egg_tick_05.caf",
+     "dur": 0.084,
+     "haptics": [
+      [
+       0.022,
+       1,
+       0.95
+      ],
+      [
+       0.034,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_tick_06",
+     "path": "egg/egg_tick_06.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.95
+      ],
+      [
+       0.068,
+       0.71,
+       0.95
+      ],
+      [
+       0.081,
+       0.71,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_tick_07",
+     "path": "egg/egg_tick_07.caf",
+     "dur": 0.101,
+     "haptics": [
+      [
+       0.014,
+       0.97,
+       0.95
+      ],
+      [
+       0.035,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_tick_08",
+     "path": "egg/egg_tick_08.caf",
+     "dur": 0.063,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.019,
+       0.35,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -360,18 +3466,260 @@
   },
   "egg_crunch": {
    "files": [
-    "egg/egg_crunch_01.caf",
-    "egg/egg_crunch_02.caf",
-    "egg/egg_crunch_03.caf",
-    "egg/egg_crunch_04.caf",
-    "egg/egg_crunch_05.caf",
-    "egg/egg_crunch_06.caf",
-    "egg/egg_crunch_07.caf",
-    "egg/egg_crunch_08.caf",
-    "egg/egg_crunch_09.caf",
-    "egg/egg_crunch_10.caf",
-    "egg/egg_crunch_11.caf",
-    "egg/egg_crunch_12.caf"
+    {
+     "name": "egg_crunch_01",
+     "path": "egg/egg_crunch_01.caf",
+     "dur": 0.081,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.7
+      ],
+      [
+       0.021,
+       1,
+       0.71
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_02",
+     "path": "egg/egg_crunch_02.caf",
+     "dur": 0.18,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.88
+      ],
+      [
+       0.023,
+       0.97,
+       0.87
+      ],
+      [
+       0.041,
+       0.99,
+       0.89
+      ],
+      [
+       0.083,
+       0.99,
+       0.8
+      ],
+      [
+       0.116,
+       0.98,
+       0.88
+      ],
+      [
+       0.134,
+       0.98,
+       0.85
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_03",
+     "path": "egg/egg_crunch_03.caf",
+     "dur": 0.073,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.015,
+       0.39,
+       0.94
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_04",
+     "path": "egg/egg_crunch_04.caf",
+     "dur": 0.077,
+     "haptics": [
+      [
+       0.019,
+       1,
+       0.95
+      ],
+      [
+       0.053,
+       0.75,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_05",
+     "path": "egg/egg_crunch_05.caf",
+     "dur": 0.153,
+     "haptics": [
+      [
+       0.003,
+       0.62,
+       0.95
+      ],
+      [
+       0.033,
+       1,
+       0.95
+      ],
+      [
+       0.068,
+       0.7,
+       0.95
+      ],
+      [
+       0.085,
+       0.7,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_06",
+     "path": "egg/egg_crunch_06.caf",
+     "dur": 0.133,
+     "haptics": [
+      [
+       0.003,
+       0.74,
+       0.94
+      ],
+      [
+       0.062,
+       1,
+       0.95
+      ],
+      [
+       0.093,
+       0.46,
+       0.95
+      ],
+      [
+       0.111,
+       0.45,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_07",
+     "path": "egg/egg_crunch_07.caf",
+     "dur": 0.124,
+     "haptics": [
+      [
+       0.025,
+       1,
+       0.84
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_08",
+     "path": "egg/egg_crunch_08.caf",
+     "dur": 0.114,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.79
+      ],
+      [
+       0.036,
+       0.65,
+       0.87
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_09",
+     "path": "egg/egg_crunch_09.caf",
+     "dur": 0.073,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.84
+      ],
+      [
+       0.027,
+       0.15,
+       0.77
+      ],
+      [
+       0.049,
+       0.15,
+       0.74
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_10",
+     "path": "egg/egg_crunch_10.caf",
+     "dur": 0.18,
+     "haptics": [
+      [
+       0.046,
+       1,
+       0.77
+      ],
+      [
+       0.125,
+       0.71,
+       0.84
+      ],
+      [
+       0.151,
+       0.7,
+       0.79
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_11",
+     "path": "egg/egg_crunch_11.caf",
+     "dur": 0.083,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.88
+      ],
+      [
+       0.057,
+       0.55,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "egg_crunch_12",
+     "path": "egg/egg_crunch_12.caf",
+     "dur": 0.111,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.056,
+       0.69,
+       0.91
+      ],
+      [
+       0.074,
+       0.43,
+       0.92
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -381,8 +3729,90 @@
   },
   "egg_yolk": {
    "files": [
-    "egg/egg_yolk_01.caf",
-    "egg/egg_yolk_02.caf"
+    {
+     "name": "egg_yolk_01",
+     "path": "egg/egg_yolk_01.caf",
+     "dur": 0.754,
+     "haptics": [
+      [
+       0.204,
+       1,
+       0.95
+      ],
+      [
+       0.221,
+       1,
+       0.95
+      ],
+      [
+       0.281,
+       0.71,
+       0.95
+      ],
+      [
+       0.328,
+       0.85,
+       0.95
+      ],
+      [
+       0.537,
+       0.15,
+       0.75
+      ],
+      [
+       0.56,
+       0.15,
+       0.85
+      ],
+      [
+       0.575,
+       0.15,
+       0.85
+      ]
+     ]
+    },
+    {
+     "name": "egg_yolk_02",
+     "path": "egg/egg_yolk_02.caf",
+     "dur": 1,
+     "haptics": [
+      [
+       0.259,
+       0.81,
+       0.76
+      ],
+      [
+       0.356,
+       0.57,
+       0.74
+      ],
+      [
+       0.424,
+       0.67,
+       0.76
+      ],
+      [
+       0.661,
+       0.82,
+       0.95
+      ],
+      [
+       0.716,
+       1,
+       0.95
+      ],
+      [
+       0.792,
+       1,
+       0.77
+      ],
+      [
+       0.831,
+       0.93,
+       0.82
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -392,8 +3822,18 @@
   },
   "cake_squish_loop": {
    "files": [
-    "cake/cake_squish_loop_01.caf",
-    "cake/cake_squish_loop_02.caf"
+    {
+     "name": "cake_squish_loop_01",
+     "path": "cake/cake_squish_loop_01.caf",
+     "dur": 2.3,
+     "haptics": []
+    },
+    {
+     "name": "cake_squish_loop_02",
+     "path": "cake/cake_squish_loop_02.caf",
+     "dur": 2.7,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -403,16 +3843,281 @@
   },
   "cake_crumb": {
    "files": [
-    "cake/cake_crumb_01.caf",
-    "cake/cake_crumb_02.caf",
-    "cake/cake_crumb_03.caf",
-    "cake/cake_crumb_04.caf",
-    "cake/cake_crumb_05.caf",
-    "cake/cake_crumb_06.caf",
-    "cake/cake_crumb_07.caf",
-    "cake/cake_crumb_08.caf",
-    "cake/cake_crumb_09.caf",
-    "cake/cake_crumb_10.caf"
+    {
+     "name": "cake_crumb_01",
+     "path": "cake/cake_crumb_01.caf",
+     "dur": 0.194,
+     "haptics": [
+      [
+       0.007,
+       1,
+       0.95
+      ],
+      [
+       0.084,
+       0.62,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_02",
+     "path": "cake/cake_crumb_02.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.009,
+       1,
+       0.95
+      ],
+      [
+       0.07,
+       0.92,
+       0.95
+      ],
+      [
+       0.107,
+       0.84,
+       0.93
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_03",
+     "path": "cake/cake_crumb_03.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.92
+      ],
+      [
+       0.149,
+       0.35,
+       0.76
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_04",
+     "path": "cake/cake_crumb_04.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.95
+      ],
+      [
+       0.076,
+       0.98,
+       0.93
+      ],
+      [
+       0.139,
+       0.65,
+       0.88
+      ],
+      [
+       0.208,
+       0.49,
+       0.93
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_05",
+     "path": "cake/cake_crumb_05.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.005,
+       0.94,
+       0.88
+      ],
+      [
+       0.018,
+       1,
+       0.84
+      ],
+      [
+       0.093,
+       0.68,
+       0.83
+      ],
+      [
+       0.112,
+       0.68,
+       0.86
+      ],
+      [
+       0.198,
+       0.58,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_06",
+     "path": "cake/cake_crumb_06.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.005,
+       0.96,
+       0.93
+      ],
+      [
+       0.048,
+       0.97,
+       0.85
+      ],
+      [
+       0.108,
+       0.79,
+       0.82
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_07",
+     "path": "cake/cake_crumb_07.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.009,
+       0.79,
+       0.95
+      ],
+      [
+       0.03,
+       1,
+       0.94
+      ],
+      [
+       0.112,
+       0.93,
+       0.93
+      ],
+      [
+       0.171,
+       0.77,
+       0.93
+      ],
+      [
+       0.187,
+       0.71,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_08",
+     "path": "cake/cake_crumb_08.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.005,
+       0.89,
+       0.95
+      ],
+      [
+       0.113,
+       0.83,
+       0.85
+      ],
+      [
+       0.128,
+       0.83,
+       0.86
+      ],
+      [
+       0.145,
+       0.79,
+       0.86
+      ],
+      [
+       0.193,
+       0.74,
+       0.78
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_09",
+     "path": "cake/cake_crumb_09.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.016,
+       1,
+       0.91
+      ],
+      [
+       0.054,
+       0.88,
+       0.84
+      ],
+      [
+       0.139,
+       0.62,
+       0.91
+      ],
+      [
+       0.199,
+       0.55,
+       0.93
+      ],
+      [
+       0.211,
+       0.45,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "cake_crumb_10",
+     "path": "cake/cake_crumb_10.caf",
+     "dur": 0.25,
+     "haptics": [
+      [
+       0.006,
+       1,
+       0.71
+      ],
+      [
+       0.059,
+       0.66,
+       0.22
+      ],
+      [
+       0.075,
+       0.51,
+       0.31
+      ],
+      [
+       0.097,
+       0.36,
+       0.52
+      ],
+      [
+       0.112,
+       0.37,
+       0.71
+      ],
+      [
+       0.145,
+       0.37,
+       0.78
+      ],
+      [
+       0.196,
+       0.46,
+       0.84
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -422,8 +4127,95 @@
   },
   "cake_collapse": {
    "files": [
-    "cake/cake_collapse_01.caf",
-    "cake/cake_collapse_02.caf"
+    {
+     "name": "cake_collapse_01",
+     "path": "cake/cake_collapse_01.caf",
+     "dur": 0.312,
+     "haptics": [
+      [
+       0.005,
+       0.94,
+       0.88
+      ],
+      [
+       0.018,
+       1,
+       0.84
+      ],
+      [
+       0.093,
+       0.68,
+       0.83
+      ],
+      [
+       0.112,
+       0.68,
+       0.86
+      ],
+      [
+       0.198,
+       0.58,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "cake_collapse_02",
+     "path": "cake/cake_collapse_02.caf",
+     "dur": 0.558,
+     "haptics": [
+      [
+       0.006,
+       1,
+       0.71
+      ],
+      [
+       0.075,
+       0.51,
+       0.31
+      ],
+      [
+       0.097,
+       0.36,
+       0.52
+      ],
+      [
+       0.112,
+       0.37,
+       0.71
+      ],
+      [
+       0.145,
+       0.37,
+       0.78
+      ],
+      [
+       0.196,
+       0.46,
+       0.84
+      ],
+      [
+       0.296,
+       0.46,
+       0.94
+      ],
+      [
+       0.408,
+       0.46,
+       0.95
+      ],
+      [
+       0.448,
+       0.19,
+       0.91
+      ],
+      [
+       0.498,
+       0.15,
+       0.92
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -433,8 +4225,65 @@
   },
   "cake_squirt": {
    "files": [
-    "cake/cake_squirt_01.caf",
-    "cake/cake_squirt_02.caf"
+    {
+     "name": "cake_squirt_01",
+     "path": "cake/cake_squirt_01.caf",
+     "dur": 0.216,
+     "haptics": [
+      [
+       0.003,
+       0.86,
+       0.95
+      ],
+      [
+       0.021,
+       1,
+       0.95
+      ],
+      [
+       0.06,
+       0.93,
+       0.95
+      ],
+      [
+       0.133,
+       0.89,
+       0.95
+      ],
+      [
+       0.161,
+       0.63,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "cake_squirt_02",
+     "path": "cake/cake_squirt_02.caf",
+     "dur": 0.167,
+     "haptics": [
+      [
+       0.003,
+       0.86,
+       0.95
+      ],
+      [
+       0.027,
+       1,
+       0.95
+      ],
+      [
+       0.099,
+       0.49,
+       0.93
+      ],
+      [
+       0.124,
+       0.49,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -444,8 +4293,135 @@
   },
   "cake_icing": {
    "files": [
-    "cake/cake_icing_01.caf",
-    "cake/cake_icing_02.caf"
+    {
+     "name": "cake_icing_01",
+     "path": "cake/cake_icing_01.caf",
+     "dur": 0.553,
+     "haptics": [
+      [
+       0.041,
+       0.94,
+       0.95
+      ],
+      [
+       0.086,
+       1,
+       0.72
+      ],
+      [
+       0.164,
+       0.74,
+       0.89
+      ],
+      [
+       0.186,
+       0.74,
+       0.49
+      ],
+      [
+       0.215,
+       0.44,
+       0.94
+      ],
+      [
+       0.275,
+       0.68,
+       0.95
+      ],
+      [
+       0.298,
+       0.68,
+       0.91
+      ],
+      [
+       0.376,
+       0.94,
+       0.95
+      ],
+      [
+       0.476,
+       1,
+       0.95
+      ],
+      [
+       0.496,
+       0.73,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "cake_icing_02",
+     "path": "cake/cake_icing_02.caf",
+     "dur": 0.6,
+     "haptics": [
+      [
+       0.003,
+       0.75,
+       0.95
+      ],
+      [
+       0.034,
+       1,
+       0.95
+      ],
+      [
+       0.062,
+       1,
+       0.95
+      ],
+      [
+       0.105,
+       1,
+       0.91
+      ],
+      [
+       0.118,
+       0.77,
+       0.95
+      ],
+      [
+       0.164,
+       0.72,
+       0.95
+      ],
+      [
+       0.24,
+       0.98,
+       0.95
+      ],
+      [
+       0.28,
+       0.89,
+       0.95
+      ],
+      [
+       0.37,
+       1,
+       0.95
+      ],
+      [
+       0.479,
+       0.99,
+       0.94
+      ],
+      [
+       0.498,
+       0.99,
+       0.86
+      ],
+      [
+       0.54,
+       0.68,
+       0.95
+      ],
+      [
+       0.583,
+       0.3,
+       0.94
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -455,17 +4431,418 @@
   },
   "can_buckle": {
    "files": [
-    "can/can_buckle_01.caf",
-    "can/can_buckle_02.caf",
-    "can/can_buckle_03.caf",
-    "can/can_buckle_04.caf",
-    "can/can_buckle_05.caf",
-    "can/can_buckle_06.caf",
-    "can/can_buckle_07.caf",
-    "can/can_buckle_08.caf",
-    "can/can_buckle_09.caf",
-    "can/can_buckle_10.caf",
-    "can/can_buckle_11.caf"
+    {
+     "name": "can_buckle_01",
+     "path": "can/can_buckle_01.caf",
+     "dur": 0.52,
+     "haptics": [
+      [
+       0.001,
+       0.77,
+       0.12
+      ],
+      [
+       0.043,
+       1,
+       0.72
+      ],
+      [
+       0.15,
+       0.37,
+       0.73
+      ],
+      [
+       0.167,
+       0.6,
+       0.54
+      ],
+      [
+       0.213,
+       0.84,
+       0.7
+      ],
+      [
+       0.295,
+       1,
+       0.87
+      ],
+      [
+       0.384,
+       1,
+       0.31
+      ],
+      [
+       0.457,
+       0.15,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_02",
+     "path": "can/can_buckle_02.caf",
+     "dur": 0.64,
+     "haptics": [
+      [
+       0.052,
+       0.96,
+       0.87
+      ],
+      [
+       0.133,
+       1,
+       0.95
+      ],
+      [
+       0.174,
+       1,
+       0.86
+      ],
+      [
+       0.306,
+       1,
+       0.84
+      ],
+      [
+       0.339,
+       1,
+       0.91
+      ],
+      [
+       0.51,
+       0.53,
+       0.78
+      ],
+      [
+       0.549,
+       0.53,
+       0.76
+      ],
+      [
+       0.579,
+       0.31,
+       0.75
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_03",
+     "path": "can/can_buckle_03.caf",
+     "dur": 0.227,
+     "haptics": [
+      [
+       0.04,
+       1,
+       0.88
+      ],
+      [
+       0.056,
+       0.81,
+       0.88
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_04",
+     "path": "can/can_buckle_04.caf",
+     "dur": 0.279,
+     "haptics": [
+      [
+       0.005,
+       0.65,
+       0.1
+      ],
+      [
+       0.051,
+       1,
+       0.68
+      ],
+      [
+       0.081,
+       1,
+       0.61
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_05",
+     "path": "can/can_buckle_05.caf",
+     "dur": 0.664,
+     "haptics": [
+      [
+       0.012,
+       0.83,
+       0.42
+      ],
+      [
+       0.043,
+       1,
+       0.65
+      ],
+      [
+       0.143,
+       1,
+       0.57
+      ],
+      [
+       0.19,
+       1,
+       0.82
+      ],
+      [
+       0.246,
+       0.95,
+       0.95
+      ],
+      [
+       0.361,
+       0.62,
+       0.58
+      ],
+      [
+       0.415,
+       0.62,
+       0.64
+      ],
+      [
+       0.515,
+       0.7,
+       0.51
+      ],
+      [
+       0.549,
+       0.15,
+       0.44
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_06",
+     "path": "can/can_buckle_06.caf",
+     "dur": 0.365,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.93
+      ],
+      [
+       0.043,
+       0.59,
+       0.88
+      ],
+      [
+       0.064,
+       0.47,
+       0.86
+      ],
+      [
+       0.08,
+       0.42,
+       0.85
+      ],
+      [
+       0.128,
+       0.15,
+       0.83
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_07",
+     "path": "can/can_buckle_07.caf",
+     "dur": 0.493,
+     "haptics": [
+      [
+       0.012,
+       1,
+       0.79
+      ],
+      [
+       0.057,
+       1,
+       0.66
+      ],
+      [
+       0.084,
+       1,
+       0.69
+      ],
+      [
+       0.11,
+       1,
+       0.78
+      ],
+      [
+       0.14,
+       1,
+       0.89
+      ],
+      [
+       0.257,
+       1,
+       0.81
+      ],
+      [
+       0.35,
+       0.33,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_08",
+     "path": "can/can_buckle_08.caf",
+     "dur": 0.172,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.88
+      ],
+      [
+       0.048,
+       0.15,
+       0.85
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_09",
+     "path": "can/can_buckle_09.caf",
+     "dur": 0.429,
+     "haptics": [
+      [
+       0.024,
+       0.69,
+       0.44
+      ],
+      [
+       0.088,
+       1,
+       0.83
+      ],
+      [
+       0.121,
+       1,
+       0.8
+      ],
+      [
+       0.143,
+       1,
+       0.75
+      ],
+      [
+       0.382,
+       0.8,
+       0.63
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_10",
+     "path": "can/can_buckle_10.caf",
+     "dur": 0.534,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.94
+      ],
+      [
+       0.062,
+       1,
+       0.92
+      ],
+      [
+       0.126,
+       1,
+       0.69
+      ],
+      [
+       0.138,
+       1,
+       0.89
+      ],
+      [
+       0.161,
+       1,
+       0.94
+      ],
+      [
+       0.218,
+       1,
+       0.95
+      ],
+      [
+       0.297,
+       0.38,
+       0.56
+      ],
+      [
+       0.37,
+       0.87,
+       0.9
+      ],
+      [
+       0.446,
+       1,
+       0.87
+      ],
+      [
+       0.471,
+       1,
+       0.88
+      ]
+     ]
+    },
+    {
+     "name": "can_buckle_11",
+     "path": "can/can_buckle_11.caf",
+     "dur": 0.449,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.81
+      ],
+      [
+       0.065,
+       1,
+       0.91
+      ],
+      [
+       0.11,
+       1,
+       0.93
+      ],
+      [
+       0.15,
+       1,
+       0.79
+      ],
+      [
+       0.201,
+       1,
+       0.8
+      ],
+      [
+       0.235,
+       0.44,
+       0.83
+      ],
+      [
+       0.315,
+       0.58,
+       0.43
+      ],
+      [
+       0.331,
+       0.23,
+       0.49
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -475,8 +4852,100 @@
   },
   "can_crush": {
    "files": [
-    "can/can_crush_01.caf",
-    "can/can_crush_02.caf"
+    {
+     "name": "can_crush_01",
+     "path": "can/can_crush_01.caf",
+     "dur": 0.745,
+     "haptics": [
+      [
+       0.072,
+       0.91,
+       0.86
+      ],
+      [
+       0.09,
+       1,
+       0.88
+      ],
+      [
+       0.13,
+       0.92,
+       0.77
+      ],
+      [
+       0.176,
+       0.94,
+       0.85
+      ],
+      [
+       0.197,
+       0.94,
+       0.86
+      ],
+      [
+       0.247,
+       0.67,
+       0.95
+      ],
+      [
+       0.471,
+       0.15,
+       0.41
+      ]
+     ]
+    },
+    {
+     "name": "can_crush_02",
+     "path": "can/can_crush_02.caf",
+     "dur": 0.697,
+     "haptics": [
+      [
+       0.023,
+       0.61,
+       0.58
+      ],
+      [
+       0.074,
+       0.9,
+       0.75
+      ],
+      [
+       0.092,
+       1,
+       0.74
+      ],
+      [
+       0.161,
+       1,
+       0.74
+      ],
+      [
+       0.189,
+       1,
+       0.85
+      ],
+      [
+       0.207,
+       0.9,
+       0.83
+      ],
+      [
+       0.267,
+       0.54,
+       0.78
+      ],
+      [
+       0.281,
+       0.54,
+       0.61
+      ],
+      [
+       0.374,
+       0.81,
+       0.9
+      ]
+     ]
+    }
    ],
    "kind": "hero",
    "gainDb": 0,
@@ -486,7 +4955,12 @@
   },
   "can_strain_loop": {
    "files": [
-    "can/can_strain_loop_01.caf"
+    {
+     "name": "can_strain_loop_01",
+     "path": "can/can_strain_loop_01.caf",
+     "dur": 2.5,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -496,18 +4970,220 @@
   },
   "can_crumple": {
    "files": [
-    "can/can_crumple_01.caf",
-    "can/can_crumple_02.caf",
-    "can/can_crumple_03.caf",
-    "can/can_crumple_04.caf",
-    "can/can_crumple_05.caf",
-    "can/can_crumple_06.caf",
-    "can/can_crumple_07.caf",
-    "can/can_crumple_08.caf",
-    "can/can_crumple_09.caf",
-    "can/can_crumple_10.caf",
-    "can/can_crumple_11.caf",
-    "can/can_crumple_12.caf"
+    {
+     "name": "can_crumple_01",
+     "path": "can/can_crumple_01.caf",
+     "dur": 0.074,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.36
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_02",
+     "path": "can/can_crumple_02.caf",
+     "dur": 0.092,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.91
+      ],
+      [
+       0.021,
+       1,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_03",
+     "path": "can/can_crumple_03.caf",
+     "dur": 0.063,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.54
+      ],
+      [
+       0.016,
+       0.26,
+       0.53
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_04",
+     "path": "can/can_crumple_04.caf",
+     "dur": 0.134,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.8
+      ],
+      [
+       0.038,
+       0.78,
+       0.93
+      ],
+      [
+       0.072,
+       0.44,
+       0.66
+      ],
+      [
+       0.103,
+       0.15,
+       0.71
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_05",
+     "path": "can/can_crumple_05.caf",
+     "dur": 0.103,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.89
+      ],
+      [
+       0.063,
+       0.15,
+       0.48
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_06",
+     "path": "can/can_crumple_06.caf",
+     "dur": 0.102,
+     "haptics": [
+      [
+       0.012,
+       1,
+       0.87
+      ],
+      [
+       0.029,
+       0.96,
+       0.86
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_07",
+     "path": "can/can_crumple_07.caf",
+     "dur": 0.138,
+     "haptics": [
+      [
+       0.005,
+       0.66,
+       0.82
+      ],
+      [
+       0.046,
+       1,
+       0.7
+      ],
+      [
+       0.076,
+       0.94,
+       0.88
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_08",
+     "path": "can/can_crumple_08.caf",
+     "dur": 0.105,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.88
+      ],
+      [
+       0.042,
+       0.79,
+       0.9
+      ],
+      [
+       0.062,
+       0.79,
+       0.89
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_09",
+     "path": "can/can_crumple_09.caf",
+     "dur": 0.054,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.84
+      ],
+      [
+       0.016,
+       0.15,
+       0.87
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_10",
+     "path": "can/can_crumple_10.caf",
+     "dur": 0.104,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.85
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_11",
+     "path": "can/can_crumple_11.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.78
+      ],
+      [
+       0.016,
+       0.15,
+       0.77
+      ]
+     ]
+    },
+    {
+     "name": "can_crumple_12",
+     "path": "can/can_crumple_12.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.009,
+       1,
+       0.81
+      ],
+      [
+       0.084,
+       0.43,
+       0.85
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -517,8 +5193,85 @@
   },
   "can_open_fizz": {
    "files": [
-    "can/can_open_fizz_01.caf",
-    "can/can_open_fizz_02.caf"
+    {
+     "name": "can_open_fizz_01",
+     "path": "can/can_open_fizz_01.caf",
+     "dur": 1.83,
+     "haptics": [
+      [
+       0.015,
+       0.71,
+       0.95
+      ],
+      [
+       0.042,
+       0.98,
+       0.95
+      ],
+      [
+       0.296,
+       0.99,
+       0.84
+      ],
+      [
+       0.526,
+       0.16,
+       0.69
+      ],
+      [
+       0.579,
+       0.74,
+       0.87
+      ],
+      [
+       0.594,
+       0.95,
+       0.91
+      ],
+      [
+       0.615,
+       1,
+       0.91
+      ],
+      [
+       0.658,
+       0.35,
+       0.94
+      ],
+      [
+       1.263,
+       0.15,
+       0.8
+      ],
+      [
+       1.29,
+       0.15,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "can_open_fizz_02",
+     "path": "can/can_open_fizz_02.caf",
+     "dur": 0.589,
+     "haptics": [
+      [
+       0.004,
+       0.97,
+       0.95
+      ],
+      [
+       0.232,
+       0.68,
+       0.85
+      ],
+      [
+       0.353,
+       1,
+       0.76
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -528,11 +5281,96 @@
   },
   "can_tink": {
    "files": [
-    "can/can_tink_01.caf",
-    "can/can_tink_02.caf",
-    "can/can_tink_03.caf",
-    "can/can_tink_04.caf",
-    "can/can_tink_05.caf"
+    {
+     "name": "can_tink_01",
+     "path": "can/can_tink_01.caf",
+     "dur": 0.136,
+     "haptics": [
+      [
+       0,
+       1,
+       0.34
+      ],
+      [
+       0.017,
+       0.65,
+       0.34
+      ]
+     ]
+    },
+    {
+     "name": "can_tink_02",
+     "path": "can/can_tink_02.caf",
+     "dur": 0.101,
+     "haptics": [
+      [
+       0,
+       1,
+       0.37
+      ]
+     ]
+    },
+    {
+     "name": "can_tink_03",
+     "path": "can/can_tink_03.caf",
+     "dur": 0.101,
+     "haptics": [
+      [
+       0,
+       1,
+       0.36
+      ],
+      [
+       0.016,
+       0.74,
+       0.35
+      ],
+      [
+       0.043,
+       0.41,
+       0.3
+      ]
+     ]
+    },
+    {
+     "name": "can_tink_04",
+     "path": "can/can_tink_04.caf",
+     "dur": 0.102,
+     "haptics": [
+      [
+       0,
+       1,
+       0.38
+      ],
+      [
+       0.044,
+       0.34,
+       0.35
+      ]
+     ]
+    },
+    {
+     "name": "can_tink_05",
+     "path": "can/can_tink_05.caf",
+     "dur": 0.122,
+     "haptics": [
+      [
+       0,
+       1,
+       0.37
+      ],
+      [
+       0.016,
+       0.75,
+       0.35
+      ],
+      [
+       0.048,
+       0.39,
+       0.33
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -542,7 +5380,12 @@
   },
   "can_fizz_loop": {
    "files": [
-    "can/can_fizz_loop_01.caf"
+    {
+     "name": "can_fizz_loop_01",
+     "path": "can/can_fizz_loop_01.caf",
+     "dur": 2.5,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -552,7 +5395,12 @@
   },
   "gummy_stretch_loop": {
    "files": [
-    "gummy/gummy_stretch_loop_01.caf"
+    {
+     "name": "gummy_stretch_loop_01",
+     "path": "gummy/gummy_stretch_loop_01.caf",
+     "dur": 2.5,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -562,11 +5410,261 @@
   },
   "gummy_squish": {
    "files": [
-    "gummy/gummy_squish_01.caf",
-    "gummy/gummy_squish_02.caf",
-    "gummy/gummy_squish_03.caf",
-    "gummy/gummy_squish_04.caf",
-    "gummy/gummy_squish_05.caf"
+    {
+     "name": "gummy_squish_01",
+     "path": "gummy/gummy_squish_01.caf",
+     "dur": 0.45,
+     "haptics": [
+      [
+       0.004,
+       0.85,
+       0.76
+      ],
+      [
+       0.039,
+       1,
+       0.92
+      ],
+      [
+       0.059,
+       0.93,
+       0.9
+      ],
+      [
+       0.087,
+       0.47,
+       0.54
+      ],
+      [
+       0.152,
+       0.71,
+       0.73
+      ],
+      [
+       0.201,
+       0.71,
+       0.7
+      ],
+      [
+       0.311,
+       0.87,
+       0.51
+      ],
+      [
+       0.347,
+       0.77,
+       0.56
+      ],
+      [
+       0.419,
+       0.67,
+       0.68
+      ]
+     ]
+    },
+    {
+     "name": "gummy_squish_02",
+     "path": "gummy/gummy_squish_02.caf",
+     "dur": 0.45,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.49
+      ],
+      [
+       0.024,
+       1,
+       0.47
+      ],
+      [
+       0.066,
+       0.97,
+       0.34
+      ],
+      [
+       0.17,
+       0.87,
+       0.33
+      ],
+      [
+       0.242,
+       0.85,
+       0.23
+      ],
+      [
+       0.354,
+       0.96,
+       0.76
+      ],
+      [
+       0.395,
+       0.66,
+       0.88
+      ],
+      [
+       0.418,
+       0.6,
+       0.73
+      ]
+     ]
+    },
+    {
+     "name": "gummy_squish_03",
+     "path": "gummy/gummy_squish_03.caf",
+     "dur": 0.45,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.74
+      ],
+      [
+       0.166,
+       0.55,
+       0.75
+      ],
+      [
+       0.179,
+       0.85,
+       0.78
+      ],
+      [
+       0.216,
+       0.91,
+       0.82
+      ],
+      [
+       0.249,
+       0.91,
+       0.68
+      ],
+      [
+       0.33,
+       0.84,
+       0.56
+      ],
+      [
+       0.346,
+       0.92,
+       0.72
+      ],
+      [
+       0.382,
+       0.92,
+       0.85
+      ],
+      [
+       0.41,
+       0.87,
+       0.77
+      ]
+     ]
+    },
+    {
+     "name": "gummy_squish_04",
+     "path": "gummy/gummy_squish_04.caf",
+     "dur": 0.45,
+     "haptics": [
+      [
+       0.004,
+       0.67,
+       0.66
+      ],
+      [
+       0.053,
+       1,
+       0.95
+      ],
+      [
+       0.096,
+       0.6,
+       0.85
+      ],
+      [
+       0.121,
+       0.75,
+       0.78
+      ],
+      [
+       0.169,
+       0.75,
+       0.94
+      ],
+      [
+       0.193,
+       0.43,
+       0.85
+      ],
+      [
+       0.222,
+       0.46,
+       0.87
+      ],
+      [
+       0.255,
+       0.46,
+       0.71
+      ],
+      [
+       0.351,
+       0.45,
+       0.57
+      ],
+      [
+       0.412,
+       0.77,
+       0.6
+      ]
+     ]
+    },
+    {
+     "name": "gummy_squish_05",
+     "path": "gummy/gummy_squish_05.caf",
+     "dur": 0.401,
+     "haptics": [
+      [
+       0.02,
+       1,
+       0.7
+      ],
+      [
+       0.054,
+       0.73,
+       0.66
+      ],
+      [
+       0.12,
+       0.77,
+       0.91
+      ],
+      [
+       0.148,
+       0.46,
+       0.71
+      ],
+      [
+       0.212,
+       0.58,
+       0.62
+      ],
+      [
+       0.236,
+       0.58,
+       0.9
+      ],
+      [
+       0.304,
+       0.52,
+       0.93
+      ],
+      [
+       0.379,
+       0.15,
+       0.78
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -576,9 +5674,187 @@
   },
   "gummy_split": {
    "files": [
-    "gummy/gummy_split_01.caf",
-    "gummy/gummy_split_02.caf",
-    "gummy/gummy_split_03.caf"
+    {
+     "name": "gummy_split_01",
+     "path": "gummy/gummy_split_01.caf",
+     "dur": 0.6,
+     "haptics": [
+      [
+       0.057,
+       0.82,
+       0.77
+      ],
+      [
+       0.072,
+       0.76,
+       0.75
+      ],
+      [
+       0.106,
+       0.76,
+       0.77
+      ],
+      [
+       0.188,
+       1,
+       0.79
+      ],
+      [
+       0.217,
+       0.95,
+       0.82
+      ],
+      [
+       0.23,
+       0.93,
+       0.82
+      ],
+      [
+       0.281,
+       0.86,
+       0.82
+      ],
+      [
+       0.304,
+       0.84,
+       0.82
+      ],
+      [
+       0.352,
+       0.79,
+       0.83
+      ],
+      [
+       0.403,
+       0.78,
+       0.86
+      ],
+      [
+       0.434,
+       0.88,
+       0.87
+      ],
+      [
+       0.466,
+       0.88,
+       0.85
+      ],
+      [
+       0.543,
+       0.96,
+       0.85
+      ],
+      [
+       0.575,
+       0.74,
+       0.8
+      ]
+     ]
+    },
+    {
+     "name": "gummy_split_02",
+     "path": "gummy/gummy_split_02.caf",
+     "dur": 0.6,
+     "haptics": [
+      [
+       0.012,
+       1,
+       0.76
+      ],
+      [
+       0.029,
+       1,
+       0.76
+      ],
+      [
+       0.051,
+       0.86,
+       0.67
+      ],
+      [
+       0.064,
+       0.86,
+       0.82
+      ],
+      [
+       0.128,
+       0.83,
+       0.88
+      ],
+      [
+       0.146,
+       0.67,
+       0.92
+      ],
+      [
+       0.194,
+       0.62,
+       0.84
+      ],
+      [
+       0.263,
+       0.41,
+       0.74
+      ],
+      [
+       0.278,
+       0.34,
+       0.77
+      ],
+      [
+       0.313,
+       0.34,
+       0.8
+      ],
+      [
+       0.385,
+       0.15,
+       0.72
+      ],
+      [
+       0.452,
+       0.48,
+       0.71
+      ],
+      [
+       0.475,
+       0.56,
+       0.77
+      ],
+      [
+       0.538,
+       0.35,
+       0.53
+      ],
+      [
+       0.573,
+       0.26,
+       0.71
+      ]
+     ]
+    },
+    {
+     "name": "gummy_split_03",
+     "path": "gummy/gummy_split_03.caf",
+     "dur": 0.382,
+     "haptics": [
+      [
+       0.042,
+       0.63,
+       0.52
+      ],
+      [
+       0.075,
+       1,
+       0.65
+      ],
+      [
+       0.291,
+       0.58,
+       0.85
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -588,7 +5864,73 @@
   },
   "gummy_boing": {
    "files": [
-    "gummy/gummy_boing_01.caf"
+    {
+     "name": "gummy_boing_01",
+     "path": "gummy/gummy_boing_01.caf",
+     "dur": 1.31,
+     "haptics": [
+      [
+       0.026,
+       0.89,
+       0.15
+      ],
+      [
+       0.16,
+       0.89,
+       0.05
+      ],
+      [
+       0.194,
+       0.99,
+       0.05
+      ],
+      [
+       0.213,
+       1,
+       0.05
+      ],
+      [
+       0.389,
+       0.78,
+       0.05
+      ],
+      [
+       0.412,
+       0.74,
+       0.05
+      ],
+      [
+       0.573,
+       0.53,
+       0.05
+      ],
+      [
+       0.608,
+       0.39,
+       0.05
+      ],
+      [
+       0.693,
+       0.32,
+       0.16
+      ],
+      [
+       0.833,
+       0.15,
+       0.05
+      ],
+      [
+       0.851,
+       0.15,
+       0.05
+      ],
+      [
+       0.869,
+       0.15,
+       0.1
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -598,7 +5940,12 @@
   },
   "glass_creak_loop": {
    "files": [
-    "glass/glass_creak_loop_01.caf"
+    {
+     "name": "glass_creak_loop_01",
+     "path": "glass/glass_creak_loop_01.caf",
+     "dur": 2.7,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -608,14 +5955,177 @@
   },
   "glass_tick": {
    "files": [
-    "glass/glass_tick_01.caf",
-    "glass/glass_tick_02.caf",
-    "glass/glass_tick_03.caf",
-    "glass/glass_tick_04.caf",
-    "glass/glass_tick_05.caf",
-    "glass/glass_tick_06.caf",
-    "glass/glass_tick_07.caf",
-    "glass/glass_tick_08.caf"
+    {
+     "name": "glass_tick_01",
+     "path": "glass/glass_tick_01.caf",
+     "dur": 0.15,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.91
+      ],
+      [
+       0.045,
+       0.98,
+       0.82
+      ]
+     ]
+    },
+    {
+     "name": "glass_tick_02",
+     "path": "glass/glass_tick_02.caf",
+     "dur": 0.15,
+     "haptics": [
+      [
+       0.001,
+       0.85,
+       0.88
+      ],
+      [
+       0.037,
+       1,
+       0.94
+      ],
+      [
+       0.071,
+       0.85,
+       0.78
+      ],
+      [
+       0.095,
+       0.83,
+       0.8
+      ]
+     ]
+    },
+    {
+     "name": "glass_tick_03",
+     "path": "glass/glass_tick_03.caf",
+     "dur": 0.099,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.89
+      ]
+     ]
+    },
+    {
+     "name": "glass_tick_04",
+     "path": "glass/glass_tick_04.caf",
+     "dur": 0.15,
+     "haptics": [
+      [
+       0.001,
+       0.98,
+       0.91
+      ],
+      [
+       0.049,
+       1,
+       0.88
+      ]
+     ]
+    },
+    {
+     "name": "glass_tick_05",
+     "path": "glass/glass_tick_05.caf",
+     "dur": 0.15,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.8
+      ],
+      [
+       0.027,
+       0.94,
+       0.85
+      ],
+      [
+       0.064,
+       0.94,
+       0.86
+      ]
+     ]
+    },
+    {
+     "name": "glass_tick_06",
+     "path": "glass/glass_tick_06.caf",
+     "dur": 0.15,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.88
+      ],
+      [
+       0.037,
+       0.56,
+       0.89
+      ],
+      [
+       0.08,
+       0.26,
+       0.88
+      ],
+      [
+       0.107,
+       0.15,
+       0.86
+      ]
+     ]
+    },
+    {
+     "name": "glass_tick_07",
+     "path": "glass/glass_tick_07.caf",
+     "dur": 0.15,
+     "haptics": [
+      [
+       0.022,
+       1,
+       0.81
+      ],
+      [
+       0.092,
+       0.88,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "glass_tick_08",
+     "path": "glass/glass_tick_08.caf",
+     "dur": 0.15,
+     "haptics": [
+      [
+       0.014,
+       0.85,
+       0.95
+      ],
+      [
+       0.027,
+       1,
+       0.91
+      ],
+      [
+       0.051,
+       1,
+       0.89
+      ],
+      [
+       0.081,
+       1,
+       0.95
+      ],
+      [
+       0.105,
+       0.9,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -625,12 +6135,123 @@
   },
   "glass_crack": {
    "files": [
-    "glass/glass_crack_01.caf",
-    "glass/glass_crack_02.caf",
-    "glass/glass_crack_03.caf",
-    "glass/glass_crack_04.caf",
-    "glass/glass_crack_05.caf",
-    "glass/glass_crack_06.caf"
+    {
+     "name": "glass_crack_01",
+     "path": "glass/glass_crack_01.caf",
+     "dur": 0.32,
+     "haptics": [
+      [
+       0.001,
+       1,
+       0.77
+      ],
+      [
+       0.085,
+       0.93,
+       0.95
+      ],
+      [
+       0.123,
+       0.73,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_crack_02",
+     "path": "glass/glass_crack_02.caf",
+     "dur": 0.033,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "glass_crack_03",
+     "path": "glass/glass_crack_03.caf",
+     "dur": 0.058,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.95
+      ],
+      [
+       0.028,
+       0.99,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_crack_04",
+     "path": "glass/glass_crack_04.caf",
+     "dur": 0.168,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.94
+      ],
+      [
+       0.045,
+       1,
+       0.88
+      ],
+      [
+       0.139,
+       0.15,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_crack_05",
+     "path": "glass/glass_crack_05.caf",
+     "dur": 0.099,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.043,
+       0.15,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_crack_06",
+     "path": "glass/glass_crack_06.caf",
+     "dur": 0.247,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.86
+      ],
+      [
+       0.027,
+       1,
+       0.92
+      ],
+      [
+       0.063,
+       1,
+       0.93
+      ],
+      [
+       0.187,
+       0.15,
+       0.82
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -640,9 +6261,92 @@
   },
   "glass_tink": {
    "files": [
-    "glass/glass_tink_01.caf",
-    "glass/glass_tink_02.caf",
-    "glass/glass_tink_03.caf"
+    {
+     "name": "glass_tink_01",
+     "path": "glass/glass_tink_01.caf",
+     "dur": 0.39,
+     "haptics": [
+      [
+       0,
+       1,
+       0.43
+      ],
+      [
+       0.08,
+       0.5,
+       0.44
+      ],
+      [
+       0.112,
+       0.4,
+       0.43
+      ],
+      [
+       0.128,
+       0.32,
+       0.43
+      ],
+      [
+       0.198,
+       0.15,
+       0.43
+      ]
+     ]
+    },
+    {
+     "name": "glass_tink_02",
+     "path": "glass/glass_tink_02.caf",
+     "dur": 0.39,
+     "haptics": [
+      [
+       0,
+       1,
+       0.49
+      ],
+      [
+       0.08,
+       0.49,
+       0.49
+      ],
+      [
+       0.214,
+       0.15,
+       0.5
+      ]
+     ]
+    },
+    {
+     "name": "glass_tink_03",
+     "path": "glass/glass_tink_03.caf",
+     "dur": 0.36,
+     "haptics": [
+      [
+       0,
+       1,
+       0.46
+      ],
+      [
+       0.027,
+       0.67,
+       0.48
+      ],
+      [
+       0.075,
+       0.51,
+       0.48
+      ],
+      [
+       0.091,
+       0.44,
+       0.48
+      ],
+      [
+       0.134,
+       0.28,
+       0.47
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -652,17 +6356,733 @@
   },
   "glass_shatter": {
    "files": [
-    "glass/glass_shatter_01.caf",
-    "glass/glass_shatter_02.caf",
-    "glass/glass_shatter_03.caf",
-    "glass/glass_shatter_04.caf",
-    "glass/glass_shatter_05.caf",
-    "glass/glass_shatter_06.caf",
-    "glass/glass_shatter_07.caf",
-    "glass/glass_shatter_08.caf",
-    "glass/glass_shatter_09.caf",
-    "glass/glass_shatter_10.caf",
-    "glass/glass_shatter_11.caf"
+    {
+     "name": "glass_shatter_01",
+     "path": "glass/glass_shatter_01.caf",
+     "dur": 0.555,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.94
+      ],
+      [
+       0.059,
+       0.57,
+       0.92
+      ],
+      [
+       0.097,
+       0.4,
+       0.95
+      ],
+      [
+       0.178,
+       0.29,
+       0.95
+      ],
+      [
+       0.198,
+       0.29,
+       0.95
+      ],
+      [
+       0.27,
+       0.52,
+       0.95
+      ],
+      [
+       0.292,
+       0.4,
+       0.95
+      ],
+      [
+       0.362,
+       0.24,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_02",
+     "path": "glass/glass_shatter_02.caf",
+     "dur": 0.607,
+     "haptics": [
+      [
+       0.009,
+       1,
+       0.95
+      ],
+      [
+       0.131,
+       0.59,
+       0.95
+      ],
+      [
+       0.216,
+       0.25,
+       0.95
+      ],
+      [
+       0.246,
+       0.16,
+       0.95
+      ],
+      [
+       0.305,
+       0.15,
+       0.95
+      ],
+      [
+       0.333,
+       0.15,
+       0.95
+      ],
+      [
+       0.401,
+       0.24,
+       0.95
+      ],
+      [
+       0.461,
+       0.15,
+       0.95
+      ],
+      [
+       0.503,
+       0.15,
+       0.95
+      ],
+      [
+       0.527,
+       0.15,
+       0.93
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_03",
+     "path": "glass/glass_shatter_03.caf",
+     "dur": 0.556,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.92
+      ],
+      [
+       0.038,
+       1,
+       0.93
+      ],
+      [
+       0.059,
+       1,
+       0.93
+      ],
+      [
+       0.149,
+       0.73,
+       0.91
+      ],
+      [
+       0.197,
+       0.48,
+       0.95
+      ],
+      [
+       0.3,
+       0.15,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_04",
+     "path": "glass/glass_shatter_04.caf",
+     "dur": 0.752,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.95
+      ],
+      [
+       0.021,
+       1,
+       0.94
+      ],
+      [
+       0.064,
+       0.99,
+       0.94
+      ],
+      [
+       0.086,
+       0.99,
+       0.94
+      ],
+      [
+       0.208,
+       0.56,
+       0.92
+      ],
+      [
+       0.224,
+       0.46,
+       0.93
+      ],
+      [
+       0.24,
+       0.46,
+       0.92
+      ],
+      [
+       0.278,
+       0.43,
+       0.95
+      ],
+      [
+       0.294,
+       0.43,
+       0.88
+      ],
+      [
+       0.396,
+       0.52,
+       0.95
+      ],
+      [
+       0.428,
+       0.52,
+       0.95
+      ],
+      [
+       0.469,
+       0.25,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_05",
+     "path": "glass/glass_shatter_05.caf",
+     "dur": 0.671,
+     "haptics": [
+      [
+       0.005,
+       1,
+       0.95
+      ],
+      [
+       0.162,
+       0.65,
+       0.9
+      ],
+      [
+       0.216,
+       0.41,
+       0.93
+      ],
+      [
+       0.275,
+       0.42,
+       0.95
+      ],
+      [
+       0.436,
+       0.26,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_06",
+     "path": "glass/glass_shatter_06.caf",
+     "dur": 0.694,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.069,
+       0.68,
+       0.95
+      ],
+      [
+       0.112,
+       0.55,
+       0.92
+      ],
+      [
+       0.198,
+       0.78,
+       0.94
+      ],
+      [
+       0.215,
+       0.78,
+       0.65
+      ],
+      [
+       0.235,
+       0.62,
+       0.93
+      ],
+      [
+       0.299,
+       0.28,
+       0.95
+      ],
+      [
+       0.373,
+       0.53,
+       0.95
+      ],
+      [
+       0.411,
+       0.19,
+       0.95
+      ],
+      [
+       0.448,
+       0.15,
+       0.89
+      ],
+      [
+       0.469,
+       0.15,
+       0.69
+      ],
+      [
+       0.491,
+       0.15,
+       0.72
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_07",
+     "path": "glass/glass_shatter_07.caf",
+     "dur": 0.93,
+     "haptics": [
+      [
+       0.074,
+       1,
+       0.95
+      ],
+      [
+       0.181,
+       0.9,
+       0.95
+      ],
+      [
+       0.217,
+       0.9,
+       0.95
+      ],
+      [
+       0.315,
+       0.82,
+       0.95
+      ],
+      [
+       0.348,
+       0.68,
+       0.95
+      ],
+      [
+       0.395,
+       0.28,
+       0.95
+      ],
+      [
+       0.423,
+       0.28,
+       0.95
+      ],
+      [
+       0.443,
+       0.15,
+       0.95
+      ],
+      [
+       0.528,
+       0.37,
+       0.95
+      ],
+      [
+       0.544,
+       0.36,
+       0.95
+      ],
+      [
+       0.581,
+       0.36,
+       0.95
+      ],
+      [
+       0.629,
+       0.32,
+       0.95
+      ],
+      [
+       0.786,
+       0.64,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_08",
+     "path": "glass/glass_shatter_08.caf",
+     "dur": 0.907,
+     "haptics": [
+      [
+       0.01,
+       1,
+       0.95
+      ],
+      [
+       0.096,
+       0.8,
+       0.95
+      ],
+      [
+       0.117,
+       0.72,
+       0.95
+      ],
+      [
+       0.141,
+       0.68,
+       0.87
+      ],
+      [
+       0.204,
+       0.68,
+       0.95
+      ],
+      [
+       0.244,
+       0.54,
+       0.95
+      ],
+      [
+       0.299,
+       0.63,
+       0.95
+      ],
+      [
+       0.331,
+       0.55,
+       0.95
+      ],
+      [
+       0.352,
+       0.31,
+       0.95
+      ],
+      [
+       0.389,
+       0.31,
+       0.95
+      ],
+      [
+       0.417,
+       0.31,
+       0.95
+      ],
+      [
+       0.443,
+       0.26,
+       0.95
+      ],
+      [
+       0.548,
+       0.4,
+       0.95
+      ],
+      [
+       0.622,
+       0.27,
+       0.91
+      ],
+      [
+       0.635,
+       0.2,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_09",
+     "path": "glass/glass_shatter_09.caf",
+     "dur": 1.147,
+     "haptics": [
+      [
+       0.006,
+       1,
+       0.95
+      ],
+      [
+       0.037,
+       0.85,
+       0.95
+      ],
+      [
+       0.064,
+       0.76,
+       0.95
+      ],
+      [
+       0.121,
+       0.54,
+       0.95
+      ],
+      [
+       0.146,
+       0.54,
+       0.95
+      ],
+      [
+       0.214,
+       0.16,
+       0.95
+      ],
+      [
+       0.306,
+       0.62,
+       0.95
+      ],
+      [
+       0.412,
+       0.15,
+       0.95
+      ],
+      [
+       0.438,
+       0.15,
+       0.95
+      ],
+      [
+       0.459,
+       0.15,
+       0.95
+      ],
+      [
+       0.552,
+       0.64,
+       0.9
+      ],
+      [
+       0.608,
+       0.15,
+       0.95
+      ],
+      [
+       0.645,
+       0.15,
+       0.95
+      ],
+      [
+       0.678,
+       0.15,
+       0.95
+      ],
+      [
+       0.725,
+       0.15,
+       0.95
+      ],
+      [
+       0.756,
+       0.15,
+       0.95
+      ],
+      [
+       0.851,
+       0.29,
+       0.95
+      ],
+      [
+       0.887,
+       0.15,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_10",
+     "path": "glass/glass_shatter_10.caf",
+     "dur": 1.643,
+     "haptics": [
+      [
+       0.004,
+       1,
+       0.91
+      ],
+      [
+       0.07,
+       0.88,
+       0.95
+      ],
+      [
+       0.091,
+       0.88,
+       0.95
+      ],
+      [
+       0.167,
+       0.87,
+       0.95
+      ],
+      [
+       0.193,
+       0.82,
+       0.95
+      ],
+      [
+       0.289,
+       0.73,
+       0.95
+      ],
+      [
+       0.342,
+       0.81,
+       0.95
+      ],
+      [
+       0.421,
+       0.91,
+       0.95
+      ],
+      [
+       0.439,
+       0.91,
+       0.91
+      ],
+      [
+       0.498,
+       0.81,
+       0.95
+      ],
+      [
+       0.584,
+       0.64,
+       0.95
+      ],
+      [
+       0.64,
+       0.76,
+       0.95
+      ],
+      [
+       0.691,
+       0.64,
+       0.95
+      ],
+      [
+       0.822,
+       0.7,
+       0.95
+      ],
+      [
+       0.843,
+       0.56,
+       0.89
+      ],
+      [
+       0.98,
+       0.68,
+       0.91
+      ],
+      [
+       1.021,
+       0.63,
+       0.95
+      ],
+      [
+       1.035,
+       0.42,
+       0.95
+      ],
+      [
+       1.077,
+       0.34,
+       0.95
+      ],
+      [
+       1.127,
+       0.22,
+       0.95
+      ],
+      [
+       1.219,
+       0.27,
+       0.95
+      ],
+      [
+       1.278,
+       0.15,
+       0.95
+      ],
+      [
+       1.391,
+       0.15,
+       0.94
+      ]
+     ]
+    },
+    {
+     "name": "glass_shatter_11",
+     "path": "glass/glass_shatter_11.caf",
+     "dur": 0.529,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.032,
+       0.47,
+       0.95
+      ],
+      [
+       0.055,
+       0.39,
+       0.95
+      ],
+      [
+       0.14,
+       0.61,
+       0.95
+      ],
+      [
+       0.192,
+       0.44,
+       0.95
+      ],
+      [
+       0.236,
+       0.57,
+       0.95
+      ],
+      [
+       0.251,
+       0.57,
+       0.95
+      ],
+      [
+       0.34,
+       0.15,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "hero",
    "gainDb": 0,
@@ -672,8 +7092,185 @@
   },
   "glass_debris": {
    "files": [
-    "glass/glass_debris_01.caf",
-    "glass/glass_debris_02.caf"
+    {
+     "name": "glass_debris_01",
+     "path": "glass/glass_debris_01.caf",
+     "dur": 1.89,
+     "haptics": [
+      [
+       0.102,
+       0.79,
+       0.91
+      ],
+      [
+       0.138,
+       0.89,
+       0.88
+      ],
+      [
+       0.252,
+       1,
+       0.86
+      ],
+      [
+       0.266,
+       0.32,
+       0.83
+      ],
+      [
+       0.352,
+       0.73,
+       0.82
+      ],
+      [
+       0.389,
+       0.64,
+       0.77
+      ],
+      [
+       0.445,
+       0.79,
+       0.95
+      ],
+      [
+       0.52,
+       0.75,
+       0.94
+      ],
+      [
+       0.584,
+       0.54,
+       0.95
+      ],
+      [
+       0.687,
+       0.69,
+       0.95
+      ],
+      [
+       0.767,
+       0.59,
+       0.95
+      ],
+      [
+       0.785,
+       0.24,
+       0.95
+      ],
+      [
+       0.833,
+       0.15,
+       0.95
+      ],
+      [
+       1.033,
+       0.43,
+       0.95
+      ],
+      [
+       1.206,
+       0.36,
+       0.89
+      ],
+      [
+       1.235,
+       0.15,
+       0.95
+      ],
+      [
+       1.356,
+       0.21,
+       0.8
+      ],
+      [
+       1.538,
+       0.45,
+       0.78
+      ],
+      [
+       1.711,
+       0.25,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_debris_02",
+     "path": "glass/glass_debris_02.caf",
+     "dur": 1.379,
+     "haptics": [
+      [
+       0.249,
+       0.98,
+       0.85
+      ],
+      [
+       0.285,
+       1,
+       0.9
+      ],
+      [
+       0.455,
+       0.66,
+       0.89
+      ],
+      [
+       0.476,
+       0.57,
+       0.9
+      ],
+      [
+       0.537,
+       0.21,
+       0.9
+      ],
+      [
+       0.587,
+       0.21,
+       0.9
+      ],
+      [
+       0.637,
+       0.15,
+       0.94
+      ],
+      [
+       0.711,
+       0.15,
+       0.79
+      ],
+      [
+       0.761,
+       0.37,
+       0.73
+      ],
+      [
+       0.803,
+       0.37,
+       0.94
+      ],
+      [
+       0.917,
+       0.48,
+       0.75
+      ],
+      [
+       0.954,
+       0.48,
+       0.85
+      ],
+      [
+       1.003,
+       0.28,
+       0.93
+      ],
+      [
+       1.116,
+       0.15,
+       0.8
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -683,20 +7280,234 @@
   },
   "glass_grit": {
    "files": [
-    "glass/glass_grit_01.caf",
-    "glass/glass_grit_02.caf",
-    "glass/glass_grit_03.caf",
-    "glass/glass_grit_04.caf",
-    "glass/glass_grit_05.caf",
-    "glass/glass_grit_06.caf",
-    "glass/glass_grit_07.caf",
-    "glass/glass_grit_08.caf",
-    "glass/glass_grit_09.caf",
-    "glass/glass_grit_10.caf",
-    "glass/glass_grit_11.caf",
-    "glass/glass_grit_12.caf",
-    "glass/glass_grit_13.caf",
-    "glass/glass_grit_14.caf"
+    {
+     "name": "glass_grit_01",
+     "path": "glass/glass_grit_01.caf",
+     "dur": 0.033,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.75
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_02",
+     "path": "glass/glass_grit_02.caf",
+     "dur": 0.053,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.83
+      ],
+      [
+       0.019,
+       0.15,
+       0.92
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_03",
+     "path": "glass/glass_grit_03.caf",
+     "dur": 0.088,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ],
+      [
+       0.064,
+       0.64,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_04",
+     "path": "glass/glass_grit_04.caf",
+     "dur": 0.083,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.11
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_05",
+     "path": "glass/glass_grit_05.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.37
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_06",
+     "path": "glass/glass_grit_06.caf",
+     "dur": 0.057,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.87
+      ],
+      [
+       0.023,
+       0.55,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_07",
+     "path": "glass/glass_grit_07.caf",
+     "dur": 0.033,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.86
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_08",
+     "path": "glass/glass_grit_08.caf",
+     "dur": 0.043,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.62
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_09",
+     "path": "glass/glass_grit_09.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.83
+      ],
+      [
+       0.042,
+       0.73,
+       0.91
+      ],
+      [
+       0.095,
+       0.58,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_10",
+     "path": "glass/glass_grit_10.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.013,
+       1,
+       0.95
+      ],
+      [
+       0.047,
+       0.83,
+       0.94
+      ],
+      [
+       0.059,
+       0.77,
+       0.92
+      ],
+      [
+       0.085,
+       0.71,
+       0.94
+      ],
+      [
+       0.105,
+       0.57,
+       0.91
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_11",
+     "path": "glass/glass_grit_11.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.019,
+       1,
+       0.86
+      ],
+      [
+       0.041,
+       0.8,
+       0.82
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_12",
+     "path": "glass/glass_grit_12.caf",
+     "dur": 0.034,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_13",
+     "path": "glass/glass_grit_13.caf",
+     "dur": 0.12,
+     "haptics": [
+      [
+       0.013,
+       1,
+       0.94
+      ],
+      [
+       0.032,
+       1,
+       0.95
+      ],
+      [
+       0.087,
+       0.92,
+       0.95
+      ]
+     ]
+    },
+    {
+     "name": "glass_grit_14",
+     "path": "glass/glass_grit_14.caf",
+     "dur": 0.071,
+     "haptics": [
+      [
+       0.011,
+       1,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -706,9 +7517,47 @@
   },
   "glass_contact": {
    "files": [
-    "glass/glass_contact_01.caf",
-    "glass/glass_contact_02.caf",
-    "glass/glass_contact_03.caf"
+    {
+     "name": "glass_contact_01",
+     "path": "glass/glass_contact_01.caf",
+     "dur": 0.151,
+     "haptics": [
+      [
+       0,
+       1,
+       0.55
+      ]
+     ]
+    },
+    {
+     "name": "glass_contact_02",
+     "path": "glass/glass_contact_02.caf",
+     "dur": 0.157,
+     "haptics": [
+      [
+       0,
+       1,
+       0.59
+      ]
+     ]
+    },
+    {
+     "name": "glass_contact_03",
+     "path": "glass/glass_contact_03.caf",
+     "dur": 0.167,
+     "haptics": [
+      [
+       0,
+       1,
+       0.56
+      ],
+      [
+       0.08,
+       0.15,
+       0.56
+      ]
+     ]
+    }
    ],
    "kind": "detail",
    "gainDb": -8,
@@ -718,7 +7567,12 @@
   },
   "steel_groan_loop": {
    "files": [
-    "steel/steel_groan_loop_01.caf"
+    {
+     "name": "steel_groan_loop_01",
+     "path": "steel/steel_groan_loop_01.caf",
+     "dur": 3,
+     "haptics": []
+    }
    ],
    "kind": "loop",
    "gainDb": -14,
@@ -728,8 +7582,170 @@
   },
   "steel_groan": {
    "files": [
-    "steel/steel_groan_01.caf",
-    "steel/steel_groan_02.caf"
+    {
+     "name": "steel_groan_01",
+     "path": "steel/steel_groan_01.caf",
+     "dur": 1.795,
+     "haptics": [
+      [
+       0.419,
+       0.73,
+       0.55
+      ],
+      [
+       0.475,
+       0.61,
+       0.36
+      ],
+      [
+       0.519,
+       0.68,
+       0.07
+      ],
+      [
+       0.603,
+       1,
+       0.36
+      ],
+      [
+       0.683,
+       0.76,
+       0.45
+      ],
+      [
+       0.748,
+       0.65,
+       0.4
+      ],
+      [
+       0.776,
+       0.65,
+       0.37
+      ],
+      [
+       0.822,
+       0.53,
+       0.3
+      ],
+      [
+       0.866,
+       0.56,
+       0.31
+      ],
+      [
+       1.04,
+       0.39,
+       0.14
+      ],
+      [
+       1.154,
+       0.32,
+       0.14
+      ],
+      [
+       1.171,
+       0.32,
+       0.13
+      ],
+      [
+       1.214,
+       0.21,
+       0.1
+      ],
+      [
+       1.241,
+       0.21,
+       0.09
+      ],
+      [
+       1.285,
+       0.19,
+       0.1
+      ],
+      [
+       1.333,
+       0.16,
+       0.07
+      ],
+      [
+       1.355,
+       0.18,
+       0.11
+      ],
+      [
+       1.504,
+       0.15,
+       0.05
+      ]
+     ]
+    },
+    {
+     "name": "steel_groan_02",
+     "path": "steel/steel_groan_02.caf",
+     "dur": 1.335,
+     "haptics": [
+      [
+       0.478,
+       0.62,
+       0.2
+      ],
+      [
+       0.571,
+       0.73,
+       0.2
+      ],
+      [
+       0.608,
+       0.77,
+       0.21
+      ],
+      [
+       0.673,
+       0.82,
+       0.18
+      ],
+      [
+       0.699,
+       0.82,
+       0.19
+      ],
+      [
+       0.732,
+       0.83,
+       0.18
+      ],
+      [
+       0.809,
+       1,
+       0.21
+      ],
+      [
+       0.832,
+       0.92,
+       0.22
+      ],
+      [
+       0.907,
+       0.99,
+       0.21
+      ],
+      [
+       0.923,
+       0.99,
+       0.21
+      ],
+      [
+       0.939,
+       0.99,
+       0.22
+      ],
+      [
+       1.088,
+       0.71,
+       0.22
+      ]
+     ]
+    }
    ],
    "kind": "body",
    "gainDb": -2,
@@ -739,11 +7755,216 @@
   },
   "steel_clink": {
    "files": [
-    "steel/steel_clink_01.caf",
-    "steel/steel_clink_02.caf",
-    "steel/steel_clink_03.caf",
-    "steel/steel_clink_04.caf",
-    "steel/steel_clink_05.caf"
+    {
+     "name": "steel_clink_01",
+     "path": "steel/steel_clink_01.caf",
+     "dur": 0.3,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.24
+      ],
+      [
+       0.036,
+       1,
+       0.31
+      ],
+      [
+       0.122,
+       1,
+       0.43
+      ],
+      [
+       0.152,
+       1,
+       0.32
+      ],
+      [
+       0.179,
+       0.8,
+       0.28
+      ],
+      [
+       0.22,
+       1,
+       0.4
+      ],
+      [
+       0.253,
+       1,
+       0.38
+      ]
+     ]
+    },
+    {
+     "name": "steel_clink_02",
+     "path": "steel/steel_clink_02.caf",
+     "dur": 0.3,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.39
+      ],
+      [
+       0.076,
+       0.8,
+       0.52
+      ],
+      [
+       0.134,
+       1,
+       0.5
+      ],
+      [
+       0.159,
+       1,
+       0.44
+      ],
+      [
+       0.23,
+       1,
+       0.31
+      ],
+      [
+       0.255,
+       1,
+       0.38
+      ],
+      [
+       0.283,
+       0.91,
+       0.4
+      ]
+     ]
+    },
+    {
+     "name": "steel_clink_03",
+     "path": "steel/steel_clink_03.caf",
+     "dur": 0.3,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.35
+      ],
+      [
+       0.061,
+       1,
+       0.8
+      ],
+      [
+       0.1,
+       1,
+       0.44
+      ],
+      [
+       0.148,
+       1,
+       0.37
+      ],
+      [
+       0.174,
+       1,
+       0.43
+      ],
+      [
+       0.2,
+       1,
+       0.6
+      ],
+      [
+       0.223,
+       1,
+       0.34
+      ],
+      [
+       0.277,
+       0.81,
+       0.52
+      ]
+     ]
+    },
+    {
+     "name": "steel_clink_04",
+     "path": "steel/steel_clink_04.caf",
+     "dur": 0.3,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.16
+      ],
+      [
+       0.039,
+       1,
+       0.76
+      ],
+      [
+       0.09,
+       1,
+       0.44
+      ],
+      [
+       0.221,
+       0.95,
+       0.49
+      ],
+      [
+       0.269,
+       0.59,
+       0.43
+      ]
+     ]
+    },
+    {
+     "name": "steel_clink_05",
+     "path": "steel/steel_clink_05.caf",
+     "dur": 0.3,
+     "haptics": [
+      [
+       0.003,
+       1,
+       0.37
+      ],
+      [
+       0.016,
+       0.99,
+       0.37
+      ],
+      [
+       0.082,
+       0.91,
+       0.2
+      ],
+      [
+       0.104,
+       0.98,
+       0.31
+      ],
+      [
+       0.137,
+       0.98,
+       0.36
+      ],
+      [
+       0.161,
+       0.98,
+       0.38
+      ],
+      [
+       0.187,
+       0.7,
+       0.3
+      ],
+      [
+       0.221,
+       0.69,
+       0.35
+      ]
+     ]
+    }
    ],
    "kind": "grain",
    "gainDb": -12,
@@ -753,7 +7974,108 @@
   },
   "steel_snap": {
    "files": [
-    "steel/steel_snap_01.caf"
+    {
+     "name": "steel_snap_01",
+     "path": "steel/steel_snap_01.caf",
+     "dur": 1,
+     "haptics": [
+      [
+       0.016,
+       0.77,
+       0.9
+      ],
+      [
+       0.053,
+       0.82,
+       0.86
+      ],
+      [
+       0.08,
+       0.93,
+       0.77
+      ],
+      [
+       0.149,
+       0.98,
+       0.82
+      ],
+      [
+       0.187,
+       0.96,
+       0.8
+      ],
+      [
+       0.246,
+       1,
+       0.79
+      ],
+      [
+       0.267,
+       1,
+       0.75
+      ],
+      [
+       0.288,
+       1,
+       0.71
+      ],
+      [
+       0.375,
+       0.89,
+       0.79
+      ],
+      [
+       0.411,
+       0.87,
+       0.75
+      ],
+      [
+       0.443,
+       0.84,
+       0.74
+      ],
+      [
+       0.51,
+       0.84,
+       0.78
+      ],
+      [
+       0.617,
+       0.54,
+       0.61
+      ],
+      [
+       0.646,
+       0.42,
+       0.55
+      ],
+      [
+       0.662,
+       0.4,
+       0.56
+      ],
+      [
+       0.722,
+       0.31,
+       0.22
+      ],
+      [
+       0.758,
+       0.21,
+       0.26
+      ],
+      [
+       0.796,
+       0.15,
+       0.27
+      ],
+      [
+       0.832,
+       0.15,
+       0.52
+      ]
+     ]
+    }
    ],
    "kind": "hero",
    "gainDb": 0,
@@ -763,8 +8085,230 @@
   },
   "steel_crash": {
    "files": [
-    "steel/steel_crash_01.caf",
-    "steel/steel_crash_02.caf"
+    {
+     "name": "steel_crash_01",
+     "path": "steel/steel_crash_01.caf",
+     "dur": 1.6,
+     "haptics": [
+      [
+       0.006,
+       1,
+       0.27
+      ],
+      [
+       0.032,
+       1,
+       0.26
+      ],
+      [
+       0.048,
+       1,
+       0.26
+      ],
+      [
+       0.122,
+       0.96,
+       0.2
+      ],
+      [
+       0.226,
+       0.82,
+       0.27
+      ],
+      [
+       0.278,
+       0.63,
+       0.19
+      ],
+      [
+       0.309,
+       0.54,
+       0.23
+      ],
+      [
+       0.395,
+       0.51,
+       0.11
+      ],
+      [
+       0.448,
+       0.31,
+       0.16
+      ],
+      [
+       0.475,
+       0.31,
+       0.22
+      ],
+      [
+       0.507,
+       0.29,
+       0.1
+      ],
+      [
+       0.529,
+       0.29,
+       0.15
+      ],
+      [
+       0.603,
+       0.15,
+       0.18
+      ],
+      [
+       0.657,
+       0.15,
+       0.13
+      ],
+      [
+       0.726,
+       0.2,
+       0.28
+      ],
+      [
+       0.784,
+       0.2,
+       0.13
+      ],
+      [
+       0.856,
+       0.15,
+       0.25
+      ],
+      [
+       0.92,
+       0.15,
+       0.1
+      ],
+      [
+       1.135,
+       0.17,
+       0.05
+      ]
+     ]
+    },
+    {
+     "name": "steel_crash_02",
+     "path": "steel/steel_crash_02.caf",
+     "dur": 1.3,
+     "haptics": [
+      [
+       0.03,
+       0.7,
+       0.77
+      ],
+      [
+       0.063,
+       1,
+       0.84
+      ],
+      [
+       0.182,
+       0.93,
+       0.76
+      ],
+      [
+       0.197,
+       0.93,
+       0.74
+      ],
+      [
+       0.283,
+       0.59,
+       0.81
+      ],
+      [
+       0.331,
+       0.43,
+       0.83
+      ],
+      [
+       0.353,
+       0.43,
+       0.84
+      ],
+      [
+       0.395,
+       0.29,
+       0.84
+      ],
+      [
+       0.427,
+       0.25,
+       0.81
+      ],
+      [
+       0.443,
+       0.22,
+       0.83
+      ],
+      [
+       0.512,
+       0.29,
+       0.86
+      ],
+      [
+       0.559,
+       0.29,
+       0.93
+      ],
+      [
+       0.624,
+       0.18,
+       0.95
+      ],
+      [
+       0.645,
+       0.15,
+       0.86
+      ],
+      [
+       0.72,
+       0.15,
+       0.95
+      ],
+      [
+       0.77,
+       0.15,
+       0.9
+      ],
+      [
+       0.806,
+       0.15,
+       0.75
+      ],
+      [
+       0.921,
+       0.28,
+       0.91
+      ],
+      [
+       0.95,
+       0.38,
+       0.95
+      ],
+      [
+       1.029,
+       0.27,
+       0.95
+      ],
+      [
+       1.045,
+       0.21,
+       0.95
+      ],
+      [
+       1.067,
+       0.16,
+       0.95
+      ],
+      [
+       1.088,
+       0.16,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "hero",
    "gainDb": 0,
@@ -774,8 +8318,180 @@
   },
   "steel_boing": {
    "files": [
-    "steel/steel_boing_01.caf",
-    "steel/steel_boing_02.caf"
+    {
+     "name": "steel_boing_01",
+     "path": "steel/steel_boing_01.caf",
+     "dur": 1.3,
+     "haptics": [
+      [
+       0.004,
+       0.9,
+       0.76
+      ],
+      [
+       0.023,
+       1,
+       0.72
+      ],
+      [
+       0.072,
+       1,
+       0.72
+      ],
+      [
+       0.125,
+       0.94,
+       0.72
+      ],
+      [
+       0.236,
+       0.87,
+       0.82
+      ],
+      [
+       0.256,
+       0.81,
+       0.9
+      ],
+      [
+       0.299,
+       0.72,
+       0.77
+      ],
+      [
+       0.343,
+       0.72,
+       0.83
+      ],
+      [
+       0.46,
+       0.65,
+       0.74
+      ],
+      [
+       0.486,
+       0.65,
+       0.82
+      ],
+      [
+       0.576,
+       0.44,
+       0.83
+      ],
+      [
+       0.693,
+       0.46,
+       0.6
+      ],
+      [
+       0.709,
+       0.43,
+       0.71
+      ],
+      [
+       0.807,
+       0.33,
+       0.74
+      ],
+      [
+       0.907,
+       0.28,
+       0.66
+      ],
+      [
+       0.923,
+       0.28,
+       0.61
+      ],
+      [
+       1.028,
+       0.25,
+       0.51
+      ]
+     ]
+    },
+    {
+     "name": "steel_boing_02",
+     "path": "steel/steel_boing_02.caf",
+     "dur": 1.3,
+     "haptics": [
+      [
+       0.004,
+       0.92,
+       0.7
+      ],
+      [
+       0.145,
+       0.99,
+       0.74
+      ],
+      [
+       0.198,
+       0.93,
+       0.79
+      ],
+      [
+       0.263,
+       0.83,
+       0.84
+      ],
+      [
+       0.283,
+       0.83,
+       0.75
+      ],
+      [
+       0.379,
+       0.69,
+       0.85
+      ],
+      [
+       0.422,
+       0.69,
+       0.84
+      ],
+      [
+       0.491,
+       0.73,
+       0.84
+      ],
+      [
+       0.603,
+       0.47,
+       0.83
+      ],
+      [
+       0.71,
+       0.45,
+       0.7
+      ],
+      [
+       0.841,
+       0.43,
+       0.65
+      ],
+      [
+       0.941,
+       0.37,
+       0.56
+      ],
+      [
+       0.955,
+       0.31,
+       0.64
+      ],
+      [
+       1.049,
+       0.28,
+       0.48
+      ],
+      [
+       1.074,
+       0.28,
+       0.54
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -785,7 +8501,133 @@
   },
   "steel_ring": {
    "files": [
-    "steel/steel_ring_01.caf"
+    {
+     "name": "steel_ring_01",
+     "path": "steel/steel_ring_01.caf",
+     "dur": 1.702,
+     "haptics": [
+      [
+       0.005,
+       0.79,
+       0.95
+      ],
+      [
+       0.038,
+       0.85,
+       0.95
+      ],
+      [
+       0.064,
+       0.89,
+       0.95
+      ],
+      [
+       0.117,
+       0.97,
+       0.95
+      ],
+      [
+       0.224,
+       0.93,
+       0.95
+      ],
+      [
+       0.251,
+       0.93,
+       0.95
+      ],
+      [
+       0.389,
+       0.95,
+       0.95
+      ],
+      [
+       0.421,
+       0.91,
+       0.92
+      ],
+      [
+       0.459,
+       0.89,
+       0.94
+      ],
+      [
+       0.512,
+       0.9,
+       0.91
+      ],
+      [
+       0.534,
+       0.99,
+       0.89
+      ],
+      [
+       0.624,
+       0.91,
+       0.88
+      ],
+      [
+       0.657,
+       0.89,
+       0.95
+      ],
+      [
+       0.736,
+       0.8,
+       0.86
+      ],
+      [
+       0.768,
+       0.79,
+       0.89
+      ],
+      [
+       0.837,
+       0.75,
+       0.89
+      ],
+      [
+       0.854,
+       0.8,
+       0.88
+      ],
+      [
+       0.879,
+       0.81,
+       0.91
+      ],
+      [
+       0.944,
+       0.75,
+       0.92
+      ],
+      [
+       1.093,
+       0.73,
+       0.95
+      ],
+      [
+       1.13,
+       0.91,
+       0.95
+      ],
+      [
+       1.173,
+       0.94,
+       0.95
+      ],
+      [
+       1.224,
+       0.98,
+       0.95
+      ],
+      [
+       1.371,
+       0.84,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "tail",
    "gainDb": -8,
@@ -795,8 +8637,30 @@
   },
   "ui_click": {
    "files": [
-    "ui/ui_click_01.caf",
-    "ui/ui_click_02.caf"
+    {
+     "name": "ui_click_01",
+     "path": "ui/ui_click_01.caf",
+     "dur": 0.047,
+     "haptics": [
+      [
+       0,
+       1,
+       0.53
+      ]
+     ]
+    },
+    {
+     "name": "ui_click_02",
+     "path": "ui/ui_click_02.caf",
+     "dur": 0.022,
+     "haptics": [
+      [
+       0,
+       1,
+       0.94
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,
@@ -806,8 +8670,30 @@
   },
   "ui_select": {
    "files": [
-    "ui/ui_select_01.caf",
-    "ui/ui_select_02.caf"
+    {
+     "name": "ui_select_01",
+     "path": "ui/ui_select_01.caf",
+     "dur": 0.04,
+     "haptics": [
+      [
+       0,
+       1,
+       0.67
+      ]
+     ]
+    },
+    {
+     "name": "ui_select_02",
+     "path": "ui/ui_select_02.caf",
+     "dur": 0.04,
+     "haptics": [
+      [
+       0,
+       1,
+       0.48
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,
@@ -817,8 +8703,40 @@
   },
   "ui_toggle": {
    "files": [
-    "ui/ui_toggle_01.caf",
-    "ui/ui_toggle_02.caf"
+    {
+     "name": "ui_toggle_01",
+     "path": "ui/ui_toggle_01.caf",
+     "dur": 0.116,
+     "haptics": [
+      [
+       0,
+       1,
+       0.64
+      ],
+      [
+       0.059,
+       0.65,
+       0.61
+      ]
+     ]
+    },
+    {
+     "name": "ui_toggle_02",
+     "path": "ui/ui_toggle_02.caf",
+     "dur": 0.116,
+     "haptics": [
+      [
+       0,
+       1,
+       0.68
+      ],
+      [
+       0.043,
+       0.79,
+       0.75
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,
@@ -828,7 +8746,23 @@
   },
   "ui_back": {
    "files": [
-    "ui/ui_back_01.caf"
+    {
+     "name": "ui_back_01",
+     "path": "ui/ui_back_01.caf",
+     "dur": 0.061,
+     "haptics": [
+      [
+       0,
+       1,
+       0.58
+      ],
+      [
+       0.023,
+       0.91,
+       0.66
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,
@@ -838,7 +8772,18 @@
   },
   "ui_open": {
    "files": [
-    "ui/ui_open_01.caf"
+    {
+     "name": "ui_open_01",
+     "path": "ui/ui_open_01.caf",
+     "dur": 0.148,
+     "haptics": [
+      [
+       0.025,
+       0.76,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,
@@ -848,7 +8793,23 @@
   },
   "ui_close": {
    "files": [
-    "ui/ui_close_01.caf"
+    {
+     "name": "ui_close_01",
+     "path": "ui/ui_close_01.caf",
+     "dur": 0.148,
+     "haptics": [
+      [
+       0,
+       1,
+       0.95
+      ],
+      [
+       0.027,
+       0.87,
+       0.95
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,
@@ -858,9 +8819,127 @@
   },
   "ui_unlock": {
    "files": [
-    "ui/ui_unlock_01.caf",
-    "ui/ui_unlock_02.caf",
-    "ui/ui_unlock_03.caf"
+    {
+     "name": "ui_unlock_01",
+     "path": "ui/ui_unlock_01.caf",
+     "dur": 0.29,
+     "haptics": [
+      [
+       0,
+       1,
+       0.18
+      ],
+      [
+       0.037,
+       0.84,
+       0.22
+      ],
+      [
+       0.054,
+       0.8,
+       0.28
+      ],
+      [
+       0.118,
+       0.72,
+       0.35
+      ],
+      [
+       0.181,
+       0.58,
+       0.45
+      ]
+     ]
+    },
+    {
+     "name": "ui_unlock_02",
+     "path": "ui/ui_unlock_02.caf",
+     "dur": 0.539,
+     "haptics": [
+      [
+       0,
+       1,
+       0.48
+      ],
+      [
+       0.037,
+       0.74,
+       0.52
+      ],
+      [
+       0.053,
+       0.63,
+       0.57
+      ],
+      [
+       0.101,
+       0.63,
+       0.61
+      ],
+      [
+       0.117,
+       0.63,
+       0.65
+      ],
+      [
+       0.181,
+       0.62,
+       0.76
+      ],
+      [
+       0.235,
+       0.6,
+       0.81
+      ],
+      [
+       0.272,
+       0.58,
+       0.82
+      ],
+      [
+       0.309,
+       0.21,
+       0.64
+      ],
+      [
+       0.379,
+       0.15,
+       0.76
+      ]
+     ]
+    },
+    {
+     "name": "ui_unlock_03",
+     "path": "ui/ui_unlock_03.caf",
+     "dur": 0.38,
+     "haptics": [
+      [
+       0.052,
+       1,
+       0.1
+      ],
+      [
+       0.08,
+       0.97,
+       0.13
+      ],
+      [
+       0.155,
+       0.89,
+       0.19
+      ],
+      [
+       0.196,
+       0.89,
+       0.2
+      ],
+      [
+       0.252,
+       0.77,
+       0.24
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,
@@ -870,9 +8949,57 @@
   },
   "ui_drop": {
    "files": [
-    "ui/ui_drop_01.caf",
-    "ui/ui_drop_02.caf",
-    "ui/ui_drop_03.caf"
+    {
+     "name": "ui_drop_01",
+     "path": "ui/ui_drop_01.caf",
+     "dur": 0.072,
+     "haptics": [
+      [
+       0,
+       1,
+       0.7
+      ]
+     ]
+    },
+    {
+     "name": "ui_drop_02",
+     "path": "ui/ui_drop_02.caf",
+     "dur": 0.118,
+     "haptics": [
+      [
+       0,
+       1,
+       0.37
+      ],
+      [
+       0.021,
+       0.58,
+       0.39
+      ],
+      [
+       0.043,
+       0.21,
+       0.42
+      ]
+     ]
+    },
+    {
+     "name": "ui_drop_03",
+     "path": "ui/ui_drop_03.caf",
+     "dur": 0.118,
+     "haptics": [
+      [
+       0,
+       1,
+       0.35
+      ],
+      [
+       0.037,
+       0.33,
+       0.35
+      ]
+     ]
+    }
    ],
    "kind": "ui",
    "gainDb": -14,

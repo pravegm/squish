@@ -22,7 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readWav, writeCaf, writeWav, filter, biquad, loudness, truePeak, stft, bands, db } from './dsp.mjs';
+import { readWav, writeCaf, writeWav, filter, biquad, loudness, truePeak, stft, bands, db, onsets } from './dsp.mjs';
 
 const [decoded, cutsPath, outDir, ...flags] = process.argv.slice(2);
 if (!decoded || !cutsPath || !outDir) {
@@ -165,7 +165,33 @@ for (const r of rows) {
 
   const srcKey = r.src.split('--')[0];
   if (!sources[srcKey]) throw new Error(`${r.path}: ${srcKey} is not in sources.tsv`);
-  if (!used.has(r.path)) used.set(r.path, { row: r, source: sources[srcKey], member: r.src.includes('--') ? r.src.split('--')[1] : '' });
+  // Audio-derived haptic events (design/SOUND-2.md §4): one transient per audible onset, intensity from its level
+  // relative to the file peak, sharpness from its spectral centroid. Loops get none (the bed is continuous).
+  let haptics = [];
+  if (!r.loop) {
+    const fileDb = db(x.reduce((m, v) => Math.max(m, Math.abs(v)), 0));
+    // The file's own attack (onset detection needs a couple of frames of history, so it can miss t ≈ 0).
+    const filePk = Math.pow(10, fileDb / 20);
+    let a0 = 0; while (a0 < x.length && Math.abs(x[a0]) < filePk * 0.25) a0++;
+    let local = 0; for (let k = a0; k < Math.min(x.length, a0 + Math.round(0.02 * rate)); k++) local = Math.max(local, Math.abs(x[k]));
+    const sp0 = stft(x.subarray(a0, Math.min(x.length, a0 + 4096)).length >= 1024 ? x.subarray(a0, a0 + 4096) : Float32Array.from({ length: 1024 }, (_, i) => x[a0 + i] || 0), rate, 1024, 256);
+    const c0 = bands(sp0, 0, 4).centroid;
+    haptics.push([+(a0 / rate).toFixed(3), +Math.min(1, Math.max(0.15, 1 + db(local / filePk) / 30)).toFixed(2), +Math.min(0.95, Math.max(0.05, Math.log(Math.max(c0, 200) / 200) / Math.log(40))).toFixed(2)]);
+    let last = a0 / rate;
+    for (const o of onsets(x, rate, { floorDb: fileDb - 30, minGapMs: 12 })) {
+      // Haptic time = the attack (first sample at half the local peak), not the later peak.
+      const pk = Math.pow(10, o.peakDb / 20) * 0.5;
+      let a = Math.round(o.t * rate); const pi = Math.round(o.peakT * rate);
+      while (a < pi && Math.abs(x[a]) < pk) a++;
+      const t = a / rate;
+      if (haptics.length >= 24 || t - last < 0.012) continue;
+      const intensity = Math.min(1, Math.max(0.15, 1 + (o.peakDb - fileDb) / 30));
+      const sharpness = Math.min(0.95, Math.max(0.05, Math.log(Math.max(o.centroid, 200) / 200) / Math.log(40)));
+      haptics.push([+t.toFixed(3), +intensity.toFixed(2), +sharpness.toFixed(2)]);
+      last = t;
+    }
+  }
+  if (!used.has(r.path)) used.set(r.path, { row: r, source: sources[srcKey], member: r.src.includes('--') ? r.src.split('--')[1] : '', dur: +(x.length / rate).toFixed(3), haptics });
 }
 
 fs.writeFileSync(path.join(here, 'report.tsv'), report.map(r => r.join('\t')).join('\n') + '\n');
@@ -223,15 +249,15 @@ const CLASS = [
 ];
 const WET = /squelch|splat|yolk|squirt|slurp/;
 const groups = {};
-for (const [, { row }] of used) {
+for (const [, { row, dur, haptics }] of used) {
   const base = path.basename(row.path, '.caf').replace(/_\d\d$/, '');
   const g = groups[base] || (groups[base] = { files: [], ...(CLASS.find(([re]) => re.test(base))?.[1] ?? { kind: 'detail', gainDb: -8, pitch: 0.7 }), wet: WET.test(base), loopFiles: !!row.loop });
-  g.files.push(row.path);
+  g.files.push({ name: path.basename(row.path, '.caf'), path: row.path, dur, haptics });
 }
 fs.writeFileSync(path.join(outDir, 'sounds-manifest.json'), JSON.stringify({
   generatedBy: 'ci/sounds/cut.mjs',
   format: 'CAF, 48 kHz, mono, 16-bit little-endian PCM',
-  note: 'Group = the files sharing a prefix. Pick round-robin without immediate repeats; apply pitch (± semitones) and ±2 dB per play. gainDb is the starting bus trim. wet groups are dropped in the Soft style. Loops loop seamlessly as cut.',
+  note: 'Group = the files sharing a prefix. Pick round-robin without immediate repeats; apply pitch (± semitones) and ±2 dB per play. gainDb is the starting bus trim. wet groups are dropped in the Soft style. Loops loop seamlessly as cut. Look files up by name (Xcode flattens the folders into the bundle root). haptics = [time s, intensity, sharpness] transients derived from the audio onsets, for a Core Haptics pattern started on the same clock as the sample.',
   groups,
 }, null, 1) + '\n');
 
