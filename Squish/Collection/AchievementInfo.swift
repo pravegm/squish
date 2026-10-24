@@ -14,7 +14,7 @@ extension Achievement {
         case .theSecret: "The Secret"
         case .popStar: "Pop Star"
         case .steadyHands: "Steady Hands"
-        case .pumped: "Pumped"
+        case .fullSet: "Full Set"
         }
     }
 
@@ -29,9 +29,28 @@ extension Achievement {
         case .theSecret: "Met The Unsquishable. It won."
         case .popStar: "500 bubbles popped. Lifetime."
         case .steadyHands: "Ten Perfect Squishes. Steady."
-        case .pumped: "Eased off and pressed again. Twice."
+        case .fullSet: "Every object in one wing. Very curatorial."
         }
     }
+
+    /// The Achievements tab's line before it's earned: how to get it, in plain words.
+    var hint: String {
+        switch self {
+        case .firstSquish: "Press anything. Anything at all."
+        case .perfectionist: "A Perfect Squish on 5 different things."
+        case .midas: "Find a golden one. 1 in 50 presses."
+        case .whatsInside: "Find two different surprises inside things."
+        case .patience: "Keep one press going for 30 seconds."
+        case .collector: "Press all 10 objects."
+        case .theSecret: "Some things don't squish…"
+        case .popStar: "Pop 500 bubbles, lifetime."
+        case .steadyHands: "Ten Perfect Squishes, any objects."
+        case .fullSet: "Press every object in one museum wing."
+        }
+    }
+
+    /// Hidden until earned in Game Center, and only teased here.
+    var isSecret: Bool { self == .theSecret }
 
     var symbolName: String {
         switch self {
@@ -44,7 +63,7 @@ extension Achievement {
         case .theSecret: "questionmark.circle.fill"
         case .popStar: "circle.grid.3x3.fill"
         case .steadyHands: "hand.raised.fill"
-        case .pumped: "arrow.up.arrow.down"
+        case .fullSet: "building.columns.fill"
         }
     }
 }

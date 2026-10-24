@@ -324,11 +324,70 @@ struct CollectionTests {
         #expect(store.stats.bubblesPopped == 504)
     }
 
-    @Test func pumpedNeedsTwoReversals() {
+    /// Full Set (replaced 1.0's Pumped, App Review 2.4.2): variety, never easing off and pressing again.
+    @Test func fullSetNeedsEveryObjectInOneWing() throws {
         let (store, _) = makeStore()
-        press(store, .jelly, reversals: 1)
-        #expect(!store.earnedAchievements.contains(.pumped))
-        #expect(press(store, .jelly, reversals: 2).newAchievements.contains(.pumped))
+        // Pumping the press earns nothing any more.
+        press(store, .jelly, reversals: 5)
+        press(store, .jelly, reversals: 5)
+        #expect(!store.earnedAchievements.contains(.fullSet))
+        // One from each wing isn't a full wing either.
+        press(store, .egg)
+        press(store, .sodaCan)
+        #expect(!store.earnedAchievements.contains(.fullSet))
+        let soft = MuseumWing.soft.kinds.filter { $0 != .jelly }
+        for kind in soft.dropLast() { press(store, kind) }
+        #expect(!store.earnedAchievements.contains(.fullSet))
+        let last = try #require(soft.last)
+        #expect(press(store, last).newAchievements.contains(.fullSet))
+        #expect(store.isWingComplete(.soft))
+        #expect(store.pressedCount(in: .soft) == MuseumWing.soft.kinds.count)
+    }
+
+    @Test func museumCoversEveryObjectOnce() {
+        let all = MuseumWing.allCases.flatMap(\.kinds)
+        #expect(all.count == ObjectKind.allCases.count)
+        #expect(Set(all) == Set(ObjectKind.allCases))
+        #expect(Set(ObjectKind.tourOrder) == Set(ObjectKind.allCases))
+        #expect(ObjectKind.tourOrder.first == .bubbleWrap)
+        #expect(Achievement.allCases.count == 10)
+        for kind in ObjectKind.allCases {
+            #expect(!kind.verb.isEmpty && !kind.behaviour.isEmpty)
+            #expect((1...5).contains(kind.stiffness))
+        }
+        for surprise in Surprise.allCases {
+            #expect(surprise.kind.possibleSurprises.contains(surprise))
+        }
+    }
+
+    /// A 1.0 collection that earned "pumped" still loads: the retired achievement is dropped, nothing else.
+    @Test func retiredAchievementDoesNotCorruptTheCollection() throws {
+        let (store, folder) = makeStore()
+        press(store, .egg)
+        let file = folder.appendingPathComponent("collection.json")
+        let data = try Data(contentsOf: file)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["earned"] = ["firstSquish", "pumped"]
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        let (reloaded, _) = makeStore(at: folder)
+        #expect(reloaded.totalPresses == 1)
+        #expect(reloaded.earnedAchievements == [.firstSquish])
+    }
+
+    @Test func goalsAndMeasurement() {
+        let (store, _) = makeStore()
+        press(store, .egg, perfect: true)
+        let goals = store.goals(for: .egg)
+        #expect(goals.pressed && goals.perfect)
+        #expect(goals.golden == false)
+        #expect(store.goals(for: .rubberDuck).surprise == nil)
+        #expect(store.goals(for: .unsquishable).golden == nil)
+        let egg = press(store, .egg).specimen
+        let measure = egg.measurement
+        #expect(measure.after < measure.before)
+        #expect(measure.before > 0)
+        let ball = press(store, .unsquishable, fractures: 0).specimen
+        #expect(ball.measurement.after == ball.measurement.before)
     }
 
     @Test func slamsEarnNothingExtra() {

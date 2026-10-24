@@ -277,12 +277,30 @@ func arrowPath(x: CGFloat, up: Bool) -> CGPath {
     return p
 }
 
-func glyphPumped(_ ctx: CGContext) {
-    // arrow.up.arrow.down
+func glyphFullSet(_ ctx: CGContext) {
+    // building.columns.fill: the museum, one wing full. Pediment, architrave, four columns, two steps.
+    let pediment = CGMutablePath()
+    pediment.addLines(between: [CGPoint(x: -250, y: 128), CGPoint(x: 250, y: 128), CGPoint(x: 0, y: 252)])
+    pediment.closeSubpath()
     shadowedGroup(ctx) {
-        fillRounded(ctx, arrowPath(x: -100, up: true), graphite, radius: 11)
-        fillRounded(ctx, arrowPath(x: 100, up: false), graphite, radius: 11)
+        fillRounded(ctx, pediment, graphite, radius: 14)
+        ctx.setFillColor(graphite)
+        roundedRect(ctx, CGRect(x: -236, y: 70, width: 472, height: 46), 12)
+        ctx.fillPath()
+        for x: CGFloat in [-168, -56, 56, 168] {
+            roundedRect(ctx, CGRect(x: x - 30, y: -136, width: 60, height: 196), 10)
+            ctx.fillPath()
+        }
+        roundedRect(ctx, CGRect(x: -226, y: -176, width: 452, height: 32), 10)
+        ctx.fillPath()
+        roundedRect(ctx, CGRect(x: -258, y: -224, width: 516, height: 40), 12)
+        ctx.fillPath()
     }
+    // A round window in the pediment, knocked out in the plate colour, with a tiny pressed specimen in it.
+    ctx.addEllipse(in: circle(CGPoint(x: 0, y: 168), 36))
+    fillGlyph(ctx, yellow, shadow: false)
+    ctx.addEllipse(in: CGRect(x: -22, y: 156, width: 44, height: 20))
+    fillGlyph(ctx, graphite, shadow: false)
 }
 
 func glyphPerfectionist(_ ctx: CGContext) {
@@ -397,7 +415,7 @@ let badges: [Badge] = [
     Badge(snake: "pop_star", title: "Pop Star", plate: .yellow, draw: glyphPopStar),
     Badge(snake: "whats_inside", title: "What's Inside?", plate: .yellow, draw: glyphWhatsInside),
     Badge(snake: "patience", title: "Patience", plate: .yellow, draw: glyphPatience),
-    Badge(snake: "pumped", title: "Pumped", plate: .yellow, draw: glyphPumped),
+    Badge(snake: "full_set", title: "Full Set", plate: .yellow, draw: glyphFullSet),
     Badge(snake: "perfectionist", title: "Perfectionist", plate: .yellow, draw: glyphPerfectionist),
     Badge(snake: "steady_hands", title: "Steady Hands", plate: .yellow, draw: glyphSteadyHands),
     Badge(snake: "midas", title: "Midas", plate: .gold, draw: glyphMidas),

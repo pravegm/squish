@@ -161,24 +161,24 @@
       "image": "tools/appstore/badges/com.pravegm.squish.ach.patience.png"
     },
     {
-      "vendorIdentifier": "com.pravegm.squish.ach.pumped",
-      "referenceName": "Pumped",
+      "vendorIdentifier": "com.pravegm.squish.ach.full_set",
+      "referenceName": "Full Set",
       "points": 50,
       "showBeforeEarned": true,
       "repeatable": false,
       "localizations": {
         "en-GB": {
-          "name": "Pumped",
-          "beforeEarnedDescription": "Ease off and press again, twice, in one squish.",
-          "afterEarnedDescription": "Up, down, up, down. Very hydraulic."
+          "name": "Full Set",
+          "beforeEarnedDescription": "Press every object in one wing of the museum.",
+          "afterEarnedDescription": "One whole wing, pressed and filed."
         },
         "en-US": {
-          "name": "Pumped",
-          "beforeEarnedDescription": "Ease off and press again, twice, in one squish.",
-          "afterEarnedDescription": "Up, down, up, down. Very hydraulic."
+          "name": "Full Set",
+          "beforeEarnedDescription": "Press every object in one wing of the museum.",
+          "afterEarnedDescription": "One whole wing, pressed and filed."
         }
       },
-      "image": "tools/appstore/badges/com.pravegm.squish.ach.pumped.png"
+      "image": "tools/appstore/badges/com.pravegm.squish.ach.full_set.png"
     },
     {
       "vendorIdentifier": "com.pravegm.squish.ach.perfectionist",

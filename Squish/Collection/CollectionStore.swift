@@ -259,8 +259,47 @@ final class CollectionStore {
         case .theSecret: stats.squishedKinds.contains(.unsquishable)
         case .popStar: stats.bubblesPopped >= 500
         case .steadyHands: stats.perfectCount >= 10
-        case .pumped: (latest?.reversals ?? 0) >= 2
+        // Variety, not hinge cycling (App Review 2.4.2): every object in any one of the three galleries.
+        case .fullSet: MuseumWing.galleries.contains { isWingComplete($0) }
         }
+    }
+
+    /// Every object in `wing` has been pressed at least once.
+    func isWingComplete(_ wing: MuseumWing) -> Bool {
+        wing.kinds.allSatisfy { stats.squishedKinds.contains($0) }
+    }
+
+    /// Objects pressed in `wing`, for the Tray's "2/4 pressed" line.
+    func pressedCount(in wing: MuseumWing) -> Int {
+        wing.kinds.filter { stats.squishedKinds.contains($0) }.count
+    }
+
+    // MARK: - Per-object goals (the Tray's Perfect / Surprise / Golden slots, UX-AUDIT-2 §4.4)
+
+    struct Goals: Equatable {
+        var pressed: Bool
+        var perfect: Bool
+        /// Nil when the object hides no surprises (the duck, the ball).
+        var surprise: Bool?
+        /// Nil when it can't be golden (the ball).
+        var golden: Bool?
+    }
+
+    func goals(for kind: ObjectKind) -> Goals {
+        let surprises = kind.possibleSurprises
+        let goldenSeen = specimens.contains { $0.kind == kind && $0.variant.isGolden }
+            || best(for: kind)?.variant.isGolden == true
+        return Goals(
+            pressed: stats.squishedKinds.contains(kind),
+            perfect: stats.perfectKinds.contains(kind),
+            surprise: surprises.isEmpty ? nil : surprises.contains { stats.surprisesFound.contains($0) },
+            golden: kind.canBeGolden ? goldenSeen : nil
+        )
+    }
+
+    /// How many presses of `kind` are on the shelf (the Squished list, capped at `capacity`).
+    func pressCount(of kind: ObjectKind) -> Int {
+        specimens.filter { $0.kind == kind }.count
     }
 
     private func evaluateAchievements(latest: SpecimenRecord) -> [Achievement] {
@@ -284,6 +323,34 @@ final class CollectionStore {
         var unlocked: [ObjectKind]
         var earned: [Achievement]
         var stats: Stats
+
+        enum CodingKeys: String, CodingKey {
+            case version, specimens, bests, totalPresses, unlocked, earned, stats
+        }
+
+        init(specimens: [SpecimenRecord], bests: [String: SpecimenRecord], totalPresses: Int, unlocked: [ObjectKind],
+             earned: [Achievement], stats: Stats) {
+            self.specimens = specimens
+            self.bests = bests
+            self.totalPresses = totalPresses
+            self.unlocked = unlocked
+            self.earned = earned
+            self.stats = stats
+        }
+
+        /// `earned` decodes leniently: an achievement this build no longer has (1.0's "pumped") is dropped instead of
+        /// failing the whole file, which would set the collection aside as corrupt.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+            specimens = try container.decode([SpecimenRecord].self, forKey: .specimens)
+            bests = try container.decode([String: SpecimenRecord].self, forKey: .bests)
+            totalPresses = try container.decode(Int.self, forKey: .totalPresses)
+            unlocked = try container.decode([ObjectKind].self, forKey: .unlocked)
+            let rawEarned = try container.decodeIfPresent([String].self, forKey: .earned) ?? []
+            earned = rawEarned.compactMap(Achievement.init(rawValue:))
+            stats = try container.decode(Stats.self, forKey: .stats)
+        }
     }
 
     private func load() {

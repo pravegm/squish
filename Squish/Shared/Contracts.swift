@@ -184,8 +184,11 @@ extension SpecimenRecord {
 }
 
 /// Achievements (bible §11). Raw values double as Game Center IDs after the prefix.
+/// `fullSet` replaced 1.0's `pumped` (24 Oct 2026): rewarding repeated easing off and pressing again read as a
+/// fold-cycling incentive (App Review 2.4.2). Full Set rewards variety instead: every object in one museum wing.
+/// A saved "pumped" is dropped on load (`CollectionStore`), never a decoding failure.
 enum Achievement: String, Codable, CaseIterable, Sendable, Identifiable {
-    case firstSquish, perfectionist, midas, whatsInside, patience, collector, theSecret, popStar, steadyHands, pumped
+    case firstSquish, perfectionist, midas, whatsInside, patience, collector, theSecret, popStar, steadyHands, fullSet
 
     var id: String { rawValue }
     /// Matches docs/appstore/achievements.md (snake_case IDs registered in App Store Connect).

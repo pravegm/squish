@@ -24,7 +24,7 @@
 | 2 | `com.pravegm.squish.ach.pop_star` | Pop Star | Pop 500 bubbles. | 500 bubbles, and not one survivor. | 75 | No | Cumulative bubbles popped across all Bubble Wrap presses ≥ 500 |
 | 3 | `com.pravegm.squish.ach.whats_inside` | What's Inside? | Find two different surprises hidden inside objects. | Found things in there. Didn't ask questions. | 75 | No | Two **different** surprises found, lifetime (`stats.surprisesFound.count >= 2`, CollectionStore.swift:255). Surprises: the seeded roll fires (toy chick, jam centre, second crayon colour, fruit pieces, rainbow layers, message confetti, mega bubble, double yolk) |
 | 4 | `com.pravegm.squish.ach.patience` | Patience | Keep one press going for more than 30 seconds. | 30 seconds of pure restraint. | 50 | No | Time from arm (θ0 captured) to seal > 30 s, **excluding** time Paused, and **with continuous engagement**: depth must change at least once every 10 s, so leaving the phone half-open doesn't count |
-| 5 | `com.pravegm.squish.ach.pumped` | Pumped | Ease off and press again, twice, in one squish. | Up, down, up, down. Very hydraulic. | 50 | No | One press with ≥ 2 Pressing → Armed (reopen) transitions before seal (bible §2: the plastic ratchet enables "pumping") |
+| 5 | `com.pravegm.squish.ach.full_set` | Full Set | Press every object in one wing of the museum. | One whole wing, pressed and filed. | 50 | No | Every object of any one gallery wing pressed at least once (`MuseumWing.galleries`, `Squish/Core/ObjectCatalog+Museum.swift`): Soft Things (Bubble Wrap, Rubber Duck, Jelly, Cake Slice), Crunchy & Cracking (Egg, Crayon Box, Gummy Bear) or Tough Stuff (Soda Can, Glass Bottle). The Vault doesn't count. Replaced 1.0's **Pumped** (ease off and press again, twice) on 24 Oct 2026, before any build reported it: rewarding repeated folding is an App Review 2.4.2 risk |
 | 6 | `com.pravegm.squish.ach.perfectionist` | Perfectionist | Earn a Perfect Squish on 5 different objects. | Five objects, five flawless closes. | 100 | No | Distinct objects whose best card has the Perfect trait ≥ 5 |
 | 7 | `com.pravegm.squish.ach.steady_hands` | Steady Hands | Earn 10 Perfect Squishes. | Ten Perfect Squishes. Surgeons are nervous. | 75 | No | Lifetime Perfect Squish count ≥ 10 (any objects, repeats count) |
 | 8 | `com.pravegm.squish.ach.midas` | Midas | Press a Golden object. | Golden. One in fifty, and it was yours. | 100 | No | First Golden variant (1/50 seeded roll) |
@@ -34,7 +34,7 @@
 
 **Check the ladder:**
 - Achievement 1 lands on the first press; 3 usually within the first session or two (cake 1 in 3, jelly 1 in 4).
-- Most players will hit Patience (if they're slow), Pumped and Perfectionist in the first session or two.
+- Most players will hit Patience (if they're slow), Full Set (four soft things) and Perfectionist in the first session or two.
 - Pop Star takes about 21 bubble-wrap presses (24 bubbles a sheet, `ObjectCatalog.swift:80`).
 - Midas is luck: expected after ~50 presses.
 - Collector and The Secret come together.
@@ -45,6 +45,7 @@
 - "PRESS 0 – BALL 1" uses an en dash, matching the in-app card. If the form rejects it, use a hyphen.
 - The Secret's pre-earned description is a tease that's safe even if hidden achievements are ever shown greyed out.
 - Nothing mentions speed, and nothing mentions "slam", "smash" or "rage".
+- Nothing rewards folding more: no achievement counts closes, reopens or easing off (App Review 2.4.2).
 
 ## Reserved for future drops (300 points)
 
