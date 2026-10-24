@@ -18,18 +18,43 @@ struct RevealBadge: Identifiable, Equatable {
     let tone: SpecimenRecord.Trait.Tone
 
     static func list(for outcome: RecordOutcome, specimen: SpecimenRecord) -> [RevealBadge] {
-        // Short words: the ticket has one line for them.
-        var badges = specimen.traits.map {
-            RevealBadge(id: "trait-\($0.text)", text: $0.text == "PERFECT SQUISH" ? "PERFECT" : $0.text, symbol: $0.systemImage,
-                        tone: $0.tone)
+        // Only what the plate doesn't already say: PERFECT is the print's stamp and GOLDEN its ribbon, an unlock has its
+        // own ribbon (`UnlockRibbon`). So: a surprise found, and achievements earned.
+        var badges = specimen.traits.filter { $0.tone == .surprise }.map {
+            RevealBadge(id: "trait-\($0.text)", text: $0.text, symbol: $0.systemImage, tone: $0.tone)
         }
         badges += outcome.newAchievements.map {
             RevealBadge(id: "ach-\($0.rawValue)", text: $0.title.uppercased(), symbol: $0.symbolName, tone: .perfect)
         }
-        badges += outcome.newlyUnlocked.map {
-            RevealBadge(id: "unlock-\($0.rawValue)", text: "NEW \($0.coverName)", symbol: "lock.open.fill", tone: .surprise)
-        }
         return badges
+    }
+}
+
+/// "UNLOCKED · GLASS BOTTLE": a ribbon on the print's other top corner when this press opened something.
+struct UnlockRibbon: View {
+    let kinds: [ObjectKind]
+
+    var body: some View {
+        if let first = kinds.first {
+            HStack(spacing: 5) {
+                Image(systemName: "lock.open.fill")
+                    .font(.system(size: 10, weight: .bold))
+                Text("UNLOCKED · \(first.displayName.uppercased())\(kinds.count > 1 ? " +\(kinds.count - 1)" : "")".gluingDotSeparators)
+                    .font(Theme.micro)
+                    .tracking(Theme.microTracking * 0.6)
+            }
+            .foregroundStyle(Theme.graphite)
+            .fixedSize()
+            .padding(.horizontal, Theme.s2)
+            .padding(.vertical, 4)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.rgb(0xDCEBFA)).elevation(.e1)
+            }
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Theme.rgb(0x9CC2EA), lineWidth: 1))
+            .rotationEffect(.degrees(4))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Unlocked: \(kinds.map(\.displayName).joined(separator: ", ")).")
+        }
     }
 }
 
@@ -88,29 +113,17 @@ struct RevealTicket: View {
         let measure = specimen.measurement
         let after = measure.before + (measure.after - measure.before) * state.squash
         let shown = Array(badges.prefix(state.badges))
-        VStack(alignment: .leading, spacing: 4) {
-            // The right end stays clear for the stamp.
+        // Three calm lines, one stamp (the print's own, on the plate above), nothing overlapping:
+        //   CRAYON BOX                     55 TONS
+        //   №0001 · 8 SNAPS
+        //   ▱→▬  11 mm → 1.1 mm     [★ FIRST SQUISH]
+        VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
                 Text(specimen.kind.displayName.uppercased())
                     .font(.system(.subheadline, design: .rounded, weight: .heavy))
                     .foregroundStyle(Theme.ink)
-                Text("\(specimen.numberLabel) · \(specimen.kind.breaksLine(fractureCount: specimen.fractureCount))".gluingDotSeparators)
-                    .font(Theme.micro)
-                    .foregroundStyle(Theme.inkSecondary)
-                Spacer(minLength: 96)
-            }
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-            HStack(alignment: .center, spacing: Theme.s3) {
-                BeforeAfterGlyph(kind: specimen.kind, ratio: measure.before > 0 ? after / measure.before : 1)
-                    .frame(width: 44, height: 26)
-                Text("\(SpecimenRecord.PressedSize.mm(measure.before)) → \(SpecimenRecord.PressedSize.mm(after))")
-                    .font(.system(.headline, design: .monospaced, weight: .bold))
-                    .foregroundStyle(Theme.ink)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                Spacer(minLength: 0)
+                    .fixedSize()
+                Spacer(minLength: Theme.s3)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text("\(state.tons)")
                         .font(.system(.headline, design: .monospaced, weight: .bold))
@@ -121,31 +134,43 @@ struct RevealTicket: View {
                         .foregroundStyle(Theme.inkSecondary)
                 }
                 .foregroundStyle(Theme.ink)
+                .fixedSize()
             }
-            if !badges.isEmpty {
-                // As many whole badges as fit, then "+N".
-                ViewThatFits(in: .horizontal) {
-                    ForEach(Array(stride(from: shown.count, through: 1, by: -1)), id: \.self) { count in
-                        badgeRow(Array(shown.prefix(count)), hidden: shown.count - count)
+            Text("\(specimen.numberLabel) · \(specimen.kind.breaksLine(fractureCount: specimen.fractureCount))".gluingDotSeparators)
+                .font(Theme.micro)
+                .tracking(Theme.microTracking * 0.4)
+                .foregroundStyle(Theme.inkSecondary)
+                .fixedSize()
+            HStack(alignment: .center, spacing: Theme.s3) {
+                BeforeAfterGlyph(kind: specimen.kind, ratio: measure.before > 0 ? after / measure.before : 1)
+                    .frame(width: 44, height: 22)
+                Text("\(SpecimenRecord.PressedSize.mm(measure.before)) → \(SpecimenRecord.PressedSize.mm(after))")
+                    .font(.system(.headline, design: .monospaced, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+                    .monospacedDigit()
+                    .fixedSize()
+                Spacer(minLength: Theme.s2)
+                if !badges.isEmpty {
+                    // As many whole badges as fit, then "+N MORE": never a cut-off word.
+                    ViewThatFits(in: .horizontal) {
+                        ForEach(Array(stride(from: shown.count, through: 1, by: -1)), id: \.self) { count in
+                            badgeRow(Array(shown.prefix(count)), hidden: shown.count - count)
+                        }
+                        Color.clear.frame(width: 1, height: 1)
                     }
-                    Color.clear.frame(height: 1)
                 }
-                .frame(height: 24, alignment: .leading)
             }
         }
-        .padding(.horizontal, Theme.s3)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Theme.s4)
+        .padding(.vertical, 9)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.paper).elevation(.e2)
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.paper).elevation(.e2)
         }
-        .overlay(alignment: .topTrailing) {
-            PressedStamp(seed: specimen.variant.seed, text: specimen.stampText)
-                .scaleEffect(state.stamped ? 0.62 : 1.1)
-                .opacity(state.stamped ? 1 : 0)
-                .offset(x: 14, y: -26)
-                .allowsHitTesting(false)
+        .overlay(alignment: .leading) {
+            // The ticket's spine: a thin yellow rail, like the toasts.
+            Capsule().fill(Theme.yellow).frame(width: 4).padding(.vertical, 10).offset(x: 6)
         }
-        .rotationEffect(.degrees(-1.2))
+        .rotationEffect(.degrees(-0.8))
         .dynamicTypeSize(...DynamicTypeSize.large)   // a fixed composition, like the card
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(specimen.accessibilitySentence) \(measure.spoken).")
@@ -159,8 +184,8 @@ struct RevealTicket: View {
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
             if hidden > 0 {
-                Text("+\(hidden)")
-                    .font(Theme.label)
+                Text("+\(hidden) MORE")
+                    .font(Theme.micro)
                     .foregroundStyle(Theme.inkSecondary)
                     .fixedSize()
             }

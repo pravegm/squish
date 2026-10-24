@@ -195,6 +195,10 @@ struct RevealCardView: View {
             ribbon
                 .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
                 .position(x: plate.maxX - 36, y: plate.minY + 4)
+            UnlockRibbon(kinds: outcome.newlyUnlocked)
+                .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
+                .scaleEffect(ceremony.ticketIn || reduceMotion ? 1 : 1.2)
+                .position(x: plate.minX + 104, y: plate.minY + 2)
             MuseumStrip(collection: collection, kind: outcome.specimen.kind, firstOfKind: firstOfKind, state: ceremony,
                         foldToKeep: foldToKeep && !collecting)
                 .frame(maxWidth: actionsWidth)

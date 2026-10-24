@@ -161,17 +161,21 @@ struct TrayChip: View {
                 ObjectTile(kind: kind, cornerRadius: 7, golden: golden)
                     .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(kind.chipName)
-                        .font(Theme.label)
-                        .foregroundStyle(Theme.graphite)
-                        .contentTransition(.opacity)
+                    // The short name ("DUCK"), so the Duo's narrow book-page console never cuts it off.
+                    ViewThatFits(in: .horizontal) {
+                        Text(kind.chipName)
+                        Text(kind.trayName)
+                    }
+                    .font(Theme.label)
+                    .foregroundStyle(Theme.graphite)
                     Text(kind.verb.uppercased())
                         .font(Theme.micro)
                         .tracking(Theme.microTracking)
                         .foregroundStyle(Theme.inkSecondary)
                 }
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .allowsTightening(true)
+                .minimumScaleFactor(0.6)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.up")
                     .font(.system(.caption2, weight: .heavy))
@@ -211,13 +215,19 @@ struct ShelfKey: View {
 
     var body: some View {
         Button(action: onOpen) {
+            // "Shelf" and a count badge (never "0/10", which reads as a score of zero), dropping the icon, then the word,
+            // when the key is narrow.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) {
                     icon
-                    Text("Shelf")
+                    Text("Shelf").fixedSize()
                     count
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    Text("Shelf").fixedSize()
+                    count
+                }
+                HStack(spacing: 5) {
                     icon
                     count
                 }
@@ -264,7 +274,7 @@ struct ShelfKey: View {
             }
         }
         .accessibilityLabel("Shelf")
-        .accessibilityValue("\(pressedCount) of \(total) objects pressed")
+        .accessibilityValue(pressedCount == 0 ? "Empty so far" : "\(pressedCount) of \(total) objects pressed")
         .accessibilityHint("Opens your collection: objects, squished specimens and achievements.")
     }
 
@@ -273,12 +283,21 @@ struct ShelfKey: View {
             .font(.system(.subheadline, design: .rounded, weight: .semibold))
     }
 
+    /// A small yellow badge with how many objects are on the shelf; hidden while it's empty.
+    @ViewBuilder
     private var count: some View {
-        Text("\(pressedCount)/\(total)")
-            .font(Theme.label)
-            .foregroundStyle(Theme.paper.opacity(0.75))
-            .contentTransition(.numericText())
-            .animation(Theme.pop(reduceMotion), value: pressedCount)
+        if pressedCount > 0 {
+            Text("\(pressedCount)")
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(Theme.graphite)
+                .contentTransition(.numericText())
+                .padding(.horizontal, 5)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(Capsule().fill(Theme.yellow))
+                .fixedSize()
+                .animation(Theme.pop(reduceMotion), value: pressedCount)
+        }
     }
 }
 
@@ -337,6 +356,24 @@ struct ProgressPips: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+extension ObjectKind {
+    /// The tray chip's short name for narrow consoles (the Duo's book page): "DUCK", never "RUBBER…".
+    var trayName: String {
+        switch self {
+        case .bubbleWrap: "BUBBLES"
+        case .rubberDuck: "DUCK"
+        case .jelly: "JELLY"
+        case .crayon: "CRAYONS"
+        case .egg: "EGG"
+        case .cakeSlice: "CAKE"
+        case .sodaCan: "SODA CAN"
+        case .gummyBear: "GUMMY"
+        case .glassBottle: "BOTTLE"
+        case .unsquishable: "STEEL BALL"
+        }
     }
 }
 

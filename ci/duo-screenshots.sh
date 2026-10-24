@@ -308,7 +308,7 @@ shoot() {
 # frame was a 2853 × 2007 landscape capture). Prints "ok <WxH>" or "bad <WxH> (want …)"; returns 1 when bad.
 size_check() {
   local want got
-  if [[ "$2" == cover ]]; then want=1398x2034; else want=2007x2853; fi
+  if [[ "$2" == cover ]]; then want=1398x2034; elif [[ "${3:-}" == book ]]; then want=2853x2007; else want=2007x2853; fi
   if [[ ! -f "$OUT_ABS/$1.png" ]]; then echo "bad none (want $want)"; return 1; fi
   got=$(png_size "$OUT_ABS/$1.png"); got="${got%% *}"
   if [[ "$got" == "$want" ]]; then echo "ok $got"; return 0; fi
@@ -489,9 +489,10 @@ clear_store_halves() {
   return 0
 }
 
-# Pass 3: one raw Duo UI frame. ui_frame <name> <hinge> <display: inner|cover> <scenario>
+# Pass 3: one raw Duo UI frame. ui_frame <name> <hinge> <display: inner|cover> <scenario> [book]
+# `book`: a book-pose frame (orient=landscape), so the inner capture is 2853 × 2007, not portrait.
 ui_frame() {
-  local name="$1" deg="$2" display="$3" scen="$4" applog
+  local name="$1" deg="$2" display="$3" scen="$4" shape="${5:-}" applog
   applog="$OUT_ABS/logs/$name.txt"; : >"$applog"
   log "=== UI frame $name (hinge ${deg}°, $display): $scen"
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
@@ -517,8 +518,8 @@ ui_frame() {
     fi
     fsleep 4   # the demo sheet opens 1.2 s after launch, then animates in
     shoot "$name" "$display"
-    if size=$(size_check "$name" "$display"); then ok=1; break; fi
-    log "WARN $name: size $size: not a portrait $display capture (attempt $attempt)"
+    if size=$(size_check "$name" "$display" "$shape"); then ok=1; break; fi
+    log "WARN $name: size $size: not a ${shape:-portrait} $display capture (attempt $attempt)"
     to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
     fsleep "$SETTLE"
   done
@@ -769,7 +770,19 @@ for ui in $ui_order; do
         log "WARN duo-cover-launch: the engine left idle on a closed launch ($(grep -E 'SQUISH-H' "$OUT_ABS/logs/duo-cover-launch.txt" | tail -1)); O2 may show a sealed card"
         FAILURES=$((FAILURES+1))
       fi ;;
-    *) log "WARN unknown DUO_UI frame '$ui' (shelf|settings|cover)" ;;
+    # The experience screens (EXPERIENCE-PLAN "Screens"; RootView.runDemo keys), in tabletop (orient=$ORIENT) and, with a
+    # -book suffix, book pose (orient=landscape): duo-<name>[-book].png. Review frames, not part of the store set.
+    menu|tray|lesson|help|about|achievements|settings-book|shelf-book|menu-book|tray-book|lesson-book|help-book|achievements-book)
+      base="${ui%-book}"; key="$base"
+      [[ "$base" == achievements ]] && key="shelf=achievements"
+      [[ "$base" == lesson ]] && key="lesson"
+      obj="rubberDuck"; [[ "$base" == lesson ]] && obj="bubbleWrap"
+      if [[ "$ui" == *-book ]]; then
+        ui_frame "duo-$ui" 180 inner "object=$obj;duo;notoasts;orient=landscape;$key" book
+      else
+        ui_frame "duo-$ui" 180 inner "object=$obj;duo;notoasts;orient=$ORIENT;$key"
+      fi ;;
+    *) log "WARN unknown DUO_UI frame '$ui' (shelf|settings|cover|menu|tray|lesson|help|about|achievements, or <name>-book)" ;;
   esac
 done
 [[ "$DRIVER" != none && -n "$DUO_UI" ]] && { hinge_to 180; fsleep "$SETTLE"; }
