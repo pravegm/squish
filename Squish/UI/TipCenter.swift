@@ -5,7 +5,7 @@ import UIKit
 /// One calm toast at a time in the 80–86% band (VISUAL-TARGET §6.1), never during a press or the reveal.
 /// Copy from UX-REVIEW-1 §6.3. One-time tips remember themselves in UserDefaults.
 struct SquishTip: Identifiable, Equatable {
-    enum Kind: String { case safety, sound, coach, openUp, dragDown }
+    enum Kind: String { case safety, sound, coach, openUp, dragDown, upNext }
 
     let kind: Kind
     let id: Int
@@ -15,6 +15,8 @@ struct SquishTip: Identifiable, Equatable {
     let accent: Color
     /// Auto-dismiss after this many seconds once on screen; nil = until its condition clears.
     let lifetime: Double?
+    /// The object the tip is about (its silhouette replaces the symbol): S6's "Up next".
+    let object: ObjectKind?
 
     static func == (lhs: SquishTip, rhs: SquishTip) -> Bool { lhs.id == rhs.id }
 }
@@ -42,12 +44,21 @@ final class TipCenter {
         make(.coach, "SLOW IS SMOOTH", line, "tortoise.fill", Theme.yellow, 2.5)
     }
 
-    func openUp() -> SquishTip {
-        make(.openUp, "OPEN IT UP", "Open your iPhone flat to start a press.", "arrow.up.and.down", Theme.graphite, nil)
+    func openUp(book: Bool = false) -> SquishTip {
+        make(.openUp, "OPEN IT UP",
+             book ? "Open it wide, like a book, to start a press." : "Open it wide, like a laptop, to start a press.",
+             "arrow.up.and.down", Theme.graphite, nil)
     }
 
     func dragDown() -> SquishTip {
         make(.dragDown, "DRAG DOWN", "Pull the press down. Slower is nicer.", "hand.draw.fill", Theme.yellow, nil)
+    }
+
+    /// S6 Collect → Next: "UP NEXT · Egg · cracks", or "NEW IN THE MUSEUM · Soda Can · buckles" after an unlock.
+    func upNext(_ kind: ObjectKind, isNew: Bool) -> SquishTip {
+        make(.upNext, isNew ? "NEW IN THE MUSEUM" : "UP NEXT",
+             "\(kind.isSecret && !isNew ? "???" : kind.displayName) · \(kind.verb.lowercased())",
+             "arrow.right", Theme.tint(for: kind), 2.4, object: kind)
     }
 
     // MARK: Presenting
@@ -92,8 +103,9 @@ final class TipCenter {
     }
 
     private func make(_ kind: SquishTip.Kind, _ title: String, _ detail: String, _ symbol: String, _ accent: Color,
-                      _ lifetime: Double?) -> SquishTip {
+                      _ lifetime: Double?, object: ObjectKind? = nil) -> SquishTip {
         counter += 1
-        return SquishTip(kind: kind, id: counter, title: title, detail: detail, symbol: symbol, accent: accent, lifetime: lifetime)
+        return SquishTip(kind: kind, id: counter, title: title, detail: detail, symbol: symbol, accent: accent,
+                         lifetime: lifetime, object: object)
     }
 }

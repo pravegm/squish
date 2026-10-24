@@ -60,6 +60,8 @@ final class PressDirector {
     /// One-shot recheck at the gate's deadline: a shut Duo lying still sends no more hinge samples.
     @ObservationIgnored private var revealGateCheck: Task<Void, Never>?
     @ObservationIgnored private var revealGateCheckDeadline: Double?
+    /// Arms fold-to-keep `foldToKeepDelay` after the reveal lights (EXPERIENCE-PLAN "Reveal ceremony").
+    @ObservationIgnored private var foldToKeepTask: Task<Void, Never>?
     @ObservationIgnored private var consecutiveSlams = 0
     /// Demo store shots (CI only, see `writeStoreShot`): the halves of each angle shot, kept for the before/after frame.
     @ObservationIgnored private var storeShotHalves: [String: FoldStoreShot.Halves] = [:]
@@ -229,6 +231,17 @@ final class PressDirector {
     /// Frames the loop has run (rendered or blind clock), for the Tuning Lab diagnostics.
     var diagnosticsFrameCount: Int { renderedFrames }
 
+    /// A brand or UI cue (the launch beat's hiss-clunk, the lesson's sound check, the reveal's slot chime) in sound and
+    /// touch together, from the same frame.
+    func playUICue(_ cue: FeedbackCue, light: Bool = false) {
+        playBoth(cue, light: light)
+    }
+
+    /// What `next()` will put on the anvil after this reveal: a fresh unlock first, else the next stop on the tour.
+    var upNextKind: ObjectKind {
+        revealed?.newlyUnlocked.first ?? upNext(after: currentKind)
+    }
+
     /// Tuning Lab "Test full press feel": the same scripted 3-second press in sound and touch.
     func playPressFeelTest() {
         let cue = PressFeelDemo.cue(kind: currentKind, dice: FeedbackDice(seed: UInt64.random(in: 1...UInt64.max)))
@@ -250,11 +263,8 @@ final class PressDirector {
         haptics.collect()
         engine.finishReveal()
         revealed = nil
-        if let unlocked = outcome.newlyUnlocked.first {
-            load(unlocked)
-        } else {
-            load(nextUnlocked(after: currentKind))
-        }
+        // S6 announces exactly this object ("Up next: Egg · cracks"), so the order is the tour's, never a surprise.
+        load(outcome.newlyUnlocked.first ?? upNext(after: currentKind))
     }
 
     /// Pick the next object from the cover display while the phone is shut; it's waiting on the anvil on open.
@@ -310,9 +320,9 @@ final class PressDirector {
             var gate = revealGate ?? RevealCollectGate(start: now, angle: angle)
             let collect = gate.ingest(angle: angle, closed: closed, at: now)
             revealGate = gate
-            if collect {
+            if collect && foldToKeepReady {
                 next()
-            } else {
+            } else if foldToKeepReady {
                 scheduleRevealGateCheck(at: gate.nextDeadline)
             }
         }
@@ -426,8 +436,14 @@ final class PressDirector {
         return kind
     }
 
-    private func nextUnlocked(after kind: ObjectKind) -> ObjectKind {
-        let all = ObjectKind.allCases
+    /// The next object to put on the anvil: the next unlocked stop on the first-session tour that hasn't been pressed
+    /// yet (bubble wrap → egg → jelly → crayon …, UX-AUDIT-2 §4.4), then round the museum, wing by wing.
+    func upNext(after kind: ObjectKind) -> ObjectKind {
+        let pressed = collection.stats.squishedKinds
+        if let fresh = ObjectKind.tourOrder.first(where: { $0 != kind && collection.isUnlocked($0) && !pressed.contains($0) }) {
+            return fresh
+        }
+        let all = ObjectKind.museumOrder
         let start = all.firstIndex(of: kind) ?? 0
         for offset in 1...all.count {
             let candidate = all[(start + offset) % all.count]
@@ -511,9 +527,12 @@ final class PressDirector {
                                usesVirtualHinge: engine.usesVirtualHinge, config: engine.config)
         let outcome = collection.record(result, variant: variant, trace: lastTrace)
         revealed = outcome
-        // Fold-to-collect starts from the hinge as the card comes up (the sample that revealed it, or the last one).
+        // Fold-to-collect starts from the hinge as the card comes up (the sample that revealed it, or the last one), but
+        // only counts once the ceremony has played (`armFoldToKeep`): settling back into tabletop mid-ceremony no
+        // longer eats the reveal (UX-AUDIT-2 §2.1 #6).
         clearRevealGate()
         revealGate = RevealCollectGate(start: CACurrentMediaTime(), angle: engine.rawAngle)
+        armFoldToKeep(for: outcome.specimen.id)
         coachIfSlamming(result)
         lastSpecimenID = outcome.specimen.id
         if let lastTrace {
@@ -544,6 +563,40 @@ final class PressDirector {
         revealGateCheck?.cancel()
         revealGateCheck = nil
         revealGateCheckDeadline = nil
+        foldToKeepTask?.cancel()
+        foldToKeepTask = nil
+        foldToKeepReady = false
+    }
+
+    /// Seconds of lit ceremony before a fold keeps the specimen (EXPERIENCE-PLAN "Fold-to-keep works only after 2.5 s").
+    static let foldToKeepDelay: Double = 2.5
+    /// The ceremony never waits longer than this for the inner display to light.
+    static let revealLightTimeout: Double = 3
+
+    /// After the reveal lights (Fold Press) and `foldToKeepDelay` more, a fold or a close keeps the specimen. The gate
+    /// starts over from the hinge as it is then, so a fold made during the ceremony doesn't count retroactively.
+    /// CI demo runs keep the old timing (the store passes fold the card away on their own schedule).
+    private func armFoldToKeep(for id: UUID) {
+        foldToKeepTask?.cancel()
+        foldToKeepReady = false
+        if DemoScenario.current != nil {
+            foldToKeepReady = true
+            return
+        }
+        foldToKeepTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let began = CACurrentMediaTime()
+            while self.usesFoldPress, self.fold.isRevealWaitingForLight,
+                  CACurrentMediaTime() - began < Self.revealLightTimeout {
+                try? await Task.sleep(for: .milliseconds(50))
+                if Task.isCancelled { return }
+            }
+            try? await Task.sleep(for: .seconds(Self.foldToKeepDelay))
+            guard !Task.isCancelled, self.revealed?.specimen.id == id else { return }
+            self.revealGate = RevealCollectGate(start: CACurrentMediaTime(), angle: self.engine.rawAngle)
+            self.foldToKeepReady = true
+            self.foldToKeepTask = nil
+        }
     }
 
     /// Re-check the reveal gate at `deadline` (nil cancels): after a close the hinge may send nothing more.
@@ -559,7 +612,7 @@ final class PressDirector {
             guard !Task.isCancelled, let self else { return }
             self.revealGateCheck = nil
             self.revealGateCheckDeadline = nil
-            guard self.revealed != nil, !self.settings.pressWithoutFolding,
+            guard self.revealed != nil, !self.settings.pressWithoutFolding, self.foldToKeepReady,
                   let gate = self.revealGate, gate.shouldCollect(at: CACurrentMediaTime()) else { return }
             self.next()
         }

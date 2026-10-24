@@ -1,14 +1,22 @@
 import SwiftUI
 import UIKit
 
-/// The outer (cover) display while the phone is shut (VISUAL-TARGET §6.11, bible §3.1 beat 10, §5).
-/// It's the outside of the machine: a graphite panel with four screws. After a press it shows the sealed
-/// paper inset (mini gauge at the peak, tonnage, "OPEN TO SEE"); otherwise the three latest stickers and the
-/// object chips, so the next object can be queued before opening.
+/// The outer (cover) display while the phone is shut (VISUAL-TARGET §6.11, bible §3.1 beat 10, §5, UX-AUDIT-2 §4.3).
+/// It's the outside of the machine: a graphite panel with four screws.
+/// - C1 lobby: the three latest stickers, the object chips (queue the next object before opening), and the same doors
+///   as inside: Shelf, Menu, Settings (HIG: the same functionality on both displays).
+/// - C1a first run: "Open me to start".
+/// - C2 sealing (a live gauge), sealed (KA-CHUNK!, then the tonnage and "What's left?", never the print: no spoiler),
+///   releasing (the needle falls, the lamp turns green).
+/// - C3 paused: closed mid-press without sealing.
 struct CoverView: View {
     enum Content: Equatable {
-        case sealed(kind: ObjectKind, tons: Int)
         case idle
+        case firstRun
+        case sealing(tons: Int)
+        case sealed(kind: ObjectKind, tons: Int)
+        case releasing(tons: Int)
+        case paused(tons: Int)
     }
 
     let content: Content
@@ -23,26 +31,41 @@ struct CoverView: View {
     var onQueue: ((ObjectKind) -> Void)?
     /// The one-time safety line (bible §3.2), when it's due.
     var showsSafetyLine = false
-    /// Fold Press: the platen's monoprint of this press (`FoldPlaten.printImage()`), the sealed card's teaser.
-    /// Nil (P-48, a demo cover, no contact yet) falls back to the object's silhouette.
-    var sealedPrint: UIImage?
+    /// "3/10" on the lobby's Shelf key.
+    var pressedCount = 0
+    /// The lobby's doors (C1); nil hides the row.
+    var onShelf: (() -> Void)?
+    var onMenu: (() -> Void)?
+    var onSettings: (() -> Void)?
+    /// The first-run sound line ("Sound plays even on Silent…").
+    var soundLine = ""
 
     /// The outer display's safe area already excludes the clock column and the bottom inset (seen on the Duo
     /// simulator), so the idle content just takes a normal margin and centres in what's left, both ways.
     private var sideInset: CGFloat { Theme.s5 }
     private var bottomInset: CGFloat { 0 }
 
-    private var isSealed: Bool {
-        if case .sealed = content { return true }
-        return false
+    private var holdsPressure: Bool {
+        switch content {
+        case .sealed, .sealing, .paused: return true
+        case .idle, .firstRun, .releasing: return false
+        }
     }
 
     var body: some View {
         ZStack {
-            MachinePanel(holdingPressure: isSealed)
+            MachinePanel(holdingPressure: holdsPressure)
             switch content {
             case let .sealed(kind, tons):
-                sealed(kind: kind, tons: tons)
+                centred { SealedInset(kind: kind, tons: tons) }
+            case let .sealing(tons):
+                centred { PressureInset(state: .sealing, tons: tons) }
+            case let .releasing(tons):
+                centred { PressureInset(state: .releasing, tons: tons) }
+            case let .paused(tons):
+                centred { PressureInset(state: .paused, tons: tons) }
+            case .firstRun:
+                centred { FirstRunCover(soundLine: soundLine) }
             case .idle:
                 idle
             }
@@ -50,15 +73,16 @@ struct CoverView: View {
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
 
-    /// The sealed card (FOLD-REVIEW-3 N16, FOLD-REVIEW-4 F10): centred on the whole outer display, both ways, at
-    /// ~80 % of its width. Centring in the safe area left of the clock column put it 220 px left of centre with
-    /// 61 % of the panel empty. Its content is centred, so the column only ever meets the card's paper margin.
-    private func sealed(kind: ObjectKind, tons: Int) -> some View {
-        GeometryReader { proxy in
+    /// A card centred on the whole outer display (FOLD-REVIEW-3 N16, FOLD-REVIEW-4 F10), both ways, at ~80 % of its
+    /// width. Centring in the safe area left of the clock column put it 220 px left of centre with 61 % of the panel
+    /// empty. Its content is centred, so the column only ever meets the card's paper margin.
+    private func centred<Card: View>(@ViewBuilder _ card: () -> Card) -> some View {
+        let inset = card()
+        return GeometryReader { proxy in
             let width = min(max(240, proxy.size.width * 0.8), 400)
             ScrollView(.vertical) {
                 VStack(spacing: Theme.s4) {
-                    SealedInset(kind: kind, tons: tons, inkPrint: sealedPrint)
+                    inset
                     safetyLine
                 }
                 .frame(width: width)
@@ -84,6 +108,7 @@ struct CoverView: View {
                 VStack(spacing: Theme.s4) {
                     IdleCover(recent: recent, currentKind: currentKind, thumbnail: thumbnail,
                               unlockedKinds: unlockedKinds, onQueue: onQueue)
+                    doors
                     safetyLine
                 }
                 .frame(width: width)
@@ -97,6 +122,30 @@ struct CoverView: View {
             .padding(.bottom, bottomInset)
         }
         .ignoresSafeArea()
+    }
+
+    /// C1's doors: the same Shelf, Menu and Settings as the press room, so nothing is tied to one display.
+    @ViewBuilder
+    private var doors: some View {
+        if onShelf != nil || onMenu != nil || onSettings != nil {
+            HStack(spacing: Theme.s2) {
+                if let onShelf {
+                    ShelfKey(pressedCount: pressedCount, total: ObjectKind.allCases.count, hop: 0, bump: 0, onOpen: onShelf)
+                }
+                if let onMenu {
+                    MenuKeycap(action: onMenu)
+                }
+                if let onSettings {
+                    Button(action: onSettings) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(.subheadline, weight: .semibold))
+                    }
+                    .buttonStyle(KeycapStyle(kind: .console, round: true))
+                    .accessibilityLabel("Settings")
+                }
+            }
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        }
     }
 
     @ViewBuilder
@@ -247,17 +296,27 @@ private struct Screw: View {
     }
 }
 
-/// The sealed card: a paper inset with the mini gauge at the peak. Fold Press: the platen's own monoprint of this
-/// press is the teaser (FOLD-REVIEW-3 N16): what the lid printed, not an intact object next to "WHAT'S LEFT?".
+/// The sealed card (C2b): KA-CHUNK! slams in, then the paper inset with the mini gauge at the peak, the tonnage and
+/// "What's left? Open to see." It never shows the print (UX-AUDIT-2 §2.1 #12: the cover spoiled the reveal).
 private struct SealedInset: View {
     let kind: ObjectKind
     let tons: Int
-    var inkPrint: UIImage?
+    var inkPrint: UIImage? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathe = false
+    @State private var slammed = false
 
     var body: some View {
         VStack(spacing: Theme.s3) {
+            Text("KA-CHUNK!")
+                .font(Theme.captionFont(size: 40))
+                .foregroundStyle(Theme.yellow)
+                .shadow(color: .black.opacity(0.4), radius: 0, x: 0, y: 3)
+                .scaleEffect(slammed || reduceMotion ? 1 : 1.6)
+                .rotationEffect(.degrees(slammed || reduceMotion ? -4 : -12))
+                .opacity(slammed ? 1 : 0)
+                .padding(.top, -Theme.s6)
+                .accessibilityHidden(true)
             HStack(spacing: Theme.s2) {
                 // LOAD lamp: amber while the press holds pressure.
                 Circle()
@@ -296,11 +355,14 @@ private struct SealedInset: View {
         .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).elevation(.e2) }
         .topHighlight(cornerRadius: 16)
         .onAppear {
+            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.25, dampingFraction: 0.5)) {
+                slammed = true
+            }
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { breathe = true }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Press sealed. \(tons) tons. Open your iPhone to see the result.")
+        .accessibilityLabel("Ka-chunk. Press sealed. \(tons) tons. What's left? Open your iPhone to see.")
     }
 
     private var tonnage: some View {
@@ -405,6 +467,12 @@ struct MiniGauge: View {
             }
         }
         .accessibilityHidden(true)
+        // Live gauges (sealing climbs, releasing falls) follow the value.
+        .onChange(of: tons) { _, value in
+            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.5, dampingFraction: 0.7)) {
+                shown = min(Double(value), Self.maxTons + 2)
+            }
+        }
         .onAppear {
             let target = min(Double(tons), Self.maxTons + 2)
             let animation: Animation = reduceMotion
@@ -587,7 +655,7 @@ extension ObjectKind {
         case .bubbleWrap: "BUBBLES"
         case .rubberDuck: "DUCK"
         case .jelly: "JELLY"
-        case .crayon: "CRAYON"
+        case .crayon: "CRAYONS"
         case .egg: "EGG"
         case .cakeSlice: "CAKE"
         case .sodaCan: "CAN"
@@ -595,5 +663,125 @@ extension ObjectKind {
         case .glassBottle: "BOTTLE"
         case .unsquishable: "BALL"
         }
+    }
+}
+
+/// C2a sealing, C2c releasing and C3 paused: the machine's outside under pressure, a live gauge and one line.
+private struct PressureInset: View {
+    enum Mode { case sealing, releasing, paused }
+    let state: Mode
+    let tons: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var falling = false
+
+    var body: some View {
+        VStack(spacing: Theme.s3) {
+            HStack(spacing: Theme.s2) {
+                Circle()
+                    .fill(lamp)
+                    .frame(width: 10, height: 10)
+                    .shadow(color: lamp.opacity(0.6), radius: 4)
+                Text(title)
+                    .font(.system(.headline, design: .rounded, weight: .heavy))
+                    .foregroundStyle(Theme.graphite)
+            }
+            HStack(spacing: Theme.s4) {
+                MiniGauge(tons: state == .releasing && falling ? 0 : tons)
+                    .frame(width: 72, height: 72)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(tons)")
+                            .font(Theme.bigNumber)
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.graphite)
+                            .contentTransition(.numericText(value: Double(tons)))
+                        Text("TONS")
+                            .font(Theme.bigNumber)
+                            .foregroundStyle(Theme.inkSecondary)
+                    }
+                    Text(detail)
+                        .font(Theme.footnote)
+                        .foregroundStyle(Theme.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, Theme.s5)
+        .padding(.vertical, Theme.s4)
+        .frame(maxWidth: .infinity)
+        .background { PaperBackground().clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)).elevation(.e2) }
+        .topHighlight(cornerRadius: 16)
+        .onAppear {
+            guard state == .releasing else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(120))
+                falling = true
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title.capitalized). \(tons) tons. \(detail)")
+    }
+
+    private var title: String {
+        switch state {
+        case .sealing: "SEALING…"
+        case .releasing: "RELEASING…"
+        case .paused: "PAUSED"
+        }
+    }
+
+    private var detail: String {
+        switch state {
+        case .sealing: "All the way, now."
+        case .releasing: "Open it the rest of the way."
+        case .paused: "Open it to keep going."
+        }
+    }
+
+    private var lamp: Color {
+        switch state {
+        case .sealing, .paused: Theme.yellow
+        case .releasing: falling ? Theme.lampGreen : Theme.yellow
+        }
+    }
+}
+
+/// C1a: the very first launch with the phone shut. One job: get it open.
+private struct FirstRunCover: View {
+    let soundLine: String
+
+    var body: some View {
+        VStack(spacing: Theme.s4) {
+            Text("SQUISH")
+                .font(.system(size: 44, weight: .black, design: .rounded))
+                .foregroundStyle(Theme.yellow)
+                .shadow(color: .black.opacity(0.4), radius: 0, x: 0, y: 3)
+                .accessibilityAddTraits(.isHeader)
+            HStack(spacing: Theme.s3) {
+                FoldGlyph()
+                    .frame(width: 34, height: 26)
+                    .accessibilityHidden(true)
+                Text("Open me to start")
+                    .font(Theme.headline)
+                    .foregroundStyle(Theme.paper)
+            }
+            Text("Bubble wrap is waiting inside.")
+                .font(Theme.footnote)
+                .foregroundStyle(Theme.paper.opacity(0.75))
+            if !soundLine.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(.footnote, weight: .semibold))
+                        .foregroundStyle(Theme.yellow)
+                    Text(soundLine.keepingLastWordsTogether)
+                        .font(Theme.footnote)
+                        .foregroundStyle(Theme.paper.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .contain)
     }
 }

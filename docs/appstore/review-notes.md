@@ -16,7 +16,7 @@ Thanks for reviewing Squish: a paid toy with no ads, no in-app purchases, no acc
 1. TESTING WITHOUT AN iPHONE DUO (start here)
 You don't need a Duo. Every object, unlock and achievement works without folding.
 - Any iPhone without a hinge, or the Simulator: the drag press is always on. Put a finger on the press and drag down slowly; the ram follows your finger and the object deforms, cracks and gives. Let go to ease off. Drag to the bottom to seal; after a moment the specimen card appears.
-- On iPhone Duo: tap the Shelf key on the press console, then the gear icon (Settings), and turn on "Press without folding". The drag press then works exactly as above.
+- On iPhone Duo: tap the gear key (Settings) on the press console, or Menu > Settings, and turn on "Press without folding". The drag press then works exactly as above.
 - With VoiceOver: focus the press and swipe up to press one step, swipe down to ease off.
 
 2. WHAT IT DOES
@@ -27,7 +27,7 @@ Squish reads the hinge only through the public iOS 27.1 API (SwiftUI onHingeChan
 a) Open the phone in tabletop or book pose. The two halves of the inner screen are the press plates.
 b) Close slowly. The press arms where you start closing (between 168 and 130 degrees) and maps the hinge angle continuously to press depth. It seals at 48 degrees (PressConfig.endAngle).
 c) Close fully. The normal magnetic close gives a "ka-chunk" and a "Press sealed" card on the outer display.
-d) Reopen (past about 120 degrees) to see the specimen card. Fold again or tap Next to collect it.
+d) Reopen (past about 120 degrees) to see the specimen card. After a short ceremony, fold again or tap Keep to collect it.
 No extra force is needed or encouraged: the user closes the phone exactly as they normally would.
 
 4. UNLOCKS (no hidden features, nothing to buy)
@@ -52,7 +52,7 @@ Squish collects no data. No third-party SDKs, analytics, ads, accounts or tracki
 8. OTHER
 - A one-time rating prompt (SKStoreReviewController) may appear after about 10 presses, only after a reveal, never mid-press.
 - No notifications are requested.
-- Sound uses the ambient audio session, so it respects the silent switch.
+- Sound plays even when the silent switch is on (playback audio session, mixing with other audio); Settings > "Play when phone is on Silent" turns that off.
 - Release builds contain no debug or demo modes.
 - Content: cartoon objects only. No creatures, no gore, no brands. The rubber duck is fine.
 ```

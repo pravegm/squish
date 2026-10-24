@@ -1,39 +1,59 @@
 import SwiftUI
 import UIKit
 
-/// The reveal (VISUAL-TARGET §6.8, bible §3.1 beats 11–12). Portrait: the 3:4 specimen card drops into the
-/// 6–44% band (over the lifted ram, so the flattened object stays visible on the anvil), one toast at a time
-/// in 80–86%, and Again / Share / Next keycaps on the console (86–95%). Landscape: card in the left 30% column,
-/// console in the right 22% column. On collect, the card flies into the Shelf key (which RootView mounts).
+/// The reveal (VISUAL-TARGET §6.8, bible §3.1 beats 11–12, EXPERIENCE-PLAN "Reveal ceremony").
+/// - iPhone Duo (Fold Press): the diptych stays on the plates (print on the lid, specimen on the anvil) and the S5
+///   ceremony plays over it: the lid lifts, the break replays in slow motion, then before → after, the stamp, the
+///   stats and the museum slot (`RevealCeremony.swift`). Keep / Again / Share (and ⚙) sit in the console band.
+/// - Other iPhones (P-48): the 3:4 specimen card drops into the 6–44% band, one toast at a time in 80–86%, and the keys
+///   on the console. Landscape: card in the left 30% column, console in the right 22% column.
+/// On collect, the card flies into the Shelf key (which RootView mounts).
 struct RevealCardView: View {
     let outcome: RecordOutcome
     let collection: CollectionStore
     /// Hinge trace for the share clip, when one is stored for this specimen.
     let trace: PressTrace?
-    /// Next/Again was tapped: the actions fade and the console's Shelf key appears.
+    /// Keep/Again was tapped: the actions fade and the console's Shelf key appears.
     let collecting: Bool
     /// Global centre of the Shelf key once the card should fly into it.
     let flyTarget: CGPoint?
     /// Foldable: keep the card off the crease.
     var hinge = false
-    /// iPhone Duo Fold Press: the reveal is the FOLD-PRESS §6.3 diptych (print on the platen, specimen on the
-    /// anvil), so no card covers them; the card appears only for the collect flight.
+    /// iPhone Duo Fold Press: the reveal is the diptych plus the ceremony; the card appears only for the collect flight.
     var foldPress = false
-    /// Fold Press: returns once the inner display is lit for this reveal (`FoldPressController.revealLit`). The
-    /// toasts wait for it, so they never play on a dark panel (FOLD-REVIEW-7 N10). Unused off the Fold Press.
+    /// Fold Press: returns once the inner display is lit for this reveal (`FoldPressController.revealLit`).
     var revealLit: @MainActor () async -> Void = {}
-    let onNext: () -> Void
+    /// Fold Press: starts the slow-mo replay of the break; its duration, or nil when there's nothing to replay.
+    var playReplay: @MainActor () -> TimeInterval? = { nil }
+    /// Ends a running replay early (Keep or Again tapped mid-replay).
+    var stopReplay: @MainActor () -> Void = {}
+    /// Fold-to-keep counts now (the director, 2.5 s into the lit ceremony): show the hint.
+    var foldToKeep = false
+    /// The very first reveal: no toasts (EXPERIENCE-PLAN decision 6: ask for nothing before the first reveal is done).
+    var firstReveal = false
+    /// UI ceremony sound and touch (the museum slot's chime).
+    var playCue: @MainActor (FeedbackCue) -> Void = { _ in }
+    let onKeep: () -> Void
     let onAgain: () -> Void
+    var onSettings: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var share = SpecimenShareModel()
     @State private var cardIn = false
     @State private var toastIndex = -1
     @State private var actionsIn = false
-    @AccessibilityFocusState private var focusNext: Bool
+    @State private var ceremony = CeremonyState()
+    /// Captured at the reveal: was this the first card of its kind (its museum slot fills now)?
+    @State private var firstOfKind = false
+    @AccessibilityFocusState private var focusKeep: Bool
 
     /// The live record (it gains its thumbnail ~1 s after the reveal).
     private var specimen: SpecimenRecord { collection.specimen(withID: outcome.specimen.id) ?? outcome.specimen }
+
+    private var badges: [RevealBadge] { RevealBadge.list(for: outcome, specimen: outcome.specimen) }
+
+    /// Store passes and CI demo frames (`notoasts`): the ceremony is shown finished at once, so frames are deterministic.
+    private var instantCeremony: Bool { RevealToastDemo.hidesToasts }
 
     private struct Toast: Identifiable {
         let id: String
@@ -44,8 +64,9 @@ struct RevealCardView: View {
     }
 
     private var toasts: [Toast] {
-        // `-squishDemo …;notoasts` (store capture, FOLD-REVIEW-4 F4): the reveal stays clean.
-        if RevealToastDemo.hidesToasts { return [] }
+        // `-squishDemo …;notoasts` (store capture, FOLD-REVIEW-4 F4): the reveal stays clean. The Fold ceremony shows
+        // its badges on the ticket instead, and the first reveal of all asks for nothing.
+        if RevealToastDemo.hidesToasts || foldPress || firstReveal { return [] }
         var list: [Toast] = []
         // The first Perfect Squish ever explains itself (P1-13).
         if outcome.specimen.isPerfect && collection.stats.perfectCount == 1 {
@@ -53,7 +74,7 @@ struct RevealCardView: View {
                               glyph: .symbol("sparkles"), accent: Theme.yellow))
         }
         list += outcome.newlyUnlocked.map { kind in
-            Toast(id: "unlock-\(kind.rawValue)", title: "NEW OBJECT UNLOCKED",
+            Toast(id: "unlock-\(kind.rawValue)", title: "NEW IN THE MUSEUM",
                   detail: "\(kind.displayName) · up next", glyph: .object(kind), accent: Theme.tint(for: kind))
         }
         list += outcome.newAchievements.map { achievement in
@@ -77,6 +98,14 @@ struct RevealCardView: View {
         }
         .modifier(SpecimenSharingChrome(model: share))
         .onAppear(perform: choreograph)
+        // Cancelled when the reveal goes (Keep, Again, a fold), so nothing plays on after it.
+        .task {
+            if !foldPress {
+                await runCardReveal()
+            } else if !instantCeremony {
+                await runCeremony()
+            }
+        }
     }
 
     // MARK: Layouts
@@ -125,78 +154,69 @@ struct RevealCardView: View {
         }
     }
 
-    /// Fold Press reveal (FOLD-PRESS §6.3, FOLD-REVIEW-1 #4–5). The scene keeps the monoprint on the platen
-    /// (with its PRESSED stamp) and the flattened specimen on the anvil; the UI adds only a paper label under the
-    /// platen plate, one single-line toast in the fold toast slot (never the crown strip: its gauge, lamps and
-    /// hinge readout go green and freeze at the reveal, FOLD-REVIEW-4 F4), and Again · Share · Next in the console.
+    /// Fold Press reveal (FOLD-PRESS §6.3 + the S5 ceremony). The scene keeps the monoprint on the platen and the
+    /// flattened specimen on the anvil; the UI lays the lid shade over the print, the replay tag on the anvil plate, the
+    /// ticket under the print, the museum strip above the console, and the keys in the console band.
     private func diptych(_ bands: ScreenBands, origin: CGPoint) -> some View {
         let layout = bands.foldLayout
         let plate = bands.local(layout.strikePlate(platen: true))
+        let anvilPlate = bands.local(layout.strikePlate(platen: false))
         let console = bands.local(layout.consoleBand)
-        let toastFrame = bands.foldToastSlot
+        let field = bands.local(layout.platenField)
+        // Under the print: down to the crease (tabletop) or the platen page's foot band (book).
+        let floor = bands.local(layout.platenFoot ?? layout.creaseRect).minY - 8
+        let ticketTop = plate.maxY + 10
+        let ticketWidth = min(field.width - 32, 520)
         // Leave the pilot lamp (far end of the console) uncovered.
         let actionsWidth = min(console.width - Theme.s3 * 2 - 36, 455)
         let cardWidth = min(plate.width, 250)
         let cardHeight = min(plate.height + 60, cardWidth * 1.2)
         let cardCenter = CGPoint(x: plate.midX, y: plate.midY)
         return ZStack {
+            LidShade(lifted: ceremony.lidLifted, book: layout.isBook)
+                .frame(width: field.width, height: field.height)
+                .clipped()
+                .position(x: field.midX, y: field.midY)
             // The diptych folded into one card, shown only while it flies into the Shelf key.
             card(width: cardWidth, height: cardHeight, center: cardCenter, origin: origin, onlyWhileCollecting: true)
                 .position(cardCenter)
-            // The caption gets the platen field's width (minus 24 pt each side), not the plate's, and the ribbon
-            // lives on the plate's corner instead of sharing its row, so nothing truncates (FOLD-REVIEW-2 #6).
-            let field = bands.local(layout.platenField)
-            printLabel
-                .frame(maxWidth: max(240, field.width - 48))
+            if ceremony.replaying {
+                ReplayTag()
+                    .position(x: anvilPlate.minX + 92, y: anvilPlate.minY + 16)
+                    .transition(.opacity)
+            }
+            RevealTicket(specimen: specimen, badges: badges, state: ceremony)
+                .frame(width: ticketWidth)
                 .fixedSize(horizontal: false, vertical: true)
-                .position(x: plate.midX, y: plate.maxY + 24)
+                .position(x: plate.midX, y: min(ticketTop + 44, (ticketTop + floor) / 2 + 4))
+                .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
+                .offset(y: ceremony.ticketIn || reduceMotion ? 0 : -14)
+                .accessibilitySortPriority(2)
             ribbon
-                .opacity(cardIn && !collecting ? 1 : 0)
+                .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
                 .position(x: plate.maxX - 36, y: plate.minY + 4)
-            toastSlot(compact: true)
-                .frame(width: toastFrame.width)
-                .position(x: toastFrame.midX, y: toastFrame.midY)
+            MuseumStrip(collection: collection, kind: outcome.specimen.kind, firstOfKind: firstOfKind, state: ceremony,
+                        foldToKeep: foldToKeep && !collecting)
+                .frame(maxWidth: actionsWidth)
+                .position(x: console.minX + Theme.s3 + actionsWidth / 2, y: console.minY - 16)
+                .opacity(collecting ? 0 : 1)
             foldActions
                 .frame(width: actionsWidth)
                 .position(x: console.minX + Theme.s3 + actionsWidth / 2, y: console.midY)
         }
     }
 
-    /// "RUBBER DUCK · 1 HONK · 1 SEAM POP · AT 63°" in Mono 12 on a paper tag. Never truncates: it wraps to a
-    /// second line before it would shrink below legibility.
-    private var printLabel: some View {
-        Text(foldLabelText)
-            .font(Theme.label)
-            .tracking(0.3)
-            .foregroundStyle(Theme.ink)
-            .multilineTextAlignment(.center)
-            .lineLimit(2)
-            .minimumScaleFactor(0.9)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Theme.s3)
-            .padding(.vertical, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.paper).elevation(.e1)
-            }
-            .rotationEffect(.degrees(-1.5))
-        .opacity(cardIn && !collecting ? 1 : 0)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(specimen.accessibilitySentence)
-        .accessibilitySortPriority(2)
-    }
-
-    private var foldLabelText: String {
-        var parts = [specimen.kind.displayName.uppercased(), specimen.kind.breaksLine(fractureCount: specimen.fractureCount)]
-        // "AT 66°", not a bare "66°": the number is the hinge angle it gave at (FOLD-REVIEW-4 F13). Degrees only when a
-        // real hinge made the press; a touch press says "AT 48 TONS" (FOLD-REVIEW-5 N6).
-        if let tag = specimen.gaveAtTag { parts.append(tag) }
-        return parts.joined(separator: " · ")
-    }
-
-    /// One row of 44 pt keys in the 62 pt console band; Next is the only yellow.
+    /// One row of 44 pt keys in the 62 pt console band: ⚙ · Again · Share · Keep. Keep is the only yellow.
     private var foldActions: some View {
         HStack(spacing: Theme.s2) {
-            Button(action: onAgain) {
+            Button(action: onSettings) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(.subheadline, weight: .semibold))
+            }
+            .buttonStyle(KeycapStyle(kind: .console, round: true))
+            .accessibilityLabel("Settings")
+
+            Button(action: again) {
                 KeyLabel(title: "Again", systemImage: "arrow.counterclockwise")
             }
             .buttonStyle(KeycapStyle(kind: .console, fullWidth: true, compact: true))
@@ -217,16 +237,26 @@ struct RevealCardView: View {
                 Button("Share still") { shareStill() }
             }
 
-            Button(action: onNext) {
-                KeyLabel(title: "Next", systemImage: "arrow.right", iconTrailing: true)
+            Button(action: keep) {
+                KeyLabel(title: "Keep", systemImage: "arrow.down.to.line")
             }
             .buttonStyle(KeycapStyle(kind: .primary, fullWidth: true, compact: true))
-            .accessibilityFocused($focusNext)
-            .accessibilityHint("Collects this specimen. Or just fold the phone again.")
+            .accessibilityFocused($focusKeep)
+            .accessibilityHint("Files this specimen on the Shelf and puts the next object on the anvil. Or fold the phone.")
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .disabled(collecting)
         .opacity(actionsIn && !collecting ? 1 : 0)
+    }
+
+    private func keep() {
+        stopReplay()
+        onKeep()
+    }
+
+    private func again() {
+        stopReplay()
+        onAgain()
     }
 
     // MARK: Card
@@ -282,7 +312,7 @@ struct RevealCardView: View {
         }
     }
 
-    // MARK: Toasts (one at a time)
+    // MARK: Toasts (one at a time, P-48 only)
 
     @ViewBuilder
     private func toastSlot(compact: Bool = false) -> some View {
@@ -298,12 +328,19 @@ struct RevealCardView: View {
         .frame(minHeight: compact ? 48 : 52)
     }
 
-    // MARK: Actions
+    // MARK: Actions (P-48)
 
     private func actions(landscape: Bool) -> some View {
         let layout = landscape ? AnyLayout(VStackLayout(alignment: .trailing, spacing: Theme.s3))
                                : AnyLayout(HStackLayout(spacing: Theme.s3))
         return layout {
+            Button(action: onSettings) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(.subheadline, weight: .semibold))
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, round: true))
+            .accessibilityLabel("Settings")
+
             Button(action: onAgain) {
                 KeyLabel(title: "Again", systemImage: "arrow.counterclockwise")
             }
@@ -327,13 +364,13 @@ struct RevealCardView: View {
                 Button("Share still") { shareStill() }
             }
 
-            Button(action: onNext) {
-                KeyLabel(title: "Next", systemImage: "arrow.right", iconTrailing: true)
+            Button(action: onKeep) {
+                KeyLabel(title: "Keep", systemImage: "arrow.down.to.line")
             }
             .buttonStyle(KeycapStyle(kind: .primary, fullWidth: !landscape))
-            .accessibilityFocused($focusNext)
-            .accessibilityHint(outcome.newlyUnlocked.first.map { "Puts the \($0.displayName) on the anvil." }
-                               ?? "Collects this card and puts the next object on the anvil.")
+            .accessibilityFocused($focusKeep)
+            .accessibilityHint(outcome.newlyUnlocked.first.map { "Files this card and puts the \($0.displayName) on the anvil." }
+                               ?? "Files this card on the Shelf and puts the next object on the anvil.")
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .disabled(collecting)
@@ -355,92 +392,158 @@ struct RevealCardView: View {
 
     // MARK: Choreography (§6.8)
 
-    /// When the card (or, in Fold Press, the print label) has finished appearing, counted from `onAppear`:
-    /// the drop starts at 100 ms and its spring (response 0.5) has visibly settled ~0.9 s later.
+    /// When the card has finished appearing, counted from `onAppear`: the drop starts at 100 ms and its spring
+    /// (response 0.5) has visibly settled ~0.9 s later.
     private static let cardSettledMilliseconds = 1_000
     /// Reduce Motion: the card fades in with `Theme.fade` (0.22 s).
     private static let cardFadedMilliseconds = 220
-    /// Toasts are held this long after the reveal has settled, so the first thing the player sees is their
-    /// specimen, not a banner over the lamps and nameplate (FOLD-REVIEW-3 N8).
+    /// Toasts are held this long after the reveal has settled, so the first thing the player sees is their specimen.
     private static let toastHoldMilliseconds = 1_500
     /// Each toast is up this long, the last one included, then leaves (FOLD-REVIEW-4 F4: none stays for good).
     private static let toastVisibleMilliseconds = 3_000
     /// The pause between one toast leaving and the next arriving, so the exit transition can play.
     private static let toastGapMilliseconds = 300
 
-    /// Fold Press: the toasts never wait longer than this for the inner display to light (a missed light event, or a
-    /// reveal that began lit, must not hold them for good).
+    /// Fold Press: the ceremony never waits longer than this for the inner display to light.
     private static let lightTimeout: Duration = .seconds(3)
 
     private func choreograph() {
+        firstOfKind = collection.pressCount(of: outcome.specimen.kind) <= 1
         if foldPress {
-            // FOLD-REVIEW-7 N10: the print label and keys are up in the same frame as the diptych, with no drop or fade,
-            // so the inner display relights on a finished reveal.
+            // FOLD-REVIEW-7 N10: the keys are up in the same frame as the diptych, with no fade, so the inner display
+            // relights on a reveal you can act on. The lid shade is drawn too: it lifts once the panel is lit.
             var instant = Transaction()
             instant.disablesAnimations = true
             withTransaction(instant) {
                 cardIn = true
                 actionsIn = true
-            }
-        }
-        Task { @MainActor in
-            if foldPress {
-                // Already in (above).
-            } else if reduceMotion {
-                // Shorter reveal (bible §6.4): card and actions together.
-                withAnimation(Theme.fade) {
-                    cardIn = true
-                    actionsIn = true
+                if instantCeremony {
+                    ceremony = .finished(tons: outcome.specimen.tons, badges: badges.count)
                 }
-                try? await Task.sleep(for: .milliseconds(Self.cardFadedMilliseconds))
-            } else {
-                try? await Task.sleep(for: .milliseconds(100))
-                withAnimation(Theme.cardDrop(reduceMotion)) { cardIn = true }
-                try? await Task.sleep(for: .milliseconds(500))
-                withAnimation(Theme.settle(reduceMotion)) { actionsIn = true }
-                try? await Task.sleep(for: .milliseconds(Self.cardSettledMilliseconds - 600))
-            }
-            // Toasts wait for the settled reveal, then come one at a time, 3 s each; the last one leaves too.
-            let count = toasts.count
-            guard count > 0 else { return }
-            if foldPress {
-                // The hold starts when the panel is lit, not while it's dark (at most `lightTimeout`).
-                await Self.waitForLight(revealLit, timeout: Self.lightTimeout)
-                guard !Task.isCancelled, !collecting else { return }
-            }
-            try? await Task.sleep(for: .milliseconds(Self.toastHoldMilliseconds))
-            for index in 0..<count {
-                if index > 0 { try? await Task.sleep(for: .milliseconds(Self.toastGapMilliseconds)) }
-                guard !Task.isCancelled, !collecting else { return }
-                withAnimation(Theme.pop(reduceMotion)) { toastIndex = index }
-                if index == 0 { UIFeel.success() }
-                #if DEBUG
-                if DemoScenario.current != nil {   // ci verify pass
-                    print("SQUISH-T toast shown \(index + 1)/\(count)")
-                    if index == 0 {
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(600))   // past the pop-in
-                            DemoCapture.window("toast-shot")
-                        }
-                    }
-                }
-                #endif
-                try? await Task.sleep(for: .milliseconds(Self.toastVisibleMilliseconds))
-                guard !Task.isCancelled else { return }
-                withAnimation(Theme.fade) { toastIndex = -1 }
             }
         }
         if UIAccessibility.isVoiceOverRunning {
-            let announcement = ([specimen.accessibilitySentence] + toasts.map { "\($0.title.capitalized). \($0.detail)" })
+            let announcement = ([specimen.accessibilitySentence, specimen.measurement.spoken + "."]
+                                + toasts.map { "\($0.title.capitalized). \($0.detail)" })
                 .joined(separator: " ")
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(700))
                 UIAccessibility.post(notification: .announcement, argument: announcement)
-                // Move focus to Next so the user doesn't have to hunt for it (P1-10).
+                // Move focus to Keep so the user doesn't have to hunt for it (P1-10).
                 try? await Task.sleep(for: .milliseconds(150))
-                focusNext = true
+                focusKeep = true
             }
         }
+    }
+
+    /// S5 on the Fold Press, step by step (see `RevealCeremony.swift`).
+    private func runCeremony() async {
+        await Self.waitForLight(revealLit, timeout: Self.lightTimeout)
+        guard !Task.isCancelled, !collecting else { return }
+        // 1. The lid lifts off the print.
+        withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .easeIn(duration: 0.3)) { ceremony.lidLifted = true }
+        guard await pause(320) else { return }
+        // 2. The slow-mo replay of the break, pushing in on the anvil.
+        if let duration = playReplay() {
+            withAnimation(Theme.fade) { ceremony.replaying = true }
+            guard await pause(Int(min(duration, RevealCeremony.replayCap) * 1000)) else { return }
+            withAnimation(Theme.fade) { ceremony.replaying = false }
+            guard !collecting else { return }
+        }
+        // 3. Before → after, then the stamp.
+        withAnimation(Theme.cardDrop(reduceMotion)) { ceremony.ticketIn = true }
+        guard await pause(220) else { return }
+        if reduceMotion {
+            ceremony.squash = 1
+        } else {
+            for step in 1...12 {
+                ceremony.squash = Double(step) / 12
+                guard await pause(40) else { return }
+            }
+        }
+        guard await pause(160) else { return }
+        withAnimation(Theme.stampFall(reduceMotion)) { ceremony.stamped = true }
+        UIFeel.press()
+        // 4. The stats count up: tons, then the badges one by one.
+        let tons = outcome.specimen.tons
+        if reduceMotion {
+            ceremony.tons = tons
+        } else {
+            for step in 1...10 {
+                withAnimation(.easeOut(duration: 0.05)) { ceremony.tons = tons * step / 10 }
+                guard await pause(45) else { return }
+            }
+        }
+        for index in 0..<badges.count {
+            guard await pause(200) else { return }
+            withAnimation(Theme.pop(reduceMotion)) { ceremony.badges = index + 1 }
+            UIFeel.tick()
+        }
+        // 5. The museum slot fills, with a flash and a chime.
+        guard await pause(240) else { return }
+        withAnimation(Theme.pop(reduceMotion)) {
+            ceremony.slotFilled = true
+            ceremony.slotFlash = true
+        }
+        playCue(RevealCeremony.slotChime)
+        #if DEBUG
+        if DemoScenario.current != nil {   // ci verify pass: the finished ceremony, from the app's own window
+            print("SQUISH-T toast shown 1/1 (reveal ceremony done, \(badges.count) badge(s))")
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                DemoCapture.window("toast-shot")
+            }
+        }
+        #endif
+        guard await pause(420) else { return }
+        withAnimation(Theme.fade) { ceremony.slotFlash = false }
+    }
+
+    /// The P-48 card: drop, keys, then toasts one at a time (none on the first reveal).
+    private func runCardReveal() async {
+        if reduceMotion {
+            // Shorter reveal (bible §6.4): card and actions together.
+            withAnimation(Theme.fade) {
+                cardIn = true
+                actionsIn = true
+            }
+            guard await pause(Self.cardFadedMilliseconds) else { return }
+        } else {
+            guard await pause(100) else { return }
+            withAnimation(Theme.cardDrop(reduceMotion)) { cardIn = true }
+            guard await pause(500) else { return }
+            withAnimation(Theme.settle(reduceMotion)) { actionsIn = true }
+            guard await pause(Self.cardSettledMilliseconds - 600) else { return }
+        }
+        let count = toasts.count
+        guard count > 0 else { return }
+        guard await pause(Self.toastHoldMilliseconds) else { return }
+        for index in 0..<count {
+            if index > 0 { guard await pause(Self.toastGapMilliseconds) else { return } }
+            guard !Task.isCancelled, !collecting else { return }
+            withAnimation(Theme.pop(reduceMotion)) { toastIndex = index }
+            if index == 0 { UIFeel.success() }
+            #if DEBUG
+            if DemoScenario.current != nil {   // ci verify pass
+                print("SQUISH-T toast shown \(index + 1)/\(count)")
+                if index == 0 {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(600))   // past the pop-in
+                        DemoCapture.window("toast-shot")
+                    }
+                }
+            }
+            #endif
+            guard await pause(Self.toastVisibleMilliseconds) else { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(Theme.fade) { toastIndex = -1 }
+        }
+    }
+
+    /// Sleeps; false when the reveal has gone (the `.task` was cancelled) and the ceremony should stop.
+    private func pause(_ milliseconds: Int) async -> Bool {
+        try? await Task.sleep(for: .milliseconds(milliseconds))
+        return !Task.isCancelled
     }
 
     /// Returns when `lit` returns or after `timeout`, whichever is first. Not a task group: `lit` waits on a
@@ -481,9 +584,9 @@ private final class RevealLightLatch {
     }
 }
 
-/// `-squishDemo …;notoasts` (FOLD-REVIEW-4 F4, N8 "seed CI"): no reveal toasts (perfect, unlock, achievement), so
-/// store shots and CI reveals show the lamps and the hinge readout. Read here, from the same launch argument
-/// `DemoScenario` parses (`key=value;key`), so DemoMode.swift doesn't change. DEBUG only: always false in Release.
+/// `-squishDemo …;notoasts` (FOLD-REVIEW-4 F4, N8 "seed CI"): no reveal toasts (perfect, unlock, achievement), and the
+/// Fold ceremony is shown finished at once, so store shots and CI reveals are deterministic. Read here, from the same
+/// launch argument `DemoScenario` parses (`key=value;key`), so DemoMode.swift doesn't change. DEBUG only.
 enum RevealToastDemo {
     static let hidesToasts: Bool = {
         #if DEBUG

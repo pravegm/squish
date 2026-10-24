@@ -1,14 +1,19 @@
 import SwiftUI
 import UIKit
 
-/// Settings (bible §5 screen 4, VISUAL-TARGET §6.7). One calm sheet, opened from the Shelf; every change saves
-/// immediately. Long-press the version row to open the Tuning Lab (on-device tuning and the hinge log).
+/// Settings (S9, UX-AUDIT-2 §4.2): one calm sheet, one tap from the press room, the reveal and the cover. Every
+/// change saves immediately. Sound and vibration can be tested right here; "Sound & vibration check" mirrors the Tuning
+/// Lab's diagnostics. Long-press the version row to open the Tuning Lab (on-device tuning and the hinge log).
 struct SettingsView: View {
     let director: PressDirector
+    /// Replays the first-run lesson (S1) on the press; nil hides the row.
+    var onReplayIntro: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showTuning = false
+    @State private var showSoundCheck = false
+    @State private var showHelp = false
     @State private var appeared = false
     /// A hinge has reported at some point (RootView sets it), so a Duo never gets non-Duo copy.
     @AppStorage("squish.hasHinge") private var hasHinge = false
@@ -58,76 +63,27 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.s5) {
-                    section("Sound", index: 0) {
-                        ToggleRow(title: "Sound", isOn: $settings.soundEnabled)
-                        divider
-                        ToggleRow(title: "Play sound when the phone is on silent", isOn: $settings.playSoundInSilentMode,
-                                  footnote: "The sound is half the toy. Turn this off to let silent mode mute Squish. Your music keeps playing either way.")
-                            .disabled(!settings.soundEnabled)
-                        divider
-                        VStack(alignment: .leading, spacing: Theme.s2) {
-                            Text("Sound style").font(Theme.body).foregroundStyle(Theme.ink)
-                            ChipChoice(selection: $settings.soundStyle, options: SoundStyle.allCases) { $0.title }
-                                .disabled(!settings.soundEnabled)
-                            Text((settings.soundStyle == .soft
-                                  ? "Soft is gentler: rounder highs, fewer crunches, nothing wet."
-                                  : "Workshop is the full mix: every crack, crunch and fizz.").keepingLastWordsTogether)
-                                .font(Theme.footnote)
-                                .foregroundStyle(Theme.inkSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(.vertical, Theme.s3)
-                    }
-
-                    section("Feel", index: 1) {
-                        VStack(alignment: .leading, spacing: Theme.s2) {
-                            Text("Haptics").font(Theme.body).foregroundStyle(Theme.ink)
-                            ChipChoice(selection: $settings.hapticsLevel, options: HapticsLevel.allCases) { $0.title }
-                        }
-                        .padding(.vertical, Theme.s3)
-                        divider
-                        ToggleRow(title: "Captions", isOn: $settings.showCaptions,
-                                  footnote: "Big comic words like POP! and CRACK! for each moment.")
-                        divider
-                        if director.hingeAvailable || hasHinge {
-                            ToggleRow(title: "Press without folding", isOn: $settings.pressWithoutFolding,
-                                      footnote: "Drag down on the screen instead of folding. Handy one-handed, or when folding isn't comfortable.")
-                        } else {
-                            // Short enough for one line on a 6.1" phone (P6 broke it as "… folding / and dragging.").
-                            InfoRow(title: "Press by dragging", value: "ALWAYS ON",
-                                    footnote: "On iPhone Duo you can also press by folding.")
-                        }
-                        divider
-                        // The path never breaks inside itself: "Follows your iPhone setting / (Settings › Accessibility
-                        // › Motion)." instead of P6's "(Settings › / Accessibility › Motion).".
-                        InfoRow(title: "Reduce Motion", value: reduceMotion ? "ON" : "OFF",
-                                footnote: "Follows your iPhone setting (\(Self.settingsPath("Accessibility", "Motion"))).")
-                    }
+                    soundSection(settings)
+                    feelSection(settings)
+                    helpSection
 
                     if showsGameCenter {
-                        section("Game Center", index: 2) {
+                        section("Game Center", index: 3) {
                             gameCenterRow
                         }
                     }
 
-                    section("About", index: 3) {
-                        versionRow
-                        divider
-                        InfoRow(title: "Golden variants", value: "1 IN \(PressVariant.goldenOdds)",
-                                footnote: "Every press has the same odds. Nothing is for sale.")
-                        divider
-                        VStack(alignment: .leading, spacing: Theme.s2) {
-                            Text("No ads. No tracking. No in-app purchases.")
-                                .font(Theme.button)
-                                .foregroundStyle(Theme.ink)
-                            Text("Made by a tiny studio. Every sound is synthesised in code as you press: no recordings. Thanks to everyone who closed their phone very, very slowly.".keepingLastWordsTogether)
-                                .font(Theme.footnote)
-                                .foregroundStyle(Theme.inkSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: Theme.s2) {
+                        sectionTitle("About")
+                        NavCard(title: "Sound & vibration check", systemImage: "waveform",
+                                footnote: "Test buttons, and what your phone says about sound and vibration.") {
+                            showSoundCheck = true
                         }
-                        .padding(.vertical, Theme.s3)
-                        .accessibilityElement(children: .combine)
+                        AboutRows(director: director, showTuning: $showTuning)
                     }
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared || reduceMotion ? 0 : 8)
+                    .animation(Theme.row(4, reduceMotion), value: appeared)
                 }
                 .padding(.horizontal, Theme.s4)
                 .padding(.top, Theme.s2)
@@ -140,6 +96,24 @@ struct SettingsView: View {
         .sheet(isPresented: $showTuning) {
             TuningLabView(director: director)
         }
+        .sheet(isPresented: $showSoundCheck) {
+            SoundCheckView(director: director)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.sheetRadius)
+                .presentationBackground { AlbumPage(dots: false) }
+                .sheetTypeCap()
+                .creaseSafe()
+        }
+        .sheet(isPresented: $showHelp) {
+            HelpView(onReplayIntro: replayIntroFromHelp)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.sheetRadius)
+                .presentationBackground { AlbumPage(dots: false) }
+                .sheetTypeCap()
+                .creaseSafe()
+        }
         .onAppear { appeared = true }
         .onChange(of: Snapshot(sound: settings.soundEnabled, playOnSilent: settings.playSoundInSilentMode,
                                style: settings.soundStyle, haptics: settings.hapticsLevel,
@@ -149,20 +123,96 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Rows
+    // MARK: Sections
 
-    private var versionRow: some View {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = info?["CFBundleVersion"] as? String ?? "1"
-        return InfoRow(title: "Version", value: "\(version) (\(build))")
-            .contentShape(Rectangle())
-            .onLongPressGesture(minimumDuration: 0.8) {
-                UIFeel.press()
-                showTuning = true
+    private func soundSection(_ model: AppSettings) -> some View {
+        @Bindable var settings = model
+        return section("Sound", index: 0) {
+            ToggleRow(title: "Sound", isOn: $settings.soundEnabled)
+            divider
+            // The audio engineer's switch (AppSettings.playSoundInSilentMode → AudioSessionChoice), on by default.
+            ToggleRow(title: "Play when phone is on Silent", isOn: $settings.playSoundInSilentMode,
+                      footnote: settings.playSoundInSilentMode
+                        ? "Squish plays even with the Silent switch on: the sound is half the toy. Your music keeps playing."
+                        : "Squish follows the Silent switch. Can't hear it? Flip Silent off, or turn this on.")
+                .disabled(!settings.soundEnabled)
+            divider
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Text("Sound style").font(Theme.body).foregroundStyle(Theme.ink)
+                ChipChoice(selection: $settings.soundStyle, options: SoundStyle.allCases) { $0.title }
+                    .disabled(!settings.soundEnabled)
+                Text((settings.soundStyle == .soft
+                      ? "Soft is gentler: rounder highs, fewer crunches, nothing wet."
+                      : "Workshop is the full mix: every crack, crunch and fizz.").keepingLastWordsTogether)
+                    .font(Theme.footnote)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .accessibilityAction(named: "Open Tuning Lab") { showTuning = true }
+            .padding(.vertical, Theme.s3)
+            divider
+            TestRow(title: "Play a test sound", systemImage: "speaker.wave.2.fill") {
+                director.audio.playTestSound()
+            }
+            .disabled(!settings.soundEnabled)
+        }
     }
+
+    private func feelSection(_ model: AppSettings) -> some View {
+        @Bindable var settings = model
+        return section("Feel", index: 1) {
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Text("Haptics").font(Theme.body).foregroundStyle(Theme.ink)
+                ChipChoice(selection: $settings.hapticsLevel, options: HapticsLevel.allCases) { $0.title }
+            }
+            .padding(.vertical, Theme.s3)
+            divider
+            TestRow(title: "Test vibration", systemImage: "iphone.radiowaves.left.and.right") {
+                director.haptics.playTestVibration()
+            }
+            divider
+            ToggleRow(title: "Captions", isOn: $settings.showCaptions,
+                      footnote: "Big comic words like POP! and CRACK!. Always on for your first \(CoachLine.presses) presses.")
+            divider
+            if director.hingeAvailable || hasHinge {
+                ToggleRow(title: "Press without folding", isOn: $settings.pressWithoutFolding,
+                          footnote: "Drag down on the screen instead of folding. Handy one-handed, or when folding isn't comfortable.")
+            } else {
+                // Short enough for one line on a 6.1" phone (P6 broke it as "… folding / and dragging.").
+                InfoRow(title: "Press by dragging", value: "ALWAYS ON",
+                        footnote: "On iPhone Duo you can also press by folding.")
+            }
+            divider
+            // The path never breaks inside itself (FOLD-REVIEW-7 N7).
+            InfoRow(title: "Reduce Motion", value: reduceMotion ? "ON" : "OFF",
+                    footnote: "Follows your iPhone setting (\(Self.settingsPath("Accessibility", "Motion"))). On: calmer animations, no shakes.")
+        }
+    }
+
+    private var helpSection: some View {
+        section("Help", index: 2) {
+            NavRow(title: "How to press", systemImage: "questionmark.circle.fill") { showHelp = true }
+            if onReplayIntro != nil {
+                divider
+                NavRow(title: "Replay intro", systemImage: "play.circle.fill") {
+                    let replay = onReplayIntro
+                    dismiss()
+                    replay?()
+                }
+            }
+        }
+    }
+
+    /// From the How to press sheet: close Settings too, then replay on the press.
+    private var replayIntroFromHelp: (() -> Void)? {
+        guard let onReplayIntro else { return nil }
+        let close = dismiss
+        return {
+            close()
+            onReplayIntro()
+        }
+    }
+
+    // MARK: Rows
 
     /// `-squishDemo …;gamecenter=hidden` drops the whole section (store frames 07 / P6).
     private var showsGameCenter: Bool { !GameCenterRowDemo.hidesRow }
@@ -208,16 +258,20 @@ struct SettingsView: View {
         Rectangle().fill(Theme.paperEdge.opacity(0.8)).frame(height: 1)
     }
 
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(Theme.label)
+            .tracking(Theme.labelTracking)
+            .foregroundStyle(Theme.inkSecondary)
+            .padding(.leading, Theme.s1)
+            .accessibilityAddTraits(.isHeader)
+    }
+
     /// A section card (§6.7): paperWarm, E1, radius 18, 16 pt padding; rows stagger in 40 ms apart.
     private func section<Content: View>(_ title: String, index: Int, @ViewBuilder content: () -> Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: Theme.sectionRadius, style: .continuous)
         return VStack(alignment: .leading, spacing: Theme.s2) {
-            Text(title.uppercased())
-                .font(Theme.label)
-                .tracking(Theme.labelTracking)
-                .foregroundStyle(Theme.inkSecondary)
-                .padding(.leading, Theme.s1)
-                .accessibilityAddTraits(.isHeader)
+            sectionTitle(title)
             VStack(alignment: .leading, spacing: 0) {
                 content()
             }
@@ -233,6 +287,90 @@ struct SettingsView: View {
 }
 
 // MARK: - Row components
+
+/// A row that plays a test right here ("Play a test sound").
+private struct TestRow: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.s3) {
+                Image(systemName: systemImage)
+                    .font(.system(.body, weight: .semibold))
+                    .foregroundStyle(Theme.graphite)
+                    .frame(width: 24)
+                Text(title).font(Theme.body).foregroundStyle(Theme.ink)
+                Spacer(minLength: Theme.s2)
+                Text("PLAY")
+                    .font(Theme.label)
+                    .tracking(Theme.labelTracking)
+                    .foregroundStyle(Theme.graphite)
+                    .padding(.horizontal, Theme.s2)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.yellow))
+            }
+            .frame(minHeight: Theme.hit)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TileButtonStyle())
+        .padding(.vertical, Theme.s2)
+        .accessibilityLabel(title)
+    }
+}
+
+/// A row that opens something ("How to press", "Replay intro").
+private struct NavRow: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.s3) {
+                Image(systemName: systemImage)
+                    .font(.system(.body, weight: .semibold))
+                    .foregroundStyle(Theme.graphite)
+                    .frame(width: 24)
+                Text(title).font(Theme.body).foregroundStyle(Theme.ink)
+                Spacer(minLength: Theme.s2)
+                Image(systemName: "chevron.right")
+                    .font(.system(.footnote, weight: .semibold))
+                    .foregroundStyle(Theme.inkTertiary)
+            }
+            .frame(minHeight: Theme.hit)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TileButtonStyle())
+        .padding(.vertical, Theme.s2)
+        .accessibilityLabel(title)
+    }
+}
+
+/// A card-sized NavRow with a footnote (the Sound & vibration check).
+private struct NavCard: View {
+    let title: String
+    let systemImage: String
+    let footnote: String
+    let action: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.sectionRadius, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            NavRow(title: title, systemImage: systemImage, action: action)
+            Text(footnote.keepingLastWordsTogether)
+                .font(Theme.footnote)
+                .foregroundStyle(Theme.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, Theme.s3)
+        }
+        .padding(.horizontal, Theme.s4)
+        .padding(.vertical, Theme.s1)
+        .background { shape.fill(Theme.paperWarm).elevation(.e1) }
+        .topHighlight(cornerRadius: Theme.sectionRadius)
+    }
+}
 
 private struct ToggleRow: View {
     let title: String

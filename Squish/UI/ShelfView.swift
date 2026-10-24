@@ -4,16 +4,18 @@ import UIKit
 /// The Shelf (bible §5 screen 2, VISUAL-TARGET §6.9): a sticker album on dotted paper. Pressed objects show
 /// their best card as a die-cut sticker (Golden > Perfect > newest); locked ones are embossed silhouettes in a
 /// recessed well with a one-line hint. Tabs: Objects and Squished (the latest 200). Tap a sticker to put it
-/// on the anvil. Settings opens from here. On a tabletop Duo at `.large` the Objects tab splits at the crease: the
-/// grid on the ram half, "Recently squished" prints on the anvil half (FOLD-REVIEW-7 N5).
+/// on the anvil. S7: a third tab lists the achievements; Settings lives on the console and in the Menu now, not here.
+/// On a tabletop Duo at `.large` the Objects tab splits at the crease: the grid on the ram half, "Recently squished"
+/// prints on the anvil half (FOLD-REVIEW-7 N5).
 struct ShelfView: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case objects, squished
+        case objects, squished, achievements
         var id: String { rawValue }
         var title: String {
             switch self {
             case .objects: "Objects"
             case .squished: "Squished"
+            case .achievements: "Achievements"
             }
         }
     }
@@ -21,8 +23,6 @@ struct ShelfView: View {
     let director: PressDirector
     /// Demo only: open this specimen's card once the sheet has settled.
     var demoDetail: UUID?
-    /// Demo only: open Settings on top of the Shelf.
-    var demoSettings = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -33,12 +33,10 @@ struct ShelfView: View {
     @Environment(\.tabletopCreaseAboveSafeBottom) private var tabletopCreaseAboveSafeBottom
     @State private var tab: Tab
     @State private var detail: DetailRef?
-    @State private var showSettings = false
 
-    init(director: PressDirector, initialTab: Tab = .objects, demoDetail: UUID? = nil, demoSettings: Bool = false) {
+    init(director: PressDirector, initialTab: Tab = .objects, demoDetail: UUID? = nil) {
         self.director = director
         self.demoDetail = demoDetail
-        self.demoSettings = demoSettings
         _tab = State(initialValue: initialTab)
     }
 
@@ -68,6 +66,7 @@ struct ShelfView: View {
                             switch tab {
                             case .objects: objectsGrid(columns: dynamicTypeSize.isAccessibilitySize ? 1 : (wide ? 5 : 2))
                             case .squished: squishedList
+                            case .achievements: AchievementsList(collection: collection)
                             }
                         }
                         .padding(.horizontal, wide ? 24 : 16)
@@ -92,21 +91,10 @@ struct ShelfView: View {
                 .creaseSafe()
                 .environment(\.windowIsLandscape, windowIsLandscape)
         }
-        // Settings stacks on the Shelf, so closing it comes back here (P2-11).
-        .sheet(isPresented: $showSettings) {
-            SettingsView(director: director)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(Theme.sheetRadius)
-                .presentationBackground { AlbumPage(dots: false) }
-                .sheetTypeCap()
-                .creaseSafe()
-                .environment(\.windowIsLandscape, windowIsLandscape)
-        }
         .task {
-            guard demoDetail != nil || demoSettings else { return }
+            guard let demoDetail else { return }
             try? await Task.sleep(for: .milliseconds(700))
-            if let demoDetail { detail = DetailRef(id: demoDetail) } else { showSettings = true }
+            detail = DetailRef(id: demoDetail)
         }
     }
 
@@ -129,14 +117,6 @@ struct ShelfView: View {
                     .accessibilityHidden(true)
             }
             Spacer()
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(.subheadline, weight: .semibold))
-            }
-            .buttonStyle(KeycapStyle(kind: .secondary, round: true))
-            .accessibilityLabel("Settings")
             Button {
                 dismiss()
             } label: {

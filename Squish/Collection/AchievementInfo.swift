@@ -179,6 +179,46 @@ extension CollectionStore {
     /// The secret slot's teaser on the Shelf: two short lines at the 5-column width ("SOME THINGS" / "WON'T SQUISH…").
     nonisolated static let secretSlotHint = "Some things won't squish…"
 
+    /// Plain unlock progress for the Tray and the press room's "Next unlock" line: what to do, how far along.
+    struct UnlockProgress: Equatable {
+        /// "press 3 different things".
+        var task: String
+        var done: Int
+        var total: Int
+        /// "press 3 different things · 1/3".
+        var line: String { "\(task) · \(min(done, total))/\(total)" }
+        var fraction: Double { total > 0 ? min(Double(done) / Double(total), 1) : 0 }
+    }
+
+    func unlockProgress(for kind: ObjectKind) -> UnlockProgress? {
+        switch kind.unlockRule {
+        case .open:
+            return nil
+        case .squishDifferentKinds(let count):
+            return UnlockProgress(task: "press \(count) different things", done: stats.squishedKinds.count, total: count)
+        case .totalPresses(let count):
+            return UnlockProgress(task: "press \(count) times", done: totalPresses, total: count)
+        case .perfectSquish:
+            return UnlockProgress(task: "one slow, steady press", done: stats.perfectCount, total: 1)
+        case .allOthers:
+            let others = ObjectKind.allCases.filter { $0 != kind }
+            return UnlockProgress(task: "press everything else", done: others.filter { stats.squishedKinds.contains($0) }.count,
+                                  total: others.count)
+        }
+    }
+
+    /// The locked object closest to opening, for "Next unlock: Soda Can · press 3 different things · 1/3". Nil when
+    /// everything is open.
+    var nextUnlock: (kind: ObjectKind, progress: UnlockProgress)? {
+        let locked = ObjectKind.allCases.filter { !isUnlocked($0) }
+        let ranked = locked.compactMap { kind in unlockProgress(for: kind).map { (kind: kind, progress: $0) } }
+        // The secret always goes last; otherwise the one nearest done, then shelf order.
+        return ranked.min { a, b in
+            if a.kind.isSecret != b.kind.isSecret { return !a.kind.isSecret }
+            return a.progress.fraction > b.progress.fraction
+        }
+    }
+
     /// Short lower-case form for the object chip menu's locked rows (P2-7).
     func menuHint(for kind: ObjectKind) -> String {
         switch kind.unlockRule {

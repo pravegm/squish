@@ -821,16 +821,23 @@ struct ObjectSilhouette: Shape {
             path.addQuadCurve(to: p(0.12, 0.86), control: p(0.14, 0.50))
             path.closeSubpath()
         case .crayon:
-            var crayon = Path()
-            crayon.addRoundedRect(in: r(0.40, 0.30, 0.20, 0.60), cornerSize: CGSize(width: side * 0.03, height: side * 0.03))
-            crayon.move(to: p(0.40, 0.31))
-            crayon.addLine(to: p(0.47, 0.10))
-            crayon.addLine(to: p(0.53, 0.10))
-            crayon.addLine(to: p(0.60, 0.31))
-            crayon.closeSubpath()
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            let turn = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: .pi / 5).translatedBy(x: -center.x, y: -center.y)
-            path.addPath(crayon, transform: turn)
+            // A crayon box: seven crayons standing in an open box, tips up at staggered heights.
+            let tips: [CGFloat] = [0.22, 0.14, 0.19, 0.10, 0.17, 0.13, 0.21]
+            for (index, top) in tips.enumerated() {
+                let x = 0.19 + CGFloat(index) * 0.088
+                path.addRect(r(x, top + 0.07, 0.07, 0.40 - top))
+                path.move(to: p(x, top + 0.075))
+                path.addLine(to: p(x + 0.035, top))
+                path.addLine(to: p(x + 0.07, top + 0.075))
+                path.closeSubpath()
+            }
+            path.addRoundedRect(in: r(0.14, 0.44, 0.72, 0.46), cornerSize: CGSize(width: side * 0.05, height: side * 0.05))
+            // The box's front flap, cut lower in the middle.
+            path.move(to: p(0.14, 0.44))
+            path.addQuadCurve(to: p(0.86, 0.44), control: p(0.50, 0.58))
+            path.addLine(to: p(0.86, 0.40))
+            path.addLine(to: p(0.14, 0.40))
+            path.closeSubpath()
         case .egg:
             path.move(to: p(0.50, 0.10))
             path.addCurve(to: p(0.80, 0.62), control1: p(0.70, 0.10), control2: p(0.80, 0.40))
