@@ -2,7 +2,7 @@
 //   node ci/sounds/cut.mjs <decoded-dir> ci/sounds/cuts.tsv <out-dir> [--wav]
 // For every row of cuts.tsv: slice [start, end] from <decoded>/<src>.wav, high-pass (and optional low-pass),
 // fade, optionally make a seamless loop, normalise, cap the true peak at -1 dBTP and write a 48 kHz mono
-// 16-bit CAF to <out>/<path>. Also writes <out>/report.tsv (loudness per file) and <out>/LICENSES.md
+// 16-bit CAF to <out>/<path>. Also writes ci/sounds/report.tsv (loudness per file; kept out of the bundle) and <out>/LICENSES.md
 // (provenance for every file, generated from ci/sounds/sources.tsv so nothing can ship unrecorded).
 //
 // cuts.tsv columns (tab-separated, '#' lines ignored):
@@ -168,7 +168,7 @@ for (const r of rows) {
   if (!used.has(r.path)) used.set(r.path, { row: r, source: sources[srcKey], member: r.src.includes('--') ? r.src.split('--')[1] : '' });
 }
 
-fs.writeFileSync(path.join(outDir, 'report.tsv'), report.map(r => r.join('\t')).join('\n') + '\n');
+fs.writeFileSync(path.join(here, 'report.tsv'), report.map(r => r.join('\t')).join('\n') + '\n');
 
 // ---------- LICENSES.md ----------
 const byLicence = {};
@@ -207,5 +207,32 @@ for (const { row, member } of used.values()) {
 }
 lines.push('');
 fs.writeFileSync(path.join(outDir, 'LICENSES.md'), lines.join('\n'));
+
+// ---------- sounds-manifest.json ----------
+// Groups = files sharing a prefix (glass_shatter_01..NN). Class defaults come from the layer name (design/SOUND-2.md §3.2):
+// gainDb is the starting mix trim at the bus, pitch the random spread in semitones, wet layers are dropped in Soft style.
+const CLASS = [
+  [/_loop$/, { kind: 'loop', gainDb: -14, pitch: 0 }],
+  [/^(glass_shatter|can_crush|steel_crash|steel_snap)$/, { kind: 'hero', gainDb: 0, pitch: 0.5 }],
+  [/(crack|snap|splat|split|honk|collapse|buckle|open_fizz|squirt|icing)$|^steel_groan$/, { kind: 'body', gainDb: -2, pitch: 0.7 }],
+  [/^bubblewrap_pop/, { kind: 'grain', gainDb: -4, pitch: 1.5 }],
+  [/(crumb|grit|crunch|crumple|squelch|squish|tick|clink)$/, { kind: 'grain', gainDb: -12, pitch: 1.5 }],
+  [/(debris|ring|wheeze|slurp|wobble|boing|release|yolk)$/, { kind: 'tail', gainDb: -8, pitch: 0.7 }],
+  [/^press_kachunk/, { kind: 'detail', gainDb: -4, pitch: 0 }],
+  [/^ui_/, { kind: 'ui', gainDb: -14, pitch: 0.3 }],
+];
+const WET = /squelch|splat|yolk|squirt|slurp/;
+const groups = {};
+for (const [, { row }] of used) {
+  const base = path.basename(row.path, '.caf').replace(/_\d\d$/, '');
+  const g = groups[base] || (groups[base] = { files: [], ...(CLASS.find(([re]) => re.test(base))?.[1] ?? { kind: 'detail', gainDb: -8, pitch: 0.7 }), wet: WET.test(base), loopFiles: !!row.loop });
+  g.files.push(row.path);
+}
+fs.writeFileSync(path.join(outDir, 'sounds-manifest.json'), JSON.stringify({
+  generatedBy: 'ci/sounds/cut.mjs',
+  format: 'CAF, 48 kHz, mono, 16-bit little-endian PCM',
+  note: 'Group = the files sharing a prefix. Pick round-robin without immediate repeats; apply pitch (± semitones) and ±2 dB per play. gainDb is the starting bus trim. wet groups are dropped in the Soft style. Loops loop seamlessly as cut.',
+  groups,
+}, null, 1) + '\n');
 
 console.log(`cut ${rows.length} files, ${(totalBytes / 1048576).toFixed(2)} MB, from ${seenSrc.size} sources`);

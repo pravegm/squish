@@ -115,6 +115,9 @@ r can/can_strain_loop.caf fs758998 9.0 11.8 0,0 i-24 100 0 300 - "slow-crush cra
 p fs758998 can/can_crumple --n 12 --max 0.22 --range 20 --gap 0.4 --norm p-6 --note "crumple grain (strain, crush bed)"
 r can/can_open_fizz.caf fs689705 0.55 2.6 0,300 m-14 80 0 0 - "tab pop + fizz burst (first buckle, unopened can)"
 r can/can_open_fizz.caf bsb0116 0.0 0.78 0,120 m-14 80 0 0 - "tab pop + fizz burst"
+for n in 000 001 002 003 004; do
+  r can/can_tink.caf "kenney-impact--impactTin_medium_$n" 0 1 0,60 m-18L4 100 0 0 - "can tink (place, contact, poke)"
+done
 r can/can_fizz_loop.caf fs256317 5.0 7.8 0,0 i-26 200 0 300 - "fizz bed and reveal fizz settle"
 
 # ---------- Gummy bear: chewy stretch, seam split ----------

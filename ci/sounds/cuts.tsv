@@ -180,6 +180,11 @@ can/can_crumple_11.caf	fs758998	13.558	13.601	1,25	p-6	80	0	0	-	crumple grain (s
 can/can_crumple_12.caf	fs758998	15.031	15.151	1,25	p-6	80	0	0	-	crumple grain (strain, crush bed); pk 0.0 dB, centroid 4909 Hz
 can/can_open_fizz_01.caf	fs689705	0.55	2.6	0,300	m-14	80	0	0	-	tab pop + fizz burst (first buckle, unopened can)
 can/can_open_fizz_02.caf	bsb0116	0.0	0.78	0,120	m-14	80	0	0	-	tab pop + fizz burst
+can/can_tink_01.caf	kenney-impact--impactTin_medium_000	0	1	0,60	m-18L4	100	0	0	-	can tink (place, contact, poke)
+can/can_tink_02.caf	kenney-impact--impactTin_medium_001	0	1	0,60	m-18L4	100	0	0	-	can tink (place, contact, poke)
+can/can_tink_03.caf	kenney-impact--impactTin_medium_002	0	1	0,60	m-18L4	100	0	0	-	can tink (place, contact, poke)
+can/can_tink_04.caf	kenney-impact--impactTin_medium_003	0	1	0,60	m-18L4	100	0	0	-	can tink (place, contact, poke)
+can/can_tink_05.caf	kenney-impact--impactTin_medium_004	0	1	0,60	m-18L4	100	0	0	-	can tink (place, contact, poke)
 can/can_fizz_loop_01.caf	fs256317	5.0	7.8	0,0	i-26	200	0	300	-	fizz bed and reveal fizz settle
 gummy/gummy_stretch_loop_01.caf	fs125160	10.0	12.8	0,0	i-24	120	0	300	-	chewy rubber stretch loop
 gummy/gummy_squish_01.caf	fs399008	1.054	1.504	1,25	m-16	100	0	0	-	chewy squish grain; pk -17.6 dB, centroid 1587 Hz

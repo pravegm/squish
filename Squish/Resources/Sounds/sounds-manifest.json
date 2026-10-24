@@ -1,0 +1,884 @@
+{
+ "generatedBy": "ci/sounds/cut.mjs",
+ "format": "CAF, 48 kHz, mono, 16-bit little-endian PCM",
+ "note": "Group = the files sharing a prefix. Pick round-robin without immediate repeats; apply pitch (± semitones) and ±2 dB per play. gainDb is the starting bus trim. wet groups are dropped in the Soft style. Loops loop seamlessly as cut.",
+ "groups": {
+  "press_hiss_loop": {
+   "files": [
+    "press/press_hiss_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "press_release": {
+   "files": [
+    "press/press_release_01.caf",
+    "press/press_release_02.caf",
+    "press/press_release_03.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "press_kachunk_latch": {
+   "files": [
+    "press/press_kachunk_latch_01.caf",
+    "press/press_kachunk_latch_02.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -4,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": false
+  },
+  "press_kachunk_metal": {
+   "files": [
+    "press/press_kachunk_metal_01.caf",
+    "press/press_kachunk_metal_02.caf",
+    "press/press_kachunk_metal_03.caf",
+    "press/press_kachunk_metal_04.caf",
+    "press/press_kachunk_metal_05.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -4,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": false
+  },
+  "press_contact_soft": {
+   "files": [
+    "press/press_contact_soft_01.caf",
+    "press/press_contact_soft_02.caf",
+    "press/press_contact_soft_03.caf",
+    "press/press_contact_soft_04.caf",
+    "press/press_contact_soft_05.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "press_stamp": {
+   "files": [
+    "press/press_stamp_01.caf",
+    "press/press_stamp_02.caf",
+    "press/press_stamp_03.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "bubblewrap_pop": {
+   "files": [
+    "bubblewrap/bubblewrap_pop_01.caf",
+    "bubblewrap/bubblewrap_pop_02.caf",
+    "bubblewrap/bubblewrap_pop_03.caf",
+    "bubblewrap/bubblewrap_pop_04.caf",
+    "bubblewrap/bubblewrap_pop_05.caf",
+    "bubblewrap/bubblewrap_pop_06.caf",
+    "bubblewrap/bubblewrap_pop_07.caf",
+    "bubblewrap/bubblewrap_pop_08.caf",
+    "bubblewrap/bubblewrap_pop_09.caf",
+    "bubblewrap/bubblewrap_pop_10.caf",
+    "bubblewrap/bubblewrap_pop_11.caf",
+    "bubblewrap/bubblewrap_pop_12.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -4,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "bubblewrap_popbig": {
+   "files": [
+    "bubblewrap/bubblewrap_popbig_01.caf",
+    "bubblewrap/bubblewrap_popbig_02.caf",
+    "bubblewrap/bubblewrap_popbig_03.caf",
+    "bubblewrap/bubblewrap_popbig_04.caf",
+    "bubblewrap/bubblewrap_popbig_05.caf",
+    "bubblewrap/bubblewrap_popbig_06.caf",
+    "bubblewrap/bubblewrap_popbig_07.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -4,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "bubblewrap_popsmall": {
+   "files": [
+    "bubblewrap/bubblewrap_popsmall_01.caf",
+    "bubblewrap/bubblewrap_popsmall_02.caf",
+    "bubblewrap/bubblewrap_popsmall_03.caf",
+    "bubblewrap/bubblewrap_popsmall_04.caf",
+    "bubblewrap/bubblewrap_popsmall_05.caf",
+    "bubblewrap/bubblewrap_popsmall_06.caf",
+    "bubblewrap/bubblewrap_popsmall_07.caf",
+    "bubblewrap/bubblewrap_popsmall_08.caf",
+    "bubblewrap/bubblewrap_popsmall_09.caf",
+    "bubblewrap/bubblewrap_popsmall_10.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -4,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "bubblewrap_crinkle_loop": {
+   "files": [
+    "bubblewrap/bubblewrap_crinkle_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "bubblewrap_crinkle": {
+   "files": [
+    "bubblewrap/bubblewrap_crinkle_01.caf",
+    "bubblewrap/bubblewrap_crinkle_02.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "duck_squeak": {
+   "files": [
+    "duck/duck_squeak_01.caf",
+    "duck/duck_squeak_02.caf",
+    "duck/duck_squeak_03.caf",
+    "duck/duck_squeak_04.caf",
+    "duck/duck_squeak_05.caf",
+    "duck/duck_squeak_06.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "duck_honk": {
+   "files": [
+    "duck/duck_honk_01.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "duck_squeaklow": {
+   "files": [
+    "duck/duck_squeaklow_01.caf",
+    "duck/duck_squeaklow_02.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "duck_wheeze": {
+   "files": [
+    "duck/duck_wheeze_01.caf",
+    "duck/duck_wheeze_02.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "duck_wheeze_loop": {
+   "files": [
+    "duck/duck_wheeze_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "jelly_squelch_loop": {
+   "files": [
+    "jelly/jelly_squelch_loop_01.caf",
+    "jelly/jelly_squelch_loop_02.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": true,
+   "loopFiles": true
+  },
+  "jelly_squelch": {
+   "files": [
+    "jelly/jelly_squelch_01.caf",
+    "jelly/jelly_squelch_02.caf",
+    "jelly/jelly_squelch_03.caf",
+    "jelly/jelly_squelch_04.caf",
+    "jelly/jelly_squelch_05.caf",
+    "jelly/jelly_squelch_06.caf",
+    "jelly/jelly_squelch_07.caf",
+    "jelly/jelly_squelch_08.caf",
+    "jelly/jelly_squelch_09.caf",
+    "jelly/jelly_squelch_10.caf",
+    "jelly/jelly_squelch_11.caf",
+    "jelly/jelly_squelch_12.caf",
+    "jelly/jelly_squelch_13.caf",
+    "jelly/jelly_squelch_14.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": true,
+   "loopFiles": false
+  },
+  "jelly_splat": {
+   "files": [
+    "jelly/jelly_splat_01.caf",
+    "jelly/jelly_splat_02.caf",
+    "jelly/jelly_splat_03.caf",
+    "jelly/jelly_splat_04.caf",
+    "jelly/jelly_splat_05.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": true,
+   "loopFiles": false
+  },
+  "jelly_wobble": {
+   "files": [
+    "jelly/jelly_wobble_01.caf",
+    "jelly/jelly_wobble_02.caf",
+    "jelly/jelly_wobble_03.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "jelly_slurp": {
+   "files": [
+    "jelly/jelly_slurp_01.caf",
+    "jelly/jelly_slurp_02.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": true,
+   "loopFiles": false
+  },
+  "crayon_snap": {
+   "files": [
+    "crayon/crayon_snap_01.caf",
+    "crayon/crayon_snap_02.caf",
+    "crayon/crayon_snap_03.caf",
+    "crayon/crayon_snap_04.caf",
+    "crayon/crayon_snap_05.caf",
+    "crayon/crayon_snap_06.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "crayon_crumb": {
+   "files": [
+    "crayon/crayon_crumb_01.caf",
+    "crayon/crayon_crumb_02.caf",
+    "crayon/crayon_crumb_03.caf",
+    "crayon/crayon_crumb_04.caf",
+    "crayon/crayon_crumb_05.caf",
+    "crayon/crayon_crumb_06.caf",
+    "crayon/crayon_crumb_07.caf",
+    "crayon/crayon_crumb_08.caf",
+    "crayon/crayon_crumb_09.caf",
+    "crayon/crayon_crumb_10.caf",
+    "crayon/crayon_crumb_11.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "crayon_tap": {
+   "files": [
+    "crayon/crayon_tap_01.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "egg_crack": {
+   "files": [
+    "egg/egg_crack_01.caf",
+    "egg/egg_crack_02.caf",
+    "egg/egg_crack_03.caf",
+    "egg/egg_crack_04.caf",
+    "egg/egg_crack_05.caf",
+    "egg/egg_crack_06.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "egg_tick": {
+   "files": [
+    "egg/egg_tick_01.caf",
+    "egg/egg_tick_02.caf",
+    "egg/egg_tick_03.caf",
+    "egg/egg_tick_04.caf",
+    "egg/egg_tick_05.caf",
+    "egg/egg_tick_06.caf",
+    "egg/egg_tick_07.caf",
+    "egg/egg_tick_08.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "egg_crunch": {
+   "files": [
+    "egg/egg_crunch_01.caf",
+    "egg/egg_crunch_02.caf",
+    "egg/egg_crunch_03.caf",
+    "egg/egg_crunch_04.caf",
+    "egg/egg_crunch_05.caf",
+    "egg/egg_crunch_06.caf",
+    "egg/egg_crunch_07.caf",
+    "egg/egg_crunch_08.caf",
+    "egg/egg_crunch_09.caf",
+    "egg/egg_crunch_10.caf",
+    "egg/egg_crunch_11.caf",
+    "egg/egg_crunch_12.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "egg_yolk": {
+   "files": [
+    "egg/egg_yolk_01.caf",
+    "egg/egg_yolk_02.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": true,
+   "loopFiles": false
+  },
+  "cake_squish_loop": {
+   "files": [
+    "cake/cake_squish_loop_01.caf",
+    "cake/cake_squish_loop_02.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "cake_crumb": {
+   "files": [
+    "cake/cake_crumb_01.caf",
+    "cake/cake_crumb_02.caf",
+    "cake/cake_crumb_03.caf",
+    "cake/cake_crumb_04.caf",
+    "cake/cake_crumb_05.caf",
+    "cake/cake_crumb_06.caf",
+    "cake/cake_crumb_07.caf",
+    "cake/cake_crumb_08.caf",
+    "cake/cake_crumb_09.caf",
+    "cake/cake_crumb_10.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "cake_collapse": {
+   "files": [
+    "cake/cake_collapse_01.caf",
+    "cake/cake_collapse_02.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "cake_squirt": {
+   "files": [
+    "cake/cake_squirt_01.caf",
+    "cake/cake_squirt_02.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": true,
+   "loopFiles": false
+  },
+  "cake_icing": {
+   "files": [
+    "cake/cake_icing_01.caf",
+    "cake/cake_icing_02.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "can_buckle": {
+   "files": [
+    "can/can_buckle_01.caf",
+    "can/can_buckle_02.caf",
+    "can/can_buckle_03.caf",
+    "can/can_buckle_04.caf",
+    "can/can_buckle_05.caf",
+    "can/can_buckle_06.caf",
+    "can/can_buckle_07.caf",
+    "can/can_buckle_08.caf",
+    "can/can_buckle_09.caf",
+    "can/can_buckle_10.caf",
+    "can/can_buckle_11.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "can_crush": {
+   "files": [
+    "can/can_crush_01.caf",
+    "can/can_crush_02.caf"
+   ],
+   "kind": "hero",
+   "gainDb": 0,
+   "pitch": 0.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "can_strain_loop": {
+   "files": [
+    "can/can_strain_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "can_crumple": {
+   "files": [
+    "can/can_crumple_01.caf",
+    "can/can_crumple_02.caf",
+    "can/can_crumple_03.caf",
+    "can/can_crumple_04.caf",
+    "can/can_crumple_05.caf",
+    "can/can_crumple_06.caf",
+    "can/can_crumple_07.caf",
+    "can/can_crumple_08.caf",
+    "can/can_crumple_09.caf",
+    "can/can_crumple_10.caf",
+    "can/can_crumple_11.caf",
+    "can/can_crumple_12.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "can_open_fizz": {
+   "files": [
+    "can/can_open_fizz_01.caf",
+    "can/can_open_fizz_02.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "can_tink": {
+   "files": [
+    "can/can_tink_01.caf",
+    "can/can_tink_02.caf",
+    "can/can_tink_03.caf",
+    "can/can_tink_04.caf",
+    "can/can_tink_05.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "can_fizz_loop": {
+   "files": [
+    "can/can_fizz_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "gummy_stretch_loop": {
+   "files": [
+    "gummy/gummy_stretch_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "gummy_squish": {
+   "files": [
+    "gummy/gummy_squish_01.caf",
+    "gummy/gummy_squish_02.caf",
+    "gummy/gummy_squish_03.caf",
+    "gummy/gummy_squish_04.caf",
+    "gummy/gummy_squish_05.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "gummy_split": {
+   "files": [
+    "gummy/gummy_split_01.caf",
+    "gummy/gummy_split_02.caf",
+    "gummy/gummy_split_03.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "gummy_boing": {
+   "files": [
+    "gummy/gummy_boing_01.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "glass_creak_loop": {
+   "files": [
+    "glass/glass_creak_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "glass_tick": {
+   "files": [
+    "glass/glass_tick_01.caf",
+    "glass/glass_tick_02.caf",
+    "glass/glass_tick_03.caf",
+    "glass/glass_tick_04.caf",
+    "glass/glass_tick_05.caf",
+    "glass/glass_tick_06.caf",
+    "glass/glass_tick_07.caf",
+    "glass/glass_tick_08.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "glass_crack": {
+   "files": [
+    "glass/glass_crack_01.caf",
+    "glass/glass_crack_02.caf",
+    "glass/glass_crack_03.caf",
+    "glass/glass_crack_04.caf",
+    "glass/glass_crack_05.caf",
+    "glass/glass_crack_06.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "glass_tink": {
+   "files": [
+    "glass/glass_tink_01.caf",
+    "glass/glass_tink_02.caf",
+    "glass/glass_tink_03.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "glass_shatter": {
+   "files": [
+    "glass/glass_shatter_01.caf",
+    "glass/glass_shatter_02.caf",
+    "glass/glass_shatter_03.caf",
+    "glass/glass_shatter_04.caf",
+    "glass/glass_shatter_05.caf",
+    "glass/glass_shatter_06.caf",
+    "glass/glass_shatter_07.caf",
+    "glass/glass_shatter_08.caf",
+    "glass/glass_shatter_09.caf",
+    "glass/glass_shatter_10.caf",
+    "glass/glass_shatter_11.caf"
+   ],
+   "kind": "hero",
+   "gainDb": 0,
+   "pitch": 0.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "glass_debris": {
+   "files": [
+    "glass/glass_debris_01.caf",
+    "glass/glass_debris_02.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "glass_grit": {
+   "files": [
+    "glass/glass_grit_01.caf",
+    "glass/glass_grit_02.caf",
+    "glass/glass_grit_03.caf",
+    "glass/glass_grit_04.caf",
+    "glass/glass_grit_05.caf",
+    "glass/glass_grit_06.caf",
+    "glass/glass_grit_07.caf",
+    "glass/glass_grit_08.caf",
+    "glass/glass_grit_09.caf",
+    "glass/glass_grit_10.caf",
+    "glass/glass_grit_11.caf",
+    "glass/glass_grit_12.caf",
+    "glass/glass_grit_13.caf",
+    "glass/glass_grit_14.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "glass_contact": {
+   "files": [
+    "glass/glass_contact_01.caf",
+    "glass/glass_contact_02.caf",
+    "glass/glass_contact_03.caf"
+   ],
+   "kind": "detail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "steel_groan_loop": {
+   "files": [
+    "steel/steel_groan_loop_01.caf"
+   ],
+   "kind": "loop",
+   "gainDb": -14,
+   "pitch": 0,
+   "wet": false,
+   "loopFiles": true
+  },
+  "steel_groan": {
+   "files": [
+    "steel/steel_groan_01.caf",
+    "steel/steel_groan_02.caf"
+   ],
+   "kind": "body",
+   "gainDb": -2,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "steel_clink": {
+   "files": [
+    "steel/steel_clink_01.caf",
+    "steel/steel_clink_02.caf",
+    "steel/steel_clink_03.caf",
+    "steel/steel_clink_04.caf",
+    "steel/steel_clink_05.caf"
+   ],
+   "kind": "grain",
+   "gainDb": -12,
+   "pitch": 1.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "steel_snap": {
+   "files": [
+    "steel/steel_snap_01.caf"
+   ],
+   "kind": "hero",
+   "gainDb": 0,
+   "pitch": 0.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "steel_crash": {
+   "files": [
+    "steel/steel_crash_01.caf",
+    "steel/steel_crash_02.caf"
+   ],
+   "kind": "hero",
+   "gainDb": 0,
+   "pitch": 0.5,
+   "wet": false,
+   "loopFiles": false
+  },
+  "steel_boing": {
+   "files": [
+    "steel/steel_boing_01.caf",
+    "steel/steel_boing_02.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "steel_ring": {
+   "files": [
+    "steel/steel_ring_01.caf"
+   ],
+   "kind": "tail",
+   "gainDb": -8,
+   "pitch": 0.7,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_click": {
+   "files": [
+    "ui/ui_click_01.caf",
+    "ui/ui_click_02.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_select": {
+   "files": [
+    "ui/ui_select_01.caf",
+    "ui/ui_select_02.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_toggle": {
+   "files": [
+    "ui/ui_toggle_01.caf",
+    "ui/ui_toggle_02.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_back": {
+   "files": [
+    "ui/ui_back_01.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_open": {
+   "files": [
+    "ui/ui_open_01.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_close": {
+   "files": [
+    "ui/ui_close_01.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_unlock": {
+   "files": [
+    "ui/ui_unlock_01.caf",
+    "ui/ui_unlock_02.caf",
+    "ui/ui_unlock_03.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  },
+  "ui_drop": {
+   "files": [
+    "ui/ui_drop_01.caf",
+    "ui/ui_drop_02.caf",
+    "ui/ui_drop_03.caf"
+   ],
+   "kind": "ui",
+   "gainDb": -14,
+   "pitch": 0.3,
+   "wet": false,
+   "loopFiles": false
+  }
+ }
+}
