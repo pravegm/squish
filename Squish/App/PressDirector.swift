@@ -104,6 +104,8 @@ final class PressDirector {
     func start() {
         guard !started else { return }
         started = true
+        // Feedback first, before the first frame or hinge sample, so the very first press is heard and felt.
+        applyFeedbackSettings()
         audio.start()
         haptics.start()
         GameCenter.shared.authenticate()
@@ -125,6 +127,25 @@ final class PressDirector {
         // and ignoring the reopen would swallow the reveal. It only guards stale events at launch.
         haptics.resume()
         audio.resume()
+    }
+
+    /// Settings → the feedback controllers. Every frame (cheap: assignments; the session is only touched on change)
+    /// and once before the engines start.
+    private func applyFeedbackSettings() {
+        haptics.level = settings.hapticsLevel
+        audio.enabled = settings.soundEnabled
+        audio.style = settings.soundStyle
+        audio.playsInSilentMode = settings.playSoundInSilentMode
+    }
+
+    /// Frames the loop has run (rendered or blind clock), for the Tuning Lab diagnostics.
+    var diagnosticsFrameCount: Int { renderedFrames }
+
+    /// Tuning Lab "Test full press feel": the same scripted 3-second press in sound and touch.
+    func playPressFeelTest() {
+        let cue = PressFeelDemo.cue(kind: currentKind, dice: FeedbackDice(seed: UInt64.random(in: 1...UInt64.max)))
+        haptics.playPressFeel(cue)
+        audio.playPressFeel(cue)
     }
 
     func choose(_ kind: ObjectKind) {
@@ -244,9 +265,7 @@ final class PressDirector {
             print(String(format: "SQUISH-T frame %ld at %.2fs phase=%@ depth=%.3f", renderedFrames,
                          CACurrentMediaTime() - launchTime, engine.phase.rawValue, engine.measuredDepth))
         }
-        haptics.level = settings.hapticsLevel
-        audio.enabled = settings.soundEnabled
-        audio.style = settings.soundStyle
+        applyFeedbackSettings()
         // The scene's first-run "drag down" teaching pulse stops once a press has been completed.
         scene.isFirstPress = completedPresses == 0
 

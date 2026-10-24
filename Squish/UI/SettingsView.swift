@@ -18,6 +18,7 @@ struct SettingsView: View {
     /// Everything persisted, so one `onChange` saves any edit.
     private struct Snapshot: Equatable {
         var sound: Bool
+        var playOnSilent: Bool
         var style: SoundStyle
         var haptics: HapticsLevel
         var captions: Bool
@@ -59,6 +60,10 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: Theme.s5) {
                     section("Sound", index: 0) {
                         ToggleRow(title: "Sound", isOn: $settings.soundEnabled)
+                        divider
+                        ToggleRow(title: "Play sound when the phone is on silent", isOn: $settings.playSoundInSilentMode,
+                                  footnote: "The sound is half the toy. Turn this off to let silent mode mute Squish. Your music keeps playing either way.")
+                            .disabled(!settings.soundEnabled)
                         divider
                         VStack(alignment: .leading, spacing: Theme.s2) {
                             Text("Sound style").font(Theme.body).foregroundStyle(Theme.ink)
@@ -136,7 +141,8 @@ struct SettingsView: View {
             TuningLabView(director: director)
         }
         .onAppear { appeared = true }
-        .onChange(of: Snapshot(sound: settings.soundEnabled, style: settings.soundStyle, haptics: settings.hapticsLevel,
+        .onChange(of: Snapshot(sound: settings.soundEnabled, playOnSilent: settings.playSoundInSilentMode,
+                               style: settings.soundStyle, haptics: settings.hapticsLevel,
                                captions: settings.showCaptions, noFold: settings.pressWithoutFolding)) { _, _ in
             settings.save()
             UIFeel.enabled = settings.hapticsLevel != .off

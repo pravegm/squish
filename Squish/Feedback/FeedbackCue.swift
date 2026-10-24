@@ -129,6 +129,28 @@ struct FeedbackCue: Equatable, Sendable {
         }
     }
 
+    func adding(_ other: FeedbackCue) -> FeedbackCue {
+        var copy = self
+        copy.add(other)
+        return copy
+    }
+
+    /// The whole cue, sound and touch together, starting `seconds` later.
+    func delayed(by seconds: Double) -> FeedbackCue {
+        var copy = self
+        copy.sounds = sounds.map { layer -> SoundLayer in
+            var shifted = layer
+            shifted.command = layer.command.delayed(by: Float(seconds))
+            return shifted
+        }
+        copy.haptics = haptics.map { note -> HapticNote in
+            var shifted = note
+            shifted.time = max(note.time + seconds, 0)
+            return shifted
+        }
+        return copy
+    }
+
     func scaledSounds(_ factor: Float) -> FeedbackCue {
         var copy = self
         copy.sounds = sounds.map { layer -> SoundLayer in

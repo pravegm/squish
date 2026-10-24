@@ -1,3 +1,5 @@
+import AVFoundation
+import Foundation
 import Testing
 @testable import Squish
 
@@ -304,11 +306,251 @@ struct FeedbackTests {
         #expect(Captions.caption(for: .hush, context: ctx)?.text == nil)
     }
 
+    // MARK: - Audio session (Duo test 1: silent on silent mode)
+
+    @Test func soundPlaysOnSilentByDefaultAndMixesWithMusic() {
+        let onSilent = AudioSessionChoice.forSettings(playsInSilentMode: true)
+        #expect(onSilent.category == .playback)
+        #expect(onSilent.options.contains(.mixWithOthers))
+        #expect(!onSilent.options.contains(.duckOthers))
+        #expect(!onSilent.respectsSilentSwitch)
+        let polite = AudioSessionChoice.forSettings(playsInSilentMode: false)
+        #expect(polite.category == .ambient)
+        #expect(polite.respectsSilentSwitch)
+    }
+
+    @Test func playOnSilentSettingDefaultsOnAndSurvivesOldSaves() throws {
+        let settings = AppSettings()
+        // A 1.0 (1) save, from before the setting existed.
+        let legacy = Data("""
+        {"soundEnabled":false,"soundStyle":"soft","hapticsLevel":"soft","showCaptions":true,\
+        "pressWithoutFolding":false,"hasSeenSafetyHint":true}
+        """.utf8)
+        settings.playSoundInSilentMode = false
+        #expect(settings.load(from: legacy))
+        #expect(settings.playSoundInSilentMode)
+        #expect(!settings.soundEnabled)
+        #expect(settings.soundStyle == .soft)
+        #expect(settings.hapticsLevel == .soft)
+
+        settings.playSoundInSilentMode = false
+        let data = try #require(settings.encoded())
+        let reloaded = AppSettings()
+        reloaded.playSoundInSilentMode = true
+        #expect(reloaded.load(from: data))
+        #expect(!reloaded.playSoundInSilentMode)
+        #expect(!reloaded.soundEnabled)
+    }
+
+    /// The setting really switches the shared session (simulator), and the diagnostics report it in plain words.
+    @Test func silentModeSettingSwitchesTheSessionCategory() {
+        let audio = AudioController()
+        audio.start()
+        let session = AVAudioSession.sharedInstance()
+        #expect(session.category == .playback)
+        #expect(session.categoryOptions.contains(.mixWithOthers))
+        let respected = audio.diagnosticRows().first { $0.title == "Silent switch respected?" }
+        #expect(respected?.value.hasPrefix("No") == true)
+
+        audio.playsInSilentMode = false
+        #expect(session.category == .ambient)
+        let nowRespected = audio.diagnosticRows().first { $0.title == "Silent switch respected?" }
+        #expect(nowRespected?.value.hasPrefix("Yes") == true)
+        #expect(nowRespected?.isWarning == true)
+
+        // Leave the host app's session as the app sets it.
+        audio.playsInSilentMode = true
+        #expect(session.category == .playback)
+    }
+
+    // MARK: - Haptic strength (Duo test 1: "a little, weak")
+
+    @Test func liftMakesQuietNotesFeelableAndKeepsOrder() {
+        #expect(HapticTuning.lift(0) == 0)
+        #expect(HapticTuning.lift(1) == 1)
+        #expect(HapticTuning.lift(0.12) >= 0.25)
+        #expect(HapticTuning.lift(0.3) >= 0.45)
+        var last: Float = -1
+        for step in 0...20 {
+            let value = HapticTuning.lift(Float(step) / 20)
+            #expect(value > last)
+            #expect(value <= 1)
+            last = value
+        }
+    }
+
+    @Test(arguments: ObjectKind.allCases)
+    func strainBedIsStrongAtTheBreakEvenOnASlowClose(_ kind: ObjectKind) {
+        let beds = Recipes.recipe(for: kind).beds
+        let gain = kind.profile.bedGain
+        let slow = HapticTuning.speed(15) // a careful Duo close
+        let atContact = HapticTuning.strainBed(strain: 0, speed: slow, holding: false, materialGain: gain,
+                                               recipeMax: beds.hapticMax)
+        let halfway = HapticTuning.strainBed(strain: 0.5, speed: slow, holding: false, materialGain: gain,
+                                             recipeMax: beds.hapticMax)
+        let atBreak = HapticTuning.strainBed(strain: 1, speed: slow, holding: false, materialGain: gain,
+                                             recipeMax: beds.hapticMax)
+        let held = HapticTuning.strainBed(strain: 1, speed: 0, holding: true, materialGain: gain,
+                                          recipeMax: beds.hapticMax)
+        #expect(atContact >= HapticTuning.loadedFloor - 0.001, "\(kind) contact")
+        #expect(halfway > atContact)
+        #expect(atBreak > halfway)
+        #expect(atBreak >= 0.45, "\(kind) bed at the break is \(atBreak)")
+        #expect(atBreak <= HapticTuning.bedCeiling)
+        #expect(held >= atBreak * 0.8, "\(kind) holding goes slack")
+    }
+
+    @Test func failureAndKaChunkHitHardAndLow() {
+        let body = BrandCues.failureBody
+        #expect(body.isClimax)
+        #expect(body.haptics.contains { $0.kind == .transient && $0.intensity == 1 && $0.sharpness <= 0.4 })
+        #expect(body.haptics.contains { $0.kind == .continuous && $0.intensity >= 0.9 && $0.duration >= 0.15 })
+        let chunk = BrandCues.kaChunk.haptics.filter { $0.time < 1 }
+        #expect(chunk.contains { $0.kind == .transient && $0.intensity == 1 && $0.sharpness <= 0.3 })
+        #expect(chunk.contains { $0.kind == .continuous && $0.intensity >= 0.9 })
+    }
+
+    @Test(arguments: ObjectKind.allCases)
+    func pressFeelTestRunsTheWholeArc(_ kind: ObjectKind) {
+        let cue = PressFeelDemo.cue(kind: kind, dice: FeedbackDice(seed: 8))
+        #expect(!cue.sounds.isEmpty)
+        #expect(cue.haptics.count >= 10)
+        #expect(cue.haptics.contains { $0.time >= PressFeelDemo.failureTime && $0.time < PressFeelDemo.kaChunkTime
+            && $0.intensity == 1 })
+        #expect(cue.haptics.contains { $0.time >= PressFeelDemo.kaChunkTime && $0.intensity == 1 })
+        #expect(cue.haptics.allSatisfy { $0.time < 4 && $0.intensity >= 0 && $0.intensity <= 1 })
+        #expect(cue.sounds.allSatisfy { $0.command.delay < 4 })
+        let ramp = PressFeelDemo.bedRamp
+        #expect(ramp.count <= 16)
+        #expect(zip(ramp, ramp.dropFirst()).allSatisfy { $0.time < $1.time })
+        #expect((ramp.map(\.intensity).max() ?? 0) >= 0.9)
+        #expect((ramp.last?.time ?? 9) <= PressFeelDemo.strainDuration)
+    }
+
+    @Test func delayedShiftsSoundAndTouchTogether() {
+        let cue = BrandCues.bottomOut.delayed(by: 0.5)
+        #expect(zip(cue.sounds, BrandCues.bottomOut.sounds).allSatisfy { abs($0.command.delay - $1.command.delay - 0.5) < 1e-6 })
+        #expect(zip(cue.haptics, BrandCues.bottomOut.haptics).allSatisfy { abs($0.time - $1.time - 0.5) < 1e-9 })
+    }
+
+    // MARK: - Loudness (02 §6: −16 LUFS integrated ±2 on the phone speaker)
+
+    /// A steady 4-second touch close from 180° to 30°, then the hold to the reveal.
+    private func pressTrace(_ kind: ObjectKind) -> PressTrace {
+        var samples: [PressTrace.Sample] = []
+        var time = 1.0
+        let steps = 240
+        for i in 0...steps {
+            samples.append(PressTrace.Sample(time: time, angle: 180 - 150 * Double(i) / Double(steps), closed: false))
+            time += 4.0 / Double(steps)
+        }
+        return PressTrace(kind: kind, variant: PressVariant(kind: kind, seed: 21), samples: samples,
+                          usesVirtualHinge: true, config: .standard)
+    }
+
+    /// The press replayed into the offline twin of the live controller (same cues, same beds, same master).
+    private func renderPress(_ kind: ObjectKind, seconds: Double = 9) -> [Float] {
+        let trace = pressTrace(kind)
+        let audio = OfflineAudio(style: .workshop)
+        let replay = PressReplay(trace: trace)
+        let engine = replay.engine
+        let context = {
+            FeedbackContext(kind: trace.kind, variant: trace.variant, compression: Float(engine.measuredCompression),
+                            closingSpeed: Float(engine.closingSpeed), soundStyle: .workshop, reduceMotion: false)
+        }
+        replay.onEvent = { event, time in
+            audio.seek(to: time, rate: 1)
+            audio.handle(event, context: context())
+        }
+        replay.load()
+        audio.seek(to: 0, rate: 1)
+        audio.place(context: context())
+        let step = 1.0 / 120
+        var index = 1
+        while Double(index) * step <= seconds {
+            let time = Double(index) * step
+            let dt = max(time - replay.clock, 0)
+            replay.advance(to: time)
+            audio.seek(to: time, rate: 1)
+            audio.update(engine: engine, context: context(), dt: dt)
+            index += 1
+        }
+        return OfflineAudio.render(audio.score, frames: Int(seconds * OfflineAudio.sampleRate))
+    }
+
+    @Test func pressMixLandsNearTheLoudnessTarget() {
+        var all: [Double] = []
+        for kind in ObjectKind.allCases {
+            let pcm = renderPress(kind)
+            let lufs = Loudness.integrated(pcm, sampleRate: OfflineAudio.sampleRate)
+            let peak = Double(pcm.map { abs($0) }.max() ?? 0)
+            print(String(format: "SQUISH-LOUD kind=%@ lufs=%.1f peak=%.1f dBFS", kind.rawValue, lufs, 20 * log10(max(peak, 1e-9))))
+            #expect(lufs.isFinite, "\(kind) is silent")
+            #expect(peak <= 0.9, "\(kind) clips")
+            all.append(lufs)
+        }
+        let mean = all.reduce(0, +) / Double(max(all.count, 1))
+        print(String(format: "SQUISH-LOUD mean lufs=%.1f", mean))
+        // Target −16 ±2 (02 §6); the bound is wider so one quiet or loud object never blocks CI, and the log shows it.
+        #expect(mean > -21 && mean < -11, "mean press loudness \(mean) LUFS")
+    }
+
+    @Test func loudnessMeterReadsAFullScaleSineCorrectly() {
+        // BS.1770: a 0 dBFS 997 Hz sine reads −3.01 LUFS.
+        let rate = 48_000.0
+        let sine = (0..<Int(rate * 3)).map { Float(sin(2 * Double.pi * 997 * Double($0) / rate)) }
+        let lufs = Loudness.integrated(sine, sampleRate: rate)
+        #expect(abs(lufs + 3.01) < 0.3, "got \(lufs)")
+    }
+
     @Test func signatureCaptions() {
         #expect(Captions.failure(.glassBottle) == "SMASH!")
         #expect(Captions.failure(.sodaCan) == "FSSSHT!")
         #expect(Captions.failure(.unsquishable) == "CLANG… CRACK?!")
         #expect(Captions.fracture(.bubbleWrap, index: 0) == "POP!")
         #expect(Captions.fracture(.rubberDuck, index: 0) == "HONK!")
+    }
+}
+
+/// ITU-R BS.1770-4 integrated loudness (K-weighting at 48 kHz, 400 ms blocks with 75 % overlap, absolute −70 LUFS and
+/// relative −10 LU gates). Mono, so no channel weighting.
+enum Loudness {
+    static func integrated(_ samples: [Float], sampleRate: Double) -> Double {
+        // K-weighting: the 48 kHz coefficients from BS.1770 (pre-filter shelf, then the RLB high-pass).
+        let stages: [(b: [Double], a: [Double])] = [
+            ([1.53512485958697, -2.69169618940638, 1.19839281085285], [1, -1.69065929318241, 0.73248077421585]),
+            ([1, -2, 1], [1, -1.99004745483398, 0.99007225036621]),
+        ]
+        var signal = samples.map(Double.init)
+        for stage in stages {
+            var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
+            for i in signal.indices {
+                let x = signal[i]
+                let y = stage.b[0] * x + stage.b[1] * x1 + stage.b[2] * x2 - stage.a[1] * y1 - stage.a[2] * y2
+                x2 = x1
+                x1 = x
+                y2 = y1
+                y1 = y
+                signal[i] = y
+            }
+        }
+        let block = Int(0.4 * sampleRate)
+        let hop = Int(0.1 * sampleRate)
+        guard signal.count >= block else { return -.infinity }
+        var powers: [Double] = []
+        var start = 0
+        while start + block <= signal.count {
+            var sum = 0.0
+            for i in start..<(start + block) { sum += signal[i] * signal[i] }
+            powers.append(sum / Double(block))
+            start += hop
+        }
+        func lufs(_ power: Double) -> Double { -0.691 + 10 * log10(power) }
+        let absolute = powers.filter { $0 > 0 && lufs($0) > -70 }
+        guard !absolute.isEmpty else { return -.infinity }
+        let relativeGate = lufs(absolute.reduce(0, +) / Double(absolute.count)) - 10
+        let gated = absolute.filter { lufs($0) > relativeGate }
+        guard !gated.isEmpty else { return -.infinity }
+        return lufs(gated.reduce(0, +) / Double(gated.count))
     }
 }

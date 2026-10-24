@@ -6,11 +6,14 @@ struct TuningLabView: View {
     let director: PressDirector
     @Environment(\.dismiss) private var dismiss
     @State private var copiedMessage: String?
+    @State private var diagnosticsMessage: String?
 
     var body: some View {
         @Bindable var engine = director.engine
         NavigationStack {
             Form {
+                diagnosticsSection
+
                 Section("Live") {
                     TimelineView(.periodic(from: .now, by: 0.1)) { _ in
                         VStack(alignment: .leading, spacing: 4) {
@@ -93,6 +96,109 @@ struct TuningLabView: View {
         }
         .onDisappear {
             director.engine.config.save()
+        }
+    }
+
+    // MARK: - Diagnostics
+
+    /// Plain-words device diagnostics for sound and vibration (Release builds have no console): read it, screenshot
+    /// it, or copy it. Rows in orange could explain missing sound or vibration.
+    private var diagnosticsSection: some View {
+        Section {
+            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                VStack(alignment: .leading, spacing: 10) {
+                    diagnosticsGroup("Sound", director.audio.diagnosticRows())
+                    diagnosticsGroup("Vibration", director.haptics.diagnosticRows())
+                    diagnosticsGroup("App", appRows)
+                }
+                .font(.system(.footnote, design: .monospaced))
+            }
+            Button("Test sound") {
+                director.audio.playTestSound()
+                diagnosticsMessage = "Test sound sent. Check \"Last audio event\"."
+            }
+            Button("Test vibration") {
+                director.haptics.playTestVibration()
+                diagnosticsMessage = "Test vibration sent (full strength)."
+            }
+            Button("Test full press feel") {
+                director.playPressFeelTest()
+                diagnosticsMessage = "Press feel test: strain, three cracks, the failure, then the ka-chunk."
+            }
+            Button("Copy diagnostics") {
+                UIPasteboard.general.string = diagnosticsReport()
+                diagnosticsMessage = "Diagnostics copied"
+            }
+            if let diagnosticsMessage {
+                Text(diagnosticsMessage).font(.footnote).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Diagnostics")
+        } footer: {
+            Text("Orange rows could explain missing sound or vibration. Screenshot this, or tap Copy diagnostics and paste it. The vibration tests play at full strength whatever the Haptics setting.")
+        }
+    }
+
+    private func diagnosticsGroup(_ title: String, _ rows: [DiagnosticRow]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(rows) { row in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(row.title).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text(row.value)
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(row.isWarning ? Color.orange : Color.primary)
+                }
+            }
+        }
+    }
+
+    private var appRows: [DiagnosticRow] {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        let state: String
+        switch UIApplication.shared.applicationState {
+        case .active: state = "Active"
+        case .inactive: state = "Inactive"
+        case .background: state = "Background"
+        @unknown default: state = "Unknown"
+        }
+        return [
+            DiagnosticRow(title: "Squish", value: "\(version) (\(build))"),
+            DiagnosticRow(title: "Device", value: "\(Self.modelIdentifier) · iOS \(UIDevice.current.systemVersion)"),
+            DiagnosticRow(title: "Press mode", value: director.usesFoldPress ? "Fold Press (hinge)" : "Touch press (P-48)"),
+            DiagnosticRow(title: "Hinge", value: director.hingeAvailable
+                ? (director.hingeClosed ? "Available, closed" : "Available, open") : "Not reporting"),
+            DiagnosticRow(title: "Press loop frames", value: "\(director.diagnosticsFrameCount) (climbs while running)"),
+            DiagnosticRow(title: "App state", value: state),
+        ]
+    }
+
+    /// The whole panel as text, for pasting into a message.
+    private func diagnosticsReport() -> String {
+        var lines = ["Squish diagnostics, \(Date().formatted(date: .abbreviated, time: .standard))"]
+        for (title, rows) in [("SOUND", director.audio.diagnosticRows()), ("VIBRATION", director.haptics.diagnosticRows()),
+                              ("APP", appRows)] {
+            lines.append("")
+            lines.append(title)
+            for row in rows {
+                lines.append("\(row.isWarning ? "! " : "  ")\(row.title): \(row.value)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// "iPhone18,1"-style hardware identifier (no personal data).
+    private static var modelIdentifier: String {
+        var system = utsname()
+        uname(&system)
+        return Mirror(reflecting: system.machine).children.reduce(into: "") { result, element in
+            guard let value = element.value as? Int8, value != 0 else { return }
+            result.append(Character(UnicodeScalar(UInt8(bitPattern: value))))
         }
     }
 

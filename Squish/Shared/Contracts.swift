@@ -56,6 +56,10 @@ struct FeedbackContext: Sendable {
 final class AppSettings {
     var soundEnabled = true
     var soundStyle: SoundStyle = .workshop
+    /// "Play sound when the phone is on silent": `.playback` (on) or `.ambient` (off) audio session
+    /// (`AudioSessionChoice`). On by default: the sound is half the product. Saved settings from 1.0 (1) predate it
+    /// and decode as on.
+    var playSoundInSilentMode = true
     var hapticsLevel: HapticsLevel = .full
     /// Visual onomatopoeia captions ("POP!", "CRACK!"). Defaults on when the system prefers captions.
     var showCaptions = false
@@ -72,25 +76,40 @@ final class AppSettings {
         var showCaptions: Bool
         var pressWithoutFolding: Bool
         var hasSeenSafetyHint: Bool
+        /// Added after 1.0 (1): optional, so older saved settings still decode (missing → on).
+        var playSoundInSilentMode: Bool?
     }
 
     init(defaultCaptions: Bool = false) {
         showCaptions = defaultCaptions
-        guard let data = UserDefaults.standard.data(forKey: Self.key),
-              let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return }
+        guard let data = UserDefaults.standard.data(forKey: Self.key) else { return }
+        load(from: data)
+    }
+
+    /// Applies saved settings; false (and nothing changed) when the data doesn't decode.
+    @discardableResult
+    func load(from data: Data) -> Bool {
+        guard let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return false }
         soundEnabled = stored.soundEnabled
         soundStyle = stored.soundStyle
+        playSoundInSilentMode = stored.playSoundInSilentMode ?? true
         hapticsLevel = stored.hapticsLevel
         showCaptions = stored.showCaptions
         pressWithoutFolding = stored.pressWithoutFolding
         hasSeenSafetyHint = stored.hasSeenSafetyHint
+        return true
+    }
+
+    /// The saved form of these settings.
+    func encoded() -> Data? {
+        let stored = Stored(soundEnabled: soundEnabled, soundStyle: soundStyle, hapticsLevel: hapticsLevel,
+                            showCaptions: showCaptions, pressWithoutFolding: pressWithoutFolding,
+                            hasSeenSafetyHint: hasSeenSafetyHint, playSoundInSilentMode: playSoundInSilentMode)
+        return try? JSONEncoder().encode(stored)
     }
 
     func save() {
-        let stored = Stored(soundEnabled: soundEnabled, soundStyle: soundStyle, hapticsLevel: hapticsLevel,
-                            showCaptions: showCaptions, pressWithoutFolding: pressWithoutFolding,
-                            hasSeenSafetyHint: hasSeenSafetyHint)
-        if let data = try? JSONEncoder().encode(stored) {
+        if let data = encoded() {
             UserDefaults.standard.set(data, forKey: Self.key)
         }
     }

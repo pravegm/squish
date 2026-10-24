@@ -16,7 +16,8 @@ import Foundation
 @MainActor
 final class OfflineAudio {
     nonisolated static let sampleRate = 48_000.0
-    private static let masterGain: Float = 0.8
+    /// The live mix's master, so the share clip sounds like the press.
+    private static let masterGain: Float = AudioMix.masterGain
 
     /// Everything the synth needs, in clip order. Sendable so the render can run off the main actor.
     struct Score: Sendable {

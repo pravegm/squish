@@ -36,9 +36,21 @@ enum BrandCues {
             .noise(.press("bottom", "body"), .lowPass, 400, decay: 0.05, gain: 0.18),
         ],
         haptics: [
-            .tap(0.85, 0.15),
-            .buzz(0.6, 0.05, at: 0.005, duration: 0.12, decay: 0.1),
+            .tap(0.9, 0.15),
+            .buzz(0.75, 0.05, at: 0.005, duration: 0.14, decay: 0.11),
         ]
+    )
+
+    /// Haptic weight under every failure (Duo test 1: "weak"): the recipe's break is mostly sharp transients, which
+    /// read as a click. This adds the body: a full-strength low-sharpness hit, a 220 ms heavy rumble, and an aftershock.
+    /// Played in the same pattern as the recipe's failure, so the 12 ms gap rule interleaves them instead of queueing.
+    static let failureBody = FeedbackCue(
+        haptics: [
+            .tap(1.0, 0.35),
+            .buzz(1.0, 0.12, at: 0.004, duration: 0.22, decay: 0.18),
+            .tap(0.7, 0.45, at: 0.1),
+        ],
+        isClimax: true
     )
 
     /// The ka-chunk (bible §3.1 beat 10): latch click, low thock, short steel body,
@@ -55,8 +67,10 @@ enum BrandCues {
             .tone(.press("kachunk", "ready2"), g6, duration: 0.09, attack: 0.002, decay: 0.03, gain: 0.04, delay: 1.62),
         ],
         haptics: [
-            .tap(1.0, 0.15, at: 0.028),
-            .buzz(0.8, 0.05, at: 0.033, duration: 0.12, decay: 0.1),
+            // "Ka": the latch, crisp. "Chunk": the full-weight thock with a solid low body (Duo test 1: make it solid).
+            .tap(0.6, 0.85, at: 0),
+            .tap(1.0, 0.2, at: 0.028),
+            .buzz(1.0, 0.05, at: 0.033, duration: 0.16, decay: 0.13),
             .tap(0.35, 0.4, at: 1.5),
             .tap(0.35, 0.4, at: 1.62),
         ],

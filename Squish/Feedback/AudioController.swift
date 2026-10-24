@@ -1,27 +1,47 @@
 import AVFoundation
 import QuartzCore
+import UIKit
 
 /// Owns the audio session and engine and turns press events into synthesised sound (bible §8).
 /// Shared press layers (hiss, motor, creak, gauge ticks, hush, bottom-out, ka-chunk, sting, chime, fanfare) live here
 /// and in `BrandCues`; each object's material sounds come from its recipe through `CueBook`.
 ///
-/// Gain staging (target ≈ −16 LUFS integrated, 02 §6): beds sit around −30 dBFS, grains −30…−20, fractures −12…−8,
-/// failures and the ka-chunk peak into the −1 dBFS limiter, about 6 LU above the strain bed.
+/// Gain staging (target ≈ −16 LUFS integrated, 02 §6): beds sit around −30 dBFS before the master, grains −30…−20,
+/// fractures −12…−8, failures and the ka-chunk peak into the −1 dBFS limiter, about 6 LU above the strain bed.
+/// The master gain (`AudioMix.masterGain`) brings the whole press up to the target on a phone speaker.
+///
+/// Session: `.playback` + `.mixWithOthers` unless the user turns off "Play sound when the phone is on silent"
+/// (see `AudioSessionChoice` for why). The engine is self-healing: route changes, interruptions, media-services
+/// resets, scene changes (the Duo's inner ↔ outer display) and a stopped engine noticed in `update` all restart it.
+/// Nothing here depends on the inner render gate: the blind clock keeps calling `update` while the phone is shut.
 @MainActor
 final class AudioController {
     var enabled = true
     var style: SoundStyle = .workshop
     /// Extra trim for the Tuning Lab.
     var volume: Float = 1
+    /// "Play sound when the phone is on silent" (Settings → Sound). Changing it re-applies the session category.
+    var playsInSilentMode = true {
+        didSet {
+            guard oldValue != playsInSilentMode, isStarted else { return }
+            configureSession()
+            ensureRunning(reason: "silent-mode setting changed")
+        }
+    }
     /// Sampled-layer seam (bible §15.1). Nil in v1: everything is synthesised.
     var sampleBank: (any SampleBank)?
 
-    private static let masterGain: Float = 0.8
-
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private var synth: Synth?
     private var sourceNode: AVAudioSourceNode?
     private var observers: [NSObjectProtocol] = []
+    private var engineObserver: NSObjectProtocol?
+    private var isStarted = false
+    private var lastRecoveryAttempt: CFTimeInterval = 0
+    // Diagnostics (Tuning Lab): Release builds have no console.
+    private(set) var lastError: String?
+    private(set) var lastEvent = "Not started"
+    private(set) var engineStarts = 0
     private var lastTickAngle: Double?
     private var lastUpdate: CFTimeInterval = 0
     private var lastPhase: PressPhase = .idle
@@ -33,44 +53,134 @@ final class AudioController {
     private var holdCount = 0
     private let auditionDice = FeedbackDice(seed: 0xA0D1_7105)
 
+    /// Called once at launch, before the first press can happen (PressDirector.start, from RootView.onAppear), on
+    /// every device and in Release: nothing here is DEBUG-only, and the P-48 and the Fold Press share it.
     func start() {
-        guard synth == nil else { return }
+        guard !isStarted else { return }
+        isStarted = true
+        configureSession()
+        activateSession()
+        buildGraph()
+        startEngine(reason: "launch")
+
+        let center = NotificationCenter.default
+        // Calls, Siri and alarms interrupt the session; pick up again when they end. Mixable sessions are rarely
+        // interrupted, but when they are, the engine stops.
+        observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil,
+                                            queue: .main) { [weak self] notification in
+            let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let ended = raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .ended
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if ended {
+                    self.lastEvent = "Interruption ended"
+                    self.resume()
+                } else {
+                    self.lastEvent = "Interrupted (call, Siri or alarm)"
+                }
+            }
+        })
+        // Headphones in or out, AirPods, AirPlay: the engine may stop; restart it.
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil,
+                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.ensureRunning(reason: "output route changed")
+            }
+        })
+        // The audio server restarted: every audio object is dead. Rebuild from scratch.
+        observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil,
+                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.rebuildAfterMediaReset()
+            }
+        })
+    }
+
+    /// Category and hints. Preferences are hints only (QA1631); the graph reads back the real rate.
+    private func configureSession() {
+        let choice = AudioSessionChoice.forSettings(playsInSilentMode: playsInSilentMode)
         let session = AVAudioSession.sharedInstance()
-        // .ambient respects the silent switch and mixes with the user's own music.
-        try? session.setCategory(.ambient, mode: .default, options: [])
+        do {
+            try session.setCategory(choice.category, mode: choice.mode, options: choice.options)
+        } catch {
+            record("Couldn't set the audio category", error)
+        }
         try? session.setPreferredSampleRate(48_000)
         try? session.setPreferredIOBufferDuration(0.005)
-        try? session.setActive(true)
+    }
 
+    private func activateSession() {
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            record("Couldn't switch the audio session on", error)
+        }
+    }
+
+    /// Source node → main mixer → output. The node renders mono Float32 at the session's (hardware) rate, 48 kHz on
+    /// iPhone; the mixer converts if the route later runs at another rate (Bluetooth), so the graph never needs
+    /// rewiring for a rate change.
+    private func buildGraph() {
+        let session = AVAudioSession.sharedInstance()
         let sampleRate = session.sampleRate > 0 ? session.sampleRate : 48_000
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else { return }
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+            lastError = "Couldn't make a \(Int(sampleRate)) Hz audio format"
+            return
+        }
         let synth = Synth(sampleRate: Float(sampleRate))
         let node = AVAudioSourceNode(format: format, renderBlock: Self.renderBlock(for: synth))
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
-        try? engine.start()
+        engine.mainMixerNode.outputVolume = 1
+        engine.prepare()
         self.synth = synth
         sourceNode = node
 
-        // Route changes (headphones in/out) can stop the engine; restart it.
-        observers.append(NotificationCenter.default.addObserver(
+        // A hardware change (rate, channels) stops the engine and posts this; the connections survive, so restart.
+        if let engineObserver { NotificationCenter.default.removeObserver(engineObserver) }
+        engineObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.engine.isRunning else { return }
-                try? self.engine.start()
+                self?.ensureRunning(reason: "audio hardware changed")
             }
-        })
-        // Calls and Siri interrupt the session; pick up again when they end (not when they begin).
-        observers.append(NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
-        ) { [weak self] notification in
-            let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-            guard raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .ended else { return }
-            MainActor.assumeIsolated {
-                self?.resume()
-            }
-        })
+        }
+    }
+
+    private func startEngine(reason: String) {
+        guard sourceNode != nil else { return }
+        do {
+            try engine.start()
+            engineStarts += 1
+            lastEvent = "Engine started (\(reason))"
+        } catch {
+            record("Couldn't start the audio engine (\(reason))", error)
+        }
+    }
+
+    private func rebuildAfterMediaReset() {
+        guard isStarted else { return }
+        lastEvent = "Audio services reset: rebuilding"
+        // The old engine is dead: don't touch it, just let it go.
+        engine = AVAudioEngine()
+        synth = nil
+        sourceNode = nil
+        configureSession()
+        activateSession()
+        buildGraph()
+        startEngine(reason: "after audio services reset")
+    }
+
+    /// Restart the engine if anything stopped it. Cheap when it's running.
+    private func ensureRunning(reason: String) {
+        guard isStarted, synth != nil, !engine.isRunning else { return }
+        activateSession()
+        startEngine(reason: reason)
+    }
+
+    private func record(_ what: String, _ error: Error) {
+        let nsError = error as NSError
+        lastError = "\(what): \(nsError.localizedDescription) (code \(nsError.code))"
     }
 
     /// Built outside the main actor on purpose: the block runs on the real-time audio thread, so it must not
@@ -89,9 +199,11 @@ final class AudioController {
         }
     }
 
+    /// The scene became active again (launch, unlock, back from another app, or the Duo moving between its displays).
     func resume() {
-        try? AVAudioSession.sharedInstance().setActive(true)
-        if synth != nil && !engine.isRunning { try? engine.start() }
+        guard isStarted else { return }
+        activateSession()
+        if synth != nil && !engine.isRunning { startEngine(reason: "app active again") }
     }
 
     // MARK: - Per frame
@@ -100,6 +212,12 @@ final class AudioController {
         let now = CACurrentMediaTime()
         let dt = lastUpdate == 0 ? 1.0 / 60 : min(max(now - lastUpdate, 0), 0.1)
         lastUpdate = now
+        // Self-heal: a stopped engine is noticed within a second while the app is on screen (either display).
+        if isStarted, synth != nil, !engine.isRunning, now - lastRecoveryAttempt > 1,
+           UIApplication.shared.applicationState != .background {
+            lastRecoveryAttempt = now
+            ensureRunning(reason: "found stopped")
+        }
         // Schedules run even without a synth so the shared cue sync stays aligned with haptics.
         advanceSchedules(press, context: context, dt: dt)
         guard let synth else { return }
@@ -108,7 +226,7 @@ final class AudioController {
         let memory = CueBook.shared.memory
         let soft = style == .soft
         var params = BedParams()
-        params.master = enabled ? Self.masterGain * volume : 0
+        params.master = enabled ? AudioMix.masterGain * volume : 0
         params.softAmount = soft ? 1 : 0
 
         let c = Float(press.measuredCompression)
@@ -256,6 +374,88 @@ final class AudioController {
     func auditionPlace(_ kind: ObjectKind) {
         let context = Audition.context(for: kind, event: .armed)
         play(CueBook.preview(.place, context: context, dice: auditionDice))
+    }
+
+    // MARK: - Diagnostics (Tuning Lab)
+
+    /// "Test sound": the contact thock and the reveal sting, about 0.6 s. Restarts the engine first if it stopped.
+    func playTestSound() {
+        testCue(BrandCues.contact.adding(BrandCues.sting.delayed(by: 0.15)), name: "Test sound")
+    }
+
+    /// "Test full press feel": the sound half of `PressFeelDemo` (the haptics controller plays the touch half).
+    func playPressFeel(_ cue: FeedbackCue) {
+        testCue(cue, name: "Press feel test")
+    }
+
+    private func testCue(_ cue: FeedbackCue, name: String) {
+        if !isStarted { start() }
+        ensureRunning(reason: name.lowercased())
+        guard enabled else {
+            lastEvent = "\(name) not played: Sound is off in Settings"
+            return
+        }
+        play(cue)
+        lastEvent = engine.isRunning ? "\(name) played" : "\(name) not played: the engine isn't running"
+    }
+
+    func diagnosticRows() -> [DiagnosticRow] {
+        let session = AVAudioSession.sharedInstance()
+        let respects = session.category == .ambient || session.category == .soloAmbient
+        let outputs = session.currentRoute.outputs
+        let route = outputs.isEmpty ? "None" : outputs.map { "\(Self.describe($0.portType)) (\($0.portName))" }
+            .joined(separator: ", ")
+        let onReceiver = outputs.contains { $0.portType == .builtInReceiver }
+        let stats = synth?.renderStats ?? Synth.RenderStats()
+        let hardwareRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        let synthRate = synth.map { Double($0.sampleRate) } ?? 0
+        let running = engine.isRunning
+        return [
+            DiagnosticRow(title: "Sound setting", value: enabled ? "On" : "Off (Settings → Sound)", isWarning: !enabled),
+            DiagnosticRow(title: "Play on silent setting", value: playsInSilentMode ? "On" : "Off"),
+            DiagnosticRow(title: "Audio category", value: AudioSessionChoice.describe(session.category)),
+            DiagnosticRow(title: "Category options", value: AudioSessionChoice.describe(session.categoryOptions)),
+            DiagnosticRow(title: "Silent switch respected?",
+                          value: respects ? "Yes: silent mode mutes Squish" : "No: Squish plays on silent",
+                          isWarning: respects),
+            DiagnosticRow(title: "Output route", value: route, isWarning: outputs.isEmpty || onReceiver),
+            DiagnosticRow(title: "Output volume", value: "\(Int((session.outputVolume * 100).rounded())) %",
+                          isWarning: session.outputVolume < 0.05),
+            DiagnosticRow(title: "Other app playing audio", value: DiagnosticRow.yesNo(session.isOtherAudioPlaying)),
+            DiagnosticRow(title: "Audio engine running", value: DiagnosticRow.yesNo(running), isWarning: !running),
+            DiagnosticRow(title: "Engine starts", value: "\(engineStarts)"),
+            DiagnosticRow(title: "Render callbacks", value: "\(stats.callbacks) (climbs while audio flows)",
+                          isWarning: stats.callbacks == 0),
+            DiagnosticRow(title: "Output level now", value: AudioMix.decibels(stats.recentPeak)),
+            DiagnosticRow(title: "Loudest so far", value: AudioMix.decibels(stats.maxPeak)),
+            DiagnosticRow(title: "Sample rate",
+                          value: String(format: "session %.0f Hz · output %.0f Hz · synth %.0f Hz", session.sampleRate,
+                                        hardwareRate, synthRate),
+                          isWarning: synthRate == 0),
+            DiagnosticRow(title: "Buffer and latency",
+                          value: String(format: "%.1f ms buffer · %.1f ms output latency", session.ioBufferDuration * 1000,
+                                        session.outputLatency * 1000)),
+            DiagnosticRow(title: "Master gain", value: String(format: "%.2f × trim %.2f", AudioMix.masterGain, volume)),
+            DiagnosticRow(title: "Last audio event", value: lastEvent),
+            DiagnosticRow(title: "Last audio error", value: lastError ?? "None", isWarning: lastError != nil),
+        ]
+    }
+
+    private static func describe(_ port: AVAudioSession.Port) -> String {
+        switch port {
+        case .builtInSpeaker: "iPhone speaker"
+        case .builtInReceiver: "Earpiece (very quiet)"
+        case .headphones: "Wired headphones"
+        case .bluetoothA2DP: "Bluetooth"
+        case .bluetoothLE: "Bluetooth LE"
+        case .bluetoothHFP: "Bluetooth (call quality)"
+        case .airPlay: "AirPlay"
+        case .HDMI: "HDMI"
+        case .usbAudio: "USB audio"
+        case .carAudio: "CarPlay"
+        case .lineOut: "Line out"
+        default: port.rawValue
+        }
     }
 
     private func perform(_ event: PressEvent, recipeCue: FeedbackCue?) {

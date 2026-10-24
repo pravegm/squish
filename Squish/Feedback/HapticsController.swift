@@ -1,14 +1,21 @@
 import AVFoundation
 import CoreHaptics
 import QuartzCore
+import UIKit
 
 /// Core Haptics, three layers on one engine (bible §7):
 /// a looping strain bed steered live, per-degree grains (delivered by the engine as `.grain` events),
 /// and event patterns from each object's recipe and `BrandCues`.
 ///
-/// Rules enforced here for every cue: user level (Off / Soft ×0.6 / Full), ±10 % intensity, ±0.05 sharpness,
-/// ±15 % timing (at most ±15 ms), a 12 ms minimum gap between transients, and 1.0 intensity only for climaxes
-/// (failure, ka-chunk); everything else is capped at 0.9.
+/// Rules enforced here for every cue: the perceptual lift (`HapticTuning.lift`), user level (Off / Soft ×0.6 / Full),
+/// ±10 % intensity, ±0.05 sharpness, ±15 % timing (at most ±15 ms), a 12 ms minimum gap between transients, and 1.0
+/// intensity only for climaxes (failure, ka-chunk); everything else is capped at `HapticTuning.nonClimaxCap`.
+///
+/// Engine: haptics only, on its own audio session (`CHHapticEngine()`, i.e. `audioSession: nil`). Apple: "You should
+/// pass nil when you need the engine only for playing haptics." 1.0 (1) passed the app's shared session, which ties
+/// the engine to that session's category changes and interruptions for no benefit (we play no haptic audio).
+/// The engine is self-healing: whatever stops it (backgrounding, the Duo moving between displays, a server reset),
+/// the next scene activation, the next frame (throttled) or the next cue starts it again and rebuilds the bed.
 @MainActor
 final class HapticsController {
     var level: HapticsLevel = .full
@@ -16,8 +23,19 @@ final class HapticsController {
     private var engine: CHHapticEngine?
     private var bed: CHHapticAdvancedPatternPlayer?
     private var tremor: (any CHHapticPatternPlayer)?
-    private let supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
+    private var testBed: (any CHHapticPatternPlayer)?
+    private let capabilities = CHHapticEngine.capabilitiesForHardware()
+    private var supportsHaptics: Bool { capabilities.supportsHaptics }
+    private var isRunning = false
+    private var lastRecoveryAttempt: CFTimeInterval = 0
+    // Diagnostics (Tuning Lab): Release builds have no console.
+    private(set) var lastError: String?
+    private(set) var lastStopReason: String?
+    private(set) var engineStarts = 0
+    private(set) var resets = 0
+    private(set) var cuesPlayed = 0
     private var lastIntensity: Float = 0
+    private var lastBedTarget: Float = 0
     private var lastSharpness: Float = 0
     private var lastSend: CFTimeInterval = 0
     private var lastUpdate: CFTimeInterval = 0
@@ -33,41 +51,66 @@ final class HapticsController {
     private var rng = SystemRandomNumberGenerator()
     private let auditionDice = FeedbackDice(seed: 0xB0D1_7105)
 
-    private static let nonClimaxCap: Float = 0.9
-
+    /// Called once at launch (PressDirector.start), before the first press, on every device and in Release.
     func start() {
-        guard supportsHaptics, engine == nil else { return }
+        guard supportsHaptics else {
+            lastError = "This device has no haptic engine"
+            return
+        }
+        guard engine == nil else { return }
         do {
-            let engine = try CHHapticEngine(audioSession: .sharedInstance())
+            let engine = try CHHapticEngine()
             engine.playsHapticsOnly = true
+            // Never let the engine idle itself off: the bed must answer the hinge instantly mid-press.
             engine.isAutoShutdownEnabled = false
             // Both handlers arrive on an engine-internal queue: hop to the main actor with an immutable capture.
-            engine.stoppedHandler = { [weak self] _ in
+            engine.stoppedHandler = { [weak self] reason in
+                let why = Self.describe(reason)
                 guard let self else { return }
                 Task { @MainActor in
+                    self.isRunning = false
                     self.bed = nil
                     self.tremor = nil
+                    self.testBed = nil
+                    self.lastStopReason = why
                 }
             }
             engine.resetHandler = { [weak self] in
                 guard let self else { return }
-                Task { @MainActor in self.restart() }
+                Task { @MainActor in
+                    self.resets += 1
+                    self.isRunning = false
+                    self.restart(reason: "after a haptic server reset")
+                }
             }
-            try engine.start()
             self.engine = engine
-            try makeBed()
+            restart(reason: "launch")
         } catch {
+            record("Couldn't create the haptic engine", error)
             engine = nil
         }
     }
 
-    /// After a reset the server forgets every player: rebuild them (bible §7).
-    private func restart() {
+    /// Start the engine (if needed) and rebuild the players. After a stop or a reset the server forgets every
+    /// player (bible §7), so the bed is always rebuilt here.
+    private func restart(reason: String) {
         guard let engine else { return }
+        do {
+            try engine.start()
+            isRunning = true
+            engineStarts += 1
+        } catch {
+            isRunning = false
+            record("Couldn't start the haptic engine (\(reason))", error)
+            return
+        }
         bed = nil
         tremor = nil
-        try? engine.start()
-        try? makeBed()
+        do {
+            try makeBed()
+        } catch {
+            record("Couldn't build the strain bed", error)
+        }
     }
 
     /// Call when the scene becomes active again; the system stops the engine on suspension.
@@ -76,8 +119,40 @@ final class HapticsController {
             start()
             return
         }
-        try? engine.start()
-        if bed == nil { try? makeBed() }
+        if !isRunning || bed == nil {
+            restart(reason: "app active again")
+        } else {
+            // Cheap and harmless on a running engine; covers a stop whose handler hasn't landed yet.
+            try? engine.start()
+        }
+    }
+
+    /// Lazily recover a stopped engine (throttled), e.g. right before a cue or from the frame loop.
+    private func ensureRunning(force: Bool = false) {
+        guard engine != nil, !isRunning || bed == nil else { return }
+        let now = CACurrentMediaTime()
+        guard force || now - lastRecoveryAttempt > 0.5 else { return }
+        lastRecoveryAttempt = now
+        guard UIApplication.shared.applicationState != .background else { return }
+        restart(reason: "found stopped")
+    }
+
+    private func record(_ what: String, _ error: Error) {
+        let nsError = error as NSError
+        lastError = "\(what): \(nsError.localizedDescription) (code \(nsError.code))"
+    }
+
+    private nonisolated static func describe(_ reason: CHHapticEngine.StoppedReason) -> String {
+        switch reason {
+        case .audioSessionInterrupt: "audio session interrupted"
+        case .applicationSuspended: "app suspended"
+        case .idleTimeout: "idle timeout"
+        case .notifyWhenFinished: "finished"
+        case .engineDestroyed: "engine destroyed"
+        case .gameControllerDisconnect: "game controller disconnected"
+        case .systemError: "system error"
+        @unknown default: "unknown (\(reason.rawValue))"
+        }
     }
 
     /// The strain bed: one continuous event at I 1.0 / S 0.5, looped, steered down and sideways at runtime.
@@ -98,6 +173,9 @@ final class HapticsController {
         try player.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: 0, relativeTime: 0)],
                                   atTime: CHHapticTimeImmediate)
         try player.start(atTime: CHHapticTimeImmediate)
+        // Again once running: a parameter sent before `start` isn't guaranteed to stick, and the bed must start silent.
+        try player.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: 0, relativeTime: 0)],
+                                  atTime: CHHapticTimeImmediate)
         bed = player
         lastIntensity = 0
     }
@@ -114,13 +192,14 @@ final class HapticsController {
         let dt = lastUpdate == 0 ? 1.0 / 60 : min(max(now - lastUpdate, 0), 0.1)
         lastUpdate = now
         advanceSchedules(press, context: context, dt: dt)
+        if !isRunning || bed == nil { ensureRunning() }
         guard let bed else { return }
 
         let material = context.kind.profile
         let beds = Recipes.recipe(for: context.kind).beds
         let memory = CueBook.shared.memory
         let c = Float(press.measuredCompression)
-        let speed = Float(clamp(press.closingSpeed / 60, 0, 1))
+        let speed = HapticTuning.speed(press.closingSpeed)
         var target: Float = 0
         var ramp: TimeInterval = 0.03
         var sharpness = material.bedSharpness - 0.5
@@ -129,25 +208,28 @@ final class HapticsController {
             ramp = 0.01 // hush: bed off (01 §6 step 5)
         } else if !press.isLoaded || press.closingSpeed < -2 {
             ramp = 0.06 // opening: relief within 80 ms
-        } else if press.isHolding {
-            ramp = 0.3 // holding still: fade over 300 ms
         } else if memory.hasFailed {
-            // Crush: softer, speed-driven bed (01 §6 step 7).
-            target = beds.crushHapticIntensity * (0.3 + 0.7 * speed)
+            // Crush: softer, speed-driven bed (01 §6 step 7); a low hum while held.
+            target = HapticTuning.crushBed(intensity: beds.crushHapticIntensity, speed: speed, holding: press.isHolding)
             sharpness += beds.crushHapticSharpness
+            if press.isHolding { ramp = 0.3 }
         } else {
-            // I_bed = strain(p) · (0.35 + 0.65·v), clamped ≤ 0.7 (01 §3.2).
+            // Strain under load: a floor as soon as the plates bite, rising to the ceiling at the break. Holding
+            // still keeps 70 % of the tension (settling into it over 300 ms) instead of going slack (HapticTuning).
             let progress = Recipes.strainProgress(c, kind: context.kind)
             let strain = beds.hapticCurve.level(progress, sinceFracture: c - memory.lastFractureCompression,
                                                 fractures: memory.fractures)
-            target = min(beds.hapticMax, strain * (0.35 + 0.65 * speed)) * material.bedGain
+            target = HapticTuning.strainBed(strain: strain, speed: speed, holding: press.isHolding,
+                                            materialGain: material.bedGain, recipeMax: beds.hapticMax)
             sharpness += 0.25 * progress
             if tellActive { sharpness += 0.2 }
+            if press.isHolding { ramp = 0.3 }
         }
 
         if target > 0.01 { fatigue.record(dt, at: now) }
         target *= fatigue.factor(at: now) * level.scale
-        target = clamp(target, 0, isThermallyLimited ? 0.5 : 0.7)
+        target = clamp(target, 0, isThermallyLimited ? HapticTuning.thermalBedCeiling : HapticTuning.bedCeiling)
+        lastBedTarget = target
         sharpness = clamp(sharpness, -1, 1)
 
         let mustSilence = target == 0 && lastIntensity > 0
@@ -241,6 +323,10 @@ final class HapticsController {
 
     private func perform(_ event: PressEvent, recipeCue: FeedbackCue?) {
         switch event {
+        case .fracture(_, true):
+            // The failure: the recipe's break plus the heavy body, in one pattern (Duo test 1: "weak").
+            play((recipeCue ?? FeedbackCue()).adding(BrandCues.failureBody))
+            return
         case .armed, .sealed, .preFailureTell, .hush, .contact, .fracture, .released, .reveal:
             break
         case .grain:
@@ -260,6 +346,84 @@ final class HapticsController {
         if let recipeCue { play(recipeCue) }
     }
 
+    // MARK: - Diagnostics (Tuning Lab)
+
+    /// "Test vibration": one heavy hit and a short rumble, at full strength whatever the Haptics setting.
+    func playTestVibration() {
+        let cue = FeedbackCue(haptics: [.tap(1.0, 0.4), .buzz(0.9, 0.2, at: 0.06, duration: 0.3, decay: 0.25),
+                                        .tap(0.8, 0.8, at: 0.45)],
+                              isClimax: true)
+        play(cue, atFullStrength: true)
+    }
+
+    /// "Test full press feel": the strain ramp as its own continuous player, plus every transient of the cue
+    /// (grains, cracks, failure, ka-chunk), started together. Full strength whatever the Haptics setting.
+    func playPressFeel(_ cue: FeedbackCue) {
+        if !isRunning { ensureRunning(force: true) }
+        guard let engine, isRunning else { return }
+        let ramp = PressFeelDemo.bedRamp
+        let duration = PressFeelDemo.strainDuration
+        let strain = CHHapticEvent(
+            eventType: .hapticContinuous,
+            parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: PressFeelDemo.bedSharpness.from),
+            ],
+            relativeTime: 0,
+            duration: duration
+        )
+        let intensity = CHHapticParameterCurve(
+            parameterID: .hapticIntensityControl,
+            controlPoints: ramp.map { CHHapticParameterCurve.ControlPoint(relativeTime: $0.time, value: $0.intensity) },
+            relativeTime: 0
+        )
+        let sharpness = CHHapticParameterCurve(
+            parameterID: .hapticSharpnessControl,
+            controlPoints: [
+                CHHapticParameterCurve.ControlPoint(relativeTime: 0, value: 0),
+                CHHapticParameterCurve.ControlPoint(relativeTime: duration,
+                                                    value: PressFeelDemo.bedSharpness.to - PressFeelDemo.bedSharpness.from),
+            ],
+            relativeTime: 0
+        )
+        do {
+            let pattern = try CHHapticPattern(events: [strain], parameterCurves: [intensity, sharpness])
+            let player = try engine.makePlayer(with: pattern)
+            try player.start(atTime: CHHapticTimeImmediate)
+            testBed = player
+        } catch {
+            record("Couldn't play the strain ramp", error)
+        }
+        play(cue, atFullStrength: true)
+    }
+
+    func diagnosticRows() -> [DiagnosticRow] {
+        let thermal: String
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: thermal = "Normal"
+        case .fair: thermal = "Warm"
+        case .serious: thermal = "Hot (haptics turned down)"
+        case .critical: thermal = "Very hot (haptics turned down)"
+        @unknown default: thermal = "Unknown"
+        }
+        return [
+            DiagnosticRow(title: "Haptics setting", value: level.title, isWarning: level != .full),
+            DiagnosticRow(title: "Hardware supports haptics", value: DiagnosticRow.yesNo(capabilities.supportsHaptics),
+                          isWarning: !capabilities.supportsHaptics),
+            DiagnosticRow(title: "Haptic engine created", value: DiagnosticRow.yesNo(engine != nil),
+                          isWarning: engine == nil),
+            DiagnosticRow(title: "Haptic engine running", value: DiagnosticRow.yesNo(isRunning), isWarning: !isRunning),
+            DiagnosticRow(title: "Strain bed player", value: bed == nil ? "Missing" : "Ready", isWarning: bed == nil),
+            DiagnosticRow(title: "Strain bed now", value: String(format: "%.2f (ceiling %.2f)", lastBedTarget,
+                                                                 HapticTuning.bedCeiling)),
+            DiagnosticRow(title: "Haptic engine starts", value: "\(engineStarts) · server resets \(resets)"),
+            DiagnosticRow(title: "Haptic cues played", value: "\(cuesPlayed)"),
+            DiagnosticRow(title: "Last haptic stop", value: lastStopReason ?? "None"),
+            DiagnosticRow(title: "Phone temperature", value: thermal, isWarning: isThermallyLimited),
+            DiagnosticRow(title: "Last haptic error", value: lastError ?? "None", isWarning: lastError != nil),
+        ]
+    }
+
     // MARK: - Tremor (01 §6 step 4)
 
     /// A 14 Hz intensity tremor (±0.08 around the bed) as its own player, stopped by the hush.
@@ -275,7 +439,7 @@ final class HapticsController {
         let event = CHHapticEvent(
             eventType: .hapticContinuous,
             parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: min(0.16 * level.scale, 1)),
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: min(HapticTuning.lift(0.16) * level.scale, 1)),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.7),
             ],
             relativeTime: 0,
@@ -310,10 +474,13 @@ final class HapticsController {
         case event
     }
 
-    private func play(_ cue: FeedbackCue, timing: Timing = .event) {
-        guard let engine, level != .off, !cue.haptics.isEmpty else { return }
-        let scale = level.scale
-        let cap = cue.isClimax ? 1 : Self.nonClimaxCap
+    /// `atFullStrength`: the Tuning Lab tests, which ignore the user's level so the hardware itself is tested.
+    private func play(_ cue: FeedbackCue, timing: Timing = .event, atFullStrength: Bool = false) {
+        guard !cue.haptics.isEmpty, atFullStrength || level != .off else { return }
+        if !isRunning { ensureRunning(force: timing == .event) }
+        guard let engine, isRunning else { return }
+        let scale = atFullStrength ? 1 : level.scale
+        let cap = cue.isClimax ? 1 : HapticTuning.nonClimaxCap
 
         // ±15 % timing jitter (at most ±15 ms), then the 12 ms gap between transients.
         var notes = cue.haptics.map { note -> HapticNote in
@@ -360,13 +527,15 @@ final class HapticsController {
             let pattern = try CHHapticPattern(events: events, parameterCurves: curves)
             let player = try engine.makePlayer(with: pattern)
             try player.start(atTime: startTime > now ? startTime : CHHapticTimeImmediate)
+            cuesPlayed &+= 1
         } catch {
-            // A dropped haptic is never worth surfacing to the user.
+            // Never surfaced to the user; the Tuning Lab diagnostics show it.
+            record("Couldn't play a haptic", error)
         }
     }
 
     private func event(for note: HapticNote, scale: Float, cap: Float) -> CHHapticEvent {
-        let intensity = min(note.intensity * Float.random(in: 0.9...1.1, using: &rng), cap) * scale
+        let intensity = min(HapticTuning.lift(note.intensity) * Float.random(in: 0.9...1.1, using: &rng), cap) * scale
         let sharpness = clamp(note.sharpness + Float.random(in: -0.05...0.05, using: &rng), 0, 1)
         switch note.kind {
         case .transient:

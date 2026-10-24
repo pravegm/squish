@@ -118,6 +118,17 @@ enum SynthCommand: Sendable, Equatable {
         }
     }
 
+    /// The same command, starting `seconds` later (never before "now"). `hush` has no delay and is returned as is.
+    func delayed(by seconds: Float) -> SynthCommand {
+        switch self {
+        case .noise(var spec): spec.delay = max(spec.delay + seconds, 0); return .noise(spec)
+        case .tone(var spec): spec.delay = max(spec.delay + seconds, 0); return .tone(spec)
+        case .ring(var spec): spec.delay = max(spec.delay + seconds, 0); return .ring(spec)
+        case .crunch(var spec): spec.delay = max(spec.delay + seconds, 0); return .crunch(spec)
+        case .hush: return self
+        }
+    }
+
     func scaled(_ factor: Float) -> SynthCommand {
         switch self {
         case .noise(var spec): spec.gain *= factor; return .noise(spec)
@@ -333,8 +344,21 @@ final class Synth: @unchecked Sendable {
     private static let woodRatios: [Float] = [1.0, 2.6, 3.9, 5.4, 6.9, 8.6, 10.4, 12.3, 14.1, 16.2, 18.3, 20.5]
     private static let bellRatios: [Float] = [1.0, 0.5, 1.183, 1.506, 2.0, 2.514, 2.662, 3.011, 4.166, 5.433, 6.796, 8.215]
 
+    /// What the audio thread has actually produced, for the Tuning Lab diagnostics (Release builds have no console).
+    struct RenderStats: Sendable {
+        /// Render callbacks so far: if this stops climbing, the engine isn't pulling audio.
+        var callbacks = 0
+        /// Loudest sample in the last ~0.5 s (a decaying peak hold), linear.
+        var recentPeak: Float = 0
+        /// Loudest sample since launch, linear.
+        var maxPeak: Float = 0
+    }
+
     private let commands = OSAllocatedUnfairLock(uncheckedState: CommandRing(capacity: 256))
     private let bedParams = OSAllocatedUnfairLock(initialState: BedParams())
+    private let stats = OSAllocatedUnfairLock(initialState: RenderStats())
+
+    var renderStats: RenderStats { stats.withLock { $0 } }
 
     // Audio-thread-only state below.
     private var voices = [Voice](repeating: Voice(), count: Synth.voiceCount)
@@ -414,6 +438,16 @@ final class Synth: @unchecked Sendable {
             start(command)
         }
         let target = bedParams.withLock { $0 }
+        var blockPeak: Float = 0
+        defer {
+            let peak = blockPeak
+            let hold = exp(-Float(frames) / (0.5 * sampleRate))
+            stats.withLockUnchecked { s in
+                s.callbacks &+= 1
+                s.recentPeak = max(peak, s.recentPeak * hold)
+                s.maxPeak = max(s.maxPeak, peak)
+            }
+        }
 
         for frame in 0..<frames {
             beds.approach(target, fast: smoothFast, slow: smoothSlow)
@@ -473,6 +507,7 @@ final class Synth: @unchecked Sendable {
             if limiterEnvelope > Synth.ceiling {
                 sample *= Synth.ceiling / limiterEnvelope
             }
+            blockPeak = max(blockPeak, abs(sample))
             out[frame] = sample
         }
     }
