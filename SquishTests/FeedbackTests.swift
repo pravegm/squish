@@ -521,13 +521,50 @@ struct FeedbackTests {
         #expect(!detent.sounds.isEmpty && !detent.haptics.isEmpty)
         #expect(detent.sounds.allSatisfy { $0.command.gain <= 0.08 })
         #expect(detent.haptics.allSatisfy { $0.intensity <= 0.3 })
-        for moment in [HingeMoment.opened, .shut] {
+        for moment in [HingeMoment.opened, .powerDown, .shut] {
             let cue = HingeCues.cue(for: moment, speed: 40, dice: dice)
             #expect(!cue.sounds.isEmpty && !cue.haptics.isEmpty)
             #expect(!cue.isClimax)
             #expect(cue.haptics.allSatisfy { $0.intensity < BrandCues.kaChunk.haptics.map(\.intensity).max() ?? 1 })
         }
         #expect(!BrandCues.unlatch.sounds.isEmpty && !BrandCues.unlatch.haptics.isEmpty)
+    }
+
+    /// The director takes detents and power up/down from the engine's beats; HingeFeel must then only clack on a shut.
+    @Test func engineBeatsReplaceDetectedDetentsButKeepTheShutClack() {
+        var feel = HingeFeel()
+        feel.detectsDetentsAndPower = false
+        var moments: [HingeMoment] = []
+        moments += feel.update(hingeInput(5, moving: false, shut: true, phase: .idle), at: 0).moments
+        for (index, angle) in stride(from: 15.0, through: 150, by: 3).enumerated() {
+            moments += feel.update(hingeInput(angle, speed: -60, phase: .idle), at: 0.1 + Double(index) * 0.05).moments
+        }
+        for (index, angle) in stride(from: 150.0, through: 15, by: -3).enumerated() {
+            moments += feel.update(hingeInput(angle, speed: 60, phase: .idle), at: 5 + Double(index) * 0.05).moments
+        }
+        moments += feel.update(hingeInput(3, speed: 40, shut: true, phase: .idle), at: 9).moments
+        #expect(moments == [.shut])
+        // The continuous bed still follows the hinge.
+        let moving = feel.update(hingeInput(90, speed: 60, phase: .idle), at: 10)
+        #expect(moving.bed.creakGain > 0)
+    }
+
+    @Test(arguments: ObjectKind.allCases)
+    func pressBeatsSoundAndFeelQuietly(_ kind: ObjectKind) {
+        let dice = FeedbackDice(seed: 4)
+        let cues = [BeatCues.creak(kind, intensity: 1, dice: dice), BeatCues.debris(kind, intensity: 1, dice: dice),
+                    BeatCues.settleTick(kind, intensity: 1, dice: dice),
+                    TouchCues.spin(kind, turnsPerSecond: 3, dice: dice)]
+        for cue in cues {
+            #expect(!cue.sounds.isEmpty && !cue.haptics.isEmpty)
+            #expect(!cue.isClimax)
+            #expect(cue.sounds.allSatisfy { $0.command.gain > 0 && $0.command.gain <= 0.1 })
+            #expect(cue.haptics.allSatisfy { $0.intensity <= 0.6 })
+        }
+        // A quiet debris grain is quieter than a loud one.
+        let soft = BeatCues.debris(kind, intensity: 0.2, dice: FeedbackDice(seed: 1))
+        let loud = BeatCues.debris(kind, intensity: 1, dice: FeedbackDice(seed: 1))
+        #expect((soft.haptics.first?.intensity ?? 1) < (loud.haptics.first?.intensity ?? 0))
     }
 
     @Test(arguments: ObjectKind.allCases)

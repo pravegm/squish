@@ -323,16 +323,7 @@ final class AudioController {
                 play(CueBook.shared.cue(for: .recipe(.microCrack(index: index)), context: context, consumer: .audio))
             }
         }
-        let holdingLoaded = press.isLoaded && press.isHolding
-        if holdingLoaded && !wasHoldingLoaded {
-            holdCount += 1
-            settle.start(seed: context.variant.seed &+ UInt64(holdCount))
-        }
-        if !holdingLoaded { settle.stop() }
-        wasHoldingLoaded = holdingLoaded
-        if let index = settle.advance(by: dt) {
-            play(CueBook.shared.cue(for: .settle(index), context: context, consumer: .audio))
-        }
+        // The held press's settling creaks come from the engine (`PressBeat.creak`, played by the director).
     }
 
     // MARK: - Events
@@ -500,6 +491,13 @@ final class AudioController {
     /// A cue built once by the director and handed to both controllers in the same frame (hinge moments, pokes).
     func playShared(_ cue: FeedbackCue) {
         play(cue)
+    }
+
+    /// Break part 2, the hit stop (`PressBeat.hitStop`): keep everything ducked until the burst, so the failure
+    /// lands on silence (the `.hush` event's own duck is only 70 ms).
+    func holdSilence(for seconds: Double) {
+        tell.stop()
+        if enabled { synth?.trigger(.hush(duration: Float(max(seconds, 0)))) }
     }
 
     private func play(_ cue: FeedbackCue) {

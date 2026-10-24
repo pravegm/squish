@@ -73,6 +73,9 @@ final class PressDirector {
         settings = AppSettings(defaultCaptions: UIAccessibility.isClosedCaptioningEnabled)
         collection = CollectionStore()
         engine.onEvent = { [weak self] event in self?.handle(event) }
+        engine.onBeat = { [weak self] beat in self?.handleBeat(beat) }
+        // Detents and power up/down arrive as engine beats; HingeFeel keeps the continuous bed and the shut clack.
+        hingeFeel.detectsDetentsAndPower = false
     }
 
     // MARK: - Derived state for the UI
@@ -165,6 +168,43 @@ final class PressDirector {
             haptics.playShared(cue, light: light)
             audio.playShared(cue)
         }
+    }
+
+    /// The engine's beats (`PressBeat`, Core/PressFeel.swift) in sound and touch: one cue for both controllers, in
+    /// the frame the scene draws the beat. The hinge ones only on a real hinge, and never under load (the gauge ticks
+    /// and grains speak then); the reveal card keeps the stage quiet for its sting.
+    private func handleBeat(_ beat: PressBeat) {
+        let kind = currentKind
+        switch beat {
+        case .hitStop(let duration):
+            audio.holdSilence(for: duration)
+            haptics.holdSilence(for: duration)
+        case .creak(let intensity):
+            playBoth(BeatCues.creak(kind, intensity: intensity, dice: feelDice), light: true)
+        case .debris(_, _, let intensity):
+            playBoth(BeatCues.debris(kind, intensity: intensity, dice: feelDice), light: true)
+        case .settleTick(_, _, let intensity):
+            playBoth(BeatCues.settleTick(kind, intensity: intensity, dice: feelDice), light: true)
+        case .detent(_, let closing, let speed):
+            guard usesFoldPress, !engine.isLoaded, revealed == nil else { return }
+            playBoth(HingeCues.cue(for: .detent(closing: closing), speed: speed, dice: feelDice), light: true)
+        case .powerUp:
+            guard usesFoldPress, revealed == nil, engine.phase != .revealing else { return }
+            playBoth(HingeCues.cue(for: .opened, speed: engine.closingSpeed, dice: feelDice))
+        case .powerDown:
+            guard usesFoldPress, revealed == nil else { return }
+            playBoth(HingeCues.cue(for: .powerDown, speed: engine.closingSpeed, dice: feelDice))
+        case .spin(let speed):
+            playBoth(TouchCues.spin(kind, turnsPerSecond: speed, dice: feelDice), light: true)
+        case .poke, .settle, .settled:
+            // Pokes come through `poke()` from the views (after the scene accepts the tap).
+            break
+        }
+    }
+
+    private func playBoth(_ cue: FeedbackCue, light: Bool = false) {
+        haptics.playShared(cue, light: light)
+        audio.playShared(cue)
     }
 
     /// A tap on the object on the anvil: its material answers in sound and touch (duck squeak, jelly wobble, can tink…).

@@ -15,8 +15,9 @@ import Foundation
 //
 // Sync: every discrete moment is one `FeedbackCue` handed to both controllers in the same frame, like CueBook cues.
 //
-// Input seam: `HingeMotionInput` is built by the director from the engine today. When the press-feel work exposes
-// hinge-motion events (angle, angular velocity, detent crossings), feed them in here instead.
+// Inputs: the director builds `HingeMotionInput` from the engine every frame (the continuous bed and the shut clack),
+// and maps the engine's beats (`PressBeat.detent / .powerUp / .powerDown`, Core/PressFeel.swift) to `HingeMoment`s,
+// so the ratchet you hear and feel is the same detent the Fold stage draws.
 
 /// What the hinge is doing this frame.
 struct HingeMotionInput: Equatable {
@@ -49,7 +50,11 @@ struct HingeBed: Equatable {
 
 enum HingeMoment: Equatable {
     case detent(closing: Bool)
+    /// The machine powered up as the phone opened (`PressBeat.powerUp`, or detected here).
     case opened
+    /// The machine powered down as the phone closed outside a press (`PressBeat.powerDown`).
+    case powerDown
+    /// The phone physically shut outside a press: the plates meet with nothing between them.
     case shut
 }
 
@@ -100,10 +105,10 @@ struct HingeFeel {
     /// Angular speed (°/s) that counts as a brisk swing for the creak and texture.
     static let briskSpeed = 90.0
 
-    /// True: detents, open and shut are detected here. Set false once the engine delivers them as beats
-    /// (`PressBeat.detent / .powerUp / .powerDown` from the press-feel work): the director then maps each beat to a
-    /// `HingeMoment` and plays `HingeCues.cue(for:)`, and this only produces the continuous bed, so nothing doubles.
-    var detectsMoments = true
+    /// True: detents and the open power-up are detected here. The director sets it false because the engine delivers
+    /// them as beats (`PressBeat.detent / .powerUp / .powerDown`, Core/PressFeel.swift) and maps each to a
+    /// `HingeMoment`, so nothing doubles. The physical shut clack is always detected here (no beat for it).
+    var detectsDetentsAndPower = true
 
     private var detents = DetentTracker()
     private var wasShut: Bool?
@@ -111,7 +116,8 @@ struct HingeFeel {
 
     mutating func update(_ input: HingeMotionInput, at time: Double) -> (bed: HingeBed, moments: [HingeMoment]) {
         let result = track(input, at: time)
-        return (result.bed, detectsMoments ? result.moments : [])
+        let moments = detectsDetentsAndPower ? result.moments : result.moments.filter { $0 == .shut }
+        return (result.bed, moments)
     }
 
     private mutating func track(_ input: HingeMotionInput, at time: Double) -> (bed: HingeBed, moments: [HingeMoment]) {
@@ -184,6 +190,13 @@ enum HingeCues {
                 .buzz(0.25, 0.3, duration: 0.3, attack: 0.25, decay: 0.05),
                 .tap(0.4, 0.7, at: 0.3),
             ])
+        case .powerDown:
+            // Power-down: the hum falls away with a soft off click (the lamps dim with it).
+            return FeedbackCue(sounds: [
+                .tone(slot("powerdown", "hum"), 280, to: 130, glide: 0.3, duration: 0.36, attack: 0.01, decay: 0.12,
+                      gain: 0.04, harmonics: 3),
+                .noise(slot("powerdown", "click"), .bandPass, 1600, q: 2, attack: 0.0003, decay: 0.003, gain: 0.05),
+            ], haptics: [.tap(0.3, 0.5), .buzz(0.18, 0.2, at: 0.01, duration: 0.25, decay: 0.2)])
         case .shut:
             // A soft magnetic clack: the two plates meeting with nothing between them.
             return FeedbackCue(sounds: [
@@ -195,9 +208,55 @@ enum HingeCues {
     }
 }
 
+/// Sound and touch for the engine's press beats (`PressBeat`, Core/PressFeel.swift) that aren't `PressEvent`s.
+/// Material-aware where it matters: debris and settle ticks sit in the material's crush band.
+enum BeatCues {
+    /// One creak of a held press (0.6–1.2 s apart, quicker as the tension rises): the settling creak, scaled by tension.
+    static func creak(_ kind: ObjectKind, intensity: Double, dice: FeedbackDice) -> FeedbackCue {
+        let scale = Float(0.6 + 0.6 * min(max(intensity, 0), 1))
+        var cue = SharedCues.settle(Recipes.recipe(for: kind).beds, dice: dice).scaledSounds(scale)
+        cue.haptics = cue.haptics.map { note in
+            var louder = note
+            louder.intensity = min(note.intensity * (1 + Float(intensity)), 0.6)
+            return louder
+        }
+        return cue
+    }
+
+    /// One debris grain of the slow-motion break (quiet: the failure cue already carries its own debris).
+    static func debris(_ kind: ObjectKind, intensity: Double, dice: FeedbackDice) -> FeedbackCue {
+        let band = Recipes.recipe(for: kind).beds.crush
+        let level = Float(min(max(intensity, 0), 1))
+        let centre = band.low * pow(max(band.high, band.low + 1) / max(band.low, 40), dice.unit())
+        return FeedbackCue(sounds: [
+            .noise(.object(kind, "debris", "grain"), .bandPass, centre, q: 2.5, attack: 0.0003, decay: 0.004,
+                   gain: 0.06 * level * dice.level()),
+        ], haptics: [.tap(0.12 + 0.2 * level, 0.8)])
+    }
+
+    /// One landing tick of the settle, like bits coming to rest.
+    static func settleTick(_ kind: ObjectKind, intensity: Double, dice: FeedbackDice) -> FeedbackCue {
+        let band = Recipes.recipe(for: kind).beds.crush
+        let level = Float(min(max(intensity, 0), 1))
+        return FeedbackCue(sounds: [
+            .noise(.object(kind, "settle", "tick"), .bandPass, max(band.low, 300) * dice.grainPitch(), q: 2,
+                   attack: 0.0004, decay: 0.006, gain: 0.05 * level),
+        ], haptics: [.tap(0.1 + 0.15 * level, 0.6)])
+    }
+}
+
 /// A tap ("poke") on the object on the anvil: its material answers in sound and touch.
 /// The touch-event work calls `PressDirector.poke()`; every object has its own answer.
 enum TouchCues {
+    /// A flick set the object spinning on the plate: a soft whoosh that follows the spin, and a light brush.
+    static func spin(_ kind: ObjectKind, turnsPerSecond: Double, dice: FeedbackDice) -> FeedbackCue {
+        let v = Float(min(max(turnsPerSecond / 2, 0), 1))
+        return FeedbackCue(sounds: [
+            .noise(.object(kind, "spin", "whoosh"), .bandPass, 700 + 900 * v, q: 0.9, attack: 0.04, decay: 0.12,
+                   gain: (0.025 + 0.035 * v) * dice.level(), sweepTo: 500, sweepTime: 0.3),
+        ], haptics: [.buzz(0.12 + 0.12 * v, 0.6, duration: 0.18, attack: 0.03)])
+    }
+
     static func poke(_ kind: ObjectKind, dice: FeedbackDice) -> FeedbackCue {
         let slot = { (layer: String) in SoundSlot.object(kind, "poke", layer) }
         let p = dice.bodyPitch()

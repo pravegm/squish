@@ -229,6 +229,8 @@ final class HapticsController {
                                                 fractures: memory.fractures)
             target = HapticTuning.strainBed(strain: strain, speed: speed, holding: press.isHolding,
                                             materialGain: material.bedGain, recipeMax: beds.hapticMax)
+            // The engine's held-tension floor (never slack on a hold, ~0.4 in the tell).
+            if press.isHeldUnderLoad { target = max(target, Float(press.holdBedFloor) * HapticTuning.bedCeiling) }
             sharpness += 0.25 * progress
             if tellActive { sharpness += 0.2 }
             if press.isHolding { ramp = 0.3 }
@@ -271,16 +273,7 @@ final class HapticsController {
                      timing: .grain)
             }
         }
-        let holdingLoaded = press.isLoaded && press.isHolding
-        if holdingLoaded && !wasHoldingLoaded {
-            holdCount += 1
-            settle.start(seed: context.variant.seed &+ UInt64(holdCount))
-        }
-        if !holdingLoaded { settle.stop() }
-        wasHoldingLoaded = holdingLoaded
-        if let index = settle.advance(by: dt) {
-            play(CueBook.shared.cue(for: .settle(index), context: context, consumer: .haptics), timing: .grain)
-        }
+        // The held press's settling creaks come from the engine (`PressBeat.creak`, played by the director).
     }
 
     // MARK: - Events
@@ -354,6 +347,12 @@ final class HapticsController {
             break
         }
         play(cue)
+    }
+
+    /// Break part 2, the hit stop (`PressBeat.hitStop`): the bed stays off until the burst.
+    func holdSilence(for seconds: Double) {
+        hushUntil = max(hushUntil, CACurrentMediaTime() + max(seconds, 0))
+        endTell()
     }
 
     /// A cue built once by the director and handed to both controllers in the same frame (hinge moments, pokes).
