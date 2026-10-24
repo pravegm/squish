@@ -89,7 +89,7 @@ final class FoldPressController {
     // The press, beat by beat (design/EXPERIENCE-PLAN.md; Core/PressFeel.swift)
     /// The tension vignette on the anvil, eased (0…1).
     private var vignette: Double = 0
-    /// The close-style stamp (PERFECT / SLAMMED / PUMPED ×N) has been set for this press.
+    /// The close-style stamp (PERFECT / SLAMMED) has been set for this press.
     private var closeStyleApplied = false
     private var lastCreakCount = 0
     // The hinge as a living control: the ratchet's stripes, the power-up wake sweep.
@@ -283,7 +283,7 @@ final class FoldPressController {
         revealBeganDark = false
         vignette = 0
         closeStyleApplied = false
-        platen.setPressedText(CloseStyle.pressed.stampText)
+        platen.setCloseStyle(.pressed)
         anvil.setSprayVisible(true)
         resumeLightWaiters()
         // The last print wipes off with a squeegee while the next object drops (§6.3 step 6), and the escaped splat
@@ -325,10 +325,10 @@ final class FoldPressController {
         revealLight.track(angle: rawAngle, clock: clock)
         let objectPresent = sinceSet > (firstObject ? 0.9 : 1.2) || phase == .pressing
 
-        // How the press was closed: the platen's stamp says PERFECT, SLAMMED or PUMPED ×N (EXPERIENCE-2 §A6.1).
+        // How the press was closed: the platen's stamp says PERFECT, or SLAMMED gently (EXPERIENCE-2 §A6.1).
         if !closeStyleApplied, let result = engine.lastResult, phase == .sealed || phase == .revealing {
             closeStyleApplied = true
-            platen.setPressedText(result.closeStyle.stampText)
+            platen.setCloseStyle(result.closeStyle)
         }
         reduceMotion = context.reduceMotion
         trackHingeMotion(engine: engine)

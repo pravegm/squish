@@ -407,6 +407,7 @@ final class FoldPlaten {
     private var pressedPaper: CGImage?
     /// The stamp's word: how the press was closed (`CloseStyle`), PRESSED until the press seals.
     private var pressedText = CloseStyle.pressed.stampText
+    private var pressedGentle = false
     private var poppedBolt: (layer: CALayer, age: Double, start: CGPoint)?
     private let softDisc = FoldStamps.softDisc()
     private let ringImage = FoldStamps.newtonRings()
@@ -538,8 +539,9 @@ final class FoldPlaten {
         printHolder.bounds = half
         for s in [stack].compactMap({ $0 }) + outgoing { position(s) }
         if pressedRed == nil {
-            pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width, text: pressedText)
-            pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true, text: pressedText)
+            pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width, text: pressedText, gentle: pressedGentle)
+            pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true, text: pressedText,
+                                                     gentle: pressedGentle)
         }
         pressed.bounds = CGRect(origin: .zero, size: Self.pressedSize)
         placePressed()
@@ -611,14 +613,17 @@ final class FoldPlaten {
         placePressed()
     }
 
-    /// The close-style stamp (EXPERIENCE-2 §A6.1): PERFECT for a slow close, SLAMMED for a slam (no reward), PUMPED ×N
-    /// for a pumped press, PRESSED otherwise. Same size and pose rules as PRESSED.
-    func setPressedText(_ text: String) {
-        guard text != pressedText else { return }
+    /// The close-style stamp (EXPERIENCE-2 §A6.1): PERFECT for a slow close, SLAMMED in soft graphite for a slam (a
+    /// gentle nudge, no reward), PRESSED otherwise. Same size and pose rules as PRESSED.
+    func setCloseStyle(_ style: CloseStyle) {
+        let text = style.stampText
+        guard text != pressedText || style.isGentle != pressedGentle else { return }
         pressedText = text
+        pressedGentle = style.isGentle
         guard layout != nil else { return }   // `build` renders it
-        pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width, text: text)
-        pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true, text: text)
+        pressedRed = FoldTextures.pressedStamp(width: Self.pressedSize.width, text: text, gentle: style.isGentle)
+        pressedPaper = FoldTextures.pressedStamp(width: Self.pressedSize.width, paperInk: true, text: text,
+                                                 gentle: style.isGentle)
         placePressed()
     }
 

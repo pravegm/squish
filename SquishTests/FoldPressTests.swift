@@ -842,8 +842,9 @@ struct FoldPressTests {
     /// The close-style stamp renders for every word at the PRESSED stamp size (the pose rules depend on it).
     @Test func closeStyleStampsRenderAtOneSize() throws {
         let base = try #require(FoldTextures.pressedStamp(width: FoldPlaten.pressedSize.width))
-        for style in [CloseStyle.perfect, .slammed, .pumped(3), .pumped(12)] {
-            let image = try #require(FoldTextures.pressedStamp(width: FoldPlaten.pressedSize.width, text: style.stampText))
+        for style in [CloseStyle.perfect, .slammed, .pressed] {
+            let image = try #require(FoldTextures.pressedStamp(width: FoldPlaten.pressedSize.width, text: style.stampText,
+                                                               gentle: style.isGentle))
             #expect(image.width == base.width && image.height == base.height, "(style)")
         }
     }

@@ -389,8 +389,10 @@ enum FoldTextures {
     /// The red PRESSED stamp (§6.3 step 4), drawn upright (it never mirrors with the print). `paperInk`: paper-white
     /// ink over a red keyline, for prints too close to red to show red ink (FOLD-REVIEW-3 N12: jelly).
     @MainActor
-    /// `text`: the close style's word (`CloseStyle.stampText`: PRESSED, PERFECT, SLAMMED, PUMPED ×N), shrunk to fit.
-    static func pressedStamp(width: CGFloat = 150, paperInk: Bool = false, text word: String = "PRESSED") -> CGImage? {
+    /// `text`: the close style's word (`CloseStyle.stampText`: PRESSED, PERFECT, SLAMMED), shrunk to fit. `gentle`:
+    /// soft graphite ink instead of red (SLAMMED is a nudge, not a trophy).
+    static func pressedStamp(width: CGFloat = 150, paperInk: Bool = false, text word: String = "PRESSED",
+                             gentle: Bool = false) -> CGImage? {
         let height = width * 0.38
         let format = UIGraphicsImageRendererFormat()
         format.scale = 3
@@ -398,7 +400,7 @@ enum FoldTextures {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
         return renderer.image { context in
             let cg = context.cgContext
-            let red = Palette.stampRed.withAlphaComponent(0.88)
+            let red = gentle ? Palette.graphite.withAlphaComponent(0.55) : Palette.stampRed.withAlphaComponent(0.88)
             let ink = paperInk ? Palette.paper.withAlphaComponent(0.95) : red
             let outer = CGPath(roundedRect: CGRect(x: 3, y: 3, width: width - 6, height: height - 6), cornerWidth: 7,
                                cornerHeight: 7, transform: nil)

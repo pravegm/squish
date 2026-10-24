@@ -47,6 +47,9 @@ final class PressDirector {
     @ObservationIgnored private let launchTime = CACurrentMediaTime()
     @ObservationIgnored private var lastHingeLogTime: Double = 0
     @ObservationIgnored private var foldSimulated = false
+    /// Whether this launch has a hinge, held through transient nil contexts (Core/HingePresence.swift).
+    @ObservationIgnored private var hingePresence = HingePresence()
+    @ObservationIgnored private var hingeLossCheck: Task<Void, Never>?
     /// Seed of the object last handed to Fold Press (nil = not loaded there yet).
     @ObservationIgnored private var foldVariantSeed: UInt64?
     @ObservationIgnored private var captionCounter = 0
@@ -130,6 +133,7 @@ final class PressDirector {
 
     func sceneBecameActive() {
         guard started else { return }
+        hingeContextChanged()
         // Don't restart the input-ignore window here: on Duo, folding can toggle scene activity,
         // and ignoring the reopen would swallow the reveal. It only guards stale events at launch.
         haptics.resume()
@@ -277,6 +281,9 @@ final class PressDirector {
     // MARK: - Input
 
     func hingeUpdate(angle: Double, closed: Bool) {
+        hingePresence.reading(at: CACurrentMediaTime())
+        hingeLossCheck?.cancel()
+        hingeLossCheck = nil
         if !hingeAvailable {
             hingeAvailable = true
         }
@@ -314,8 +321,45 @@ final class PressDirector {
         engine.ingest(angle: angle, closed: closed, at: now)
     }
 
-    func hingeUnavailable() {
+    /// A nil hinge context. Never tears the Fold stage down on a transient nil (APPLE-DUO-GUIDE: nil also means "left a
+    /// hierarchy that provides hinge updates"): once a hinge has been seen this launch the last state holds, and only
+    /// a hinge missing for `HingePresence.grace` with no scene change falls back to the P-48. `force`: fall back now
+    /// (the CI demo's touch-press scenarios).
+    func hingeUnavailable(force: Bool = false) {
         guard !foldSimulated else { return }
+        let now = CACurrentMediaTime()
+        if force || hingePresence.lost(at: now) {
+            fallBackToTouchPress()
+            return
+        }
+        guard hingeLossCheck == nil, let deadline = hingePresence.deadline else { return }
+        hingeLossCheck = Task { @MainActor [weak self] in
+            var due = deadline
+            while true {
+                try? await Task.sleep(for: .seconds(max(due - CACurrentMediaTime(), 0) + 0.05))
+                guard !Task.isCancelled, let self else { return }
+                if self.hingePresence.shouldFallBack(at: CACurrentMediaTime()) {
+                    self.hingeLossCheck = nil
+                    self.fallBackToTouchPress()
+                    return
+                }
+                // A scene change restarted the grace, or a reading ended the gap.
+                guard let next = self.hingePresence.deadline else {
+                    self.hingeLossCheck = nil
+                    return
+                }
+                due = next
+            }
+        }
+    }
+
+    /// A window or scene change (the stage views and `sceneBecameActive` call it): a nil hinge around it is expected,
+    /// so a running hinge-loss grace starts again.
+    func hingeContextChanged() {
+        hingePresence.sceneChanged(at: CACurrentMediaTime())
+    }
+
+    private func fallBackToTouchPress() {
         hingeAvailable = false
         hingeClosed = false
         engine.usesVirtualHinge = true
@@ -615,7 +659,7 @@ final class PressDirector {
             }
             return
         }
-        hingeUnavailable()
+        hingeUnavailable(force: true)
         if let kind = demo.object { load(kind) }
         let targetDepth: Double? = demo.has("reveal") ? 1 : demo.double("depth")
         #if DEBUG

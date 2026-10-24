@@ -37,6 +37,7 @@ struct PressSceneView: UIViewRepresentable {
         // Touch on the object: a tap is the director's poke (Feedback answers in the material); a flick is a beat.
         host.onPoke = { [weak director] _ in director?.poke() }
         host.onSpin = { [weak director] turns in director?.engine.spun(turnsPerSecond: turns) }
+        host.onWindowChange = { [weak director] in director?.hingeContextChanged() }
         // RootView's `@AppStorage("squish.hasHinge")`: a hinge has reported on this device before.
         let knownHinge = UserDefaults.standard.bool(forKey: "squish.hasHinge")
         host.onFrame = { [weak director] dt in director?.frame(dt: dt) }
@@ -232,8 +233,12 @@ final class PressSceneHostView: UIView {
         scene?.setRenderPaused(parked)
     }
 
+    /// A window change (a nil hinge around it is expected: `HingePresence`).
+    var onWindowChange: (() -> Void)?
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        onWindowChange?()
         gate.evaluate()
     }
 

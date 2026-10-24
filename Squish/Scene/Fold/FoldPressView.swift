@@ -30,6 +30,7 @@ private struct FoldStageRepresentable: UIViewRepresentable {
         // Touch on the object: a tap is the director's poke (Feedback answers in the material); a flick is a beat.
         host.onPoke = { [weak director] _ in director?.poke() }
         host.onSpin = { [weak director] turns in director?.engine.spun(turnsPerSecond: turns) }
+        host.onWindowChange = { [weak director] in director?.hingeContextChanged() }
         // The per-frame loop runs off this ARView's render updates (it replaces PressSceneView's on a Duo), and off
         // the render gate's blind clock while the inner display can't be seen (FOLD-REVIEW-7 N10).
         host.onFrame = { [weak director] dt in director?.frame(dt: dt) }
@@ -264,8 +265,12 @@ final class FoldStageHostView: UIView {
         scene?.setRenderPaused(parked)
     }
 
+    /// A window change (a nil hinge around it is expected: `HingePresence`).
+    var onWindowChange: (() -> Void)?
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        onWindowChange?()
         gate.evaluate()
     }
 

@@ -1,5 +1,6 @@
 import Testing
 @testable import Squish
+import Foundation
 
 @MainActor
 final class EventLog {
@@ -597,7 +598,8 @@ struct PressEngineTests {
         #expect(!engine.isHeldUnderLoad)
     }
 
-    /// How you closed it becomes the stamp: PUMPED ×N over SLAMMED over PERFECT over PRESSED.
+    /// How you closed it becomes the stamp: SLAMMED (gently, a nudge) over PERFECT over PRESSED. Pumping earns nothing
+    /// (App Review 2.4.2: no incentive for repeated hinge cycling).
     @Test func closeStyleComesFromTheResult() {
         var result = PressResult(kind: .egg, seed: 1, failureAngle: 80, fractureCount: 3, maxCompression: 1,
                                  duration: 3, wasSlammed: false, isPerfect: true, reversals: 0)
@@ -606,8 +608,10 @@ struct PressEngineTests {
         #expect(result.closeStyle == .pressed && result.closeStyle.stampText == "PRESSED")
         result.wasSlammed = true
         #expect(result.closeStyle == .slammed && result.closeStyle.stampText == "SLAMMED")
-        result.reversals = 2
-        #expect(result.closeStyle == .pumped(3) && result.closeStyle.stampText == "PUMPED ×3")
+        #expect(result.closeStyle.isGentle && result.closeStyle.nudge != nil)
+        result.wasSlammed = false
+        result.reversals = 3
+        #expect(result.closeStyle == .pressed && !result.closeStyle.isGentle)
     }
 
     /// The hinge as a living control: a detent every 6° both ways, and the machine powers down as the phone shuts and
@@ -671,5 +675,48 @@ struct PressEngineTests {
         let config = try #require(PressConfig.decodeLeniently(partial))
         #expect(config.contactCeiling == 111 && config.slamSpeed == PressConfig.standard.slamSpeed)
         #expect(PressConfig.decodeLeniently(Data("nope".utf8)) == nil)
+    }
+
+    // MARK: - APPLE-DUO-GUIDE: a nil hinge is not "no hinge"
+
+    /// Before any hinge this launch, nil means a regular iPhone: fall back at once.
+    @Test func nilBeforeAnyHingeFallsBackAtOnce() {
+        var presence = HingePresence()
+        #expect(presence.lost(at: 1))
+        #expect(!presence.available && !presence.seen && presence.deadline == nil)
+    }
+
+    /// Once a hinge has been seen, a transient nil holds the Duo stage; a reading ends the gap.
+    @Test func transientNilHoldsTheFoldStage() {
+        var presence = HingePresence()
+        presence.reading(at: 0)
+        #expect(!presence.lost(at: 10))
+        #expect(presence.available)
+        #expect(!presence.shouldFallBack(at: 10 + HingePresence.grace / 2))
+        presence.reading(at: 11)
+        #expect(presence.available && presence.deadline == nil)
+        #expect(!presence.shouldFallBack(at: 100))
+    }
+
+    /// A hinge missing for the whole grace, with no window or scene change, falls back; a scene change restarts it.
+    @Test func sustainedLossFallsBackUnlessTheSceneChanged() {
+        var presence = HingePresence()
+        presence.reading(at: 0)
+        #expect(!presence.lost(at: 10))
+        #expect(!presence.lost(at: 11))   // a second nil doesn't restart the gap
+        presence.sceneChanged(at: 13)
+        #expect(presence.deadline == 13 + HingePresence.grace)
+        #expect(!presence.shouldFallBack(at: 10 + HingePresence.grace))
+        #expect(presence.shouldFallBack(at: 13 + HingePresence.grace))
+        #expect(!presence.available && presence.seen)
+        // A hinge comes back: available again, and the next nil waits again.
+        presence.reading(at: 30)
+        #expect(presence.available)
+        #expect(!presence.lost(at: 31))
+        // A scene change with no gap running does nothing.
+        var steady = HingePresence()
+        steady.reading(at: 0)
+        steady.sceneChanged(at: 5)
+        #expect(steady.deadline == nil && steady.available)
     }
 }

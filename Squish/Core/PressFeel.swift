@@ -376,21 +376,18 @@ enum HoldTension {
     }
 }
 
-// MARK: - How you closed it (EXPERIENCE-2 §A6.1, top-15 #11)
+// MARK: - How you closed it (EXPERIENCE-2 §A6.1, top-15 #11; APPLE-DUO-GUIDE)
 
-/// The stamp a press earns from how it was closed: slow gives PERFECT, fast gives SLAMMED (no reward), reopening
-/// mid-press and pressing again gives PUMPED ×N.
+/// The stamp a press earns from how it was closed: a slow, steady close gives PERFECT; a slam gives SLAMMED, shown
+/// gently as a "try it slower" nudge, never a reward. There is no stamp, reward or incentive for rapid or repeated hinge
+/// cycling (App Review 2.4.2, device wear): a pumped press is just PRESSED.
 enum CloseStyle: Equatable, Sendable {
     case pressed
     case perfect
     case slammed
-    /// N = the number of strokes (the reversals while loaded, plus the last).
-    case pumped(Int)
 
     init(_ result: PressResult) {
-        if result.reversals >= 1 {
-            self = .pumped(result.reversals + 1)
-        } else if result.wasSlammed {
+        if result.wasSlammed {
             self = .slammed
         } else if result.isPerfect {
             self = .perfect
@@ -405,9 +402,14 @@ enum CloseStyle: Equatable, Sendable {
         case .pressed: "PRESSED"
         case .perfect: "PERFECT"
         case .slammed: "SLAMMED"
-        case let .pumped(n): "PUMPED ×\(n)"
         }
     }
+
+    /// SLAMMED is drawn gently (soft graphite, not the red ink): a nudge, not a trophy.
+    var isGentle: Bool { self == .slammed }
+
+    /// The nudge for the UI to show with a gentle stamp.
+    var nudge: String? { self == .slammed ? "Try it slower for a Perfect." : nil }
 }
 
 extension PressResult {
