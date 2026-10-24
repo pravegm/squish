@@ -696,6 +696,9 @@ final class PressEngine {
             }
         }
         while firedCount < thresholds.count && c >= thresholds[firedCount] {
+            // Nothing fires inside the break's hush and hit stop: the break comes first, and any fractures the
+            // press passes meanwhile queue until the burst (the Crayon Box's snaps are only 0.04 c apart).
+            if pendingFailure != nil { break }
             let index = firedCount
             firedCount += 1
             if index == material.failureIndex {
@@ -726,6 +729,12 @@ final class PressEngine {
         pendingBeats += breakScore.beatsAfterBurst().map { (time: time + $0.time, beat: $0.beat) }
         pendingBeats.sort { $0.time < $1.time }
         emit(.fracture(index: pending.index, isFailure: true))
+        // The fractures the press passed during the hush and hit stop, in order, right after the burst.
+        while firedCount < thresholds.count && maxCompression >= thresholds[firedCount] {
+            let index = firedCount
+            firedCount += 1
+            emit(.fracture(index: index, isFailure: false))
+        }
     }
 
     private func handleClose(at time: Double) {
