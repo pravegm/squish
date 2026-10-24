@@ -879,6 +879,7 @@ struct FeedbackTests {
             print(String(format: "SQUISH-LOUD mean contrast=%.1f LU", contrast))
             // SOUND-2: the bed 10–12 LU under the break. Bound loosely; the log shows the real figure.
             #expect(contrast >= 6, "bed only \(contrast) LU under the break")
+            #expect(contrast <= 16, "bed \(contrast) LU under the break: too quiet to feel the strain")
         }
         // Target −16 ±2 (02 §6); the bound is ±3 so a small recipe change never blocks CI, and the log shows it.
         #expect(mean > -19 && mean < -13, "mean press loudness \(mean) LUFS")
