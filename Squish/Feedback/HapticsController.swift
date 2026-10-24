@@ -19,6 +19,11 @@ import UIKit
 @MainActor
 final class HapticsController {
     var level: HapticsLevel = .full
+    /// Settings → Vibration strength (Normal / Strong / Max), applied on top of the level.
+    var strength: VibrationStrength = .strong
+    private var profile: HapticProfile { HapticProfile.of(strength) }
+    /// Phase of the strain-bed rumble (half-cycles).
+    private var rumblePhase: Double = 0
 
     private var engine: CHHapticEngine?
     private var bed: CHHapticAdvancedPatternPlayer?
@@ -214,7 +219,7 @@ final class HapticsController {
             ramp = 0.01 // hush: bed off (01 §6 step 5)
         } else if !press.isLoaded {
             // Not loaded: the hinge texture while it moves (quiet), nothing while still (HingeFeel).
-            target = HapticTuning.lift(hinge.texture)
+            target = profile.lift(hinge.texture)
             sharpness = hinge.textureSharpness - 0.5
             ramp = 0.08
         } else if press.closingSpeed < -2 {
@@ -222,6 +227,8 @@ final class HapticsController {
         } else if memory.hasFailed {
             // Crush: softer, speed-driven bed (01 §6 step 7); a low hum while held.
             target = HapticTuning.crushBed(intensity: beds.crushHapticIntensity, speed: speed, holding: press.isHolding)
+            // Strong / Max: the crush grinds hard too.
+            if profile.bedFloor > HapticTuning.loadedFloor { target = min(max(target * 1.6, profile.bedFloor * 0.7), 1) }
             sharpness += beds.crushHapticSharpness
             if press.isHolding { ramp = 0.3 }
         } else {
@@ -230,25 +237,40 @@ final class HapticsController {
             let progress = Recipes.strainProgress(c, kind: context.kind)
             let strain = beds.hapticCurve.level(progress, sinceFracture: c - memory.lastFractureCompression,
                                                 fractures: memory.fractures)
-            target = HapticTuning.strainBed(strain: strain, speed: speed, holding: press.isHolding,
-                                            materialGain: material.bedGain, recipeMax: beds.hapticMax)
+            target = profile.strainBed(strain: strain, speed: speed, holding: press.isHolding,
+                                       materialGain: material.bedGain, recipeMax: beds.hapticMax)
             // The engine's held-tension floor (never slack on a hold, ~0.4 in the tell).
-            if press.isHeldUnderLoad { target = max(target, Float(press.holdBedFloor) * HapticTuning.bedCeiling) }
+            if press.isHeldUnderLoad { target = max(target, Float(press.holdBedFloor) * profile.bedCeiling) }
             sharpness += 0.25 * progress
             if tellActive { sharpness += 0.2 }
             if press.isHolding { ramp = 0.3 }
         }
 
-        if target > 0.01 && press.isLoaded { fatigue.record(dt, at: now) }
-        target *= fatigue.factor(at: now) * level.scale
-        target = clamp(target, 0, isThermallyLimited ? HapticTuning.thermalBedCeiling : HapticTuning.bedCeiling)
+        if profile.fatigue {
+            if target > 0.01 && press.isLoaded { fatigue.record(dt, at: now) }
+            target *= fatigue.factor(at: now)
+        }
+        target *= level.scale
+        // Thermal derating only when the phone is actually hot (serious / critical), never at nominal.
+        target = clamp(target, 0, isThermallyLimited ? HapticTuning.thermalBedCeiling : profile.bedCeiling)
         lastBedTarget = target
+
+        // Rumble (Strong / Max): the loaded bed alternates between full and (1 − depth) every half-cycle at
+        // 26–30 Hz, each step a ramp, so the strain feels like grinding resistance rather than a smooth hum.
+        var rumbling = false
+        if profile.rumbleDepth > 0, press.isLoaded, now >= hushUntil, target > 0.05, press.closingSpeed >= -2 {
+            rumblePhase += dt * 2 * profile.rumbleHz
+            if Int(rumblePhase) % 2 == 1 { target *= 1 - profile.rumbleDepth }
+            ramp = 1 / (2 * profile.rumbleHz)
+            rumbling = true
+        }
         sharpness = clamp(sharpness, -1, 1)
 
         let mustSilence = target == 0 && lastIntensity > 0
-        guard mustSilence || abs(target - lastIntensity) > 0.02 || abs(sharpness - lastSharpness) > 0.02 else { return }
-        // ≤ 60 Hz sends, except when the bed must go quiet now.
-        guard mustSilence || now - lastSend >= 1.0 / 60 else { return }
+        guard rumbling || mustSilence || abs(target - lastIntensity) > 0.02 || abs(sharpness - lastSharpness) > 0.02
+        else { return }
+        // ≤ 60 Hz sends, except when the bed must go quiet now or is rumbling (one send per half-cycle).
+        guard rumbling || mustSilence || now - lastSend >= 1.0 / 60 else { return }
         lastSend = now
         // Ramp with a 2-point curve instead of stepping: raw steps at hinge rate feel like a zipper.
         let curve = CHHapticParameterCurve(
@@ -365,7 +387,7 @@ final class HapticsController {
     /// A cue built once by the director and handed to both controllers in the same frame (hinge moments, pokes).
     /// `light`: frequent, droppable cues (detents) never delay and are skipped when they would collide.
     func playShared(_ cue: FeedbackCue, light: Bool = false) {
-        play(cue, timing: light ? .grain : .event)
+        play(cue, timing: light ? .light : .event)
     }
 
     // MARK: - Diagnostics (Tuning Lab)
@@ -419,6 +441,70 @@ final class HapticsController {
         play(cue, atFullStrength: true)
     }
 
+    /// "Vibration strength test": one short, identical press at `strength` (full level), so Normal / Strong / Max
+    /// can be felt one after another: a rumbling strain ramp, grinding grains, a crack, then the break.
+    func playStrengthSample(_ strength: VibrationStrength) {
+        if !isRunning { ensureRunning(force: true) }
+        guard let engine, isRunning else { return }
+        let profile = HapticProfile.of(strength)
+        let length = 0.7
+        // The strain ramp, floor → ceiling, with this profile's rumble written into the curve (≤ 16 points per curve,
+        // several curves back to back).
+        let strain = CHHapticEvent(
+            eventType: .hapticContinuous,
+            parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.35),
+            ],
+            relativeTime: 0,
+            duration: length
+        )
+        var curves: [CHHapticParameterCurve] = []
+        let half = profile.rumbleDepth > 0 ? 1 / (2 * profile.rumbleHz) : length / 15
+        var points: [CHHapticParameterCurve.ControlPoint] = []
+        var t = 0.0
+        var step = 0
+        while t <= length {
+            let level = profile.bedFloor + (profile.bedCeiling - profile.bedFloor) * Float(t / length)
+            let low = profile.rumbleDepth > 0 && step % 2 == 1
+            points.append(CHHapticParameterCurve.ControlPoint(relativeTime: t,
+                                                              value: low ? level * (1 - profile.rumbleDepth) : level))
+            step += 1
+            t += half
+        }
+        var start = 0
+        while start < points.count {
+            let chunk = Array(points[start..<min(start + 16, points.count)])
+            let offset = chunk.first?.relativeTime ?? 0
+            curves.append(CHHapticParameterCurve(
+                parameterID: .hapticIntensityControl,
+                controlPoints: chunk.map {
+                    CHHapticParameterCurve.ControlPoint(relativeTime: $0.relativeTime - offset, value: $0.value)
+                },
+                relativeTime: offset
+            ))
+            start += 16
+        }
+        do {
+            let pattern = try CHHapticPattern(events: [strain], parameterCurves: curves)
+            let player = try engine.makePlayer(with: pattern)
+            try player.start(atTime: CHHapticTimeImmediate)
+            testBed = player
+        } catch {
+            record("Couldn't play the strength sample", error)
+        }
+        // Grains (each with this profile's echo), a crack, then the break.
+        var notes: [HapticNote] = []
+        for index in 0..<8 {
+            let grain = [HapticNote.tap(0.3, 0.7, at: 0.05 + Double(index) * 0.07)]
+            notes += profile.reinforced(grain, isGrain: true)
+        }
+        notes.append(.tap(0.7, 0.85, at: 0.62))
+        let breakCue = BrandCues.failureBody.adding(FeedbackCue(haptics: [.tap(1.0, 0.9)])).delayed(by: 0.78)
+        let cue = FeedbackCue(haptics: notes + breakCue.haptics, isClimax: true)
+        play(cue, atFullStrength: true, profile: profile)
+    }
+
     func diagnosticRows() -> [DiagnosticRow] {
         let thermal: String
         switch ProcessInfo.processInfo.thermalState {
@@ -430,6 +516,8 @@ final class HapticsController {
         }
         return [
             DiagnosticRow(title: "Haptics setting", value: level.title, isWarning: level != .full),
+            DiagnosticRow(title: "Vibration strength", value: strength.title + (strength == .normal ? " (the old feel)" : ""),
+                          isWarning: strength == .normal),
             DiagnosticRow(title: "Hardware supports haptics", value: DiagnosticRow.yesNo(capabilities.supportsHaptics),
                           isWarning: !capabilities.supportsHaptics),
             DiagnosticRow(title: "Haptic engine created", value: DiagnosticRow.yesNo(engine != nil),
@@ -461,7 +549,7 @@ final class HapticsController {
         let event = CHHapticEvent(
             eventType: .hapticContinuous,
             parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: min(HapticTuning.lift(0.16) * level.scale, 1)),
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: min(profile.lift(0.16) * level.scale, 1)),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.7),
             ],
             relativeTime: 0,
@@ -492,20 +580,25 @@ final class HapticsController {
     private enum Timing {
         /// Never blocks: a grain more than 100 ms behind the gap queue is dropped.
         case grain
+        /// Droppable like a grain, but not a grain (detents, beats, debris): no grain echo.
+        case light
         /// Always plays, delayed if needed to keep the 12 ms gap.
         case event
     }
 
     /// `atFullStrength`: the Tuning Lab tests, which ignore the user's level so the hardware itself is tested.
-    private func play(_ cue: FeedbackCue, timing: Timing = .event, atFullStrength: Bool = false) {
+    private func play(_ cue: FeedbackCue, timing: Timing = .event, atFullStrength: Bool = false,
+                      profile override: HapticProfile? = nil) {
         guard !cue.haptics.isEmpty, atFullStrength || level != .off else { return }
         if !isRunning { ensureRunning(force: timing == .event) }
         guard let engine, isRunning else { return }
+        let profile = override ?? self.profile
         let scale = atFullStrength ? 1 : level.scale
-        let cap = cue.isClimax ? 1 : HapticTuning.nonClimaxCap
+        let cap = cue.isClimax ? 1 : profile.nonClimaxCap
 
-        // ±15 % timing jitter (at most ±15 ms), then the 12 ms gap between transients.
-        var notes = cue.haptics.map { note -> HapticNote in
+        // The strength profile's bursts, stacks and grain echoes, then ±15 % timing jitter (at most ±15 ms), then the
+        // 12 ms gap between transients.
+        var notes = profile.reinforced(cue.haptics, isGrain: timing == .grain).map { note -> HapticNote in
             var jittered = note
             let shift = note.time * Double.random(in: -0.15...0.15, using: &rng)
             jittered.time = max(0, note.time + clamp(shift, -0.015, 0.015))
@@ -531,7 +624,7 @@ final class HapticsController {
             if let clash = scheduledTransients.filter({ abs($0 - at) < 0.012 }).max() {
                 let delay = clash + 0.012 - at
                 if delay > 0.015 {
-                    if timing == .grain { return }
+                    if timing != .event { return }
                 } else {
                     startTime = now + max(delay, 0)
                 }
@@ -543,7 +636,7 @@ final class HapticsController {
         }
         if scheduledTransients.count > 256 { scheduledTransients.removeFirst(scheduledTransients.count - 256) }
 
-        let events = notes.map { event(for: $0, scale: scale, cap: cap) }
+        let events = notes.map { event(for: $0, scale: scale, cap: cap, profile: profile) }
         var curves: [CHHapticParameterCurve] = []
         if let sweep = cue.sharpnessSweep {
             curves.append(CHHapticParameterCurve(
@@ -566,8 +659,11 @@ final class HapticsController {
         }
     }
 
-    private func event(for note: HapticNote, scale: Float, cap: Float) -> CHHapticEvent {
-        let intensity = min(HapticTuning.lift(note.intensity) * Float.random(in: 0.9...1.1, using: &rng), cap) * scale
+    private func event(for note: HapticNote, scale: Float, cap: Float, profile: HapticProfile) -> CHHapticEvent {
+        // A major hit plays at full (Strong / Max); everything else gets the profile's lift and the ±10 % jitter.
+        let major = note.kind == .transient && note.intensity >= profile.majorThreshold
+        let lifted = major ? 1 : profile.lift(note.intensity) * Float.random(in: 0.9...1.1, using: &rng)
+        let intensity = min(lifted, cap) * scale
         let sharpness = clamp(note.sharpness + Float.random(in: -0.05...0.05, using: &rng), 0, 1)
         switch note.kind {
         case .transient:

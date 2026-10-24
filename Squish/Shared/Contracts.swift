@@ -24,6 +24,21 @@ enum HapticsLevel: String, Codable, CaseIterable, Sendable, Identifiable {
     }
 }
 
+/// How hard the haptics hit at Full (Soft scales it down). The founder's real Duo, build 1.0 (3): "vibrations need to
+/// be stronger". Strong is the default; Max adds stacking and longer bursts; Normal is the 1.0 (2) feel.
+enum VibrationStrength: String, Codable, CaseIterable, Sendable, Identifiable {
+    case normal, strong, max
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .normal: "Normal"
+        case .strong: "Strong"
+        case .max: "Max"
+        }
+    }
+}
+
 /// Bible §5/§8: Workshop is the full mix; Soft is the misophonia-safe mode
 /// (low-passed at 6 kHz, half grain density, no wet layers).
 enum SoundStyle: String, Codable, CaseIterable, Sendable, Identifiable {
@@ -61,6 +76,8 @@ final class AppSettings {
     /// and decode as on.
     var playSoundInSilentMode = true
     var hapticsLevel: HapticsLevel = .full
+    /// Vibration strength (Settings → Feel). Added after 1.0 (3); older saved settings decode as Strong.
+    var vibrationStrength: VibrationStrength = .strong
     /// Visual onomatopoeia captions ("POP!", "CRACK!"). Defaults on when the system prefers captions.
     var showCaptions = false
     /// Use the touch press even on iPhone Duo (accessibility).
@@ -78,6 +95,8 @@ final class AppSettings {
         var hasSeenSafetyHint: Bool
         /// Added after 1.0 (1): optional, so older saved settings still decode (missing → on).
         var playSoundInSilentMode: Bool?
+        /// Added after 1.0 (3): optional (missing → Strong).
+        var vibrationStrength: VibrationStrength?
     }
 
     init(defaultCaptions: Bool = false) {
@@ -94,6 +113,7 @@ final class AppSettings {
         soundStyle = stored.soundStyle
         playSoundInSilentMode = stored.playSoundInSilentMode ?? true
         hapticsLevel = stored.hapticsLevel
+        vibrationStrength = stored.vibrationStrength ?? .strong
         showCaptions = stored.showCaptions
         pressWithoutFolding = stored.pressWithoutFolding
         hasSeenSafetyHint = stored.hasSeenSafetyHint
@@ -104,7 +124,8 @@ final class AppSettings {
     func encoded() -> Data? {
         let stored = Stored(soundEnabled: soundEnabled, soundStyle: soundStyle, hapticsLevel: hapticsLevel,
                             showCaptions: showCaptions, pressWithoutFolding: pressWithoutFolding,
-                            hasSeenSafetyHint: hasSeenSafetyHint, playSoundInSilentMode: playSoundInSilentMode)
+                            hasSeenSafetyHint: hasSeenSafetyHint, playSoundInSilentMode: playSoundInSilentMode,
+                            vibrationStrength: vibrationStrength)
         return try? JSONEncoder().encode(stored)
     }
 

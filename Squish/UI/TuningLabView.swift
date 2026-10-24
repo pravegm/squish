@@ -125,6 +125,10 @@ struct TuningLabView: View {
                 director.playPressFeelTest()
                 diagnosticsMessage = "Press feel test: strain, three cracks, the failure, then the ka-chunk."
             }
+            Button("Vibration strength test") {
+                director.playStrengthComparison()
+                diagnosticsMessage = "Normal (1 pip), then Strong (2 pips), then Max (3 pips)."
+            }
             Button("Copy diagnostics") {
                 UIPasteboard.general.string = diagnosticsReport()
                 diagnosticsMessage = "Diagnostics copied"

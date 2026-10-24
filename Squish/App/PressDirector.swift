@@ -151,6 +151,7 @@ final class PressDirector {
     /// and once before the engines start.
     private func applyFeedbackSettings() {
         haptics.level = settings.hapticsLevel
+        haptics.strength = settings.vibrationStrength
         audio.enabled = settings.soundEnabled
         audio.style = settings.soundStyle
         audio.playsInSilentMode = settings.playSoundInSilentMode
@@ -263,6 +264,23 @@ final class PressDirector {
     }
 
     /// Tuning Lab "Test full press feel": the same scripted 3-second press in sound and touch.
+    /// Tuning Lab "Vibration strength test": Normal, Strong and Max, 1.8 s apart, each announced by 1, 2 or 3 pips.
+    func playStrengthComparison() {
+        for (index, strength) in VibrationStrength.allCases.enumerated() {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(Double(index) * 1.8))
+                guard let self else { return }
+                var pips = FeedbackCue()
+                for pip in 0...index {
+                    pips.sounds.append(.tone(.press("strengthtest", "pip\(pip)"), 1046.5 + Float(index) * 260, duration: 0.06,
+                                             attack: 0.002, decay: 0.02, gain: 0.08, delay: Float(pip) * 0.12))
+                }
+                self.audio.playShared(pips)
+                self.haptics.playStrengthSample(strength)
+            }
+        }
+    }
+
     func playPressFeelTest() {
         let cue = PressFeelDemo.cue(kind: currentKind, dice: FeedbackDice(seed: UInt64.random(in: 1...UInt64.max)))
         haptics.playPressFeel(cue)

@@ -402,6 +402,62 @@ struct FeedbackTests {
         #expect(held >= atBreak * 0.8, "\(kind) holding goes slack")
     }
 
+    // MARK: - Vibration strength (Duo 1.0 (3): "vibrations need to be stronger")
+
+    @Test func strongIsTheDefaultAndSurvivesOldSaves() throws {
+        let settings = AppSettings()
+        let legacy = Data("""
+        {"soundEnabled":true,"soundStyle":"workshop","hapticsLevel":"full","showCaptions":false,\
+        "pressWithoutFolding":false,"hasSeenSafetyHint":true,"playSoundInSilentMode":true}
+        """.utf8)
+        settings.vibrationStrength = .normal
+        #expect(settings.load(from: legacy))
+        #expect(settings.vibrationStrength == .strong)
+        settings.vibrationStrength = .max
+        let data = try #require(settings.encoded())
+        let reloaded = AppSettings()
+        #expect(reloaded.load(from: data))
+        #expect(reloaded.vibrationStrength == .max)
+    }
+
+    @Test func strongAndMaxUseTheWholeRange() {
+        let strong = HapticProfile.of(.strong)
+        let max = HapticProfile.of(.max)
+        #expect(HapticProfile.of(.normal) == .normal)
+        // The strain bed: a clearly felt floor at contact, full at the break.
+        for profile in [strong, max] {
+            let contact = profile.strainBed(strain: 0, speed: 0.3, holding: false, materialGain: 0.55, recipeMax: 0.45)
+            let atBreak = profile.strainBed(strain: 1, speed: 1, holding: false, materialGain: 0.55, recipeMax: 0.45)
+            let held = profile.strainBed(strain: 1, speed: 0, holding: true, materialGain: 0.55, recipeMax: 0.45)
+            #expect(contact >= 0.45)
+            #expect(atBreak >= 0.99)
+            #expect(held >= 0.9)
+            #expect(profile.rumbleDepth > 0 && profile.rumbleHz >= 20 && profile.rumbleHz <= 40)
+            #expect(!profile.fatigue)
+            #expect(profile.nonClimaxCap == 1)
+            #expect(profile.lift(0.2) > HapticProfile.normal.lift(0.2))
+        }
+        #expect(max.lift(0.2) > strong.lift(0.2))
+        #expect(max.bedFloor > strong.bedFloor)
+    }
+
+    @Test func majorHitsGetAHeavyBurstAndMaxStacksThem() {
+        let crack: [HapticNote] = [.tap(0.7, 0.9), .tap(0.2, 0.9, at: 0.05)]
+        let strong = HapticProfile.strong.reinforced(crack, isGrain: false)
+        let bursts = strong.filter { $0.kind == .continuous }
+        #expect(bursts.count == 1) // only the major hit
+        #expect(bursts.allSatisfy { $0.intensity == 1 && $0.sharpness <= 0.4 && $0.duration >= 0.03 && $0.duration <= 0.08 })
+        let max = HapticProfile.maximum.reinforced(crack, isGrain: false)
+        #expect(max.filter { $0.kind == .continuous }.allSatisfy { $0.duration > bursts[0].duration })
+        #expect(max.filter { $0.kind == .transient }.count == crack.count + 1) // the stacked thump
+        // Grains grind: a second tap shortly after each one.
+        let grain = [HapticNote.tap(0.25, 0.7)]
+        let echoed = HapticProfile.strong.reinforced(grain, isGrain: true)
+        #expect(echoed.filter { $0.kind == .transient }.count == 2)
+        // Normal is the old feel: nothing added.
+        #expect(HapticProfile.normal.reinforced(crack, isGrain: true) == crack)
+    }
+
     @Test func failureAndKaChunkHitHardAndLow() {
         let body = BrandCues.failureBody
         #expect(body.isClimax)

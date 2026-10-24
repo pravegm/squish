@@ -147,6 +147,93 @@ enum HapticTuning {
     }
 }
 
+// MARK: - Vibration strength
+
+/// What each Vibration strength setting does to every haptic (founder, real Duo 1.0 (3): "vibrations need to be
+/// stronger"). Strong and Max use the hardware's whole range without going mushy:
+/// - major hits (a crack, pop or snap that matters) go to 1.0, and get a short low-sharpness (0.3) continuous burst
+///   underneath (45 / 75 ms): low sharpness reads as a heavier, more physical thump;
+/// - Max stacks a second heavy thump 12 ms later;
+/// - every grain gets an echo 22 ms later at 70 %, so strain feels like grinding resistance, not occasional ticks;
+/// - the strain bed rises from a clearly felt 0.45 (0.55 on Max) at contact to 1.0 at the break, and carries a
+///   26–30 Hz rumble (alternating intensity curves on the bed player);
+/// - no fatigue derating. Thermal derating stays, but only at serious/critical temperatures, never at nominal.
+struct HapticProfile: Equatable, Sendable {
+    /// `lift(x) = x^exponent`: lower is stronger.
+    var liftExponent: Float
+    /// Transients whose authored intensity is at least this play at 1.0 (above 1: none).
+    var majorThreshold: Float
+    var nonClimaxCap: Float
+    var bedFloor: Float
+    var bedCeiling: Float
+    /// Seconds of continuous burst under each major transient (0: none), and its sharpness.
+    var burst: Double
+    var burstSharpness: Float = 0.3
+    /// A second heavy transient right after each major one.
+    var stack: Bool
+    /// A second, quieter tap after every grain.
+    var grainEcho: Bool
+    /// Rumble on the strain and crush bed: modulation depth (0: none) and frequency.
+    var rumbleDepth: Float
+    var rumbleHz: Double
+    /// The 60 s-in-5-min fatigue guard (bible §7).
+    var fatigue: Bool
+
+    /// 1.0 (2)'s tuning.
+    static let normal = HapticProfile(liftExponent: HapticTuning.liftExponent, majorThreshold: 2, nonClimaxCap: 0.95,
+                                      bedFloor: HapticTuning.loadedFloor, bedCeiling: HapticTuning.bedCeiling, burst: 0,
+                                      stack: false, grainEcho: false, rumbleDepth: 0, rumbleHz: 30, fatigue: true)
+    static let strong = HapticProfile(liftExponent: 0.45, majorThreshold: 0.5, nonClimaxCap: 1, bedFloor: 0.45,
+                                      bedCeiling: 1, burst: 0.045, stack: false, grainEcho: true, rumbleDepth: 0.22,
+                                      rumbleHz: 30, fatigue: false)
+    static let maximum = HapticProfile(liftExponent: 0.35, majorThreshold: 0.35, nonClimaxCap: 1, bedFloor: 0.55,
+                                   bedCeiling: 1, burst: 0.075, burstSharpness: 0.25, stack: true, grainEcho: true,
+                                   rumbleDepth: 0.35, rumbleHz: 26, fatigue: false)
+
+    static func of(_ strength: VibrationStrength) -> HapticProfile {
+        switch strength {
+        case .normal: .normal
+        case .strong: .strong
+        case .max: .maximum
+        }
+    }
+
+    func lift(_ intensity: Float) -> Float {
+        pow(min(max(intensity, 0), 1), liftExponent)
+    }
+
+    /// The strain bed before the failure under this profile. Normal keeps 1.0 (2)'s shape (`HapticTuning.strainBed`);
+    /// Strong and Max run floor → ceiling with strain, nearly independent of speed, and hold while held.
+    func strainBed(strain: Float, speed: Float, holding: Bool, materialGain: Float, recipeMax: Float) -> Float {
+        guard bedFloor > HapticTuning.loadedFloor else {
+            return HapticTuning.strainBed(strain: strain, speed: speed, holding: holding, materialGain: materialGain,
+                                          recipeMax: recipeMax)
+        }
+        let s = min(max(strain, 0), 1)
+        let motion: Float = holding ? 0.85 : 0.88 + 0.12 * min(max(speed, 0), 1)
+        return bedFloor + (bedCeiling - bedFloor) * s * motion
+    }
+
+    /// The extra notes this profile adds around a cue's notes (bursts, stacks, grain echoes). Pure, for tests.
+    func reinforced(_ notes: [HapticNote], isGrain: Bool) -> [HapticNote] {
+        var out = notes
+        var majors = 0
+        for note in notes where note.kind == .transient {
+            if note.intensity >= majorThreshold && majors < 4 {
+                majors += 1
+                if burst > 0 {
+                    out.append(.buzz(1, burstSharpness, at: note.time + 0.002, duration: burst, decay: Float(burst * 0.8)))
+                }
+                if stack { out.append(.tap(1, 0.25, at: note.time + 0.012)) }
+            }
+        }
+        if isGrain && grainEcho, let first = notes.first(where: { $0.kind == .transient }) {
+            out.append(.tap(first.intensity * 0.7, first.sharpness, at: first.time + 0.022))
+        }
+        return out
+    }
+}
+
 // MARK: - Test full press feel
 
 /// The Tuning Lab's "Test full press feel": a scripted 3-second press, independent of the hinge, so the founder can

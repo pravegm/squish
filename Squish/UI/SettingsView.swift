@@ -26,6 +26,7 @@ struct SettingsView: View {
         var playOnSilent: Bool
         var style: SoundStyle
         var haptics: HapticsLevel
+        var strength: VibrationStrength
         var captions: Bool
         var noFold: Bool
     }
@@ -116,7 +117,7 @@ struct SettingsView: View {
         }
         .onAppear { appeared = true }
         .onChange(of: Snapshot(sound: settings.soundEnabled, playOnSilent: settings.playSoundInSilentMode,
-                               style: settings.soundStyle, haptics: settings.hapticsLevel,
+                               style: settings.soundStyle, haptics: settings.hapticsLevel, strength: settings.vibrationStrength,
                                captions: settings.showCaptions, noFold: settings.pressWithoutFolding)) { _, _ in
             settings.save()
             UIFeel.enabled = settings.hapticsLevel != .off
@@ -165,6 +166,15 @@ struct SettingsView: View {
                 ChipChoice(selection: $settings.hapticsLevel, options: HapticsLevel.allCases) { $0.title }
             }
             .padding(.vertical, Theme.s3)
+            divider
+            // MARK: Vibration strength (feedback engineer's row: Normal / Strong / Max, default Strong)
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Text("Vibration strength").font(Theme.body).foregroundStyle(Theme.ink)
+                ChipChoice(selection: $settings.vibrationStrength, options: VibrationStrength.allCases) { $0.title }
+                    .disabled(settings.hapticsLevel == .off)
+            }
+            .padding(.vertical, Theme.s3)
+            // MARK: end vibration strength
             divider
             TestRow(title: "Test vibration", systemImage: "iphone.radiowaves.left.and.right") {
                 director.haptics.playTestVibration()
