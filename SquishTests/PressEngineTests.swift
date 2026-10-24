@@ -424,13 +424,13 @@ struct PressEngineTests {
 
     @discardableResult
     private func drive(_ engine: PressEngine, _ timeline: Timeline, from start: Double, to end: Double,
-                       duration: Double, startTime: Double, closedAtEnd: Bool = false) -> Double {
+                       duration: Double, startTime: Double, closedAtEnd: Bool = false, closed: Bool = false) -> Double {
         let steps = max(Int(duration * rate), 1)
         var time = startTime
         for i in 1...steps {
             time = startTime + Double(i) / rate
             timeline.now = time
-            engine.ingest(angle: start + (end - start) * Double(i) / Double(steps), closed: closedAtEnd && i == steps,
+            engine.ingest(angle: start + (end - start) * Double(i) / Double(steps), closed: closed || (closedAtEnd && i == steps),
                           at: time)
             engine.step(now: time, dt: 1 / rate)
         }
@@ -635,7 +635,7 @@ struct PressEngineTests {
         #expect(opening.count >= 8)
         // Press, shut, reopen: power down on the shut, power up (the release) on the reopen.
         time = drive(engine, timeline, from: 175, to: 5, duration: 4, startTime: time, closedAtEnd: true)
-        time = drive(engine, timeline, from: 5, to: 5, duration: 1, startTime: time)
+        time = drive(engine, timeline, from: 5, to: 5, duration: 1, startTime: time, closed: true)   // lying shut
         #expect(engine.phase == .sealed)
         #expect(engine.hingePower < 0.1)
         time = drive(engine, timeline, from: 5, to: 170, duration: 1.5, startTime: time)

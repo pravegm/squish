@@ -209,6 +209,9 @@ final class PressEngine {
     }
 
     @ObservationIgnored private var clockNow = 0.0
+    /// °/s, + closing: the speed of the filtered angle itself (the tell's lead time).
+    @ObservationIgnored private var filteredSpeed = 0.0
+    @ObservationIgnored private var lastFilteredAngle: Double?
     /// When the hand crossed the failure threshold (`.hush`), and when the burst fired.
     @ObservationIgnored private var crossedAt: Double?
     @ObservationIgnored private var burstAt: Double?
@@ -348,6 +351,16 @@ final class PressEngine {
         filter.beta = config.oneEuroBeta
         filter.dCutoff = config.oneEuroDCutoff
         let filtered = filter.filter(raw, at: time)
+        // The tell's ETA needs the filtered angle's own speed: the One-Euro derivative is taken against the filtered
+        // value, so at a steady close it reads ~2.5× the true speed (fine for its other uses, wrong for a lead time).
+        if let last = lastFilteredAngle, lastSampleTime.isFinite, time - lastSampleTime > 1e-4, !newInput {
+            let dt = min(time - lastSampleTime, 0.2)
+            let k = dt / (0.08 + dt)
+            filteredSpeed += ((last - filtered) / dt - filteredSpeed) * k
+        } else {
+            filteredSpeed = 0
+        }
+        lastFilteredAngle = filtered
         angle = filtered
         closingSpeed = -filter.derivative
         if lastSampleTime.isFinite {
@@ -675,7 +688,7 @@ final class PressEngine {
             let threshold = thresholds[failure]
             let fire = c >= threshold || PressTell.shouldFire(compression: c, failure: threshold, angle: θ,
                                                               failureAngle: failureThresholdAngle ?? θ,
-                                                              closingSpeed: closingSpeed)
+                                                              closingSpeed: filteredSpeed)
             if fire {
                 tellFired = true
                 isTelling = true
