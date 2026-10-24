@@ -7,8 +7,8 @@ struct PressConfig: Codable, Equatable, Sendable {
     // Contact floats with the arm angle; the visual flat is absolute.
     //
     // ⚠️ PROVISIONAL FOLD VALUES (25 Oct 2026). `contactCeiling` ("contact angle": the squash starts) and `endAngle`
-    // ("fully crushed angle") drive the iPhone Duo fold, linear in θ between them (θ = 100 − 50·c). Every big failure
-    // lands at ~90–64° (worst-case jitter ≥ `PressFeel.failureFloorAngle`). The founder's first hinge log (25 Oct) gave
+    // ("fully crushed angle") drive the iPhone Duo fold, linear in θ between them (θ = 104 − 49·c). Every big failure
+    // lands at ~94–69°, clearly lit (worst-case jitter ≥ `PressFeel.failureFloorAngle`). The founder's first hinge log (25 Oct) gave
     // the report rate (25–30 Hz moving, 100–200 ms gaps) and the `.closed` posture (set at ~85°, cleared at ~21°), but
     // NOT the display-off angle: drag these in the Tuning Lab ("Contact angle", "Fully crushed angle", "Display-off
     // angle") on the device and send the values back. The crush should complete before the real display-off point.
@@ -16,26 +16,27 @@ struct PressConfig: Codable, Equatable, Sendable {
     var armAngleMax: Double = 168
     /// Arming at ≥ 130°: the failures no longer depend on the arm angle (contact ≤ θ0 − 12° stays at contactCeiling).
     var armAngleMin: Double = 130
-    /// "Fully crushed angle" (fold). PROVISIONAL: 50°, just above the assumed ~55° display-off… tune on device.
-    var endAngle: Double = 50
+    /// "Fully crushed angle" (fold): flat by 55°, just before the inner screen goes dark (~45°, the founder, 25 Oct).
+    var endAngle: Double = 55
     /// Base contact point; recomputed per press by `armed(at:)` when `floatingContact` is on.
     var contactT: Double = 0.30
     /// 1 = compression linear in θ after contact (fold). The touch press keeps 1.7.
     var easeExponent: Double = 1.0
     var hysteresis: Double = 4
     var floatingContact: Bool = true
-    /// "Contact angle" (fold): contact happens at min(contactCeiling, θ0 − contactLead). PROVISIONAL: 100°.
-    var contactCeiling: Double = 100
+    /// "Contact angle" (fold): contact happens at min(contactCeiling, θ0 − contactLead). 104°: the break then lands at
+    /// ~94–69° (the coordinator's 95–70° window, lid near, screen lit).
+    var contactCeiling: Double = 104
     var contactLead: Double = 12
 
     // The hinge posture (founder's real-Duo log, 25 Oct 2026; FOLD-PRESS §9.8). `.closed` is a coarse posture with
     // big hysteresis (set at ~85° closing, cleared at ~21° opening), not "shut": these angles decide instead.
     /// Shut: at or below this angle the phone is really closed (the blind seal, the ka-chunk, the cover).
-    var shutAngle: Double = 12
+    var shutAngle: Double = 10
     /// A sealed press reveals once a reopen passes this angle (or the inner display is back).
     var revealOpenAngle: Double = 25
     /// The inner display goes dark below about this angle (the reveal beats wait for it). UNMEASURED on hardware.
-    var displayOffAngle: Double = 55
+    var displayOffAngle: Double = 45
 
     // State machine (bible §6.3)
     var sealDepth: Double = 0.98

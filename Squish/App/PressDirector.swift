@@ -101,9 +101,20 @@ final class PressDirector {
     var isShowingCover: Bool { hingeAvailable && (onOuterDisplay || hingeClosed) }
 
     /// RootView's window size: the outer display is detected by size (APPLE-DUO-GUIDE item 3), not by status.
+    /// `isShowingCover` keeps its meaning ("the app is on the outer display"); a real shut (≤ `shutAngle`) also counts,
+    /// for the moment before the window moves.
     func setWindowSize(_ size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }   // transient zero sizes say nothing
-        let outer = hingeAvailable && !InnerDisplayPolicy.isInnerCanvas(size)
+        windowSize = size
+        updateOuterDisplay()
+    }
+
+    @ObservationIgnored private var windowSize: CGSize?
+
+    /// A cold launch on the cover sizes the window before any hinge reports: re-check when the hinge appears.
+    private func updateOuterDisplay() {
+        guard let windowSize else { return }
+        let outer = hingeAvailable && !InnerDisplayPolicy.isInnerCanvas(windowSize)
         guard outer != onOuterDisplay else { return }
         onOuterDisplay = outer
         hingeContextChanged()
@@ -357,6 +368,7 @@ final class PressDirector {
         hingeLossCheck = nil
         if !hingeAvailable {
             hingeAvailable = true
+            updateOuterDisplay()
         }
         // Shut is the angle, not the `.closed` posture (it sets at ~85° on a real Duo). `closed` stays in the log.
         hingeClosed = angle <= engine.config.shutAngle

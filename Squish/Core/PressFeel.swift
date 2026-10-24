@@ -184,9 +184,9 @@ enum PressFeel {
     /// Every big failure, worst-case jitter included, lands at or above this hinge angle. The inner display turns off
     /// below ~55°, and the hit stop, the burst and the slow debris need the next ~0.5 s of closing to still be lit.
     /// PROVISIONAL until the founder's Tuning Lab hinge log gives the real display-off angle.
-    static let failureFloorAngle = 62.0
+    static let failureFloorAngle = 66.0
     /// The inner display is dark below about this angle (simulator and docs; unmeasured on hardware).
-    static let displayOffAngle = 55.0
+    static let displayOffAngle = 45.0
 }
 
 // MARK: - 2. Resistance: "lag, then give"

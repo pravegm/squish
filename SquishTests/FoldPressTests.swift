@@ -127,7 +127,7 @@ struct FoldPressTests {
     /// (50°), linear in θ: θ = contact − (contact − end)·c, whatever the arm angle ≥ 118°. Both are Tuning Lab sliders.
     @Test func eventAnglesFollowTheProvisionalFoldMapping() {
         let contact = PressConfig.standard.contactCeiling, end = PressConfig.standard.endAngle
-        #expect(contact == 100 && end == 50)
+        #expect(contact == 104 && end == 55)
         #expect(near(FoldCurve.contactAngle(), contact, 0.01))
         #expect(near(FoldCurve.contactAngle(start: 130), contact, 0.01))
         for kind in ObjectKind.allCases {
@@ -140,9 +140,9 @@ struct FoldPressTests {
                 #expect(FoldCurve.angle(forCompression: earliest) <= FoldCurve.contactAngle() - 10, "\(kind)")
             }
         }
-        // Bubble wrap: 24 pops from just after contact (~98.5°) to ~58.5°.
+        // Bubble wrap: 24 pops from just after contact (~102.5°) to ~63.3°.
         let pops = MaterialProfile.bubbleWrap.fractures.map { FoldCurve.angle(forCompression: $0) }
-        #expect(abs((pops.first ?? 0) - 98.5) <= 1 && abs((pops.last ?? 0) - 58.5) <= 1)
+        #expect(abs((pops.first ?? 0) - 102.5) <= 1 && abs((pops.last ?? 0) - 63.3) <= 1)
     }
 
     /// The touch press (P-48) keeps the 1.0 mapping its store frames and CI expectations were made on.
@@ -150,7 +150,7 @@ struct FoldPressTests {
         let touch = PressConfig.standard.armed(at: 168)
         #expect(near(touch.contactT, 0.3, 1e-9) && touch.easeExponent == 1.7)
         let fold = PressConfig.standard.armed(at: 168, hinge: true)
-        #expect(near(fold.contactT, (168.0 - 100) / (168 - 50), 1e-9) && fold.easeExponent == 1.0 && fold.endAngle == 50)
+        #expect(near(fold.contactT, (168.0 - 104) / (168 - 55), 1e-9) && fold.easeExponent == 1.0 && fold.endAngle == 55)
         #expect(touch.endAngle == PressConfig.touchEndAngle)
     }
 
