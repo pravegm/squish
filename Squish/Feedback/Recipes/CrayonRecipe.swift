@@ -1,7 +1,8 @@
 import Foundation
 
-/// Crayon: brittle wax. A clean SNAP — bright double transient plus a 400–900 Hz body (02 §7.3) — then a
-/// second snap, then a dry waxy crumble. The haptic is the textbook snap (01 §7.3): T1.0/1.0, T0.7/0.6 @12 ms,
+/// The Crayon Box: brittle wax. A clean SNAP per crayon — bright double transient plus a 400–900 Hz body (02 §7.3) —
+/// in a volley (fractures 0…6, 0 the failure), each a different seeded snap, rising a little in pitch as the box goes;
+/// then a dry waxy crumble (the last fracture). The haptic is the textbook snap (01 §7.3): T1.0/1.0, T0.7/0.6 @12 ms,
 /// a short dull tail and five debris taps. Grains stop at c 0.22 (the rigid plateau), so the snap surprises.
 struct CrayonRecipe: ObjectRecipe {
     let kind = ObjectKind.crayon
@@ -58,12 +59,13 @@ struct CrayonRecipe: ObjectRecipe {
                 .noise(slot("tell", "wax"), .bandPass, 1200 * d.grainPitch(), q: 4, decay: 0.005, gain: 0.04),
             ], haptics: [.tap(0.3 + 0.3 * p, 0.9)])
 
-        case .fracture(_, true):
-            return snap(d, input: input, strength: 1)
+        case .fracture(let index, true):
+            return snap(d, input: input, strength: 1, index: index)
 
         case .fracture(let index, false):
-            if index == 1 {
-                return snap(d, input: input, strength: 0.65)
+            if index < Self.crumbleIndex {
+                // The rest of the volley: each crayon its own snap, a touch lighter than the first.
+                return snap(d, input: input, strength: d.range(0.6...0.78), index: index)
             }
             // The waxy crumble.
             var haptics = d.scatter(Int(8 * input.debris), from: 0, over: 0.25, intensity: (0.45, 0.15), sharpness: 0.55...0.65)
@@ -85,10 +87,19 @@ struct CrayonRecipe: ObjectRecipe {
         }
     }
 
+    /// The last fracture is the crumble; every one before it is a crayon snapping.
+    static var crumbleIndex: Int { max(ObjectKind.crayon.profile.fractures.count - 1, 1) }
+
+    /// Snap n of the volley rises 0.6 st per crayon (about +3.6 st by the seventh): the box "plays a scale" as it goes.
+    static func volleyPitch(_ index: Int) -> Float {
+        pow(2, Float(min(max(index, 0), 12)) * 0.6 / 12)
+    }
+
     /// Bright transient, an immediate second click (the "double" of a real snap) and a woody 400–900 Hz body.
-    private func snap(_ d: FeedbackDice, input: RecipeInput, strength s: Float) -> FeedbackCue {
-        let bodies: [Float] = s >= 1 ? [450, 620, 820] : [700, 860, 900]
-        let body = bodies[d.pick(3, for: slot("snap", "body"))] * d.bodyPitch()
+    private func snap(_ d: FeedbackDice, input: RecipeInput, strength s: Float, index: Int) -> FeedbackCue {
+        let bodies: [Float] = s >= 1 ? [450, 620, 820] : [560, 700, 860]
+        let rise = Self.volleyPitch(index)
+        let body = bodies[d.pick(3, for: slot("snap", "body"))] * d.bodyPitch() * rise
         let sounds: [SoundLayer] = [
             .noise(slot("snap", "transient"), .highPass, 7000, attack: 0.0002, decay: 0.002, gain: 0.5 * s * d.level()),
             .noise(slot("snap", "double"), .bandPass, 4500, q: 1, attack: 0.0002, decay: 0.0015, gain: 0.3 * s, delay: 0.012),
@@ -104,6 +115,8 @@ struct CrayonRecipe: ObjectRecipe {
             .buzz(0.5 * s, 0.3, at: 0.015, duration: 0.06, decay: 0.05),
         ]
         haptics += d.scatter(Int(5 * input.debris), from: 0.03, over: 0.15, intensity: (0.5 * s, 0.15), sharpness: 0.65...0.75)
-        return FeedbackCue(sounds: sounds, haptics: haptics, isClimax: s >= 1)
+        var cue = FeedbackCue(sounds: sounds, haptics: haptics, isClimax: s >= 1)
+        cue.samplePitch = rise // the recorded snap rises with the volley too
+        return cue
     }
 }

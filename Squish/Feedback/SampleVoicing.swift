@@ -199,7 +199,7 @@ enum SampleVoicing {
                 let layered: Float = rule.mode == .layer ? 0.8 : 1
                 let gain = pow(10, group.gainDb / 20) * AudioMix.sampleBus * dice.level() * pick.gain * layered
                 let delay = start + pick.delay
-                let spec = SampleSpec(data: file.data, rate: dice.semitones(group.pitch) * dice.tone, gain: min(gain, 1),
+                let spec = SampleSpec(data: file.data, rate: dice.semitones(group.pitch) * dice.tone * cue.samplePitch, gain: min(gain, 1),
                                       delay: delay)
                 layers.append(SoundLayer(slot: SoundSlot("\(key).sample-\(group.name)"), command: .sample(spec),
                                          isWet: group.wet))

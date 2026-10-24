@@ -95,6 +95,8 @@ struct FeedbackCue: Equatable, Sendable {
     var sharpnessSweep: HapticSweep?
     /// Only failure and the ka-chunk may reach haptic intensity 1.0 (bible §7). Everything else is capped at 0.85.
     var isClimax = false
+    /// Playback-rate multiplier for the recordings that voice this cue (the Crayon Box volley rises in pitch).
+    var samplePitch: Float = 1
 
     static let silent = FeedbackCue()
 

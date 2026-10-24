@@ -51,7 +51,8 @@ enum Captions {
         case .jelly:
             return "SHLIP!"
         case .crayon:
-            return index >= 2 ? "crumble…" : "SNAP!"
+            // The Crayon Box: a SNAP! per crayon, then the crumble (the last fracture).
+            return index >= CrayonRecipe.crumbleIndex ? "crumble…" : "SNAP!"
         case .egg:
             return index == 0 ? "tik!" : "SPLAT!"
         case .cakeSlice:

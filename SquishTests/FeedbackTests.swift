@@ -821,6 +821,33 @@ struct FeedbackTests {
         #expect(abs(lufs + 3.01) < 0.3, "got \(lufs)")
     }
 
+    /// The Crayon Box: fractures 0…6 are seven snaps (0 the failure), rising in pitch; the last is the crumble.
+    @Test func crayonBoxSnapsAVolleyThenCrumbles() {
+        let fractures = ObjectKind.crayon.profile.fractures
+        #expect(CrayonRecipe.crumbleIndex == fractures.count - 1)
+        var pitches: [Float] = []
+        for index in fractures.indices {
+            let isFailure = index == ObjectKind.crayon.profile.failureIndex
+            let c = cue(.crayon, .fracture(index: index, isFailure: isFailure), hasFailed: index > 0, fractures: index)
+            let isSnap = c.sounds.contains { $0.slot.id.hasPrefix("crayon.snap.") }
+            let isCrumble = c.sounds.contains { $0.slot.id.hasPrefix("crayon.crumble.") }
+            if index < CrayonRecipe.crumbleIndex {
+                #expect(isSnap && !isCrumble, "fracture \(index) should snap")
+                #expect(Captions.fracture(.crayon, index: index) == "SNAP!")
+                pitches.append(c.samplePitch)
+            } else {
+                #expect(isCrumble && !isSnap, "fracture \(index) should crumble")
+                #expect(Captions.fracture(.crayon, index: index) == "crumble…")
+            }
+        }
+        #expect(pitches.count == 7)
+        #expect(zip(pitches, pitches.dropFirst()).allSatisfy { $0 < $1 })
+        // Seeded: two snaps of the volley aren't the same sound.
+        let second = cue(.crayon, .fracture(index: 2, isFailure: false), seed: 3, hasFailed: true, fractures: 2)
+        let third = cue(.crayon, .fracture(index: 3, isFailure: false), seed: 4, hasFailed: true, fractures: 3)
+        #expect(second.sounds != third.sounds)
+    }
+
     @Test func signatureCaptions() {
         #expect(Captions.failure(.glassBottle) == "SMASH!")
         #expect(Captions.failure(.sodaCan) == "FSSSHT!")
