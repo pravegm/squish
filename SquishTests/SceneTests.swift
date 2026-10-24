@@ -1210,7 +1210,15 @@ struct SceneTests {
             }
             let crushed = Self.footprint(of: view, fx: fx)
             #expect(crushed.height < rest.height * 0.45, "\(kind): crushed \(crushed.height) m vs rest \(rest.height) m")
-            if kind != .bubbleWrap {
+            switch kind {
+            case .bubbleWrap:
+                // The sheet keeps its outline; the domes are what flatten (the height check above).
+                break
+            case .glassBottle:
+                // A shatter heaps up in the middle of the plate (a tighter box than the lying bottle): the crushed
+                // state is the pile itself.
+                #expect(fx.debris.count >= 20, "glassBottle: only \(fx.debris.count) pieces on the plate")
+            default:
                 #expect(crushed.area > rest.area * 1.1, "\(kind): crushed footprint \(crushed.area) vs rest \(rest.area)")
             }
         }
