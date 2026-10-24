@@ -137,7 +137,8 @@ Scores so far:
   - `#require` can't nest inside `#require` (recursive macro expansion).
   - Compare optionals against typed literals, e.g. `CGFloat(909 - 455)`; an untyped literal picked a non-numeric `==`.
   - Hoist throwing calls out of `#expect`.
-- **`PressConfig` is `Codable` with synthesized keys.** Adding a field silently resets saved tunings, so put new tunables elsewhere (see `PressEngine.staleClosedAngle`).
+- **`PressConfig` decodes leniently** (`decodeLeniently`), so a missing key no longer resets the whole tuning. The storage key is versioned (v4): bump it when defaults change meaningfully. The contact and failure angles are **provisional** until they're tuned from the founder's real-Duo hinge log.
+- **The founder's Mac is Intel and can't run Xcode 27.** Every device build goes through `.github/workflows/testflight.yml` (`docs/appstore/SUBMISSION.md` §5a). The founder installs from TestFlight.
 - **Duo simulator hinge quirks:**
   - `closed` can stay set while the phone reopens to ~150°, so the engine and the reveal gate trust the angle above 90°.
   - The first open sample after a closed launch is a state, not a transition (`PressEngine.ingestSample`).
