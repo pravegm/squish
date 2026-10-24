@@ -15,10 +15,17 @@ final class CueBook {
         case audio, haptics
     }
 
+    /// Press sounds that carry a recording layered under the synth (SOUND-2 §3.3), so they go through the book too:
+    /// both controllers then share the file pick and its haptic onsets.
+    enum BrandMoment: Equatable {
+        case kaChunk, contact, stamp
+    }
+
     enum Key: Equatable {
         case recipe(RecipeMoment)
         /// The n-th settling creak of the current hold (shared, tinted by the material's creak).
         case settle(Int)
+        case brand(BrandMoment)
     }
 
     /// What the recipes need to know about the press so far. Updated when a cue is generated.
@@ -52,24 +59,36 @@ final class CueBook {
 
     private(set) var memory = PressMemory()
     private let dice: FeedbackDice
-    private var latest: Entry?
+    /// Sample picks have their own dice, reseeded per press, so whether the library has loaded yet never shifts the
+    /// recipes' own random choices.
+    private let sampleDice: FeedbackDice
+    /// Recent cues, newest last: a consumer gets the newest entry for its key it hasn't taken yet. A short history
+    /// (not just the latest) lets one event ask for two keys (a recipe moment and a brand layer) in any order.
+    private var recent: [Entry] = []
+    /// Where recordings come from: the live book plays them once loaded; an offline book loads them now.
+    var library: () -> SampleLibrary? = { SampleLibrary.loaded }
 
     init(seed: UInt64 = 0x5157_1534) {
         dice = FeedbackDice(seed: seed)
+        sampleDice = FeedbackDice(seed: seed ^ 0x5A3D_1E5A)
     }
 
     func cue(for key: Key, context: FeedbackContext, consumer: Consumer) -> FeedbackCue {
-        if var entry = latest, entry.key == key, entry.kind == context.kind, !entry.taken(by: consumer) {
-            entry.take(consumer)
-            latest = entry
-            return entry.cue
+        if let index = recent.lastIndex(where: { $0.key == key && $0.kind == context.kind && !$0.taken(by: consumer) }) {
+            recent[index].take(consumer)
+            return recent[index].cue
         }
         if case .recipe(.place) = key {
             // A new press: replayable from its seed (share clips), with a fresh per-press tone.
             dice.reseed(context.variant.seed)
+            sampleDice.reseed(context.variant.seed ^ 0x5A3D_1E5A)
             memory = PressMemory()
         }
-        let cue = Self.compose(key, context: context, dice: dice, memory: memory)
+        var cue = Self.compose(key, context: context, dice: dice, memory: memory)
+        var explicit: [String]?
+        if case .brand(.stamp) = key { explicit = ["press.stamp"] }
+        cue = SampleVoicing.voice(cue, keys: explicit, style: context.soundStyle, speed: min(max(context.closingSpeed / 120, 0), 1),
+                                  library: library(), dice: sampleDice)
         if case let .recipe(.fracture(_, isFailure)) = key {
             memory.fractures += 1
             memory.lastFractureCompression = context.compression
@@ -77,7 +96,8 @@ final class CueBook {
         }
         var entry = Entry(key: key, kind: context.kind, cue: cue, audioTaken: false, hapticsTaken: false)
         entry.take(consumer)
-        latest = entry
+        recent.append(entry)
+        if recent.count > 8 { recent.removeFirst(recent.count - 8) }
         return cue
     }
 
@@ -86,6 +106,12 @@ final class CueBook {
     static func compose(_ key: Key, context: FeedbackContext, dice: FeedbackDice, memory: PressMemory) -> FeedbackCue {
         let recipe = Recipes.recipe(for: context.kind)
         switch key {
+        case .brand(let moment):
+            switch moment {
+            case .kaChunk: return BrandCues.kaChunk
+            case .contact: return BrandCues.contact
+            case .stamp: return FeedbackCue()
+            }
         case .settle:
             return SharedCues.settle(recipe.beds, dice: dice)
         case .recipe(let moment):

@@ -40,13 +40,8 @@ extension ObjectKind {
     }
 }
 
-/// The seam where sampled layers plug in later (bible §15.1). v1 ships without one,
-/// so every slot falls back to its synthesised layer. A bank plays the file mapped to `layer.slot`
-/// (using `layer.command.gain` and `delay` as hints) and returns true, or returns false to keep the synth layer.
-@MainActor
-protocol SampleBank: AnyObject {
-    func play(_ layer: SoundLayer) -> Bool
-}
+// Recorded foley (bible §15.1's sampled layers) arrives as `.sample` synth commands that the CueBook adds
+// (`SampleVoicing`); the old per-layer `SampleBank` seam is retired (SOUND-2 §5.1 item 4).
 
 // MARK: - Cue
 

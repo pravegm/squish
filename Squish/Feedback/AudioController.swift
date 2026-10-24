@@ -30,8 +30,6 @@ final class AudioController {
     }
     /// The hinge outside the press (creak), set by the director every frame before `update` (`HingeFeel`).
     var hinge = HingeBed.still
-    /// Sampled-layer seam (bible §15.1). Nil in v1: everything is synthesised.
-    var sampleBank: (any SampleBank)?
 
     private var engine = AVAudioEngine()
     private var synth: Synth?
@@ -39,6 +37,11 @@ final class AudioController {
     private var observers: [NSObjectProtocol] = []
     private var engineObserver: NSObjectProtocol?
     private var isStarted = false
+    /// The built-in speaker is the route: the synth applies its speaker profile.
+    private var onSpeaker = true
+    /// Seconds from a render to the ear (output latency + one IO buffer): haptics wait this long so they land with
+    /// the sound (SOUND-2 §4.3; ~0 on the speaker, ~150 ms on AirPods).
+    private(set) var outputDelay: Double = 0
     private var lastRecoveryAttempt: CFTimeInterval = 0
     // Diagnostics (Tuning Lab): Release builds have no console.
     private(set) var lastError: String?
@@ -60,10 +63,12 @@ final class AudioController {
     func start() {
         guard !isStarted else { return }
         isStarted = true
+        SampleLibrary.loadInBackground()
         configureSession()
         activateSession()
         buildGraph()
         startEngine(reason: "launch")
+        refreshRoute()
 
         let center = NotificationCenter.default
         // Calls, Siri and alarms interrupt the session; pick up again when they end. Mixable sessions are rarely
@@ -87,6 +92,7 @@ final class AudioController {
                                             queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.ensureRunning(reason: "output route changed")
+                self?.refreshRoute()
             }
         })
         // The audio server restarted: every audio object is dead. Rebuild from scratch.
@@ -178,6 +184,13 @@ final class AudioController {
         guard isStarted, synth != nil, !engine.isRunning else { return }
         activateSession()
         startEngine(reason: reason)
+    }
+
+    private func refreshRoute() {
+        let session = AVAudioSession.sharedInstance()
+        let outputs = session.currentRoute.outputs
+        onSpeaker = outputs.isEmpty || outputs.contains { $0.portType == .builtInSpeaker }
+        outputDelay = max(session.outputLatency + session.ioBufferDuration, 0)
     }
 
     private func record(_ what: String, _ error: Error) {
@@ -285,6 +298,18 @@ final class AudioController {
         case .idle, .revealing:
             break
         }
+        // Recorded strain / crush loops where the library has one (they replace the noise strain bed).
+        if press.isLoaded, let loop = SampleVoicing.loopBed(
+            kind: context.kind, progress: Recipes.strainProgress(c, kind: context.kind), speed: speed,
+            holding: press.isHolding, failed: memory.hasFailed, opening: press.closingSpeed < -5,
+            closing: press.closingSpeed > 2, style: style, library: SampleLibrary.loaded
+        ) {
+            params.loop = loop.data
+            params.loopGain = loop.gain
+            params.loopRate = loop.rate
+            if !memory.hasFailed { params.strainGain = 0 }
+        }
+        params.speakerEQ = onSpeaker ? 1 : 0
         // The hinge creak when the press isn't loaded (under load the press creak owns the resonators).
         if !press.isLoaded && hinge.creakGain > 0 {
             params.creakRate = hinge.creakRate
@@ -342,7 +367,7 @@ final class AudioController {
         case .armed, .grain, .fracture, .reveal:
             break
         }
-        perform(event, recipeCue: recipeCue)
+        perform(event, recipeCue: recipeCue, context: context)
     }
 
     func place(context: FeedbackContext) {
@@ -366,7 +391,7 @@ final class AudioController {
     func audition(_ kind: ObjectKind, event: PressEvent, golden: Bool = false, surprise: Surprise? = nil) {
         let context = Audition.context(for: kind, event: event, golden: golden, surprise: surprise)
         let recipeCue = RecipeMoment(event).map { CueBook.preview($0, context: context, dice: auditionDice) }
-        perform(event, recipeCue: recipeCue)
+        perform(event, recipeCue: recipeCue, context: context)
     }
 
     /// Tuning Lab: audition the object's placement plop.
@@ -435,9 +460,20 @@ final class AudioController {
                           value: String(format: "%.1f ms buffer · %.1f ms output latency", session.ioBufferDuration * 1000,
                                         session.outputLatency * 1000)),
             DiagnosticRow(title: "Master gain", value: String(format: "%.2f × trim %.2f", AudioMix.masterGain, volume)),
+            Self.samplesRow,
             DiagnosticRow(title: "Last audio event", value: lastEvent),
             DiagnosticRow(title: "Last audio error", value: lastError ?? "None", isWarning: lastError != nil),
         ]
+    }
+
+    private static var samplesRow: DiagnosticRow {
+        guard let library = SampleLibrary.loaded else {
+            return DiagnosticRow(title: "Recorded sounds", value: "Loading (synth meanwhile)")
+        }
+        let value = String(format: "%ld groups, %ld files, %.2f s to load", library.groups.count, library.fileCount,
+                           library.loadSeconds) + (library.problem.map { " · \($0)" } ?? "")
+        return DiagnosticRow(title: "Recorded sounds", value: value,
+                             isWarning: library.groups.isEmpty || library.problem != nil)
     }
 
     private static func describe(_ port: AVAudioSession.Port) -> String {
@@ -457,13 +493,14 @@ final class AudioController {
         }
     }
 
-    private func perform(_ event: PressEvent, recipeCue: FeedbackCue?) {
+    private func perform(_ event: PressEvent, recipeCue: FeedbackCue?, context: FeedbackContext) {
+        let brand = { (moment: CueBook.BrandMoment) in CueBook.shared.cue(for: .brand(moment), context: context, consumer: .audio) }
         var playRecipe = true
         switch event {
         case .armed, .sealed, .preFailureTell:
             break
         case .contact:
-            play(BrandCues.contact)
+            play(brand(.contact))
         case .grain:
             // Soft style: half grain density (bible §8).
             grainCount += 1
@@ -475,13 +512,14 @@ final class AudioController {
         case .bottomOut:
             play(BrandCues.bottomOut)
         case .kaChunk:
-            play(BrandCues.kaChunk)
+            play(brand(.kaChunk))
         case .released:
             play(BrandCues.releaseSigh)
         case .reveal:
             play(BrandCues.unlatch)
             play(BrandCues.releaseSigh)
             play(BrandCues.sting)
+            play(brand(.stamp))
         }
         if playRecipe, let recipeCue {
             play(recipeCue)
@@ -502,8 +540,8 @@ final class AudioController {
 
     private func play(_ cue: FeedbackCue) {
         guard enabled, let synth, !cue.sounds.isEmpty else { return }
+        // Recorded foley is already in the cue (CueBook picks it, for both controllers).
         for layer in cue.styled(style).sounds {
-            if let bank = sampleBank, bank.play(layer) { continue }
             synth.trigger(layer.command)
         }
     }

@@ -54,6 +54,8 @@ final class OfflineAudio {
 
     init(style: SoundStyle) {
         self.style = style
+        // The same recorded foley as the live press, loaded now if it isn't yet: a render must repeat exactly.
+        cueBook.library = { SampleLibrary.loadNow() }
     }
 
     /// Where the next calls land in the clip (seconds; negative = before the clip, so silent) and the playback rate
@@ -142,6 +144,18 @@ final class OfflineAudio {
             break
         }
 
+        // Recorded strain / crush loops where the library has one (they replace the noise strain bed).
+        if press.isLoaded, let loop = SampleVoicing.loopBed(
+            kind: context.kind, progress: Recipes.strainProgress(c, kind: context.kind), speed: speed,
+            holding: press.isHolding, failed: memory.hasFailed, opening: press.closingSpeed < -5,
+            closing: press.closingSpeed > 2, style: style, library: SampleLibrary.loadNow()
+        ) {
+            params.loop = loop.data
+            params.loopGain = loop.gain
+            params.loopRate = loop.rate
+            if !memory.hasFailed { params.strainGain = 0 }
+        }
+
         if isAudible {
             score.beds.append(Score.Bed(sample: sample, params: Self.retimed(params, pitch: pitch)))
         }
@@ -168,7 +182,7 @@ final class OfflineAudio {
         case .armed, .sealed, .preFailureTell:
             break
         case .contact:
-            play(BrandCues.contact)
+            play(cueBook.cue(for: .brand(.contact), context: context, consumer: .audio))
         case .grain:
             grainCount += 1
             if style == .soft && grainCount % 2 == 0 { playRecipe = false }
@@ -180,13 +194,14 @@ final class OfflineAudio {
         case .bottomOut:
             play(BrandCues.bottomOut)
         case .kaChunk:
-            play(BrandCues.kaChunk)
+            play(cueBook.cue(for: .brand(.kaChunk), context: context, consumer: .audio))
         case .released:
             play(BrandCues.releaseSigh)
         case .reveal:
             play(BrandCues.unlatch)
             play(BrandCues.releaseSigh)
             play(BrandCues.sting)
+            play(cueBook.cue(for: .brand(.stamp), context: context, consumer: .audio))
         }
         if playRecipe, let recipeCue {
             play(recipeCue)
@@ -299,6 +314,11 @@ final class OfflineAudio {
             spec.grainDecay /= p
             spec.delay /= p
             return .crunch(spec)
+        case .sample(var spec):
+            // Slowed tape: the recording plays slower and lower.
+            spec.rate *= p
+            spec.delay /= p
+            return .sample(spec)
         case .hush:
             return command
         }
@@ -316,6 +336,7 @@ final class OfflineAudio {
         copy.crushLow *= p
         copy.crushHigh *= p
         copy.crushGrainDecay /= p
+        copy.loopRate *= p
         return copy
     }
 
@@ -375,6 +396,7 @@ private extension SynthCommand {
         case .tone(var spec): spec.delay = max(spec.delay + offset, 0); return .tone(spec)
         case .ring(var spec): spec.delay = max(spec.delay + offset, 0); return .ring(spec)
         case .crunch(var spec): spec.delay = max(spec.delay + offset, 0); return .crunch(spec)
+        case .sample(var spec): spec.delay = max(spec.delay + offset, 0); return .sample(spec)
         case .hush: return self
         }
     }

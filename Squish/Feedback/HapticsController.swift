@@ -45,6 +45,9 @@ final class HapticsController {
     private var scheduledTransients: [TimeInterval] = []
     /// The hinge outside the press (texture), set by the director every frame before `update` (`HingeFeel`).
     var hinge = HingeBed.still
+    /// The audio path's delay to the ear (`AudioController.outputDelay`), set by the director: every pattern starts
+    /// this much later (less the haptic engine's own latency) so touch lands with sound.
+    var audioDelay: Double = 0
     private var grainCount = 0
     private var tell = PulseSchedule(kind: .tell)
     private var settle = PulseSchedule(kind: .settle)
@@ -295,7 +298,7 @@ final class HapticsController {
         case .armed, .contact, .grain, .fracture, .reveal:
             break
         }
-        perform(event, recipeCue: recipeCue)
+        perform(event, recipeCue: recipeCue, context: context)
     }
 
     func place(context: FeedbackContext) {
@@ -313,7 +316,7 @@ final class HapticsController {
     func audition(_ kind: ObjectKind, event: PressEvent, golden: Bool = false, surprise: Surprise? = nil) {
         let context = Audition.context(for: kind, event: event, golden: golden, surprise: surprise)
         let recipeCue = RecipeMoment(event).map { CueBook.preview($0, context: context, dice: auditionDice) }
-        perform(event, recipeCue: recipeCue)
+        perform(event, recipeCue: recipeCue, context: context)
     }
 
     /// Tuning Lab: feel the object's placement tap.
@@ -324,7 +327,8 @@ final class HapticsController {
 
     /// One pattern per event: the shared layers and the recipe's notes together, so the 12 ms gap rule interleaves
     /// them instead of queueing one behind the other (which put the reveal's recipe taps ~0.3 s behind their sound).
-    private func perform(_ event: PressEvent, recipeCue: FeedbackCue?) {
+    private func perform(_ event: PressEvent, recipeCue: FeedbackCue?, context: FeedbackContext) {
+        let brand = { (moment: CueBook.BrandMoment) in CueBook.shared.cue(for: .brand(moment), context: context, consumer: .haptics) }
         var cue = recipeCue ?? FeedbackCue()
         switch event {
         case .grain:
@@ -339,11 +343,14 @@ final class HapticsController {
         case .bottomOut:
             cue.add(BrandCues.bottomOut)
         case .kaChunk:
-            cue.add(BrandCues.kaChunk)
+            cue.add(brand(.kaChunk))
         case .reveal:
             cue.add(BrandCues.unlatch)
             cue.add(BrandCues.sting)
-        case .armed, .sealed, .preFailureTell, .hush, .contact, .fracture, .released:
+            cue.add(brand(.stamp))
+        case .contact:
+            cue.add(brand(.contact))
+        case .armed, .sealed, .preFailureTell, .hush, .fracture, .released:
             break
         }
         play(cue)
@@ -530,6 +537,7 @@ final class HapticsController {
                 }
             }
         }
+        startTime += HapticTuning.alignment(audioDelay: audioDelay)
         for note in notes where note.kind == .transient {
             scheduledTransients.append(startTime + note.time)
         }

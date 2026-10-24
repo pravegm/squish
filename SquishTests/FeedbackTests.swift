@@ -202,6 +202,8 @@ struct FeedbackTests {
     @Test func placementReseedsSoAPressReplaysFromItsSeed() {
         let one = CueBook(seed: 1)
         let two = CueBook(seed: 999)
+        one.library = { nil }
+        two.library = { nil }
         let egg = context(.egg, seed: 1234)
         #expect(one.cue(for: .recipe(.place), context: egg, consumer: .audio)
             == two.cue(for: .recipe(.place), context: egg, consumer: .audio))
@@ -580,6 +582,130 @@ struct FeedbackTests {
         #expect(cue.haptics.allSatisfy { $0.intensity <= 0.8 && $0.time < 0.5 })
     }
 
+    // MARK: - Recorded foley
+
+    @Test func recordedLibraryLoadsFromTheAppBundle() {
+        let library = SampleLibrary.loadNow()
+        #expect(library.problem == nil, "\(library.problem ?? "")")
+        #expect(library.groups.count >= 30, "only \(library.groups.count) groups")
+        #expect(library.fileCount >= 100)
+        #expect(library.groups["press_kachunk_latch"] != nil)
+        #expect(library.groups.values.allSatisfy { group in group.files.allSatisfy { $0.data.count > 1 && $0.data.sampleRate > 0 } })
+        // Every group the map asks for exists, so no moment silently stays synthesised by a typo.
+        let keys = ["press.kachunk", "press.contact", "bubblewrap.pop", "duck.honk", "jelly.failure", "crayon.snap",
+                    "egg.failure", "cake.failure", "can.fizz", "gummy.failure", "glass.failure", "unsquishable.failure"]
+        for key in keys {
+            for pick in SampleMap.rule(for: key, isClimax: true)?.picks ?? [] {
+                #expect(library.groups[pick.group] != nil, "\(key) → \(pick.group) missing")
+            }
+        }
+    }
+
+    private func voice(_ cue: FeedbackCue, style: SoundStyle = .workshop, seed: UInt64 = 1) -> FeedbackCue {
+        SampleVoicing.voice(cue, style: style, speed: 0.5, library: SampleLibrary.loadNow(), dice: FeedbackDice(seed: seed))
+    }
+
+    @Test func samplesReplaceTheCompetingSynthLayersAndBringTheirHits() {
+        let failure = cue(.glassBottle, .fracture(index: kindFailure(.glassBottle), isFailure: true))
+        let voiced = voice(failure)
+        #expect(voiced.sounds.contains(where: isSample))
+        // Noise and crunch bodies are gone; low thumps and modal rings stay under the recording.
+        #expect(!voiced.sounds.contains { layer in
+            guard layer.slot.id.hasPrefix("glass.failure.") else { return false }
+            return SampleMap.competes(layer.command) && !isSample(layer)
+        })
+        #expect(voiced.sounds.allSatisfy { $0.command.gain > 0 && $0.command.gain <= 1 })
+        // The shatter's own hits drive the vibration (a hero: the first hit at full), the recipe's tails stay.
+        #expect(voiced.haptics.contains { $0.kind == .transient && $0.intensity == 1 })
+        #expect(voiced.haptics.filter { $0.kind == .continuous }.count == failure.haptics.filter { $0.kind == .continuous }.count)
+        // The ka-chunk layers its recordings under the synth and keeps the brand "ready" tinks.
+        let chunk = voice(BrandCues.kaChunk)
+        #expect(chunk.sounds.contains { $0.slot.id.hasPrefix("press.kachunk.ready") })
+        #expect(chunk.sounds.contains { $0.slot.id == "press.kachunk.thock" })
+        #expect(chunk.sounds.contains(where: isSample))
+        #expect(chunk.haptics.count >= BrandCues.kaChunk.haptics.count)
+        // Soft keeps liquid synthesised: the jelly splat isn't swapped for a wet recording.
+        let splat = cue(.jelly, .fracture(index: kindFailure(.jelly), isFailure: true))
+        #expect(!voice(splat, style: .soft).sounds.contains(where: isSample))
+        // Unmapped moments are untouched.
+        let tick = BrandCues.tick(523.25)
+        #expect(voice(tick) == tick)
+    }
+
+    @Test func theBookHandsBothControllersTheSameRecordingAndReplaysIt() {
+        let one = CueBook(seed: 5)
+        let two = CueBook(seed: 77)
+        one.library = { SampleLibrary.loadNow() }
+        two.library = { SampleLibrary.loadNow() }
+        let egg = context(.egg, seed: 99)
+        _ = one.cue(for: .recipe(.place), context: egg, consumer: .audio)
+        _ = two.cue(for: .recipe(.place), context: egg, consumer: .audio)
+        let failure = CueBook.Key.recipe(.fracture(index: kindFailure(.egg), isFailure: true))
+        let heard = one.cue(for: failure, context: egg, consumer: .audio)
+        let felt = one.cue(for: failure, context: egg, consumer: .haptics)
+        #expect(heard == felt)
+        #expect(heard.sounds.contains(where: isSample))
+        // A second book on the same press seed picks the same files (share clips replay the press exactly).
+        #expect(two.cue(for: failure, context: egg, consumer: .audio) == heard)
+        // A brand layer and a recipe moment in one event, asked in either order, still match.
+        let contactH = one.cue(for: .recipe(.contact), context: egg, consumer: .haptics)
+        let brandH = one.cue(for: .brand(.contact), context: egg, consumer: .haptics)
+        #expect(one.cue(for: .brand(.contact), context: egg, consumer: .audio) == brandH)
+        #expect(one.cue(for: .recipe(.contact), context: egg, consumer: .audio) == contactH)
+    }
+
+    @Test func recordedLoopsFollowTheStrain() throws {
+        let library = SampleLibrary.loadNow()
+        let low = try #require(SampleVoicing.loopBed(kind: .sodaCan, progress: 0.2, speed: 0.3, holding: false, failed: false,
+                                                     opening: false, closing: true, style: .workshop, library: library))
+        let high = try #require(SampleVoicing.loopBed(kind: .sodaCan, progress: 1, speed: 0.3, holding: false, failed: false,
+                                                      opening: false, closing: true, style: .workshop, library: library))
+        #expect(high.gain > low.gain)
+        #expect(high.rate >= low.rate)
+        let held = try #require(SampleVoicing.loopBed(kind: .sodaCan, progress: 1, speed: 0, holding: true, failed: false,
+                                                      opening: false, closing: false, style: .workshop, library: library))
+        #expect(held.gain > high.gain * 0.5)
+        let crayon = SampleVoicing.loopBed(kind: .crayon, progress: 1, speed: 1, holding: false, failed: false,
+                                           opening: false, closing: true, style: .workshop, library: library)
+        let softJelly = SampleVoicing.loopBed(kind: .jelly, progress: 1, speed: 1, holding: false, failed: false,
+                                              opening: false, closing: true, style: .soft, library: library)
+        let opening = SampleVoicing.loopBed(kind: .sodaCan, progress: 1, speed: 1, holding: false, failed: false,
+                                            opening: true, closing: false, style: .workshop, library: library)
+        #expect(crayon?.gain == nil)
+        #expect(softJelly?.gain == nil)
+        #expect(opening?.gain == nil)
+    }
+
+    @Test func hapticsWaitForTheAudioPathOnlyWhenItIsSlow() {
+        #expect(HapticTuning.alignment(audioDelay: 0.008) == 0)
+        #expect(abs(HapticTuning.alignment(audioDelay: 0.16) - 0.148) < 1e-9)
+        #expect(HapticTuning.alignment(audioDelay: 2) == 0.25)
+    }
+
+    private func kindFailure(_ kind: ObjectKind) -> Int { kind.profile.failureIndex ?? 0 }
+
+    private func isSample(_ layer: SoundLayer) -> Bool {
+        if case .sample = layer.command { return true }
+        return false
+    }
+
+    @Test func synthPlaysASampleVoice() throws {
+        let library = SampleLibrary.loadNow()
+        let group = try #require(library.groups["press_kachunk_latch"])
+        let file = try #require(group.files.first)
+        let synth = Synth(sampleRate: 48_000)
+        synth.trigger(.sample(SampleSpec(data: file.data, rate: 1, gain: 0.5, delay: 0.01)))
+        var out = [Float](repeating: 0, count: 9_600)
+        out.withUnsafeMutableBufferPointer { buffer in
+            if let base = buffer.baseAddress { synth.render(frames: buffer.count, into: base) }
+        }
+        let early = out[0..<400].map { abs($0) }.max() ?? 0
+        let peak = out.map { abs($0) }.max() ?? 0
+        #expect(early == 0) // the 10 ms delay is honoured
+        #expect(peak > 0.01)
+        #expect(peak <= 0.9)
+    }
+
     // MARK: - Loudness (02 §6: −16 LUFS integrated ±2 on the phone speaker)
 
     /// A steady 4-second touch close from 180° to 30°, then the hold to the reveal.
@@ -596,7 +722,7 @@ struct FeedbackTests {
     }
 
     /// The press replayed into the offline twin of the live controller (same cues, same beds, same master).
-    private func renderPress(_ kind: ObjectKind, seconds: Double = 9) -> [Float] {
+    private func renderPress(_ kind: ObjectKind, seconds: Double = 9) -> (pcm: [Float], failure: Double?) {
         let trace = pressTrace(kind)
         let audio = OfflineAudio(style: .workshop)
         let replay = PressReplay(trace: trace)
@@ -605,7 +731,9 @@ struct FeedbackTests {
             FeedbackContext(kind: trace.kind, variant: trace.variant, compression: Float(engine.measuredCompression),
                             closingSpeed: Float(engine.closingSpeed), soundStyle: .workshop, reduceMotion: false)
         }
+        var failure: Double?
         replay.onEvent = { event, time in
+            if case .fracture(_, true) = event, failure == nil { failure = time }
             audio.seek(to: time, rate: 1)
             audio.handle(event, context: context())
         }
@@ -622,13 +750,26 @@ struct FeedbackTests {
             audio.update(engine: engine, context: context(), dt: dt)
             index += 1
         }
-        return OfflineAudio.render(audio.score, frames: Int(seconds * OfflineAudio.sampleRate))
+        return (OfflineAudio.render(audio.score, frames: Int(seconds * OfflineAudio.sampleRate)), failure)
     }
 
     @Test func pressMixLandsNearTheLoudnessTarget() {
         var all: [Double] = []
+        var contrasts: [Double] = []
         for kind in ObjectKind.allCases {
-            let pcm = renderPress(kind)
+            let (pcm, failure) = renderPress(kind)
+            if let failure {
+                // Bed (the second before the break) against the break (the 400 ms after it): SOUND-2 wants 10–12 LU.
+                let rate = OfflineAudio.sampleRate
+                let bedStart = max(Int((failure - 1.1) * rate), 0), bedEnd = max(Int((failure - 0.1) * rate), bedStart)
+                let breakStart = Int(failure * rate), breakEnd = min(Int((failure + 0.45) * rate), pcm.count)
+                if bedEnd - bedStart > Int(0.4 * rate), breakEnd - breakStart > Int(0.4 * rate) {
+                    let bed = Loudness.integrated(Array(pcm[bedStart..<bedEnd]), sampleRate: rate)
+                    let hit = Loudness.integrated(Array(pcm[breakStart..<breakEnd]), sampleRate: rate)
+                    print(String(format: "SQUISH-LOUD kind=%@ bed=%.1f break=%.1f contrast=%.1f LU", kind.rawValue, bed, hit, hit - bed))
+                    if bed.isFinite && hit.isFinite { contrasts.append(hit - bed) }
+                }
+            }
             let lufs = Loudness.integrated(pcm, sampleRate: OfflineAudio.sampleRate)
             let peak = Double(pcm.map { abs($0) }.max() ?? 0)
             print(String(format: "SQUISH-LOUD kind=%@ lufs=%.1f peak=%.1f dBFS", kind.rawValue, lufs, 20 * log10(max(peak, 1e-9))))
@@ -638,6 +779,9 @@ struct FeedbackTests {
         }
         let mean = all.reduce(0, +) / Double(max(all.count, 1))
         print(String(format: "SQUISH-LOUD mean lufs=%.1f", mean))
+        if !contrasts.isEmpty {
+            print(String(format: "SQUISH-LOUD mean contrast=%.1f LU", contrasts.reduce(0, +) / Double(contrasts.count)))
+        }
         // Target −16 ±2 (02 §6); the bound is ±3 so a small recipe change never blocks CI, and the log shows it.
         #expect(mean > -19 && mean < -13, "mean press loudness \(mean) LUFS")
     }

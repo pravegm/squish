@@ -88,11 +88,29 @@ struct CrunchSpec: Sendable, Equatable {
     var delay: Float
 }
 
+/// Decoded mono Float32 PCM owned by `SampleLibrary` for the life of the app (never freed, never mutated after load),
+/// so the audio thread can read it without ARC or locks.
+struct SampleData: @unchecked Sendable, Equatable {
+    let samples: UnsafePointer<Float>
+    let count: Int
+    let sampleRate: Float
+}
+
+/// One recorded sample, played as a synth voice (same master, limiter, hush and timing as everything else).
+struct SampleSpec: Sendable, Equatable {
+    var data: SampleData
+    /// Playback rate: 1 = original pitch; 2^(st/12) for a pitch shift (varispeed, like tape).
+    var rate: Float
+    var gain: Float
+    var delay: Float
+}
+
 enum SynthCommand: Sendable, Equatable {
     case noise(NoiseSpec)
     case tone(ToneSpec)
     case ring(RingSpec)
     case crunch(CrunchSpec)
+    case sample(SampleSpec)
     /// Ducks everything already sounding (beds and voices) by −12 dB for `duration` (bible §3.1 beat 6).
     /// Voices started after the hush play at full level, so the failure lands on silence.
     case hush(duration: Float)
@@ -104,6 +122,7 @@ enum SynthCommand: Sendable, Equatable {
         case .tone(let spec): spec.gain
         case .ring(let spec): spec.gain
         case .crunch(let spec): spec.gain
+        case .sample(let spec): spec.gain
         case .hush: 0
         }
     }
@@ -114,6 +133,7 @@ enum SynthCommand: Sendable, Equatable {
         case .tone(let spec): spec.delay
         case .ring(let spec): spec.delay
         case .crunch(let spec): spec.delay
+        case .sample(let spec): spec.delay
         case .hush: 0
         }
     }
@@ -125,6 +145,7 @@ enum SynthCommand: Sendable, Equatable {
         case .tone(var spec): spec.delay = max(spec.delay + seconds, 0); return .tone(spec)
         case .ring(var spec): spec.delay = max(spec.delay + seconds, 0); return .ring(spec)
         case .crunch(var spec): spec.delay = max(spec.delay + seconds, 0); return .crunch(spec)
+        case .sample(var spec): spec.delay = max(spec.delay + seconds, 0); return .sample(spec)
         case .hush: return self
         }
     }
@@ -135,6 +156,7 @@ enum SynthCommand: Sendable, Equatable {
         case .tone(var spec): spec.gain *= factor; return .tone(spec)
         case .ring(var spec): spec.gain *= factor; return .ring(spec)
         case .crunch(var spec): spec.gain *= factor; return .crunch(spec)
+        case .sample(var spec): spec.gain *= factor; return .sample(spec)
         case .hush: return self
         }
     }
@@ -149,7 +171,7 @@ enum SynthCommand: Sendable, Equatable {
             spec.high = min(spec.high, 5000)
             spec.low = min(spec.low, spec.high)
             return .crunch(spec)
-        case .noise, .tone, .ring, .hush:
+        case .noise, .tone, .ring, .sample, .hush:
             return self
         }
     }
@@ -179,8 +201,14 @@ struct BedParams: Sendable {
     var crushHigh: Float = 4000
     var crushQ: Float = 1.2
     var crushGrainDecay: Float = 0.004
+    // Recorded strain or crush loop (SOUND-2 §5.1 item 3): nil = none. Its gain and rate follow the press.
+    var loop: SampleData? = nil
+    var loopGain: Float = 0
+    var loopRate: Float = 1
     // Master.
     var master: Float = 0.8
+    /// 1 on the built-in speaker: a low-mid lift and a protective high-pass (the Duo speaker is thin and quiet).
+    var speakerEQ: Float = 0
     /// 0 = Workshop, 1 = Soft (master low-pass at 6 kHz, bible §8).
     var softAmount: Float = 0
 
@@ -207,6 +235,10 @@ struct BedParams: Sendable {
         crushQ = target.crushQ
         crushGrainDecay = target.crushGrainDecay
         master += (target.master - master) * fast
+        loop = target.loop
+        loopGain += (target.loopGain - loopGain) * fast
+        loopRate += (target.loopRate - loopRate) * slow
+        speakerEQ += (target.speakerEQ - speakerEQ) * slow
         softAmount += (target.softAmount - softAmount) * slow
     }
 }
@@ -283,8 +315,38 @@ private struct SVF {
     }
 }
 
+/// Transposed direct form II biquad (RBJ cookbook), for the speaker EQ.
+private struct Biquad {
+    var b0: Float = 1, b1: Float = 0, b2: Float = 0, a1: Float = 0, a2: Float = 0
+    var z1: Float = 0, z2: Float = 0
+
+    static func peaking(_ frequency: Float, gainDb: Float, q: Float, sampleRate: Float) -> Biquad {
+        let a = pow(10, gainDb / 40)
+        let w = 2 * Float.pi * frequency / sampleRate
+        let alpha = sin(w) / (2 * q)
+        let a0 = 1 + alpha / a
+        return Biquad(b0: (1 + alpha * a) / a0, b1: -2 * cos(w) / a0, b2: (1 - alpha * a) / a0,
+                      a1: -2 * cos(w) / a0, a2: (1 - alpha / a) / a0)
+    }
+
+    static func highPass(_ frequency: Float, q: Float, sampleRate: Float) -> Biquad {
+        let w = 2 * Float.pi * frequency / sampleRate
+        let alpha = sin(w) / (2 * q)
+        let a0 = 1 + alpha
+        return Biquad(b0: (1 + cos(w)) / 2 / a0, b1: -(1 + cos(w)) / a0, b2: (1 + cos(w)) / 2 / a0,
+                      a1: -2 * cos(w) / a0, a2: (1 - alpha) / a0)
+    }
+
+    mutating func process(_ x: Float) -> Float {
+        let y = b0 * x + z1
+        z1 = b1 * x - a1 * y + z2
+        z2 = b2 * x - a2 * y
+        return y
+    }
+}
+
 private struct Voice {
-    enum Kind { case noise, tone, ring, crunch }
+    enum Kind { case noise, tone, ring, crunch, sample }
     var active = false
     var kind: Kind = .noise
     var ducked = false
@@ -323,6 +385,10 @@ private struct Voice {
     var grainCountdown = 0
     var grainLevel: Float = 0
     var grainDecay: Float = 0
+    // Sample.
+    var sampleData: SampleData?
+    var samplePosition: Double = 0
+    var sampleStep: Double = 1
 }
 
 // MARK: - Synth
@@ -387,6 +453,9 @@ final class Synth: @unchecked Sendable {
     private var lowPass1: Float = 0
     private var lowPass2: Float = 0
     private var limiterEnvelope: Float = 0
+    private var loopPosition: Double = 0
+    private var speakerLowMid = Biquad()
+    private var speakerHighPass = Biquad()
 
     private let smoothFast: Float
     private let smoothSlow: Float
@@ -401,6 +470,10 @@ final class Synth: @unchecked Sendable {
     init(sampleRate: Float) {
         self.sampleRate = sampleRate
         bedBus = AudioMix.bedBus
+        // Speaker profile (02 §3.3, SOUND-2): +4 dB at 300 Hz for body the small speaker can carry, and a 90 Hz
+        // high-pass so the lows it can't play don't eat its excursion and headroom.
+        speakerLowMid = Biquad.peaking(300, gainDb: 4, q: 0.9, sampleRate: sampleRate)
+        speakerHighPass = Biquad.highPass(90, q: 0.707, sampleRate: sampleRate)
         smoothFast = 1 - exp(-1 / (0.025 * sampleRate))
         smoothSlow = 1 - exp(-1 / (0.15 * sampleRate))
         duckDown = 1 - exp(-1 / (0.006 * sampleRate))
@@ -441,6 +514,11 @@ final class Synth: @unchecked Sendable {
             start(command)
         }
         let target = bedParams.withLock { $0 }
+        if target.loop != beds.loop {
+            // A new loop (or none): start it from the top, fading in from silence.
+            loopPosition = 0
+            beds.loopGain = 0
+        }
         var blockPeak: Float = 0
         defer {
             let peak = blockPeak
@@ -492,12 +570,25 @@ final class Synth: @unchecked Sendable {
                 bed += renderCrushBed()
             }
 
-            var sample = bed * duck * bedBus
+            var loopValue: Float = 0
+            if let loop = beds.loop, beds.loopGain > 0.00005, loop.count > 1 {
+                let index = Int(loopPosition)
+                let a = loop.samples[index % loop.count]
+                let b = loop.samples[(index + 1) % loop.count]
+                loopValue = (a + (b - a) * Float(loopPosition - Double(index))) * beds.loopGain
+                loopPosition += Double(beds.loopRate) * Double(loop.sampleRate) / Double(sampleRate)
+                if loopPosition >= Double(loop.count) { loopPosition -= Double(loop.count) }
+            }
+            var sample = (bed * bedBus + loopValue) * duck
             for index in 0..<voices.count where voices[index].active {
                 let value = renderVoice(&voices[index], slot: index)
                 sample += voices[index].ducked ? value * duck : value
             }
             sample *= beds.master
+
+            // Speaker profile, crossfaded in on the built-in speaker (the filters always run, so they never click).
+            let shaped = speakerHighPass.process(speakerLowMid.process(sample))
+            sample += (shaped - sample) * beds.speakerEQ
 
             // Soft style: crossfade into a 12 dB/oct low-pass at 6 kHz.
             lowPass1 += lowPassCoefficient * (sample - lowPass1)
@@ -618,6 +709,18 @@ final class Synth: @unchecked Sendable {
             voice.length = min(Int(spec.decay * sampleRate * 7), Int(sampleRate * 4))
             voice.gain = 1
             configureRing(spec, slot: slot, voice: &voice)
+        case .sample(let spec):
+            guard spec.data.count > 1 else { return }
+            voice.kind = .sample
+            voice.delay = Int(spec.delay * sampleRate)
+            voice.attack = 1
+            voice.decayRate = 1
+            voice.gain = spec.gain
+            voice.sampleData = spec.data
+            voice.samplePosition = 0
+            // Varispeed: the file's own rate against the device's, times the pitch.
+            voice.sampleStep = Double(max(spec.rate, 0.05)) * Double(spec.data.sampleRate) / Double(sampleRate)
+            voice.length = Int(Double(spec.data.count) / voice.sampleStep) + 2
         case .crunch(let spec):
             voice.kind = .crunch
             voice.delay = Int(spec.delay * sampleRate)
@@ -762,6 +865,22 @@ final class Synth: @unchecked Sendable {
             voice.grainLevel *= voice.grainDecay
             let shape = 1 + (voice.gainEnd - 1) * progress
             return voice.filter.process(nextNoise(), .bandPass) * voice.grainLevel * voice.gain * shape
+        case .sample:
+            guard let data = voice.sampleData else {
+                voice.active = false
+                return 0
+            }
+            let index = Int(voice.samplePosition)
+            guard index + 1 < data.count else {
+                voice.active = false
+                return 0
+            }
+            // Linear interpolation between neighbours (varispeed).
+            let fraction = Float(voice.samplePosition - Double(index))
+            let a = data.samples[index]
+            let b = data.samples[index + 1]
+            voice.samplePosition += voice.sampleStep
+            return (a + (b - a) * fraction) * voice.gain
         }
     }
 }

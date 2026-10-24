@@ -147,6 +147,7 @@ final class PressDirector {
         audio.enabled = settings.soundEnabled
         audio.style = settings.soundStyle
         audio.playsInSilentMode = settings.playSoundInSilentMode
+        haptics.audioDelay = audio.outputDelay
     }
 
     /// The hinge outside the press (HingeFeel): creak and texture every frame, and each detent, open and shut as one
@@ -218,7 +219,9 @@ final class PressDirector {
         guard now - lastPoke > 0.08, revealed == nil, !engine.isLoaded,
               engine.phase == .idle || engine.phase == .armed else { return }
         lastPoke = now
-        let cue = TouchCues.poke(currentKind, dice: feelDice)
+        // The material's recorded answer where the library has one (duck squeak, can tink, glass clink…).
+        let cue = SampleVoicing.voice(TouchCues.poke(currentKind, dice: feelDice), style: settings.soundStyle, speed: 0,
+                                      library: SampleLibrary.loaded, dice: feelDice)
         haptics.playShared(cue)
         audio.playShared(cue)
     }

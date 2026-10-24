@@ -73,6 +73,12 @@ enum AudioMix {
     /// Extra gain on the continuous layers (strain, crush, hiss, motor, creak) before the master. They sat near
     /// −30 dBFS, which a phone speaker in a hand can't carry; +6.8 dB brings the press bed up where the strain is heard.
     static let bedBus: Float = 2.2
+    /// Recorded samples arrive loudness-normalised per category (the manifest's `gainDb` is the trim on top); this
+    /// sets them against the synth layers before the master, so a "hero" break peaks just into the limiter.
+    static let sampleBus: Float = 0.5
+    /// The recorded strain loops (normalised around −24 LUFS, then the manifest's −14 dB trim). This sits the held
+    /// strain bed ~10–12 LU under the break (SOUND-2 §5.1 item 6).
+    static let loopBus: Float = 2.5
 
     /// Linear → dBFS, for the diagnostics.
     static func decibels(_ linear: Float) -> String {
@@ -103,6 +109,14 @@ enum HapticTuning {
     static let loadedFloor: Float = 0.14
     /// Closing speed (°/s) that counts as "fully moving" for the bed. A deliberate Duo close is 10–40 °/s.
     static let speedReference: Double = 40
+
+    /// The haptic engine's own latency, assumed (SOUND-2 §4.3: the net offset is ≈ 0 on the built-in speaker).
+    static let engineLatency = 0.012
+
+    /// How much later a haptic pattern starts than its sound is triggered, so both reach the user together.
+    static func alignment(audioDelay: Double) -> Double {
+        min(max(audioDelay - engineLatency, 0), 0.25)
+    }
 
     static func lift(_ intensity: Float) -> Float {
         pow(min(max(intensity, 0), 1), liftExponent)
