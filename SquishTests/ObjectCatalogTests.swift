@@ -55,6 +55,30 @@ struct ObjectCatalogTests {
         #expect(!kind.displayName.isEmpty)
     }
 
+    /// The Crayon Box snaps every crayon on its own (OBJECT-STORYBOARDS §4): seven snaps between ~0.26 and ~0.56 (the
+    /// first is the failure), then the crumble at ~0.74, and no jitter can swap two snaps.
+    @Test func crayonBoxSnapsEachCrayonOnItsOwn() {
+        let profile = ObjectKind.crayon.profile
+        #expect(profile.fractures.count == 8)
+        #expect(profile.failureIndex == 0)
+        let snaps = profile.fractures.prefix(7)
+        #expect(snaps.allSatisfy { $0 >= 0.26 && $0 <= 0.56 })
+        #expect(abs(profile.fractures[7] - 0.74) < 0.02)
+        for i in 1..<profile.fractures.count {
+            #expect(profile.fractures[i] - profile.fractures[i - 1] > 2 * profile.thresholdJitter)
+        }
+        for seed in UInt64(1)...200 {
+            let jittered = profile.jitteredFractures(seed: seed)
+            for (i, t) in jittered.enumerated() {
+                #expect(abs(t - profile.fractures[i]) <= profile.thresholdJitter + 1e-9, "seed \(seed): fracture \(i) moved order")
+            }
+        }
+        // A real press fires all eight, once each.
+        let (engine, log) = slowPress(.crayon, seed: 11)
+        #expect(engine.phase == .sealed)
+        #expect(log.fractureIndices() == Array(0..<8))
+    }
+
     @Test func jitteredFracturesStayOrderedAndDeterministic() {
         for kind in ObjectKind.allCases {
             let a = kind.profile.jitteredFractures(seed: 99)

@@ -110,7 +110,7 @@ enum FoldStamps {
         case .bubbleWrap: 12
         case .rubberDuck: -30
         case .jelly: 0
-        case .crayon: -20
+        case .crayon: -14
         case .egg: -20
         case .cakeSlice: atan2(0.6, 0.8) * 180 / .pi
         case .sodaCan: -15
@@ -196,19 +196,22 @@ enum FoldStamps {
             radii = (0.050, 0.050)
             features = [map(0.008, -0.022), map(0.030, 0.020)]   // the skin split
         case .crayon:
-            let profile: [SIMD2<Double>] = [
-                SIMD2(0.000, 0.000), SIMD2(0.0095, 0.000), SIMD2(0.0110, 0.0015), SIMD2(0.0110, 0.0880),
-                SIMD2(0.0045, 0.1050), SIMD2(0.0025, 0.1090), SIMD2(0.0010, 0.1120), SIMD2(0.000, 0.1130),
-            ]
-            polygon(lyingProfile(profile, length: 0.113), into: path)
-            radii = (0.058, 0.0115)
+            // The Crayon Box (CrayonView / CrayonBox): the tray's outline, seven crayon lanes inside it. The features
+            // are each snap's break point in fracture order (`CrayonBox.snapOrder`, at its crayon's seeded cut), then
+            // the seven lane centres in slot order, so the snaps print over their own crayons.
+            let half = crayonBoxHalf
+            path.addRoundedRect(in: CGRect(x: -half.x, y: -half.y, width: 2 * half.x, height: 2 * half.y),
+                                cornerWidth: 0.002, cornerHeight: 0.002, transform: t)
+            radii = (half.x * 1.05, half.y * 1.05)
             contact = .line
-            // Mirrors CrayonView: the two cut planes are the first draws of SplitMix64(seed ^ 0xC4A7).
-            var rng = SplitMix64(seed: variant.seed ^ 0xC4A7)
-            let cut1 = Double(Float.random(in: 0.030...0.048, using: &rng))
-            let cut2 = Double(Float.random(in: 0.062...0.080, using: &rng))
-            features = [map(cut1 - 0.0565, 0), map(cut2 - 0.0565, 0), map(-0.0565, 0), map(0.0565, 0)]
-            featureRadius = CGFloat(0.0115 * k)
+            let layout = CrayonBox.layout(seed: variant.seed)
+            let length = Double(CrayonBox.length)
+            for slot in CrayonBox.snapOrder(seed: variant.seed) {
+                let cut = Double(CrayonBox.cuts[layout[slot].cutIndex])
+                features.append(map(Double(layout[slot].x) + cut * length - length / 2, Double(CrayonBox.laneZ(slot))))
+            }
+            for slot in 0..<7 { features.append(map(Double(layout[slot].x), Double(CrayonBox.laneZ(slot)))) }
+            featureRadius = CGFloat(Double(CrayonBox.crayonRadius) * k)
         case .egg:
             let profile: [SIMD2<Double>] = [
                 SIMD2(0.000, 0.000), SIMD2(0.017, 0.004), SIMD2(0.026, 0.010), SIMD2(0.034, 0.020), SIMD2(0.0385, 0.032),
@@ -279,7 +282,7 @@ enum FoldStamps {
         case .bubbleWrap: return (UIColor(hex: 0xCFE8F5), UIColor(hex: 0x6FAED0), 0.55)
         case .rubberDuck: return (Palette.duckYellow, UIColor(hex: 0xE0A800), 0.92)
         case .jelly: return (Palette.raspberry, UIColor(hex: 0xB81E52), 0.78)
-        case .crayon: return (Palette.cobalt, UIColor(hex: 0x1D3BA8), 0.88)
+        case .crayon: return (UIColor(hex: CrayonBox.boxTint), UIColor(hex: 0xC8901A), 0.82)
         case .egg: return (UIColor(hex: 0xF3DFC0), UIColor(hex: 0xC9A877), 0.85)
         case .cakeSlice: return (UIColor(hex: 0xFF9BCB), UIColor(hex: 0xE05FA0), 0.88)
         case .sodaCan:
@@ -335,6 +338,8 @@ enum FoldStamps {
             ctx.fill(FoldPrintCanvas.rect)
             if stamp.kind == .bubbleWrap {
                 bubbleFilm(ctx, stamp, outline: outline)
+            } else if stamp.kind == .crayon {
+                crayonLanes(ctx, stamp)
             } else {
                 // Pooled rim: a wide, blurred stroke of the outline, clipped inside, so the edge reads soft but clean.
                 ctx.setShadow(offset: .zero, blur: 5 * scale, color: stamp.inkEdge.withAlphaComponent(0.55).cgColor)
@@ -398,6 +403,115 @@ enum FoldStamps {
                 ctx.drawRadialGradient(g, startCenter: centre, startRadius: 0, endCenter: centre, endRadius: r, options: [])
             }
         }
+    }
+
+    // MARK: The Crayon Box (3D-art round: the single cobalt crayon became a box of seven and a rainbow smear)
+
+    /// The tray's top-down half size (metres): the crayons' tray plus its walls.
+    static var crayonBoxHalf: SIMD2<Double> {
+        SIMD2(Double(CrayonBox.trayInner.x / 2 + CrayonBox.wallThickness), Double(CrayonBox.trayInner.y / 2 + CrayonBox.wallThickness))
+    }
+
+    /// The rainbow, slot by slot (`CrayonBox.colours` order), or gold.
+    static func crayonInks(_ stamp: FoldStamp) -> [UIColor] {
+        stamp.golden ? [UIColor](repeating: Palette.gold, count: 7) : (0..<7).map { UIColor(hex: CrayonBox.wrapHex($0)) }
+    }
+
+    /// The box's kiss: the card's printed rim pressed a shade darker, and the seven crayons as waxy lanes of colour,
+    /// each with its tip, a lighter wax highlight down its middle and a pale wrap band (drawn under the ink mottle).
+    private static func crayonLanes(_ ctx: CGContext, _ stamp: FoldStamp) {
+        let k = Double(stamp.pointsPerMetre)
+        let half = crayonBoxHalf
+        ctx.saveGState()
+        ctx.rotate(by: CGFloat(-stamp.yawRadians))
+        ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(0.6).cgColor)
+        ctx.setLineWidth(5)
+        ctx.stroke(CGRect(x: -half.x * k, y: -half.y * k, width: 2 * half.x * k, height: 2 * half.y * k))
+        let inks = crayonInks(stamp)
+        let layout = CrayonBox.layout(seed: stamp.seed)
+        let d = Double(CrayonBox.crayonDiameter) * k, length = Double(CrayonBox.length) * k
+        for slot in 0..<7 {
+            let x0 = Double(layout[slot].x) * k - length / 2, z = Double(CrayonBox.laneZ(slot)) * k
+            let w = d * (slot % 2 == 1 ? 0.92 : 0.8)
+            let body = CGMutablePath()
+            body.addRoundedRect(in: CGRect(x: x0, y: z - w / 2, width: length * 0.8, height: w), cornerWidth: w * 0.2, cornerHeight: w * 0.2)
+            body.move(to: CGPoint(x: x0 + length * 0.8, y: z - w / 2))
+            body.addLine(to: CGPoint(x: x0 + length, y: z))
+            body.addLine(to: CGPoint(x: x0 + length * 0.8, y: z + w / 2))
+            body.closeSubpath()
+            ctx.addPath(body)
+            ctx.setFillColor(inks[slot].withAlphaComponent(0.92).cgColor)
+            ctx.fillPath()
+            // The wrap band, and the wax's highlight.
+            ctx.setFillColor(UIColor(white: 1, alpha: 0.22).cgColor)
+            ctx.fill(CGRect(x: x0 + length * 0.08, y: z - w / 2, width: length * 0.64, height: w * 0.18))
+            ctx.setFillColor(UIColor(white: 1, alpha: 0.3).cgColor)
+            ctx.fill(CGRect(x: x0 + length * 0.04, y: z - w * 0.08, width: length * 0.86, height: w * 0.12))
+        }
+        ctx.restoreGState()
+    }
+
+    /// One crayon's snap (fracture `index` < 7): a clean gap across its own lane at its break, with flakes of its wax.
+    private static func crayonSnap(_ ctx: CGContext, _ stamp: FoldStamp, index: Int, rng: inout SplitMix64) {
+        guard index < stamp.features.count else { return }
+        let p = stamp.features[index]
+        let half = stamp.featureRadius * 1.2
+        let n = CGPoint(x: -sin(CGFloat(-stamp.yawRadians)), y: cos(CGFloat(-stamp.yawRadians)))
+        let along = CGPoint(x: n.y, y: -n.x)
+        ctx.saveGState()
+        ctx.setLineCap(.round)
+        ctx.setStrokeColor(Palette.plateSteel.withAlphaComponent(0.95).cgColor)
+        ctx.setLineWidth(3)
+        // A jagged snap line (wax breaks with a little step in it).
+        ctx.move(to: CGPoint(x: p.x - n.x * half, y: p.y - n.y * half))
+        ctx.addLine(to: CGPoint(x: p.x + along.x * 1.5, y: p.y + along.y * 1.5))
+        ctx.addLine(to: CGPoint(x: p.x + n.x * half, y: p.y + n.y * half))
+        ctx.strokePath()
+        ctx.restoreGState()
+        let slot = CrayonBox.snapOrder(seed: stamp.seed)[min(index, 6)]
+        let ink = crayonInks(stamp)[slot]
+        crumbs(ctx, around: p, spread: stamp.featureRadius * 1.6, count: 6, colors: [ink, ink.withAlphaComponent(0.6)],
+               size: 1.2...2.8, rng: &rng)
+    }
+
+    /// The crushed box's print: seven lanes of wax smeared out wide along the crayons, past the box, in rainbow order,
+    /// each streaked with drag lines, meeting its neighbours in a blended rainbow; a scatter of rainbow flakes.
+    private static func crayonSmear(_ ctx: CGContext, _ stamp: FoldStamp, rng: inout SplitMix64) {
+        let k = Double(stamp.pointsPerMetre)
+        let inks = crayonInks(stamp)
+        let d = Double(CrayonBox.crayonDiameter) * k
+        let length = Double(CrayonBox.length) * k * 1.22
+        let layout = CrayonBox.layout(seed: stamp.seed)
+        ctx.saveGState()
+        ctx.rotate(by: CGFloat(-stamp.yawRadians))
+        for slot in 0..<7 {
+            let z = Double(CrayonBox.laneZ(slot)) * k * 1.3
+            let x0 = Double(layout[slot].x) * k - length / 2 + Double.random(in: -4...4, using: &rng)
+            let ink = inks[slot]
+            // Soft wide skirt first (it blends with the neighbours), then the smear's body.
+            for (grow, alpha) in [(1.9, 0.28), (1.35, 0.6), (1.0, 0.85)] {
+                let w = d * grow
+                let rect = CGRect(x: x0 - w * 0.2, y: z - w / 2, width: length + w * 0.4, height: w)
+                ctx.addPath(CGPath(roundedRect: rect, cornerWidth: w / 2, cornerHeight: w / 2, transform: nil))
+                ctx.setFillColor(ink.withAlphaComponent(alpha).cgColor)
+                ctx.fillPath()
+            }
+            // Drag streaks along the smear: lighter and darker wax lines.
+            ctx.setLineCap(.round)
+            for _ in 0..<5 {
+                let y = z + Double.random(in: -0.45...0.45, using: &rng) * d
+                let a = x0 + Double.random(in: 0...0.2, using: &rng) * length
+                let b = x0 + Double.random(in: 0.6...1.05, using: &rng) * length
+                let light = rng.next() % 2 == 0
+                ctx.setStrokeColor((light ? UIColor(white: 1, alpha: 0.35) : darken(ink, 0.3).withAlphaComponent(0.5)).cgColor)
+                ctx.setLineWidth(CGFloat(Double.random(in: 0.8...2.2, using: &rng)))
+                ctx.move(to: CGPoint(x: a, y: y))
+                ctx.addLine(to: CGPoint(x: b, y: y + Double.random(in: -2...2, using: &rng)))
+                ctx.strokePath()
+            }
+        }
+        ctx.restoreGState()
+        crumbs(ctx, around: .zero, spread: stamp.fullRadius * 1.15, count: 26, colors: inks, size: 1.5...3.5, rng: &rng)
     }
 
     /// The silhouette as a solid alpha mask (white).
@@ -568,20 +682,13 @@ enum FoldStamps {
             }
             return .none
         case .crayon:
-            if index <= 1, stamp.features.count >= 2 {
-                // A snap: a clean gap across the waxy strip.
-                let p = stamp.features[index]
-                let half = stamp.featureRadius * 1.25
-                let n = CGPoint(x: -sin(CGFloat(-stamp.yawRadians)), y: cos(CGFloat(-stamp.yawRadians)))
-                ctx.setStrokeColor(Palette.plateSteel.cgColor)
-                ctx.setLineWidth(3.2)
-                ctx.setLineCap(.round)
-                ctx.move(to: CGPoint(x: p.x - n.x * half, y: p.y - n.y * half))
-                ctx.addLine(to: CGPoint(x: p.x + n.x * half, y: p.y + n.y * half))
-                ctx.strokePath()
+            if index < CrayonBox.snaps {
+                // Each crayon snaps on its own: a gap across its lane at its break.
+                crayonSnap(ctx, stamp, index: index, rng: &rng)
             } else {
-                crumbs(ctx, around: stamp.apex, spread: stamp.fullRadius * 0.9, count: 14,
-                       colors: [Palette.cobalt, UIColor(hex: 0x6F8EF2)], size: 1.5...3.5, rng: &rng)
+                // The crumble: rainbow wax flakes everywhere.
+                crumbs(ctx, around: stamp.apex, spread: stamp.fullRadius * 1.0, count: 22, colors: crayonInks(stamp),
+                       size: 1.5...3.5, rng: &rng)
             }
             return .none
         case .egg:
@@ -676,6 +783,14 @@ enum FoldStamps {
             blob(ctx, seam, r * 0.42, lobes: 9, (gold ? Palette.gold : Palette.duckYellow).withAlphaComponent(0.95), rng: &rng)
             drops += droplets(ctx, around: seam, from: r * 0.45, to: r * 0.95, count: 10,
                               color: (gold ? Palette.gold : Palette.duckYellow).withAlphaComponent(0.9), rng: &rng)
+            // The crushed vinyl's folds (3D-art round: the pancake creases), pale stress lines across the print.
+            for _ in 0..<5 {
+                let a = CGPoint(x: seam.x + CGFloat.random(in: -r * 0.4...r * 0.4, using: &rng),
+                                y: seam.y + CGFloat.random(in: -r * 0.3...r * 0.3, using: &rng))
+                let b = CGPoint(x: a.x + CGFloat.random(in: -r * 0.3...r * 0.3, using: &rng), y: a.y + CGFloat.random(in: -r * 0.2...r * 0.2, using: &rng))
+                crack(ctx, from: a, to: b, segments: 3, jitter: 2, width: 1.6,
+                      color: UIColor(hex: gold ? 0xFFF1C4 : 0xFFF2B8).withAlphaComponent(0.85), rng: &rng)
+            }
         case .jelly:
             let ink = (gold ? Palette.goldMessColor : UIColor(hex: 0xD0164F)).withAlphaComponent(0.9)
             blob(ctx, .zero, r * 1.15, lobes: 11, ink, rng: &rng)
@@ -695,17 +810,16 @@ enum FoldStamps {
                 }
             }
             gloss(ctx, .zero, r * 0.9)
+            // Air bubbles trapped in the puddle (3D-art round): small bright lenses.
+            for _ in 0..<9 {
+                let p = CGPoint(x: CGFloat.random(in: -r * 0.8...r * 0.8, using: &rng), y: CGFloat.random(in: -r * 0.8...r * 0.8, using: &rng))
+                let s = CGFloat.random(in: 2...5, using: &rng)
+                ring(ctx, p, s, 1, UIColor(white: 1, alpha: 0.55))
+                fillDisc(ctx, CGPoint(x: p.x - s * 0.35, y: p.y - s * 0.35), s * 0.3, UIColor(white: 1, alpha: 0.75))
+            }
         case .crayon:
-            let ink = (gold ? Palette.goldMessColor : Palette.cobalt).withAlphaComponent(0.85)
-            ctx.saveGState()
-            ctx.rotate(by: CGFloat(-stamp.yawRadians))
-            let bar = CGRect(x: -stamp.growthRadii.width * 1.05, y: -stamp.growthRadii.height * 1.6,
-                             width: stamp.growthRadii.width * 2.1, height: stamp.growthRadii.height * 3.2)
-            ctx.addPath(CGPath(roundedRect: bar, cornerWidth: bar.height / 2, cornerHeight: bar.height / 2, transform: nil))
-            ctx.setFillColor(ink.cgColor)
-            ctx.fillPath()
-            ctx.restoreGState()
-            crumbs(ctx, around: .zero, spread: r * 1.2, count: 22, colors: [ink, UIColor(hex: 0x6F8EF2)], size: 1.5...4, rng: &rng)
+            _ = gold
+            crayonSmear(ctx, stamp, rng: &rng)
         case .egg:
             // FOLD-REVIEW-9 N9: the white (a circle of r 0.95 about the apex, lobes to 1.15, spread to 1.2×) ran ~40 pt
             // past the strike plate, and the shell ink's tan rim showed at the egg's far end between its lobes. The white
@@ -749,6 +863,9 @@ enum FoldStamps {
                 ctx.restoreGState()
             }
             fillDisc(ctx, stamp.apex, 2.2, Palette.graphite)   // the wick
+            // Sponge crumbs smeared out with the layers (3D-art round).
+            crumbs(ctx, around: stamp.apex, spread: r * 0.95, count: 24, colors: [UIColor(hex: 0xE9C48A), UIColor(hex: 0xD9AE6E)],
+                   size: 1.5...3.5, rng: &rng)
         case .sodaCan:
             let fizz = canFizz(variant)
             ring(ctx, .zero, stamp.featureRadius, 2, UIColor(hex: 0x9AA0A8).withAlphaComponent(0.8))
@@ -756,6 +873,8 @@ enum FoldStamps {
                  lobes: 7, fizz.withAlphaComponent(0.6), rng: &rng)
             drops += droplets(ctx, around: .zero, from: stamp.featureRadius * 1.25, to: stamp.featureRadius * 2.6, count: 26,
                               color: fizz.withAlphaComponent(0.85), rng: &rng)
+            // The puncture's torn, curled metal (3D-art round), on the fold at the spray's side, as SodaCanView tears it.
+            canTear(ctx, stamp, variant: variant, rng: &rng)
         case .gummyBear:
             let ink = (gold ? Palette.goldMessColor : UIColor(hex: 0xFF8A7F)).withAlphaComponent(0.85)
             for s: CGFloat in [-1, 1] {
@@ -764,6 +883,13 @@ enum FoldStamps {
                 blob(ctx, c, r * 0.6, lobes: 7, ink, rng: &rng)
             }
             gloss(ctx, stamp.apex, r * 0.7)
+            // Beads where the chewy strands snapped, between the torn pads (3D-art round).
+            for _ in 0..<6 {
+                let t = CGFloat.random(in: -0.15...0.15, using: &rng)
+                let p = CGPoint(x: stamp.apex.x + t * r * cos(CGFloat(-stamp.yawRadians)) + CGFloat.random(in: -3...3, using: &rng),
+                                y: stamp.apex.y + CGFloat.random(in: -r * 0.5...r * 0.5, using: &rng))
+                fillDisc(ctx, p, CGFloat.random(in: 1.5...3, using: &rng), ink)
+            }
         case .glassBottle:
             clipToPlate(ctx)
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
@@ -778,6 +904,51 @@ enum FoldStamps {
             }
         }
         return drops
+    }
+
+    /// Mirrors SodaCanView's seeded spray angle (can-local, radians): its draws after the palette pick (skipped for the
+    /// cherry surprise) and the five fold phases.
+    static func canSprayAngle(_ variant: PressVariant) -> Double {
+        var rng = SplitMix64(seed: variant.seed ^ 0x50DA)
+        if variant.surprise != .cherryFizz { _ = rng.next() }
+        for _ in 0..<5 { _ = Float.random(in: 0...(2 * .pi), using: &rng) }
+        return Double(Float.random(in: 0.6...1.4, using: &rng))
+    }
+
+    /// The torn hole at the can's rim: a jagged dark gash with curled metal tongues round it.
+    private static func canTear(_ ctx: CGContext, _ stamp: FoldStamp, variant: PressVariant, rng: inout SplitMix64) {
+        let a = canSprayAngle(variant)
+        let r = Double(stamp.featureRadius) * 1.3
+        let map = LocalMap(k: 1, yaw: stamp.yawRadians)
+        let c = map(cos(a) * r, sin(a) * r)
+        let tangent = map(-sin(a), cos(a))
+        let path = CGMutablePath()
+        let steps = 7
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps) - 0.5
+            let j = CGFloat.random(in: -2.2...2.2, using: &rng)
+            let p = CGPoint(x: c.x + tangent.x * t * 22 + j, y: c.y + tangent.y * t * 22 - j)
+            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        ctx.saveGState()
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.addPath(path)
+        ctx.setStrokeColor(UIColor(hex: 0x23262B).withAlphaComponent(0.85).cgColor)
+        ctx.setLineWidth(4)
+        ctx.strokePath()
+        for _ in 0..<5 {
+            let t = CGFloat.random(in: -0.45...0.45, using: &rng)
+            let p = CGPoint(x: c.x + tangent.x * t * 22, y: c.y + tangent.y * t * 22)
+            let out = CGPoint(x: p.x + CGFloat(cos(a)) * 6 + CGFloat.random(in: -3...3, using: &rng),
+                              y: p.y + CGFloat(sin(a)) * 6 + CGFloat.random(in: -3...3, using: &rng))
+            ctx.move(to: p)
+            ctx.addQuadCurve(to: out, control: CGPoint(x: (p.x + out.x) / 2 + 3, y: (p.y + out.y) / 2 - 3))
+            ctx.setStrokeColor(UIColor(hex: 0xC9CED4).withAlphaComponent(0.9).cgColor)
+            ctx.setLineWidth(1.6)
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
     }
 
     // MARK: The splat that escapes the fold (FOLD-REVIEW-4 F3)

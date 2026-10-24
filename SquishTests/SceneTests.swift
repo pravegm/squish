@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import simd
 import Testing
@@ -462,9 +463,19 @@ struct SceneTests {
         #expect(CakeSquash.creamRoughness >= 0.55)
         let mesh = CakeSquash.bodyMesh()
         #expect(mesh.uvs.count == mesh.positions.count && mesh.isValid)
-        for uv in mesh.uvs {
+        // The cream top's planar UVs cover the slice 0…1 (the sponge and frosting tile their crumb and piping instead).
+        let layers = CakeSquash.vertexLayers
+        #expect(layers.count == mesh.uvs.count)
+        for (i, uv) in mesh.uvs.enumerated() where i < layers.count && CakeSquash.isCreamVertex(layers[i]) {
             #expect(uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1)
         }
+        // The sponge's sides get real texture coordinates (3D-art round): box-projected, not a planar smear down them.
+        var sideSpan: Float = 0
+        for (i, uv) in mesh.uvs.enumerated() where i < layers.count && Int(layers[i]) == CakeSquash.lowerSpongeLayer
+            && abs(mesh.normals[i].y) < 0.3 {
+            sideSpan = max(sideSpan, abs(uv.y))
+        }
+        #expect(sideSpan > 0.5, "the sponge's side v spans \(sideSpan) tiles")
     }
 
     @Test func crushedCakeShadesAndKeepsItsSpongeBand() {
@@ -1221,6 +1232,179 @@ struct SceneTests {
             default:
                 #expect(crushed.area > rest.area * 1.1, "\(kind): crushed footprint \(crushed.area) vs rest \(rest.area)")
             }
+        }
+    }
+
+    // MARK: 3D-art round (texture coordinates, surface maps, crushed detail)
+
+    @Test func artRoundMeshesCarryTextureCoordinates() {
+        let duck = ObjectMeshes.duckBody()
+        expectValid(duck, "duck body")
+        #expect(duck.uvs.count == duck.positions.count)
+        let beak = ObjectMeshes.duckBeak()
+        expectValid(beak, "duck beak")
+        #expect(beak.uvs.count == beak.positions.count)
+        let gummy = ObjectMeshes.gummy(side: 1, coreScale: 1)
+        expectValid(gummy, "gummy half")
+        #expect(gummy.uvs.count == gummy.positions.count)
+        let jelly = ObjectMeshes.jellyMould(scale: 1)
+        expectValid(jelly, "jelly mould")
+        #expect(jelly.uvs.count == jelly.positions.count)
+        let can = ObjectMeshes.canBody()
+        expectValid(can, "can body")
+        #expect(can.materialSlots == 2 && can.uvs.count == can.positions.count)
+        // The can's ends map top-down (the lid's planar UVs stay on the image).
+        for part in can.splitByMaterial() where part.slot == 1 {
+            #expect(part.mesh.uvs.allSatisfy { $0.x >= -1e-4 && $0.x <= 1.0001 && $0.y >= -1e-4 && $0.y <= 1.0001 })
+        }
+        let ball = MeshKit.sphereUV(radius: 0.05, segments: 24, rings: 12)
+        expectValid(ball, "UV sphere")
+        for (p, n) in zip(ball.positions, ball.normals) { #expect(simd_dot(simd_normalize(p), n) > 0.999) }
+        #expect(ball.uvs.allSatisfy { $0.x >= 0 && $0.x <= 1 && $0.y >= 0 && $0.y <= 1 })
+        let disc = MeshKit.spreadDiscUV(seed: 3, height: 1, tear: 0.1)
+        expectValid(disc, "torn disc")
+        #expect(disc.uvs.count == disc.positions.count)
+        // The duck's eyes are painted on its face (round the front, above the equator).
+        let paint = ObjectMeshes.duckPaint()
+        #expect(paint.eyes.count == 2)
+        for eye in paint.eyes { #expect(abs(eye.x - 0.5) < 0.12 && eye.y > 0.55 && eye.y < 0.95) }
+        #expect(paint.eyeHalf.x > 0.005 && paint.eyeHalf.y > 0.01)
+        let wall = CrayonBox.wallMesh(length: 0.1, height: 0.018, thickness: 0.0012)
+        expectValid(wall, "crayon box wall")
+        #expect(wall.materialSlots == 2 && wall.uvs.count == wall.positions.count)
+        expectValid(CakeSquash.rosetteMesh(), "rosette")
+        expectValid(CakeSquash.crumbMesh(), "crumb")
+        expectValid(JellyInclusions.raspberryMesh(), "raspberry")
+    }
+
+    /// Every map builder runs (small sizes) and gives an image of the asked size: a crash in one would take the app down
+    /// from its background task.
+    @Test func everySurfaceMapBuilds() {
+        typealias S = SurfaceImages
+        let paint = DuckPaint(eyes: [SIMD2(0.45, 0.73), SIMD2(0.55, 0.73)], eyeHalf: SIMD2(0.02, 0.03))
+        let images: [(String, CGImage?, Int)] = [
+            ("duck colour", S.duckVinyl(paint, creased: true, width: 64, height: 32), 64),
+            ("duck normal", S.normalImage(S.duckVinylHeight(paint, creased: true, width: 64, height: 32), strength: 1), 64),
+            ("duck coat", S.duckCoat(width: 32, height: 16), 32),
+            ("duck beak", S.duckBeak(width: 32, height: 16), 32),
+            ("gummy skin", S.gummySkin(width: 64, height: 32), 64),
+            ("gummy sugar", S.normalImage(S.gummySugar(width: 64, height: 32), strength: 1), 64),
+            ("gummy rough", S.gummyRough(width: 64, height: 32), 64),
+            ("gummy core", S.gummyCore(width: 32, height: 16), 32),
+            ("gummy pad", S.gummyPad(size: 64), 64),
+            ("gummy pad height", S.normalImage(S.gummyPadHeight(size: 64), strength: 1), 64),
+            ("jelly skin", S.normalImage(S.jellySkin(width: 64, height: 32), strength: 1), 64),
+            ("jelly caustics", S.jellyCaustics(width: 64, height: 32), 64),
+            ("sponge", S.spongeCrumb(size: 64), 64),
+            ("sponge height", S.normalImage(S.spongeHeight(size: 64), strength: 1), 64),
+            ("sponge smeared", S.spongeSmeared(size: 64), 64),
+            ("piping", S.normalImage(S.pipedFrosting(size: 64), strength: 1), 64),
+            ("cream strokes", S.normalImage(S.creamStrokes(size: 64), strength: 1), 64),
+            ("can label", S.canLabel(seed: 3, width: 256, height: 128), 256),
+            ("can lid", S.canLidColour(size: 64), 64),
+            ("can lid height", S.normalImage(S.canLidHeight(size: 64), strength: 1), 64),
+            ("egg shell", S.eggShell(size: 64), 64),
+            ("egg membrane", S.eggMembrane(size: 64), 64),
+            ("film", S.normalImage(S.filmCreases(size: 64), strength: 1), 64),
+            ("crater", S.normalImage(S.craterCrinkle(size: 64), strength: 1), 64),
+            ("dome light", S.domeLight(height: 32), 4),
+            ("kraft", S.kraft(size: 64), 64),
+            ("box front", S.crayonBoxFront(width: 256, height: 64), 256),
+            ("box end", S.crayonBoxEnd(width: 128, height: 64), 128),
+            ("wrap", S.crayonWrap(band: 0xE8336F, name: "RASPBERRY", width: 64, height: 128), 64),
+            ("wax sheen", S.waxSheen(size: 64), 64),
+            ("wax smear", S.waxSmear(size: 64), 64),
+            ("wax smear height", S.normalImage(S.waxSmearHeight(size: 64), strength: 1), 64),
+            ("steel", S.normalImage(S.machinedSteel(width: 64, height: 32), strength: 1), 64),
+            ("steel breakup", S.steelBreakup(width: 64, height: 32), 64),
+            ("bottle label", S.bottleLabel(size: 64), 64),
+        ]
+        for (name, image, width) in images {
+            #expect(image?.width == width, "\(name)")
+        }
+        // Tileable noise wraps: the value at u 0 is the value at u 1.
+        let noise = TileFBM(periodX: 5, periodY: 3, octaves: 3, seed: 9)
+        #expect(abs(noise(0, 0.3) - noise(1, 0.3)) < 1e-5 && abs(noise(0.2, 0) - noise(0.2, 1)) < 1e-5)
+        let cells = TileCells(period: 6, seed: 2)
+        let a = cells(0.01, 0.5), b = cells(1.01, 0.5)
+        #expect(abs(a.x - b.x) < 1e-4 && a.x <= a.y)
+    }
+
+    @Test func glassShardsAreChunkyWithChippedEdges() {
+        #expect(GlassDebris.fragmentThickness >= 0.002)
+        for seed in UInt64(1)...30 {
+            var rng = SplitMix64(seed: seed)
+            let polygon = GlassDebris.shardPolygon(sides: 4 + Int(seed % 3), radii: [0.2, 0.4], rng: &rng)
+            let chipped = GlassDebris.chipped(polygon, rng: &rng)
+            #expect(chipped.count > polygon.count)
+            for p in chipped {
+                for i in polygon.indices {
+                    let a = polygon[i], b = polygon[(i + 1) % polygon.count]
+                    #expect((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) > -1e-5, "a chip leaves its shard")
+                }
+            }
+            expectValid(MeshKit.polygonSlab(chipped, thickness: GlassDebris.fragmentThickness, rimInset: 0.035, outlineInset: 0.03),
+                        "chipped shard \(seed)")
+        }
+    }
+
+    @Test func crayonBoxSnapsEachCrayonOverItsOwnBreak() {
+        for seed in UInt64(1)...20 {
+            let order = CrayonBox.snapOrder(seed: seed)
+            #expect(order.count == CrayonBox.snaps && Set(order) == Set(0..<7))
+            #expect(Set(order.prefix(CrayonBox.topCount)) == Set([1, 3, 5]))
+            let layout = CrayonBox.layout(seed: seed)
+            #expect(layout.count == 7 && layout.allSatisfy { $0.cutIndex >= 0 && $0.cutIndex < CrayonBox.cuts.count })
+        }
+        #expect(CrayonBox.bottomRowStart([0.27, 0.31, 0.355, 0.4, 0.445]) == Float(0.4))
+        // The platen prints the box: one snap feature per crayon (in snap order), then the seven lanes.
+        let stamp = FoldStamps.stamp(for: .crayon, variant: PressVariant(kind: .crayon, seed: 5), foldScale: 1)
+        #expect(stamp.features.count == 14)
+        let box = stamp.silhouette.boundingBoxOfPath
+        #expect(box.width > box.height)
+        #expect(FoldStamps.crayonInks(stamp).count == 7)
+    }
+
+    @Test func canFoldsArePleatsAndThePunctureTears() {
+        for band in 0..<5 {
+            for k in 0..<360 {
+                let p = CanCrush.pleat(theta: Float(k) * .pi / 180, band: band, phase: 0.7)
+                #expect(p >= 0.2 && p <= 1)
+            }
+        }
+        #expect(abs(CanCrush.foldProfile(0)) < 1e-5 && abs(CanCrush.foldProfile(1)) < 1e-5)
+        #expect(abs(CanCrush.foldProfile(0.5) - 1) < 1e-5)
+        for seed in 0..<3 {
+            let petal = CanCrush.petalMesh(seed: UInt64(seed))
+            expectValid(petal, "petal \(seed)")
+            #expect(petal.materialSlots == 2)
+            // It curls out of the wall (+y).
+            #expect(petal.bounds().max.y > 0.001)
+        }
+        for seed in UInt64(1)...10 {
+            let a = FoldStamps.canSprayAngle(PressVariant(kind: .sodaCan, seed: seed))
+            #expect(a >= 0.6 && a <= 1.4)
+        }
+    }
+
+    @Test func eggCracksZigzagAndJellyHoldsItsInclusions() {
+        let a = EggShell.jag(seed: 7, cut: 3, ring: 10, sector: 0.785)
+        #expect(a == EggShell.jag(seed: 7, cut: 3, ring: 10, sector: 0.785))
+        #expect(abs(a) > 0 && abs(a) <= EggShell.jagShare * 0.785 + 1e-6)
+        var signs = Set<Bool>()
+        for ring in 0..<8 { signs.insert(EggShell.jag(seed: 7, cut: 1, ring: ring, sector: 0.785) > 0) }
+        #expect(signs.count == 2)
+        let profile: [SIMD2<Float>] = [SIMD2(0, 0), SIMD2(0.02, 0.01), SIMD2(0.03, 0.03), SIMD2(0.025, 0.05), SIMD2(0.012, 0.06), SIMD2(0, 0.065)]
+        let patch = MeshKit.lathePatch(profile: profile, rings: 1...4, lower: { 0.1 + 0.05 * Float($0 % 2) },
+                                       upper: { 0.9 - 0.05 * Float($0 % 2) }, angularSteps: 6, thickness: 0.0012)
+        expectValid(patch.mesh, "jagged patch")
+        expectValid(EggShell.flapMesh(seed: 1), "membrane flap")
+        var rng = SplitMix64(seed: 4)
+        for k in 0..<40 {
+            let top = k % 2 == 0
+            let p = JellyInclusions.spot(top: top, rng: &rng)
+            #expect(simd_length(SIMD2(p.x, p.z)) <= JellyInclusions.radius(at: p.y) * 0.93 + 1e-6)
+            if top { #expect(p.y > JellySpread.coreTopRatio * 0.0765) }
         }
     }
 

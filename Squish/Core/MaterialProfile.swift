@@ -52,11 +52,13 @@ extension MaterialProfile {
         grainSpacing: 3.5, grainStopC: nil, bedSharpness: 0.10, bedGain: 0.70
     )
 
-    /// Brittle-waxy: a clean snap, a second snap, then a waxy crumble.
+    /// Brittle-waxy, a box of seven: every crayon snaps on its own, the top row of three first (the first snap is the
+    /// failure), then the bottom row of four, then a waxy crumble (OBJECT-STORYBOARDS §4). The snaps are ~0.045 c
+    /// apart and jitter by at most 0.015, so they never swap order: fracture n is always snap n.
     static let crayon = MaterialProfile(
         plasticity: 0.95,
-        fractures: [0.30, 0.52, 0.74],
-        failureIndex: 0, thresholdJitter: 0.04,
+        fractures: [0.27, 0.31, 0.355, 0.40, 0.445, 0.49, 0.535, 0.74],
+        failureIndex: 0, thresholdJitter: 0.015,
         grainSpacing: 2.0, grainStopC: 0.22, bedSharpness: 0.55, bedGain: 0.80
     )
 

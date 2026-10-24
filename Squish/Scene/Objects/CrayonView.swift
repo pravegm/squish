@@ -27,7 +27,6 @@ final class CrayonView: PressObjectView {
     static let radius: Float = 0.016
     let restHeight: Float = 2 * CrayonView.radius
     let footprint: Float = 0.060
-    private static var wrapperTextures: [UInt32: TextureResource] = [:]
 
     private let fx: SceneFX
     private let look: Look
@@ -77,6 +76,10 @@ final class CrayonView: PressObjectView {
     private var smearSteps: Float = 0
     private var smearing = false
     private var smearC: Float = 1
+    /// Fracture n (0…6) snaps crayon `snapOrder[n]` (top row first); fracture 7 is the crumble.
+    private let snapOrder: [Int]
+    /// 3D-art round: the smears' pressed-wax maps (drag streaks, ridged edges), tinted per crayon.
+    private var smearMaps: SurfaceMaps?
 
     var shadowSpread: Float { spread }
 
@@ -88,7 +91,48 @@ final class CrayonView: PressObjectView {
         life = ObjectLife(seed: variant.seed, idle: .still, amount: 0, rate: 0.3, pulseHz: 6, pulseDamping: 0.45)
         story = StoryCursor(.crayon, seed: variant.seed)
         thresholds = PressObjectFactory.thresholds(.crayon, variant: variant)
+        snapOrder = CrayonBox.snapOrder(seed: variant.seed)
         build(variant: variant)
+        if !look.golden { loadSurface() }
+    }
+
+    /// The box's print and board, then the smears' wax (drawn off the main actor once per session).
+    private func loadSurface() {
+        Task { @MainActor [weak self] in
+            async let smear = SurfaceDetail.waxSmear()
+            let box = await SurfaceDetail.crayonBox()
+            guard let self else { return }
+            self.applyBox(box)
+            self.smearMaps = await smear
+            for crayon in self.crayons { if let model = crayon.smear { model.model?.materials = [self.smearMaterial(crayon.colour)] } }
+        }
+    }
+
+    /// The printed board on each wall's outside (slot 0), plain board inside and on its edges (slot 1), and the floor.
+    private var wallModels: [(model: ModelEntity, long: Bool, outside: Bool)] = []
+    private var floorModel: ModelEntity?
+
+    private func applyBox(_ box: (front: TextureResource?, end: TextureResource?, kraft: TextureResource?)) {
+        for wall in wallModels {
+            let texture = wall.outside ? (wall.long ? box.front : box.end) : box.kraft
+            guard let texture else { continue }
+            var m = SceneMaterials.pbr(.white, roughness: wall.outside ? 0.7 : 0.85, clearcoat: wall.outside ? 0.08 : 0)
+            m.baseColor = .init(tint: .white, texture: wall.outside ? SurfaceDetail.clamped(texture) : SurfaceDetail.tiled(texture))
+            wall.model.model?.materials = [m]
+        }
+        if let kraft = box.kraft, let floorModel {
+            var m = SceneMaterials.pbr(UIColor(hex: 0xE8D6B0), roughness: 0.85)
+            m.baseColor = .init(tint: UIColor(hex: 0xF2E2C0), texture: SurfaceDetail.tiled(kraft))
+            floorModel.model?.materials = [m]
+        }
+    }
+
+    /// A smear lane: pressed wax in the crayon's colour, streaked along the drag.
+    private func smearMaterial(_ colour: UIColor) -> PhysicallyBasedMaterial {
+        var m = SceneMaterials.enamel(colour, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.35)
+        if let streaks = smearMaps?.colour { m.baseColor = .init(tint: colour, texture: SurfaceDetail.clamped(streaks)) }
+        if let ridges = smearMaps?.normal { m.normal = .init(texture: SurfaceDetail.clamped(ridges)) }
+        return m
     }
 
     // MARK: Build
@@ -101,9 +145,11 @@ final class CrayonView: PressObjectView {
             : SceneMaterials.pbr(UIColor(hex: CrayonBox.stripeTint), roughness: 0.7)
         let size = CrayonBox.trayInner
         let t = CrayonBox.wallThickness
-        // The tray floor.
-        Part.add(cached: "crayonbox.floor", {
-            MeshKit.roundedBox([size.x + 2 * t, CrayonBox.floor, size.y + 2 * t], radius: 0.0008, bevel: 0.0003)
+        // The tray floor (kraft board, box-projected).
+        floorModel = Part.add(cached: "crayonbox.floor.uv", {
+            var floor = MeshKit.roundedBox([size.x + 2 * t, CrayonBox.floor, size.y + 2 * t], radius: 0.0008, bevel: 0.0003)
+            floor.boxUV(tile: 0.03)
+            return floor
         }, boxInside, at: [0, CrayonBox.floor / 2, 0], to: life.node)
         // Four walls, each on a pivot at its bottom outer edge so it can fold out flat.
         let wallH = CrayonBox.wallHeight
@@ -118,13 +164,20 @@ final class CrayonView: PressObjectView {
             pivot.position = spec.position
             // Local +Z points outward from the box for every wall.
             pivot.orientation = simd_quatf(angle: spec.yaw, axis: [0, 1, 0])
-            Part.add(cached: "crayonbox.wall.\(k < 2 ? "long" : "end")", {
-                MeshKit.roundedBox([spec.length, wallH, t], radius: 0.0005, bevel: 0.0002)
-            }, box, at: [0, wallH / 2, -t / 2], to: pivot)
+            // The wall: its outside face printed (slot 0: the WAXO band, rainbow tips and small print on the long
+            // walls, the big 7 on the ends), its inside and edges plain board (slot 1).
+            let long = k < 2
+            let length = spec.length
+            let wall = SlotMeshes.entity("crayonbox.wall.print.\(long ? "long" : "end")", {
+                CrayonBox.wallMesh(length: length, height: wallH, thickness: t)
+            }, materials: [box, boxInside])
+            wall.position = [0, wallH / 2, -t / 2]
+            pivot.addChild(wall)
+            for (slot, model) in wall.children.compactMap({ $0 as? ModelEntity }).enumerated() {
+                wallModels.append((model, long, slot == 0))
+            }
+            _ = stripe
             if k < 2 {
-                // A printed green band round the outside of the long walls.
-                Part.add(cached: "crayonbox.stripe", { MeshKit.roundedBox([spec.length * 0.98, wallH * 0.28, 0.0003], radius: 0.0001) },
-                         stripe, at: [0, wallH * 0.55, 0.00025], to: pivot)
                 // A crease, hidden until the wall strains.
                 let crease = Part.add(cached: "crayonbox.crease", { MeshKit.roundedBox([0.0007, wallH * 0.9, 0.0004], radius: 0.0001) },
                                       SceneMaterials.pbr(UIColor(hex: 0x9C6B12), roughness: 0.8),
@@ -140,12 +193,15 @@ final class CrayonView: PressObjectView {
         // The crayons: rainbow order across the tray (bottom, top, bottom, …).
         let colours = golden ? [UIColor](repeating: Palette.gold, count: 7) : CrayonBox.colours
         let coreOverride: UIColor? = variant.surprise == .secondColourCore ? Palette.raspberry : nil
+        // The layout (each crayon's slide along the tray and its break point) is `CrayonBox.layout`, which the platen's
+        // print mirrors (FoldStamps), so every snap prints where its crayon broke.
+        let layout = CrayonBox.layout(seed: variant.seed)
         for slot in 0..<7 {
             let top = slot % 2 == 1
             let z = CrayonBox.laneZ(slot)
             let y = top ? CrayonBox.topCentreY(sb: 1, st: 1) : CrayonBox.bottomCentreY(sb: 1)
-            let x = Float.random(in: -0.003...0.003, using: &rng) + (top ? 0.003 : 0)
-            let cutIndex = Int(rng.next() % UInt64(CrayonBox.cuts.count))
+            let x = layout[slot].x
+            let cutIndex = layout[slot].cutIndex
             let crayon = Crayon(index: slot, top: top, colour: colours[slot], rest: [x, y, z], cut: CrayonBox.cuts[cutIndex])
             buildCrayon(crayon, cutIndex: cutIndex, core: coreOverride)
             crayons.append(crayon)
@@ -161,8 +217,8 @@ final class CrayonView: PressObjectView {
         let coreMaterial = SceneMaterials.pbr(core ?? CrayonBox.lighter(crayon.colour), roughness: 0.45)
         let paper: PhysicallyBasedMaterial
         let hex = CrayonBox.hex(crayon.colour)
-        if !golden, let texture = Self.wrapperTextures[hex] {
-            paper = SceneMaterials.textured(texture, roughness: 0.8)
+        if !golden, let texture = SurfaceDetail.cached("crayonbox.wrap.fine.\(CrayonBox.wrapHex(crayon.index))") {
+            paper = Self.wrapMaterial(texture)
         } else {
             paper = golden ? SceneMaterials.pbr(UIColor(hex: 0x8A5A00), roughness: 0.5)
                 : SceneMaterials.pbr(CrayonBox.lighter(crayon.colour), roughness: 0.8)
@@ -204,42 +260,46 @@ final class CrayonView: PressObjectView {
         ring.isEnabled = false
         crayon.ring = ring
         life.node.addChild(crayon.node)
+        _ = hex
         if !golden {
-            // Wax detail (fidelity pass): fine streaks along the crayon under a soft sheen.
+            // Wax detail (fidelity pass): fine streaks along the crayon; the 3D-art round adds a waxy sheen whose
+            // clearcoat breaks up along the streaks, and wraps printed with paper fibre, keylines, the colour's name
+            // and the glued overlap.
             let colour = crayon.colour
             let models = waxModels
-            Task { @MainActor in
-                guard let normal = await SurfaceDetail.waxNormal() else { return }
-                var material = SceneMaterials.enamel(colour, roughness: 0.52, clearcoat: 0.25, clearcoatRoughness: 0.45)
-                material.normal = .init(texture: .init(normal))
-                for model in models { model.model?.materials = [material] }
-            }
-        }
-        if !golden && Self.wrapperTextures[hex] == nil {
-            let band = crayon.colour
             let wrapped = wrappers
-            Task { @MainActor [weak self] in
-                guard let texture = await Self.wrapper(band: band, hex: hex), self != nil else { return }
-                let material = SceneMaterials.textured(texture, roughness: 0.8)
-                for model in wrapped { model.model?.materials = [material] }
+            let band = CrayonBox.wrapHex(crayon.index)
+            let name = CrayonBox.names[crayon.index % CrayonBox.names.count]
+            Task { @MainActor in
+                async let sheen = SurfaceDetail.waxSheen()
+                async let wrap = SurfaceDetail.crayonWrap(band: band, name: name)
+                let normal = await SurfaceDetail.waxNormal()
+                var material = SceneMaterials.enamel(colour, roughness: 0.5, clearcoat: 0.4, clearcoatRoughness: 0.4)
+                if let normal { material.normal = .init(texture: SurfaceDetail.wrapped(normal)) }
+                if let sheen = await sheen {
+                    material.clearcoatRoughness = .init(scale: 0.5, texture: SurfaceDetail.wrapped(sheen))
+                    material.roughness = .init(scale: 0.6, texture: SurfaceDetail.wrapped(sheen))
+                }
+                for model in models { model.model?.materials = [material] }
+                if let texture = await wrap {
+                    let paper = Self.wrapMaterial(texture)
+                    for model in wrapped { model.model?.materials = [paper] }
+                }
             }
         }
     }
 
-    /// The WAXO wrap printed in one crayon's colour (drawn once per colour, 256² so seven stay cheap).
-    private static func wrapper(band: UIColor, hex: UInt32) async -> TextureResource? {
-        if let cached = wrapperTextures[hex] { return cached }
-        let texture = await StudioEnvironment.textureAsync(RigTextures.crayonWrapper(band: band, width: 256, height: 256),
-                                                           name: "crayonbox.wrap.\(hex)")
-        wrapperTextures[hex] = texture
-        return texture
+    private static func wrapMaterial(_ texture: TextureResource) -> PhysicallyBasedMaterial {
+        var m = SceneMaterials.pbr(.white, roughness: 0.8)
+        m.baseColor = .init(tint: .white, texture: SurfaceDetail.wrapped(texture))
+        return m
     }
 
     // MARK: Press
 
     func surfaceHeight(compression c: Float) -> Float {
         let f1 = thresholds.first ?? 0.3
-        let f2 = thresholds.count > 1 ? thresholds[1] : 0.52
+        let f2 = CrayonBox.bottomRowStart(thresholds)
         let rows = CrayonBox.rows(compression: c, f1: f1, f2: f2, failedTop: failedTop, failedBottom: failedBottom)
         if !failedTop { return restHeight * (1 - 0.04 * min(c / max(f1, 0.01), 1)) }
         return CrayonBox.stackTop(sb: rows.sb, st: rows.st)
@@ -253,7 +313,7 @@ final class CrayonView: PressObjectView {
         for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
         let c = state.compression
         let f1 = thresholds.first ?? 0.3
-        let f2 = thresholds.count > 1 ? thresholds[1] : 0.52
+        let f2 = CrayonBox.bottomRowStart(thresholds)
         let rows = CrayonBox.rows(compression: c, f1: f1, f2: f2, failedTop: failedTop, failedBottom: failedBottom)
         let dt = state.dt
         for crayon in crayons {
@@ -307,9 +367,10 @@ final class CrayonView: PressObjectView {
         crayon.bowTarget = max(crayon.bowTarget, amount)
     }
 
-    private func snap(top: Bool) {
+    /// One crayon snaps (each has its own fracture now: the top row's three, then the bottom row's four).
+    private func snap(slot: Int) {
         let m = max(fx.motionScale, 0.3)
-        for crayon in crayons where crayon.top == top && !crayon.broken {
+        for crayon in crayons where crayon.index == slot && !crayon.broken {
             crayon.broken = true
             crayon.bowTarget = 0
             crayon.kinkSide = rng.next() % 2 == 0 ? 1 : -1
@@ -321,7 +382,7 @@ final class CrayonView: PressObjectView {
                                colors: look.golden ? [Palette.gold] : [crayon.colour, CrayonBox.lighter(crayon.colour)],
                                size: 0.0018...0.0032, spread: 0.004, upBias: 0.45, rng: &rng)
         }
-        life.kick(1.2)
+        life.kick(0.9)
     }
 
     private func startSmear(_ c: Float) {
@@ -332,10 +393,10 @@ final class CrayonView: PressObjectView {
         smearing = true
         smearC = c
         for (i, crayon) in crayons.enumerated() {
-            let material = look.golden ? SceneMaterials.goldMess
-                : SceneMaterials.enamel(crayon.colour, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.35)
-            let smear = Part.add(cached: "crayonbox.smear.\(i % 3)", {
-                MeshKit.spreadDisc(seed: 0x5EA &+ UInt64(i % 3) &* 977, height: 1, segments: 40, wobble: 0.2)
+            let material = look.golden ? SceneMaterials.goldMess : smearMaterial(crayon.colour)
+            // Pressed wax: a lane with a smeared, streaky face and a ragged, scraped edge (planar UVs for its maps).
+            let smear = Part.add(cached: "crayonbox.smear.uv.\(i % 3)", {
+                MeshKit.spreadDiscUV(seed: 0x5EA &+ UInt64(i % 3) &* 977, height: 1, segments: 96, wobble: 0.2, tear: 0.05)
             }, material, at: [crayon.rest.x, CrayonBox.floor + 0.0002 + 0.00004 * Float(i), crayon.rest.z], to: life.node)
             smear.scale = SIMD3(repeating: 0.0001)
             ShadowCasting.off(smear)
@@ -391,15 +452,19 @@ final class CrayonView: PressObjectView {
 
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
         switch index {
-        case 0:
+        case 0..<CrayonBox.topCount:
+            // The top row snaps crayon by crayon (the first is the failure); the plate starts down onto the bottom row.
             failedTop = true
-            snap(top: true)
-            for i in walls.indices { walls[i].target = max(walls[i].target, CrayonBox.lean * 2.5) }
-        case 1:
-            failedBottom = true
-            snap(top: false)
-            // Whatever wall still stands goes flat now.
-            for i in walls.indices { walls[i].target = CrayonBox.folded }
+            snap(slot: snapOrder[index])
+            for i in walls.indices { walls[i].target = max(walls[i].target, CrayonBox.lean * (2.5 + 0.3 * Float(index))) }
+        case CrayonBox.topCount..<CrayonBox.snaps:
+            // Then the bottom row, one by one; at its first snap whatever wall still stands goes flat.
+            if !failedBottom {
+                failedBottom = true
+                for i in walls.indices { walls[i].target = CrayonBox.folded }
+            }
+            snap(slot: snapOrder[index])
+            if !failedTop { failedTop = true }
         default:
             // The crumble: the lanes run out of the box into a rainbow smear; rainbow flakes everywhere.
             crumbled = true
@@ -416,6 +481,54 @@ final class CrayonView: PressObjectView {
 
 /// The Crayon Box's layout and crush (OBJECT-STORYBOARDS §4), pure so SquishTests can pin it. Metres, box-local.
 enum CrayonBox {
+    /// Seven snaps (one per crayon: the top row's three, then the bottom row's four), then the crumble.
+    static let topCount = 3
+    static let snaps = 7
+
+    /// The engine threshold where the bottom row starts to snap (fracture 3), from a press's jittered thresholds.
+    static func bottomRowStart(_ thresholds: [Float]) -> Float {
+        thresholds.count > topCount ? thresholds[topCount] : 0.52
+    }
+
+    /// Each slot's slide along the tray (x) and its break point (an index into `cuts`), seeded: shared by the view and
+    /// the platen's print (FoldStamps), so a snap prints over its own crayon's break.
+    static func layout(seed: UInt64) -> [(x: Float, cutIndex: Int)] {
+        var rng = SplitMix64(seed: seed ^ 0xC4A7_1A70)
+        return (0..<7).map { slot in
+            let x = Float.random(in: -0.003...0.003, using: &rng) + (slot % 2 == 1 ? 0.003 : 0)
+            return (x, Int(rng.next() % UInt64(cuts.count)))
+        }
+    }
+
+    /// Fracture index (0…6) → the slot that snaps: the three top slots (1, 3, 5) in a seeded order, then the four
+    /// bottom ones (0, 2, 4, 6).
+    static func snapOrder(seed: UInt64) -> [Int] {
+        var rng = SplitMix64(seed: seed ^ 0x5A4B_0D3)
+        return [1, 3, 5].shuffled(using: &rng) + [0, 2, 4, 6].shuffled(using: &rng)
+    }
+
+    /// The colours' names on their wraps.
+    static let names = ["RASPBERRY", "TANGERINE", "LEMON", "LIME", "AQUA", "COBALT", "GRAPE"]
+
+    /// The hex of slot `i`'s colour (for its printed wrap).
+    static func wrapHex(_ i: Int) -> UInt32 {
+        [0xE8336F, 0xFF8A1F, 0xFFE14D, 0x8BD448, 0x37C9C0, 0x2F5BEA, 0x8E5CF0][clamp(i, 0, 6)]
+    }
+
+    /// A tray wall centred on its origin: `length` along x, `height` up, `thickness` along z (+z outside). Planar UVs
+    /// (u along, v up); its outside face is slot 0 (the print), the inside and the edges slot 1 (plain board).
+    static func wallMesh(length: Float, height: Float, thickness: Float) -> MeshData {
+        var mesh = MeshKit.roundedBox([length, height, thickness], radius: 0.0005, bevel: 0.0002)
+        mesh.uvs = mesh.positions.map { SIMD2($0.x / length + 0.5, $0.y / height + 0.5) }
+        var slots: [UInt8] = []
+        for t in 0..<mesh.triangleCount {
+            let a = Int(mesh.indices[t * 3]), b = Int(mesh.indices[t * 3 + 1]), c = Int(mesh.indices[t * 3 + 2])
+            let n = mesh.normals[a] + mesh.normals[b] + mesh.normals[c]
+            slots.append(n.z > 1.5 ? 0 : 1)
+        }
+        mesh.triangleMaterials = slots
+        return mesh
+    }
     /// Tray floor thickness.
     static let floor: Float = 0.0012
     /// Seven crayons in two nested rows: the top surface sits exactly at the box's rest height (2 × 0.016).
