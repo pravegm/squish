@@ -46,6 +46,7 @@ final class PressDirector {
     /// Randomness for hinge moments and pokes (outside the seeded press, so share-clip replays are unaffected).
     @ObservationIgnored private let feelDice = FeedbackDice(seed: 0x4849_4E47)
     @ObservationIgnored private var lastPoke: Double = 0
+    @ObservationIgnored private var lastDetent: Double = 0
     @ObservationIgnored private var lastSpecimenID: UUID?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var renderedFrames = 0
@@ -175,14 +176,14 @@ final class PressDirector {
     }
 
     /// The hinge outside the press (HingeFeel): creak and texture every frame, and each detent, open and shut as one
-    /// cue for both controllers in the same frame. Off for the touch press. Input seam: when hinge-motion events land
-    /// from the press-feel work, build `HingeMotionInput` from them here.
+    /// cue for both controllers in the same frame. Off for the touch press. Driven by the display-rate hinge
+    /// (`displayAngle`, `displaySpeed`), the same signal the screen draws, so the creak never steps at 25–30 Hz.
     private func updateHingeFeel(at now: Double) {
         let input = HingeMotionInput(
             available: usesFoldPress && engine.hasHingeSample,
-            angle: engine.angle,
-            speed: engine.closingSpeed,
-            moving: !engine.isHolding,
+            angle: engine.displayAngle,
+            speed: engine.displaySpeed,
+            moving: abs(engine.displaySpeed) >= 3,
             shut: hingeClosed,
             phase: engine.phase,
             loaded: engine.isLoaded
@@ -215,7 +216,10 @@ final class PressDirector {
         case .settleTick(_, _, let intensity):
             playBoth(BeatCues.settleTick(kind, intensity: intensity, dice: feelDice), light: true)
         case .detent(_, let closing, let speed):
-            guard usesFoldPress, !engine.isLoaded, revealed == nil else { return }
+            // A slam reaches ~470°/s: at most one ratchet click per 45 ms, so it never sprays clicks.
+            let now = CACurrentMediaTime()
+            guard usesFoldPress, !engine.isLoaded, revealed == nil, now - lastDetent >= 0.045 else { return }
+            lastDetent = now
             playBoth(HingeCues.cue(for: .detent(closing: closing), speed: speed, dice: feelDice), light: true)
         case .powerUp:
             guard usesFoldPress, revealed == nil, engine.phase != .revealing else { return }

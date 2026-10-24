@@ -209,8 +209,10 @@ final class HapticsController {
         let material = context.kind.profile
         let beds = Recipes.recipe(for: context.kind).beds
         let memory = CueBook.shared.memory
-        let c = Float(press.measuredCompression)
-        let speed = HapticTuning.speed(press.closingSpeed)
+        // The continuous layers follow the hinge at display rate (`renderCompression` from `displayAngle`,
+        // `displaySpeed`), so they never step at the real Duo's 25–30 Hz reports (founder's hinge log).
+        let c = Float(press.renderCompression)
+        let speed = HapticTuning.speed(press.displaySpeed)
         var target: Float = 0
         var ramp: TimeInterval = 0.03
         var sharpness = material.bedSharpness - 0.5
@@ -222,7 +224,7 @@ final class HapticsController {
             target = profile.lift(hinge.texture)
             sharpness = hinge.textureSharpness - 0.5
             ramp = 0.08
-        } else if press.closingSpeed < -2 {
+        } else if press.displaySpeed < -2 {
             ramp = 0.06 // opening under load: relief within 80 ms
         } else if memory.hasFailed {
             // Crush: softer, speed-driven bed (01 §6 step 7); a low hum while held.
@@ -258,7 +260,7 @@ final class HapticsController {
         // Rumble (Strong / Max): the loaded bed alternates between full and (1 − depth) every half-cycle at
         // 26–30 Hz, each step a ramp, so the strain feels like grinding resistance rather than a smooth hum.
         var rumbling = false
-        if profile.rumbleDepth > 0, press.isLoaded, now >= hushUntil, target > 0.05, press.closingSpeed >= -2 {
+        if profile.rumbleDepth > 0, press.isLoaded, now >= hushUntil, target > 0.05, press.displaySpeed >= -2 {
             rumblePhase += dt * 2 * profile.rumbleHz
             if Int(rumblePhase) % 2 == 1 { target *= 1 - profile.rumbleDepth }
             ramp = 1 / (2 * profile.rumbleHz)
@@ -291,7 +293,7 @@ final class HapticsController {
     /// Micro-cracks during the tell and settling creaks while held, in lockstep with the audio.
     private func advanceSchedules(_ press: PressEngine, context: FeedbackContext, dt: Double) {
         if tell.isRunning {
-            if !press.isLoaded || press.closingSpeed < -5 {
+            if !press.isLoaded || press.displaySpeed < -5 {
                 endTell()
             } else if let index = tell.advance(by: dt * (press.isHolding ? 0.35 : 1)) {
                 play(CueBook.shared.cue(for: .recipe(.microCrack(index: index)), context: context, consumer: .haptics),

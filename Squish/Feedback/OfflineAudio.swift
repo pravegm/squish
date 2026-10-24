@@ -94,21 +94,23 @@ final class OfflineAudio {
         params.master = Self.masterGain
         params.softAmount = soft ? 1 : 0
 
-        let c = Float(press.measuredCompression)
-        let speed = Float(clamp(press.closingSpeed / 120, 0, 1))
+        // The continuous layers follow the hinge at display rate (`renderCompression` from `displayAngle`,
+        // `displaySpeed`), so they never step at the real Duo's 25–30 Hz reports (founder's hinge log).
+        let c = Float(press.renderCompression)
+        let speed = Float(clamp(press.displaySpeed / 120, 0, 1))
         if press.phase == .sealed && lastPhase != .sealed { spinDown = 0.4 }
         lastPhase = press.phase
 
         switch press.phase {
         case .armed, .pressing:
-            if press.closingSpeed > 2 {
+            if press.displaySpeed > 2 {
                 params.hissGain = Self.smoothstep(0.05, 0.8, speed) * 0.045
             }
             params.hissCenter = 1500 * pow(4, speed)
             params.humGain = press.phase == .pressing ? 0.018 + 0.035 * c : 0.010
             params.humPitch = pow(2, (5 * c + speed) / 12)
             if press.isLoaded {
-                let opening = press.closingSpeed < -5
+                let opening = press.displaySpeed < -5
                 let progress = Recipes.strainProgress(c, kind: context.kind)
                 params.creakPitch = beds.creakPitch * (1 + 0.25 * progress)
                 params.creakRate = opening ? 0 : (press.isHolding ? 2.5 : 8 + 55 * progress * max(speed, 0.2))
@@ -123,7 +125,7 @@ final class OfflineAudio {
                     params.strainFlutterDepth = strain.flutterDepth
                 }
                 let crush = beds.crush
-                if memory.hasFailed && press.closingSpeed > 2 && !(soft && crush.isWet) {
+                if memory.hasFailed && press.displaySpeed > 2 && !(soft && crush.isWet) {
                     let fresh = press.measuredCompression >= press.maxCompression - 0.01
                     params.crushRate = crush.rate * (0.2 + 0.8 * speed) * (fresh ? 1 : 0.25) * (soft ? 0.5 : 1)
                     params.crushGain = crush.gain * (fresh ? 1 : 0.4) * (soft ? 0.7 : 1)
@@ -147,8 +149,8 @@ final class OfflineAudio {
         // Recorded strain / crush loops where the library has one (they replace the noise strain bed).
         if press.isLoaded, let loop = SampleVoicing.loopBed(
             kind: context.kind, progress: Recipes.strainProgress(c, kind: context.kind), speed: speed,
-            holding: press.isHolding, failed: memory.hasFailed, opening: press.closingSpeed < -5,
-            closing: press.closingSpeed > 2, style: style, library: SampleLibrary.loadNow()
+            holding: press.isHolding, failed: memory.hasFailed, opening: press.displaySpeed < -5,
+            closing: press.displaySpeed > 2, style: style, library: SampleLibrary.loadNow()
         ) {
             params.loop = loop.data
             params.loopGain = loop.gain
@@ -235,8 +237,8 @@ final class OfflineAudio {
     }
 
     private func updateGaugeTicks(_ press: PressEngine, failed: Bool) {
-        guard press.isLoaded, press.closingSpeed > 0 else {
-            if press.closingSpeed < -5 || press.phase != .pressing { lastTickAngle = nil }
+        guard press.isLoaded, press.displaySpeed > 0 else {
+            if press.displaySpeed < -5 || press.phase != .pressing { lastTickAngle = nil }
             return
         }
         guard let last = lastTickAngle else {
@@ -253,7 +255,7 @@ final class OfflineAudio {
 
     private func advanceSchedules(_ press: PressEngine, context: FeedbackContext, dt: Double) {
         if tell.isRunning {
-            if !press.isLoaded || press.closingSpeed < -5 {
+            if !press.isLoaded || press.displaySpeed < -5 {
                 tell.stop()
             } else if let index = tell.advance(by: dt * (press.isHolding ? 0.35 : 1)) {
                 play(cueBook.cue(for: .recipe(.microCrack(index: index)), context: context, consumer: .audio))

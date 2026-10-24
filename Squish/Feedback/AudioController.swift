@@ -52,6 +52,7 @@ final class AudioController {
     private var lastPhase: PressPhase = .idle
     private var spinDown: Double = 0
     private var grainCount = 0
+    private var lastGrain: CFTimeInterval = 0
     private var tell = PulseSchedule(kind: .tell)
     private var settle = PulseSchedule(kind: .settle)
     private var wasHoldingLoaded = false
@@ -244,26 +245,29 @@ final class AudioController {
         params.master = enabled ? AudioMix.masterGain * volume : 0
         params.softAmount = soft ? 1 : 0
 
-        let c = Float(press.measuredCompression)
-        let speed = Float(clamp(press.closingSpeed / 120, 0, 1))
+        // The continuous layers follow the hinge at display rate (`renderCompression` from `displayAngle`,
+        // `displaySpeed`), so they never step at the real Duo's 25–30 Hz reports (founder's hinge log).
+        let c = Float(press.renderCompression)
+        let speed = Float(clamp(press.displaySpeed / 120, 0, 1))
         if press.phase == .sealed && lastPhase != .sealed { spinDown = 0.4 }
         lastPhase = press.phase
 
         switch press.phase {
         case .armed, .pressing:
             // Hiss opens with closing speed; motor rises ~5 st under load (02 §7.2).
-            if press.closingSpeed > 2 {
+            if press.displaySpeed > 2 {
                 params.hissGain = Self.smoothstep(0.05, 0.8, speed) * 0.045
             }
             params.hissCenter = 1500 * pow(4, speed)
             params.humGain = press.phase == .pressing ? 0.018 + 0.035 * c : 0.010
             params.humPitch = pow(2, (5 * c + speed) / 12)
             if press.isLoaded {
-                let opening = press.closingSpeed < -5
+                let opening = press.displaySpeed < -5
                 let progress = Recipes.strainProgress(c, kind: context.kind)
                 // Procedural stick-slip creak: slips speed up with strain; sparse settling slips while held.
                 params.creakPitch = beds.creakPitch * (1 + 0.25 * progress)
-                params.creakRate = opening ? 0 : (press.isHolding ? 2.5 : 8 + 55 * progress * max(speed, 0.2))
+                // Capped at 40 slips/s: a ~470°/s slam must not turn the creak into a buzz.
+                params.creakRate = opening ? 0 : (press.isHolding ? 2.5 : min(8 + 55 * progress * max(speed, 0.2), 40))
                 params.creakGain = beds.creakAmount * (0.012 + 0.03 * progress)
                 // Material strain loop until the failure: gain = strain^1.5 · max(v, 0.25) (02 §7.2).
                 let strain = beds.strain
@@ -277,7 +281,7 @@ final class AudioController {
                 }
                 // Granular crush after the failure: rate = base · v · (fresh ? 1 : 0.25) (02 §7.2).
                 let crush = beds.crush
-                if memory.hasFailed && press.closingSpeed > 2 && !(soft && crush.isWet) {
+                if memory.hasFailed && press.displaySpeed > 2 && !(soft && crush.isWet) {
                     let fresh = press.measuredCompression >= press.maxCompression - 0.01
                     params.crushRate = crush.rate * (0.2 + 0.8 * speed) * (fresh ? 1 : 0.25) * (soft ? 0.5 : 1)
                     params.crushGain = crush.gain * (fresh ? 1 : 0.4) * (soft ? 0.7 : 1)
@@ -301,8 +305,8 @@ final class AudioController {
         // Recorded strain / crush loops where the library has one (they replace the noise strain bed).
         if press.isLoaded, let loop = SampleVoicing.loopBed(
             kind: context.kind, progress: Recipes.strainProgress(c, kind: context.kind), speed: speed,
-            holding: press.isHolding, failed: memory.hasFailed, opening: press.closingSpeed < -5,
-            closing: press.closingSpeed > 2, style: style, library: SampleLibrary.loaded
+            holding: press.isHolding, failed: memory.hasFailed, opening: press.displaySpeed < -5,
+            closing: press.displaySpeed > 2, style: style, library: SampleLibrary.loaded
         ) {
             params.loop = loop.data
             params.loopGain = loop.gain
@@ -322,8 +326,8 @@ final class AudioController {
 
     /// One tick per 5° of closing under load: the sensor's resolution turned into a feature (02 §3.1).
     private func updateGaugeTicks(_ press: PressEngine, failed: Bool) {
-        guard press.isLoaded, press.closingSpeed > 0 else {
-            if press.closingSpeed < -5 || press.phase != .pressing { lastTickAngle = nil }
+        guard press.isLoaded, press.displaySpeed > 0 else {
+            if press.displaySpeed < -5 || press.phase != .pressing { lastTickAngle = nil }
             return
         }
         guard let last = lastTickAngle else {
@@ -342,7 +346,7 @@ final class AudioController {
     /// Micro-cracks during the tell and settling creaks while held, in lockstep with the haptics.
     private func advanceSchedules(_ press: PressEngine, context: FeedbackContext, dt: Double) {
         if tell.isRunning {
-            if !press.isLoaded || press.closingSpeed < -5 {
+            if !press.isLoaded || press.displaySpeed < -5 {
                 tell.stop()
             } else if let index = tell.advance(by: dt * (press.isHolding ? 0.35 : 1)) {
                 play(CueBook.shared.cue(for: .recipe(.microCrack(index: index)), context: context, consumer: .audio))
@@ -505,6 +509,9 @@ final class AudioController {
             // Soft style: half grain density (bible §8).
             grainCount += 1
             if style == .soft && grainCount % 2 == 0 { playRecipe = false }
+            // A slam fires grains faster than the ear separates them: at most one per 12 ms.
+            let now = CACurrentMediaTime()
+            if now - lastGrain < 0.012 { playRecipe = false } else { lastGrain = now }
         case .hush:
             if enabled { synth?.trigger(.hush(duration: 0.07)) }
         case .fracture(_, let isFailure):

@@ -29,7 +29,7 @@ struct HingeMotionInput: Equatable {
     var speed: Double
     /// False while the hinge holds still (no fresh sample, or below 3 °/s).
     var moving: Bool
-    /// The phone is shut (a trusted `closed`, i.e. not the stale-closed flag above 90°).
+    /// The phone is really shut: the engine's angle-based shut (`PressEngine.isClosed`), never the raw status.
     var shut: Bool
     var phase: PressPhase
     /// The plates are on the object: the press feedback owns the moment.
@@ -100,8 +100,9 @@ struct DetentTracker {
 struct HingeFeel {
     /// Opening past this from shut counts as "the phone opened" (the inner display is lit by ~55°).
     static let openedAngle = 55.0
-    /// Below this (or a trusted closed flag) the phone counts as shut.
-    static let shutAngle = 12.0
+    /// At or below this the phone counts as shut. Never the raw `.closed` status: on a real Duo it reads closed at
+    /// ~85° while closing and clears at ~21° on reopen (founder's hinge log), so it would clack at 85°.
+    static let shutAngle = 10.0
     /// Angular speed (°/s) that counts as a brisk swing for the creak and texture.
     static let briskSpeed = 90.0
 

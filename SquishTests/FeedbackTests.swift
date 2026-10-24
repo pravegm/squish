@@ -588,6 +588,21 @@ struct FeedbackTests {
         #expect(!BrandCues.unlatch.sounds.isEmpty && !BrandCues.unlatch.haptics.isEmpty)
     }
 
+    /// Real Duo log: the `.closed` status sets at ~85° while closing. The shut clack is the angle (≤ 10°) or the
+    /// engine's angle-based shut, never an 85° reading.
+    @Test func theShutClackWaitsForTheRealShut() {
+        var feel = HingeFeel()
+        var moments: [HingeMoment] = []
+        moments += feel.update(hingeInput(150, phase: .idle), at: 0).moments
+        for (index, angle) in stride(from: 140.0, through: 14, by: -3).enumerated() {
+            moments += feel.update(hingeInput(angle, speed: 60, phase: .idle), at: 0.1 + Double(index) * 0.03).moments
+        }
+        #expect(!moments.contains(.shut))
+        let shut = feel.update(hingeInput(4, speed: 60, phase: .idle), at: 5).moments
+        #expect(shut.contains(.shut))
+        #expect(HingeFeel.shutAngle <= 12)
+    }
+
     /// The director takes detents and power up/down from the engine's beats; HingeFeel must then only clack on a shut.
     @Test func engineBeatsReplaceDetectedDetentsButKeepTheShutClack() {
         var feel = HingeFeel()
