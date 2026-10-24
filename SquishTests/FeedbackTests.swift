@@ -722,7 +722,7 @@ struct FeedbackTests {
     }
 
     /// The press replayed into the offline twin of the live controller (same cues, same beds, same master).
-    private func renderPress(_ kind: ObjectKind, seconds: Double = 9) -> (pcm: [Float], failure: Double?) {
+    private func renderPress(_ kind: ObjectKind, seconds: Double = 9) -> (pcm: [Float], failure: Double?, beds: [Float]) {
         let trace = pressTrace(kind)
         let audio = OfflineAudio(style: .workshop)
         let replay = PressReplay(trace: trace)
@@ -750,21 +750,26 @@ struct FeedbackTests {
             audio.update(engine: engine, context: context(), dt: dt)
             index += 1
         }
-        return (OfflineAudio.render(audio.score, frames: Int(seconds * OfflineAudio.sampleRate)), failure)
+        let frames = Int(seconds * OfflineAudio.sampleRate)
+        // The continuous layers alone (strain loop, noise beds, hiss, motor, creak): the bed the break must stand over.
+        var bedsOnly = audio.score
+        bedsOnly.notes = []
+        return (OfflineAudio.render(audio.score, frames: frames), failure, OfflineAudio.render(bedsOnly, frames: frames))
     }
 
     @Test func pressMixLandsNearTheLoudnessTarget() {
         var all: [Double] = []
         var contrasts: [Double] = []
         for kind in ObjectKind.allCases {
-            let (pcm, failure) = renderPress(kind)
+            let (pcm, failure, beds) = renderPress(kind)
             if let failure {
-                // Bed (the second before the break) against the break (the 400 ms after it): SOUND-2 wants 10–12 LU.
+                // The bed alone in the second before the break, against the full mix in the 450 ms after it: SOUND-2
+                // wants the bed 10–12 LU under the break.
                 let rate = OfflineAudio.sampleRate
                 let bedStart = max(Int((failure - 1.1) * rate), 0), bedEnd = max(Int((failure - 0.1) * rate), bedStart)
                 let breakStart = Int(failure * rate), breakEnd = min(Int((failure + 0.45) * rate), pcm.count)
                 if bedEnd - bedStart > Int(0.4 * rate), breakEnd - breakStart > Int(0.4 * rate) {
-                    let bed = Loudness.integrated(Array(pcm[bedStart..<bedEnd]), sampleRate: rate)
+                    let bed = Loudness.integrated(Array(beds[bedStart..<bedEnd]), sampleRate: rate)
                     let hit = Loudness.integrated(Array(pcm[breakStart..<breakEnd]), sampleRate: rate)
                     print(String(format: "SQUISH-LOUD kind=%@ bed=%.1f break=%.1f contrast=%.1f LU", kind.rawValue, bed, hit, hit - bed))
                     if bed.isFinite && hit.isFinite { contrasts.append(hit - bed) }

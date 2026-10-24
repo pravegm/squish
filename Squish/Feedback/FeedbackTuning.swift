@@ -69,8 +69,8 @@ enum AudioMix {
     /// already at the −1 dBFS limiter, so the rest comes from the beds (`bedBus`), not from pushing the climaxes
     /// harder into the limiter. With the recorded foley (24 Oct), 1.8 measured −17.8 LUFS with only 3.9 LU between
     /// bed and break; 2.0 with the quieter bed bus, the louder sample bus and the look-ahead limiter targets −16 with
-    /// the break standing clear. The climaxes ride the limiter for a few milliseconds: punch on a phone speaker.
-    static let masterGain: Float = 2.0
+    /// the break standing clear; it measured −17.7, so 2.4 (+1.6 dB). The climaxes ride the limiter for a few milliseconds: punch on a phone speaker.
+    static let masterGain: Float = 2.4
     /// Extra gain on the synthesised continuous layers (strain, crush, hiss, motor, creak) before the master. They sat
     /// near −30 dBFS; +6.8 dB (2.2) brought them up but measured only 3.9 LU under the break, against SOUND-2's 10–12
     /// (`FeedbackTests` prints the contrast). 1.2 (+1.6 dB) keeps the strain audible and leaves the break room.
