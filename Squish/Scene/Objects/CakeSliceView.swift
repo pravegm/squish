@@ -65,6 +65,12 @@ final class CakeSliceView: PressObjectView {
     private var appliedCreamShade: Float = -1
     /// Candle base on the top, in wedge space (apex at the origin, arc toward +X).
     static let candleBase = CakeSquash.candleBase
+    /// The storyboard (OBJECT-STORYBOARDS §6): a soft breath, sprinkle hops, cream cracks, crumbs, and the filling
+    /// squeezed out of the pinch line long before the frosting goes.
+    private let life: ObjectLife
+    private var story: StoryCursor
+    private let ooze: OozeRing
+    private var lastSpread: Float = 1
 
     var shadowSpread: Float { spread }
 
@@ -76,7 +82,76 @@ final class CakeSliceView: PressObjectView {
         restHeight = CakeSquash.restHeight
         rng = SplitMix64(seed: variant.seed ^ 0xCA4E)
         bulgeNoise = MeshKit.periodicNoise(seed: variant.seed ^ 0xCA4E_B01, octaves: 3)
+        life = ObjectLife(seed: variant.seed, idle: .breathe, amount: 0.008, rate: 0.3, pulseHz: 4, pulseDamping: 0.4)
+        story = StoryCursor(.cakeSlice, seed: variant.seed)
+        let filling = look.golden ? SceneMaterials.goldMess
+            : (variant.surprise == .jamCentre
+               ? SceneMaterials.enamel(UIColor(hex: 0xE0335A), roughness: 0.15, clearcoat: 0.8, clearcoatRoughness: 0.08)
+               : SceneMaterials.enamel(UIColor(hex: 0xF9B9CB), roughness: 0.3, clearcoat: 0.4, clearcoatRoughness: 0.15))
+        let plate = GlassDebris.containment(restHeight: CakeSquash.restHeight, anvilHalf: SIMD2<Float>(repeating: 1), padding: 0)
+        ooze = OozeRing(seed: variant.seed ^ 0xCA4F, count: 6, centre: SIMD2(-0.012, 0), radii: SIMD2(0.058, 0.032),
+                        reach: 0.010...0.022, width: 0.010...0.018, thickness: 0.003, maxRadius: min(plate.x, plate.y) * 0.9,
+                        material: filling)
         build(variant: variant)
+        life.adopt(childrenOf: entity)
+        entity.addChild(ooze.root)
+    }
+
+    /// One more hairline in the cream (a storyboard `.crease`).
+    private func addCreamCrack() {
+        let lineMaterial = SceneMaterials.pbr(UIColor(hex: 0xE8C9D2), roughness: 0.5)
+        let r = Float.random(in: 0.03...0.095, using: &rng)
+        let a = Float.random(in: -0.22...0.22, using: &rng) * min(1, r / 0.05)
+        let line = Part.add(MeshKit.roundedBox([0.0008, 0.0006, 0.010 + Float.random(in: 0...0.008, using: &rng)], radius: 0.0002,
+                                               bevel: 0.0001),
+                            lineMaterial, at: [cos(a) * r, Self.cakeHeight + 0.0002, sin(a) * r], to: cake)
+        line.orientation = simd_quatf(angle: Float.random(in: -0.6...0.6, using: &rng), axis: [0, 1, 0])
+        cracks.append(line)
+    }
+
+    /// A few crumbs trickle off the sponge's side (they stay on the plate).
+    private func trickle(_ count: Int) {
+        let crumbColors = look.golden ? [Palette.gold, Palette.goldMessColor] : [UIColor(hex: 0xE9C48A), UIColor(hex: 0xF4D9A8)]
+        let a = Float.random(in: -0.35...0.35, using: &rng)
+        let side: Float = rng.next() % 2 == 0 ? 1 : -1
+        let at = entity.convert(position: [-0.01 + cos(a) * 0.03, 0.02, side * 0.03], to: fx.root)
+        fx.particles.burst(.crumb, count: count, at: at, speed: 0.08 * max(fx.motionScale, 0.3), colors: crumbColors,
+                           size: 0.0018...0.003, spread: 0.01, upBias: 0.3, rng: &rng)
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §6).
+    private func onBeat(_ beat: StoryBeat, state: PressVisualState) {
+        switch beat.kind {
+        case .kiss:
+            life.kick(0.5)
+            BeatFX.glint(fx, at: [0.0, Self.cakeHeight + 0.002, 0.004], in: entity, count: 2, golden: look.golden, rng: &rng)
+        case .bulge:
+            let m = max(fx.motionScale, 0.3)
+            if let sprinkle = sprinkles.first(where: { $0.parent === cake }) {
+                fx.debris.adopt(sprinkle, velocity: SIMD3(Float.random(in: -0.08...0.08, using: &rng), 0.22, 0.06) * m,
+                                spin: Burst.spin(8 * m, rng: &rng), bounciness: 0.3)
+            }
+            life.kick(0.6)
+        case .crease:
+            addCreamCrack()
+            life.kick(0.3)
+        case .chip:
+            trickle(3)
+        case .ooze:
+            if let tip = ooze.emit(at: state.compression), beat.ordinal % 2 == 1 {
+                let d = simd_length(SIMD2(tip.x, tip.z)) > 1e-5 ? simd_normalize(SIMD2(tip.x + 0.012, tip.z)) : SIMD2<Float>(1, 0)
+                let colors = look.golden ? [Palette.goldMessColor] : [hasJam ? UIColor(hex: 0xE0335A) : UIColor(hex: 0xF9B9CB)]
+                BeatFX.fling(fx, at: tip, in: entity, direction: d, count: 1, colors: colors, speed: 0.1, rng: &rng)
+            }
+            life.kick(0.4)
+        case .tell:
+            life.tremor(0.3, level: 0.7)
+            trickle(2)
+        case .settle:
+            BeatFX.glint(fx, at: [0.0, 0.01, 0.0], in: entity, count: 2, golden: look.golden, rng: &rng)
+        default:
+            life.kick(0.3)
+        }
     }
 
     /// The 40° sector outline (apex at the origin), corners rounded by the prism builder.
@@ -203,11 +278,17 @@ final class CakeSliceView: PressObjectView {
     }
 
     func update(_ state: PressVisualState) {
+        if life.update(state) {
+            BeatFX.glint(fx, at: [0.01, Self.cakeHeight + 0.002, -0.006], in: entity, count: 1, golden: look.golden, rng: &rng)
+        }
+        for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
         let h = surfaceHeight(compression: state.compression)
         let s = CakeSquash.heightRatio(ramFace: h, candleBent: candleBent)
         // Part of the spread is the bulge (the outline changes shape), so the uniform growth is capped lower. The slice
         // spreads about its centroid, which stays on the anvil centre.
         let k = CakeSquash.uniformSpread(heightRatio: s)
+        lastSpread = max(lastSpread, k * (1 + 0.15 * bulge))
+        ooze.update(compression: state.compression, spread: lastSpread)
         cake.scale = SIMD3(k, s, k)
         cake.position = [-CakeSquash.centroidX * k, 0, 0]
         spread = k * (1 + CakeSquash.bulgeReach * CakeSquash.fillingPush / footprint * bulge * 0.5)
@@ -338,6 +419,7 @@ final class CakeSliceView: PressObjectView {
 
     func handle(_ event: PressEvent, state: PressVisualState) {
         if event == .contact && !flameOut { snuff() }
+        if event == .preFailureTell { life.tremor(0.25, level: 0.7) }
     }
 
     /// The flame goes out with a little smoke puff.

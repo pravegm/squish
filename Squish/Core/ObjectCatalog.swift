@@ -20,7 +20,7 @@ enum ObjectKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .bubbleWrap: "Bubble Wrap"
         case .rubberDuck: "Rubber Duck"
         case .jelly: "Jelly"
-        case .crayon: "Crayon"
+        case .crayon: "Crayon Box"
         case .egg: "Egg"
         case .cakeSlice: "Cake Slice"
         case .sodaCan: "Soda Can"
@@ -80,7 +80,7 @@ enum ObjectKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .bubbleWrap: "Bubble wrap. Twenty-four bubbles, each waiting to pop."
         case .rubberDuck: "Rubber duck. Squeaky, rubbery, surprisingly brave."
         case .jelly: "Jelly. Wobbly and translucent."
-        case .crayon: "Crayon. Waxy and brittle."
+        case .crayon: "A box of seven wax crayons, every colour of the rainbow."
         case .egg: "Egg. Fragile shell, runny inside."
         case .cakeSlice: "Cake slice. Sponge, frosting, one candle."
         case .sodaCan: "Soda can. Thin aluminium, still sealed."
@@ -96,11 +96,11 @@ enum ObjectKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .bubbleWrap: ["Every single one. You monster.", "Shipping department's worst nightmare.", "Popped with professional care."]
         case .rubberDuck: ["He'll be fine. Probably.", "Bath time is cancelled.", "Quack, but flatter."]
         case .jelly: ["Set for four hours. Lasted four seconds.", "Wobble: terminated.", "It's in the grout now."]
-        case .crayon: ["Colouring outside the lines, permanently.", "Now a very short crayon.", "Wax on. Wax everywhere."]
+        case .crayon: ["Colouring outside the lines, permanently.", "Seven colours. One smear.", "Wax on. Wax everywhere.", "The rainbow, pressed for time."]
         case .egg: ["Sunny side down.", "Over hard. Very hard.", "Breakfast is ruined. Worth it."]
         case .cakeSlice: ["It wasn't your birthday anyway.", "Make a wish. Too late.", "The cake was a lie. Now it's a pancake."]
         case .sodaCan: ["Finally fits in the recycling.", "Shaken, not stirred. Mostly crushed.", "Fizz has left the building."]
-        case .gummyBear: ["Gummy bear, ex-bear.", "Unbearably flat.", "Now a gummy rug."]
+        case .gummyBear: ["Gummy bear, ex-bear.", "Unbearably flat.", "Chewed by a hydraulic press.", "Split down the middle. Still sticky."]
         case .glassBottle: ["It was half empty anyway.", "Message received. Bottle not.", "Handle with care. Too late."]
         case .unsquishable: ["Press 0 – Ball 1.", "Some things don't break. Your press did.", "The ball sends its regards."]
         }

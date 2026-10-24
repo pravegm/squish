@@ -21,8 +21,18 @@ final class EggView: PressObjectView {
     private var rng = SplitMix64(seed: 0)
     private let shell = Entity()
     private var shards: [Entity] = []
-    private var crack: [ModelEntity] = []
-    private var crackFrom: Float = 1
+    /// The hairline (path 0) and its two branches (OBJECT-STORYBOARDS §5), each growing from its own start toward the
+    /// failure; seeded per press.
+    private var cracks: [[ModelEntity]] = []
+    private var crackFrom: [Float] = [1, 1, 1]
+    /// A pale stress patch on the top that grows through the strain and the tell.
+    private let stress: ModelEntity
+    private var stressLevel = 0
+    private let life: ObjectLife
+    private var story: StoryCursor
+    private let whiteOoze: OozeRing
+    private let yolkOoze: OozeRing
+    private var yolkWobble = JiggleSpring(value: 0, velocity: 0, omega: 2 * .pi * 3, zeta: 0.25)
     private let failC: Float
     private var failed = false
     private var yolkBroken = false
@@ -43,7 +53,7 @@ final class EggView: PressObjectView {
         SIMD2(0.000, 0.000), SIMD2(0.017, 0.004), SIMD2(0.026, 0.010), SIMD2(0.034, 0.020), SIMD2(0.0385, 0.032),
         SIMD2(0.0400, 0.044), SIMD2(0.0395, 0.056), SIMD2(0.0370, 0.068), SIMD2(0.0320, 0.080), SIMD2(0.0255, 0.090),
         SIMD2(0.0180, 0.098), SIMD2(0.0105, 0.104), SIMD2(0.0045, 0.108), SIMD2(0.000, 0.110),
-    ], perSpan: 3)
+    ], perSpan: 4)
 
     init(variant: PressVariant, fx: SceneFX) {
         self.fx = fx
@@ -58,6 +68,27 @@ final class EggView: PressObjectView {
                               materials: [look.golden ? SceneMaterials.goldMess
                                           : SceneMaterials.enamel(UIColor(hex: 0xFDFCF7), roughness: 0.05, clearcoat: 1,
                                                                   clearcoatRoughness: 0.03, specular: 1, opacity: 0.55)])
+        life = ObjectLife(seed: variant.seed, idle: .rock, amount: 0.025, rate: 0.35, pulseHz: 6, pulseDamping: 0.45)
+        story = StoryCursor(.egg, seed: variant.seed)
+        let plate = GlassDebris.containment(restHeight: 0.080, anvilHalf: PressRig.anvilHalf, padding: 0)
+        let maxRadius = min(plate.x, plate.y) * 0.95
+        let whiteMess = look.golden ? SceneMaterials.goldMess
+            : SceneMaterials.enamel(UIColor(hex: 0xFDFCF7), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, specular: 1,
+                                    opacity: 0.6)
+        var yolkMess = SceneMaterials.enamel(Palette.yolk, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.04)
+        yolkMess.emissiveColor = .init(color: UIColor(hex: 0xFFC233))
+        yolkMess.emissiveIntensity = EggYolk.glow
+        // The white squeezes out from under the shell ring; the yolk floods out over the white.
+        whiteOoze = OozeRing(seed: variant.seed ^ 0xE67, count: 5, radii: SIMD2(0.058, 0.052), reach: 0.008...0.018,
+                             width: 0.016...0.026, thickness: 0.0022, maxRadius: maxRadius, material: whiteMess, y: 0.0002)
+        yolkOoze = OozeRing(seed: variant.seed ^ 0xE68, count: 6, radii: SIMD2(0.030, 0.027), reach: 0.012...0.028,
+                            width: 0.012...0.020, thickness: 0.0026, maxRadius: maxRadius,
+                            material: look.golden ? SceneMaterials.goldMess : yolkMess, y: 0.0006)
+        stress = ModelEntity(mesh: MeshCache.resource("egg.stress") { MeshKit.ellipsoid(radii: [0.0005, 0.012, 0.009], segments: 24, rings: 12) }
+                             ?? .generateSphere(radius: 0.005),
+                             materials: [SceneMaterials.pbr(UIColor(hex: 0xFFFBF2), roughness: 0.75, opacity: 0.6)])
+        stress.isEnabled = false
+        ShadowCasting.off(stress)
         albumen.isEnabled = false
 
         let shellMaterial = look.body(UIColor(hex: 0xEFD3A0), roughness: 0.60, clearcoat: 0.15)
@@ -82,7 +113,7 @@ final class EggView: PressObjectView {
             cuts.append(cuts[0] + 2 * .pi)
             for k in 0..<n {
                 let patch = MeshKit.lathePatch(profile: Self.profile, rings: band, angles: cuts[k]...cuts[k + 1],
-                                               angularSteps: 7, thickness: 0.0012)
+                                               angularSteps: 9, thickness: 0.0012)
                 // Authored with its outward normal as local +Y (FOLD-REVIEW-6 N9), so the break can lay it flat and
                 // convex side up with a yaw-only turn (the lying egg's patches used to be pinned by the platen at
                 // whatever angle they had, right on top of the yolk).
@@ -98,36 +129,79 @@ final class EggView: PressObjectView {
                 shards.append(shard)
             }
         }
-        // Hairline crack along the top (world up = lathe −X after the roll).
-        var points: [(SIMD3<Float>, SIMD3<Float>)] = []
-        var axialPos: Float = 0.036
-        var theta: Float = .pi + Float.random(in: -0.15...0.15, using: &rng)
-        for _ in 0..<11 {
-            let r = Self.radius(at: axialPos) + 0.0002
-            let p = SIMD3<Float>(r * cos(theta), axialPos, r * sin(theta))
-            points.append((p, simd_normalize(SIMD3(cos(theta), 0, sin(theta)))))
-            axialPos += Float.random(in: 0.0035...0.0055, using: &rng)
-            theta += Float.random(in: -0.22...0.22, using: &rng)
-        }
+        // Hairline crack along the top (world up = lathe −X after the roll), then two seeded branches off it
+        // (OBJECT-STORYBOARDS §5: the crack spreads before the shell splinters).
         let crackMaterial = SceneMaterials.pbr(UIColor(hex: 0x8A6A3E), roughness: 0.6)
-        for i in 0..<(points.count - 1) {
-            let (p0, n0) = points[i], (p1, _) = points[i + 1]
-            let d = p1 - p0
-            let length = simd_length(d)
-            let dir = d / max(length, 1e-6)
-            let up = simd_normalize(n0 - simd_dot(n0, dir) * dir)
-            let side = simd_cross(dir, up)
-            let line = MeshKit.model(MeshKit.roundedBox([length + 0.0006, 0.0005, 0.0008], radius: 0.0002, bevel: 0.0001),
-                                     material: crackMaterial)
-            line.position = (p0 + p1) / 2
-            line.orientation = simd_quatf(simd_float3x3(columns: (dir, up, side)))
-            line.isEnabled = false
-            axial.addChild(line)
-            crack.append(line)
+        var crackRng = SplitMix64(seed: variant.seed ^ 0xC2AC)
+        func path(axial start: Float, theta startTheta: Float, steps: Int, stride: ClosedRange<Float>, drift: Float,
+                  rng: inout SplitMix64) -> [(SIMD3<Float>, SIMD3<Float>)] {
+            var points: [(SIMD3<Float>, SIMD3<Float>)] = []
+            var axialPos = start
+            var theta = startTheta
+            for _ in 0..<steps {
+                let r = Self.radius(at: clamp(axialPos, 0.004, 0.106)) + 0.0002
+                let p = SIMD3<Float>(r * cos(theta), axialPos, r * sin(theta))
+                points.append((p, simd_normalize(SIMD3(cos(theta), 0, sin(theta)))))
+                axialPos += Float.random(in: stride, using: &rng)
+                theta += drift + Float.random(in: -0.22...0.22, using: &rng)
+            }
+            return points
         }
+        let theta0: Float = .pi + Float.random(in: -0.15...0.15, using: &rng)
+        let main = path(axial: 0.036, theta: theta0, steps: 11, stride: 0.0035...0.0055, drift: 0, rng: &rng)
         self.rng = rng
-        entity.addChild(shell)
+        var paths = [main]
+        for (k, from) in [3, 7].enumerated() where from < main.count {
+            let p = main[from].0
+            let startTheta = atan2(p.z, p.x)
+            let coin = crackRng.next() % 2 == 0
+            let side: Float = coin ? 1 : -1
+            // The first branch runs back toward the blunt end, the second on toward the tip.
+            let stride: ClosedRange<Float> = k == 0 ? (-0.0045)...(-0.0025) : 0.0025...0.0045
+            paths.append(path(axial: p.y, theta: startTheta, steps: 7, stride: stride, drift: side * 0.16, rng: &crackRng))
+        }
+        for points in paths {
+            var segments: [ModelEntity] = []
+            for i in 0..<(points.count - 1) {
+                let (p0, n0) = points[i], (p1, _) = points[i + 1]
+                let d = p1 - p0
+                let length = simd_length(d)
+                guard length > 1e-5 else { continue }
+                let dir = d / length
+                let up = simd_normalize(n0 - simd_dot(n0, dir) * dir)
+                let side = simd_cross(dir, up)
+                let line = MeshKit.model(MeshKit.roundedBox([length + 0.0006, 0.0005, 0.0008], radius: 0.0002, bevel: 0.0001),
+                                         material: crackMaterial)
+                line.position = (p0 + p1) / 2
+                line.orientation = simd_quatf(simd_float3x3(columns: (dir, up, side)))
+                line.isEnabled = false
+                axial.addChild(line)
+                segments.append(line)
+            }
+            cracks.append(segments)
+        }
+        // The stress patch on the top of the shell (lathe −X), over the middle of the hairline.
+        stress.position = [-(Self.radius(at: 0.052) + 0.0003), 0.052, 0]
+        axial.addChild(stress)
+        life.node.addChild(shell)
+        entity.addChild(life.node)
+        if !look.golden {
+            // Shell detail (fidelity pass): a speckled, mottled shell with fine pores, once the textures are up.
+            let pieces = shards
+            Task { @MainActor in
+                let detail = await SurfaceDetail.eggShell()
+                guard let colour = detail.colour else { return }
+                var material = SceneMaterials.pbr(.white, roughness: 0.62, clearcoat: 0.12)
+                material.baseColor = .init(tint: .white, texture: .init(colour))
+                if let normal = detail.normal { material.normal = .init(texture: .init(normal)) }
+                for shard in pieces {
+                    GlassBottleView.models(in: shard).first?.model?.materials = [material]
+                }
+            }
+        }
         entity.addChild(albumen)
+        entity.addChild(whiteOoze.root)
+        entity.addChild(yolkOoze.root)
         entity.orientation = Part.yaw(-20)
     }
 
@@ -146,18 +220,25 @@ final class EggView: PressObjectView {
 
     func update(_ state: PressVisualState) {
         let c = state.compression
+        if life.update(state) {
+            BeatFX.glint(fx, at: [0.012, 0.079, -0.006], in: entity, golden: look.golden, rng: &rng)
+        }
+        for beat in story.advance(to: c) { onBeat(beat, state: state) }
         let h = surfaceHeight(compression: c)
         if !failed {
             let s = h / restHeight
             shell.scale = SIMD3(s, 1, 1 / s.squareRoot())
-            // The crack grows toward the failure.
-            if crackFrom < 1 {
-                let t = clamp((c - crackFrom) / max(failC - crackFrom, 0.01), 0, 1)
-                let visible = Int((0.3 + 0.7 * t) * Float(crack.count))
-                for (i, line) in crack.enumerated() { line.isEnabled = i < visible }
+            // Each crack path grows from its start toward the failure.
+            for (p, lines) in cracks.enumerated() where p < crackFrom.count && crackFrom[p] < 1 {
+                let t = clamp((c - crackFrom[p]) / max(failC - crackFrom[p], 0.01), 0, 1)
+                let visible = max(Int((0.3 + 0.7 * t) * Float(lines.count)), 2)
+                for (i, line) in lines.enumerated() { line.isEnabled = i < visible }
             }
             return
         }
+        whiteOoze.update(compression: c, spread: 1)
+        yolkOoze.update(compression: c, spread: 1)
+        yolkWobble.step(toward: 0, dt: state.dt)
         let t = clamp((c - failC) / max(1 - failC, 0.05), 0, 1)
         // Albumen spreads to Ø 0.13, 2 mm.
         albumen.scale = SIMD3(0.050 + 0.024 * t, EggYolk.albumenHeight, (0.050 + 0.024 * t) * 0.9)
@@ -171,7 +252,8 @@ final class EggView: PressObjectView {
             let height = min(dome, max(h - 0.001, EggYolk.minHeight))
             var radius = yolkBroken ? EggYolk.brokenRadius(yolkSpread) : EggYolk.radius
             radius *= min((dome / height).squareRoot(), 1.6)
-            yolk.scale = SIMD3(radius, height, radius)
+            let wobble = 1 + 0.12 * clamp(yolkWobble.value, -1, 1)
+            yolk.scale = SIMD3(radius * wobble, height * min(1, 1 / wobble), radius / wobble.squareRoot())
             if i < yolkRuns.count {
                 let run = EggYolk.runRadius(yolkSpread)
                 yolkRuns[i].isEnabled = yolkBroken
@@ -188,12 +270,17 @@ final class EggView: PressObjectView {
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
         switch index {
         case 0:
-            crackFrom = state.compression
-            for (i, line) in crack.enumerated() { line.isEnabled = i < 3 }
+            crackFrom[0] = min(crackFrom[0], state.compression)
+            if let main = cracks.first {
+                for (i, line) in main.enumerated() where i < 3 { line.isEnabled = true }
+            }
+            life.kick(0.6)
         case 1:
             failed = true
             shell.scale = SIMD3(repeating: 1)
-            for line in crack { line.removeFromParent() }
+            for line in cracks.joined() { line.removeFromParent() }
+            stress.removeFromParent()
+            life.kick(1.2)
             breakShell()
             albumen.isEnabled = true
             albumen.scale = SIMD3(0.04, EggYolk.albumenHeight, 0.036)
@@ -237,6 +324,105 @@ final class EggView: PressObjectView {
                                    colors: look.golden ? [Palette.goldMessColor] : [Palette.yolk, UIColor(hex: 0xFFC233)],
                                    size: 0.003...0.005, upBias: 0.2, rng: &rng)
             }
+        }
+    }
+
+    func handle(_ event: PressEvent, state: PressVisualState) {
+        if event == .preFailureTell { life.tremor(0.25) }
+    }
+
+    /// The stress patch grows a step (it's the shell whitening before it splinters).
+    private func whiten() {
+        guard !failed else { return }
+        stressLevel = min(stressLevel + 1, 3)
+        stress.isEnabled = true
+        let k = 0.55 + 0.25 * Float(stressLevel)
+        stress.scale = SIMD3(1, k, k)
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §5).
+    private func onBeat(_ beat: StoryBeat, state: PressVisualState) {
+        let c = state.compression
+        let golden = look.golden
+        switch beat.kind {
+        case .kiss:
+            life.kick(0.5)
+            BeatFX.glint(fx, at: [0.012, 0.079, -0.006], in: entity, count: 3, golden: golden, rng: &rng)
+        case .strain:
+            if failed {
+                // The yolk skin goes taut: a highlight runs over it and it trembles.
+                yolkWobble.kick(1.5)
+                if let yolk = yolks.first { BeatFX.glint(fx, at: [0, 1, 0], in: yolk, golden: golden, rng: &rng) }
+            } else {
+                whiten()
+            }
+        case .crack:
+            if !failed { crackFrom[0] = min(crackFrom[0], c) }
+            life.kick(0.4)
+        case .branch:
+            let p = min(beat.ordinal + 1, 2)
+            if !failed { crackFrom[p] = min(crackFrom[p], c) }
+            life.tremor(0.12, level: 0.6)
+        case .tell:
+            whiten()
+            if !failed { crackFrom[2] = min(crackFrom[2], c) }
+            life.tremor(0.3)
+        case .chip:
+            hopShards(2)
+        case .ooze:
+            oozeOut(beat: beat, compression: c)
+        case .wobble:
+            yolkWobble.kick(2.2)
+            if let yolk = yolks.first { BeatFX.glint(fx, at: [0.3, 1, -0.2], in: yolk, golden: golden, rng: &rng) }
+        case .fling:
+            let a = Float.random(in: 0...(2 * .pi), using: &rng)
+            let colors = golden ? [Palette.goldMessColor] : (yolkBroken ? [Palette.yolk, UIColor(hex: 0xFFC233)] : [UIColor(hex: 0xFDFCF7)])
+            BeatFX.fling(fx, at: [cos(a) * 0.03, 0.004, sin(a) * 0.03], in: entity, direction: SIMD2(cos(a), sin(a)),
+                         count: 3, colors: colors, speed: 0.18, rng: &rng)
+        case .settle:
+            if let yolk = yolks.first {
+                BeatFX.glint(fx, at: [0, 1, 0], in: yolk, count: 2, golden: golden, rng: &rng)
+            } else {
+                BeatFX.glint(fx, at: [0, 0.01, 0], in: entity, count: 2, golden: golden, rng: &rng)
+            }
+        default:
+            life.kick(0.4)
+        }
+    }
+
+    /// The white squeezes out of the pinch line before the yolk goes; after it, the yolk floods out.
+    private func oozeOut(beat: StoryBeat, compression c: Float) {
+        guard failed else {
+            // Not given yet (a late seed): the crack creeps instead.
+            crackFrom[1] = min(crackFrom[1], c)
+            return
+        }
+        let yolkTurn = yolkBroken && !yolks.isEmpty && yolkOoze.emitted < yolkOoze.capacity
+        let ring = yolkTurn ? yolkOoze : whiteOoze
+        if let tip = ring.emit(at: c), beat.ordinal % 2 == 1 {
+            let d = simd_length(SIMD2(tip.x, tip.z)) > 1e-5 ? simd_normalize(SIMD2(tip.x, tip.z)) : SIMD2<Float>(1, 0)
+            let colors = look.golden ? [Palette.goldMessColor] : (yolkTurn ? [Palette.yolk] : [UIColor(hex: 0xFDFCF7)])
+            BeatFX.fling(fx, at: tip, in: entity, direction: d, count: 1, colors: colors, speed: 0.1, rng: &rng)
+        }
+        yolkWobble.kick(1)
+    }
+
+    /// A couple of landed shell pieces hop and settle again (the settle after the give).
+    private func hopShards(_ count: Int) {
+        guard failed else {
+            BeatFX.puff(fx, at: [0, 0.07, 0], in: entity, count: 2, color: UIColor(hex: 0xEFD3A0), rng: &rng)
+            return
+        }
+        let m = fx.motionScale
+        for _ in 0..<count {
+            guard !shards.isEmpty else { return }
+            let shard = shards[Int(rng.next() % UInt64(shards.count))]
+            guard let body = fx.debris.release(shard) else { continue }
+            var bounds: (min: SIMD2<Float>, max: SIMD2<Float>)?
+            if let lo = body.boundsMin, let hi = body.boundsMax { bounds = (min: lo, max: hi) }
+            let v = SIMD3<Float>(Float.random(in: -0.03...0.03, using: &rng), 0.12, Float.random(in: -0.03...0.03, using: &rng)) * m
+            fx.debris.adopt(shard, velocity: v, spin: SIMD3(0, Float.random(in: -4...4, using: &rng) * m, 0),
+                            bounciness: 0.15, friction: 0.9, maxSpread: 1, bounds: bounds)
         }
     }
 

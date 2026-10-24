@@ -359,6 +359,14 @@ enum MeshKit {
         }
         var mesh = MeshData()
         let rCount = rows.count
+        // Texture coordinates follow the whole lathe (u = θ / 2π from the patch's own turn, v = height along the
+        // profile), so a shell texture runs on across neighbouring patches; the side walls sample one texel.
+        let y0 = profile.first?.y ?? 0, y1 = profile.last?.y ?? 1
+        let turn = (angles.lowerBound / (2 * .pi)).rounded(.down)
+        func uv(_ a: Int, _ k: Int) -> SIMD2<Float> {
+            let theta = angles.lowerBound + (angles.upperBound - angles.lowerBound) * Float(k) / Float(cols)
+            return SIMD2(theta / (2 * .pi) - turn, (profile[rows[a]].y - y0) / max(y1 - y0, 1e-6))
+        }
         // Outer and inner surfaces.
         for side in 0..<2 {
             var grid: [[Int]] = []
@@ -368,6 +376,7 @@ enum MeshKit {
                     let n = outerN[a][k]
                     let p = side == 0 ? outer[a][k] : outer[a][k] - n * thickness
                     row.append(mesh.addVertex(p, side == 0 ? n : -n))
+                    mesh.uvs.append(uv(a, k))
                 }
                 grid.append(row)
             }
@@ -392,6 +401,7 @@ enum MeshKit {
                 let fn = simd_normalize(face)
                 let a = mesh.addVertex(p0, fn), b = mesh.addVertex(p1, fn)
                 let c = mesh.addVertex(q1, fn), d = mesh.addVertex(q0, fn)
+                mesh.uvs.append(contentsOf: [SIMD2<Float>](repeating: SIMD2(0.5, 0.5), count: 4))
                 mesh.addTriangle(a, b, c, material: 1)
                 mesh.addTriangle(a, c, d, material: 1)
             }

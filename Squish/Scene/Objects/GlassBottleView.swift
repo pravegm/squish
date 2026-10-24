@@ -75,6 +75,13 @@ final class GlassBottleView: PressObjectView {
     private let containment: SIMD2<Float>
     private let seaGlass: PhysicallyBasedMaterial
     private let seaGlassEdge: any Material
+    /// The storyboard (OBJECT-STORYBOARDS §9): silent rigidity that still shows stress (a glow that builds, chips, an
+    /// early crack that creeps), then a pile that tinkles as it settles. Beat effects draw from their own stream, so the
+    /// shatter's pile for a seed doesn't depend on which beats fired.
+    private let life: ObjectLife
+    private var story: StoryCursor
+    private var beatRng: SplitMix64
+    private var glowLevel = 0
 
     /// One segment of a crack star's ray: a bright line with a dark core on top of it. Segments appear in order from
     /// the impact and lengthen with compression.
@@ -115,7 +122,102 @@ final class GlassBottleView: PressObjectView {
         containment = GlassDebris.containment(restHeight: 0.060 * Self.heroScale, anvilHalf: PressRig.anvilHalf)
         rng = SplitMix64(seed: variant.seed ^ 0x6A55)
         crackSeed = variant.seed ^ 0xC2AC_5747
+        life = ObjectLife(seed: variant.seed, idle: .still, amount: 0, rate: 0.3, pulseHz: 8, pulseDamping: 0.5)
+        story = StoryCursor(.glassBottle, seed: variant.seed)
+        beatRng = SplitMix64(seed: variant.seed ^ 0xB1A5_7)
         build(variant: variant)
+        life.adopt(childrenOf: entity)
+    }
+
+    /// The bottle's outer glass with its stress glow step (`GlassStress`).
+    private func stressedGlass(level: Int) -> PhysicallyBasedMaterial {
+        var m = SceneMaterials.enamel(UIColor(hex: 0x5CC8B8), roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02,
+                                      specular: 1, opacity: 0.32 + 0.04 * Float(level))
+        m.emissiveColor = .init(color: UIColor(hex: GlassStress.glowTint))
+        m.emissiveIntensity = GlassStress.glow(level: level)
+        return m
+    }
+
+    /// One stress-glow step on the intact bottle (the glass whitens under load).
+    private func glowStep() {
+        guard !failed, !look.golden, glowLevel < GlassStress.steps else { return }
+        glowLevel += 1
+        let material = stressedGlass(level: glowLevel)
+        for patch in patchModels {
+            Self.models(in: patch).first?.model?.materials = [material]
+        }
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §9).
+    private func onBeat(_ beat: StoryBeat, state: PressVisualState) {
+        let golden = look.golden
+        switch beat.kind {
+        case .kiss:
+            for x: Float in [-0.05, 0.0, 0.05] {
+                BeatFX.glint(fx, at: [x, 0.061, 0.004], in: entity, count: 1, golden: golden, rng: &beatRng)
+            }
+        case .glow:
+            glowStep()
+            BeatFX.glint(fx, at: [Float.random(in: -0.05...0.04, using: &beatRng), 0.058, 0.01], in: entity, count: 1,
+                         golden: golden, rng: &beatRng)
+        case .chip:
+            if failed {
+                fx.particles.burst(.flake, count: 3, at: entity.convert(position: [0, 0.006, 0], to: fx.root), speed: 0.06,
+                                   colors: golden ? [Palette.gold] : [UIColor(hex: 0x8FE0D3)], size: 0.0015...0.003,
+                                   spread: 0.03, upBias: 0.4, rng: &beatRng)
+                BeatFX.glint(fx, at: [Float.random(in: -0.03...0.03, using: &beatRng), 0.008, 0], in: entity, count: 2,
+                             golden: golden, rng: &beatRng)
+            } else {
+                // A fleck chips off the lip.
+                let lip = entity.convert(position: [0.069, 0.030, 0.008], to: fx.root)
+                fx.particles.burst(.flake, count: 2, at: lip, speed: 0.08, colors: golden ? [Palette.gold] : [UIColor(hex: 0x8FE0D3)],
+                                   size: 0.0015...0.0025, upBias: 0.5, rng: &beatRng)
+                BeatFX.glint(fx, at: [0.069, 0.031, 0.008], in: entity, count: 2, golden: golden, rng: &beatRng)
+                life.kick(0.2)
+            }
+        case .crack:
+            if !failed && !cracked {
+                // The crack starts early and creeps (fracture 0 only makes it louder).
+                cracked = true
+                crackC = state.compression
+                buildCracks()
+                growCracks(compression: state.compression)
+            }
+            if !failed, let impact = GlassCrack.impacts.first {
+                let spot = GlassCrack.surface(x: impact.x, angle: impact.angle, squash: squash)
+                BeatFX.glint(fx, at: spot.point + spot.normal * 0.002, in: entity, count: 2, golden: golden, rng: &beatRng)
+            }
+            life.kick(0.2)
+        case .strain, .tell:
+            glowStep()
+            life.tremor(beat.kind == .tell ? 0.3 : 0.18, level: 0.8)
+        case .settle:
+            if failed { tinkle(2) } else { glowStep() }
+        case .sheen:
+            BeatFX.glint(fx, at: [Float.random(in: -0.03...0.03, using: &beatRng), 0.01, Float.random(in: -0.02...0.02, using: &beatRng)],
+                         in: entity, count: 3, golden: golden, rng: &beatRng)
+        default:
+            life.kick(0.2)
+        }
+    }
+
+    /// A couple of shards on the pile hop and settle again (the tinkle), until the seal freezes it.
+    private func tinkle(_ count: Int) {
+        guard failed, !sealed else { return }
+        let m = fx.motionScale
+        let loose = shards.indices.filter { !(($0 < intact.count) && intact[$0]) }
+        guard !loose.isEmpty else { return }
+        for _ in 0..<count {
+            let shard = shards[loose[Int(beatRng.next() % UInt64(loose.count))]]
+            guard let body = fx.debris.release(shard) else { continue }
+            var bounds: (min: SIMD2<Float>, max: SIMD2<Float>)?
+            if let lo = body.boundsMin, let hi = body.boundsMax { bounds = (min: lo, max: hi) }
+            let v = SIMD3<Float>(Float.random(in: -0.02...0.02, using: &beatRng), 0.08, Float.random(in: -0.02...0.02, using: &beatRng)) * m
+            fx.debris.adopt(shard, velocity: v, spin: SIMD3(0, Float.random(in: -3...3, using: &beatRng) * m, 0),
+                            bounciness: 0.1, friction: 0.8, maxSpread: 1, bounds: bounds)
+            BeatFX.glint(fx, at: shard.position(relativeTo: entity) + SIMD3(0, 0.003, 0), in: entity, count: 1,
+                         golden: look.golden, rng: &beatRng)
+        }
     }
 
     private func build(variant: PressVariant) {
@@ -336,6 +438,15 @@ final class GlassBottleView: PressObjectView {
             labelBand.addChild(model)
         }
         axial.addChild(labelBand)
+        if !look.golden {
+            // The printed label (fidelity pass): cream and raspberry bands with a wordmark, once the print is up.
+            let bands = labelBand.children.map { $0 }
+            Task { @MainActor in
+                guard let print = await SurfaceDetail.bottleLabel() else { return }
+                let material = SceneMaterials.textured(print, roughness: 0.7)
+                for band in bands { Self.models(in: band).first?.model?.materials = [material] }
+            }
+        }
         if variant.surprise == .messageInABottle {
             let note = Entity()
             Part.add(cached: "glass.note", { MeshKit.roundedCylinder(radius: 0.008, height: 0.06, bevel: 0.003, segments: 32) },
@@ -366,6 +477,11 @@ final class GlassBottleView: PressObjectView {
     }
 
     func update(_ state: PressVisualState) {
+        if life.update(state) {
+            BeatFX.glint(fx, at: [Float.random(in: -0.05...0.03, using: &beatRng), 0.061, 0.004], in: entity, count: 1,
+                         golden: look.golden, rng: &beatRng)
+        }
+        for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
         if failed {
             twinkle(state)
             return
@@ -382,10 +498,13 @@ final class GlassBottleView: PressObjectView {
         case 0:
             // A long creak, then two crack stars on the camera side that grow as the press closes, and a glint at the
             // front star's impact (FOLD-REVIEW-8 N3: the old run lay on the top, under the ram).
-            cracked = true
-            crackC = state.compression
+            if !cracked {
+                cracked = true
+                crackC = state.compression
+            }
             buildCracks()
             growCracks(compression: state.compression)
+            life.kick(0.3)
             let impact = GlassCrack.impacts[GlassCrack.impacts.count - 1]
             let glint = GlassCrack.surface(x: impact.x, angle: impact.angle, squash: squash)
             fx.particles.burst(.glint, count: 3, at: entity.convert(position: glint.point + glint.normal * 0.002, to: fx.root),
@@ -416,6 +535,8 @@ final class GlassBottleView: PressObjectView {
         switch event {
         case .sealed, .reveal:
             freezePile()
+        case .preFailureTell:
+            life.tremor(0.25)
         default:
             break
         }
@@ -497,7 +618,7 @@ final class GlassBottleView: PressObjectView {
             }
             crackImpacts.append((edge, core, SIMD2(impact.x, impact.angle)))
         }
-        entity.addChild(crackRoot)
+        life.node.addChild(crackRoot)
     }
 
     /// The rays show `GlassCrack.firstShare` at the first crack and grow to their full length at the failure, on the
@@ -620,6 +741,16 @@ final class GlassBottleView: PressObjectView {
             fx.debris.adopt(message, velocity: SIMD3(0, 0.2, 0.05) * m, spin: Burst.spin(4 * m, rng: &rng), bounciness: 0.2,
                             bounds: GlassDebris.centreBounds(containment: containment, pieceHalf: half))
         }
+    }
+}
+
+/// The intact bottle's stress glow (OBJECT-STORYBOARDS §9): the glass whitens a step at each `.glow` / `.strain` /
+/// `.tell` beat before it gives. Pure, so SquishTests can pin it.
+enum GlassStress {
+    static let steps = 5
+    static let glowTint: UInt32 = 0xB8FFF4
+    static func glow(level: Int) -> Float {
+        0.06 * Float(clamp(level, 0, steps))
     }
 }
 

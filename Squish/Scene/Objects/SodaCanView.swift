@@ -52,6 +52,11 @@ final class SodaCanView: PressObjectView {
     private var lastShort: Float = -1
     private var spread: Float = 1
     private let fizz: (drop: UIColor, puddle: UIColor)
+    /// The storyboard (OBJECT-STORYBOARDS §7): a still can with a rim glint, label wrinkles, a hiss, the fizz puddle
+    /// squeezed out from under the crushed base.
+    private let life: ObjectLife
+    private var story: StoryCursor
+    private let ooze: OozeRing
 
     /// Straight body between the bottom and shoulder bevels, split into five fold bands (top-down).
     static let bodyBottom: Float = ObjectMeshes.canBodyBottom
@@ -100,11 +105,13 @@ final class SodaCanView: PressObjectView {
             (UIColor(hex: 0xE9F7D9), UIColor(hex: 0xC9EFA0)), (UIColor(hex: 0xFFE0B8), UIColor(hex: 0xFFB347)),
             (UIColor(hex: 0xEBD7FF), UIColor(hex: 0xC77DFF)),
         ]
+        let chosen: (drop: UIColor, puddle: UIColor)
         if variant.surprise == .cherryFizz {
-            fizz = (UIColor(hex: 0xFFC2D1), Palette.cherryFizz)
+            chosen = (UIColor(hex: 0xFFC2D1), Palette.cherryFizz)
         } else {
-            fizz = palettes[Int(rng.next() % UInt64(palettes.count))]
+            chosen = palettes[Int(rng.next() % UInt64(palettes.count))]
         }
+        fizz = chosen
         phases = (0..<Self.folds).map { _ in Float.random(in: 0...(2 * .pi), using: &rng) }
         sprayAngle = Float.random(in: 0.6...1.4, using: &rng) // toward the camera side (+Z)
         ovalAngle = Float.random(in: 0...(2 * .pi), using: &rng)
@@ -131,9 +138,19 @@ final class SodaCanView: PressObjectView {
                              materials: [look.golden ? SceneMaterials.goldMess
                                          : SceneMaterials.enamel(fizz.puddle, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03,
                                                                  opacity: 0.6)])
+        life = ObjectLife(seed: variant.seed, idle: .still, amount: 0, rate: 0.3, pulseHz: 7, pulseDamping: 0.5)
+        story = StoryCursor(.sodaCan, seed: variant.seed)
+        let plate = GlassDebris.containment(restHeight: 0.150 * ObjectMeshes.canY, anvilHalf: PressRig.anvilHalf, padding: 0)
+        ooze = OozeRing(seed: variant.seed ^ 0x50DB, count: 5, radii: SIMD2(repeating: 0.057), reach: 0.010...0.024,
+                        width: 0.014...0.024, thickness: 0.0016, maxRadius: min(plate.x, plate.y) * 0.95,
+                        material: look.golden ? SceneMaterials.goldMess
+                            : SceneMaterials.enamel(chosen.puddle, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, opacity: 0.6),
+                        y: 0.0002)
         puddle.isEnabled = false
         self.rng = rng
-        entity.addChild(can.entity)
+        life.node.addChild(can.entity)
+        entity.addChild(life.node)
+        entity.addChild(ooze.root)
         entity.addChild(puddle)
         // Ring-pull tab on the lid.
         tab = Part.add(cached: "can.tab", { MeshKit.roundedBox([0.022, 0.001, 0.012], radius: 0.004, bevel: 0.0004) },
@@ -170,6 +187,11 @@ final class SodaCanView: PressObjectView {
     }
 
     func update(_ state: PressVisualState) {
+        if life.update(state) {
+            BeatFX.glint(fx, at: [-0.03, Self.lidY + 0.003, -0.03], in: entity, golden: look.golden, rng: &rng)
+        }
+        for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
+        ooze.update(compression: state.compression, spread: min(spread, 1.3))
         // Latched at the deepest crush, so the reveal is never less crushed than the sealed frame (FOLD-REVIEW-3 N6).
         lowest = min(lowest, surfaceHeight(compression: state.compression))
         let h = lowest
@@ -355,8 +377,84 @@ final class SodaCanView: PressObjectView {
         return mark
     }
 
+    /// One label wrinkle on the shoulder (a storyboard `.crease`), placed by the next `deform`.
+    private func addChevron(angle: Float) {
+        let mark = chevron()
+        let rest = CanCrush.shoulder(radius: CanCrush.chevronRadius)
+        mark.position = [cos(angle) * CanCrush.chevronRadius, rest.y, sin(angle) * CanCrush.chevronRadius]
+        mark.orientation = simd_quatf(angle: -angle, axis: [0, 1, 0]) * simd_quatf(angle: -rest.slope, axis: [0, 0, 1])
+        shoulderMarks.addChild(mark)
+        creases.append((mark: mark, angle: angle))
+        lastShort = -1
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §7).
+    private func onBeat(_ beat: StoryBeat, state: PressVisualState) {
+        let golden = look.golden
+        let top = min(Self.lidY, lowest.isFinite ? lowest : Self.lidY)
+        switch beat.kind {
+        case .kiss:
+            // The rim ring kisses the plate: a glint runs round it.
+            for k in 0..<3 {
+                let a = ovalAngle + Float(k) * 2.1
+                BeatFX.glint(fx, at: [cos(a) * 0.043, top + 0.002, sin(a) * 0.043], in: entity, count: 1, golden: golden, rng: &rng)
+            }
+            life.kick(0.25)
+        case .strain:
+            // The lid "tinks" in.
+            topStrain = max(topStrain, 0.35)
+            lastShort = -1
+            life.kick(0.3)
+            BeatFX.glint(fx, at: [0, top + 0.001, 0], in: entity, count: 1, golden: golden, rng: &rng)
+        case .crease:
+            addChevron(angle: phases[beat.ordinal % phases.count] + 2.4 + Float(beat.ordinal) * 1.7)
+            life.kick(0.3)
+        case .sheen:
+            let a = sprayAngle + Float.random(in: -0.6...0.6, using: &rng)
+            BeatFX.glint(fx, at: [cos(a) * 0.056, min(top * 0.6, 0.08), sin(a) * 0.056], in: entity, count: 2, golden: golden, rng: &rng)
+        case .buckle:
+            life.tremor(0.2, level: 0.6)
+            prePeak = max(prePeak, 0.6)
+            lastShort = -1
+        case .hiss, .tell:
+            // Fizz leaks round the tab before the wall gives (or keeps leaking after).
+            let at = entity.convert(position: tab.position + SIMD3(0, 0.002, 0), to: fx.root)
+            fx.particles.burst(.fizz, count: beat.kind == .tell ? 3 : 5, at: at, speed: 0.08, colors: [look.tint(fizz.drop)],
+                               size: 0.003...0.005, spread: 0.004, upBias: 0.7, life: 0.5, rng: &rng)
+            if beat.kind == .tell { life.tremor(0.3) }
+        case .ooze:
+            if punctured {
+                if let tip = ooze.emit(at: state.compression) {
+                    let d = simd_length(SIMD2(tip.x, tip.z)) > 1e-5 ? simd_normalize(SIMD2(tip.x, tip.z)) : SIMD2<Float>(1, 0)
+                    BeatFX.fling(fx, at: tip, in: entity, direction: d, count: 1, colors: [look.tint(fizz.drop)], speed: 0.1, rng: &rng)
+                }
+            } else {
+                let at = entity.convert(position: tab.position, to: fx.root)
+                fx.particles.burst(.fizz, count: 4, at: at, speed: 0.08, colors: [look.tint(fizz.drop)], size: 0.003...0.005,
+                                   upBias: 0.7, life: 0.5, rng: &rng)
+            }
+        case .fling:
+            let foldY = min(top * 0.62, Self.bodyTop)
+            let a = sprayAngle + Float.random(in: -0.8...0.8, using: &rng)
+            BeatFX.fling(fx, at: [cos(a) * 0.06, foldY, sin(a) * 0.06], in: entity, direction: SIMD2(cos(a), sin(a)), count: 4,
+                         colors: [look.tint(fizz.drop)], speed: 0.3, rng: &rng)
+        case .settle:
+            BeatFX.glint(fx, at: [0, top + 0.001, 0], in: entity, count: 2, golden: golden, rng: &rng)
+            let at = entity.convert(position: [0, top, 0.05], to: fx.root)
+            fx.particles.burst(.fizz, count: 2, at: at, speed: 0.04, colors: [look.tint(fizz.drop)], size: 0.003...0.004,
+                               upBias: 0.8, life: 0.5, rng: &rng)
+        default:
+            life.kick(0.3)
+        }
+    }
+
+    func handle(_ event: PressEvent, state: PressVisualState) {
+        if event == .preFailureTell { life.tremor(0.25) }
+    }
+
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
         fired = max(fired, index + 1)
+        life.kick(isFailure ? 0.9 : 0.6)
         // Two crumpled chevron folds per buckle on the shoulder, roughly opposite each other; placed on the flattened
         // shoulder by the next `deform`.
         let first = phases[index % phases.count] + Float(index) * 1.3

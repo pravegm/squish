@@ -54,6 +54,16 @@ final class DuckView: PressObjectView {
     /// less pressed on unloading or at the reveal (FOLD-REVIEW-3 N6).
     private var widest: Float = 1
     private var skirtT: Float = 0
+    /// The storyboard (OBJECT-STORYBOARDS §2): idle bob, beats, the face's squash steps, vinyl creases, seam strain.
+    private let life: ObjectLife
+    private var story: StoryCursor
+    /// The face: 0 rest, 1 surprised (wide), 2 squint, 3 stretched ovals, 4 pancake (`DuckFace`). The eyes ease to it.
+    private var faceLevel = 0
+    private var faceScale = SIMD3<Float>(repeating: 1)
+    private var creases: [ModelEntity] = []
+    private var shownCreases = 0
+    private var seamStrain = 0
+    private let seamMaterials: [PhysicallyBasedMaterial]
 
     var shadowSpread: Float { spread }
 
@@ -61,6 +71,11 @@ final class DuckView: PressObjectView {
         self.fx = fx
         let look = Look(variant)
         self.look = look
+        life = ObjectLife(seed: variant.seed, idle: .rock, amount: 0.035, rate: 0.45, pulseHz: 4, pulseDamping: 0.3)
+        story = StoryCursor(.rubberDuck, seed: variant.seed)
+        seamMaterials = [SceneMaterials.pbr(UIColor(hex: 0xFFF4C2), roughness: 0.5),
+                         SceneMaterials.pbr(UIColor(hex: 0xD9B23A), roughness: 0.5),
+                         SceneMaterials.pbr(UIColor(hex: 0x9A7414), roughness: 0.5)]
         rng = SplitMix64(seed: variant.seed ^ 0xD0C)
         golden = look.golden
         let bodyMaterial = Self.bodyMaterial(golden: look.golden, dull: 0)
@@ -82,6 +97,10 @@ final class DuckView: PressObjectView {
             let rest = SIMD3<Float>(0.035, 0.068, 0.012 * side)
             let eye = Part.add(cached: "duck.eye", { MeshKit.sphere(radius: 0.0034, segments: 24, rings: 12) }, eyeMaterial,
                                at: rest, to: squash)
+            // A cartoon catchlight up toward the key (fidelity pass): it rides the eye, so it squashes with the face.
+            let catchlight = Part.add(cached: "duck.catchlight", { MeshKit.sphere(radius: 0.0011, segments: 12, rings: 6) },
+                                      SceneMaterials.unlit(UIColor(hex: 0xFFFFFF)), at: [0.0009, 0.0019, side * 0.0024], to: eye)
+            ShadowCasting.off(catchlight)
             eyes.append((eye, rest))
         }
         // Seam: short dark segments following the top of the back, hidden until the seam pops.
@@ -108,9 +127,20 @@ final class DuckView: PressObjectView {
         skirt = ModelEntity(mesh: MeshCache.resource("duck.skirt") { MeshKit.spreadDisc(seed: 0xD5C, height: 1, segments: 48, wobble: 0.08) }
                             ?? .generateSphere(radius: 0.01), materials: [bodyMaterial])
         skirt.isEnabled = false
+        // Vinyl creases (hidden until their `.crease` beats): a pair at the neck, then one down the chest.
+        let creaseMaterial = look.golden ? SceneMaterials.pbr(UIColor(hex: 0x9A7414), roughness: 0.4, metallic: 1)
+            : SceneMaterials.pbr(UIColor(hex: 0xC99A1A), roughness: 0.45)
+        for rest in DuckFace.creaseRests {
+            let crease = Part.add(cached: "duck.crease", { MeshKit.roundedBox([0.012, 0.0012, 0.0016], radius: 0.0005, bevel: 0.0002) },
+                                  creaseMaterial, at: rest.position, to: squash)
+            crease.orientation = rest.orientation
+            crease.isEnabled = false
+            creases.append(crease)
+        }
         entity.addChild(wetRing)
         entity.addChild(skirt)
-        entity.addChild(squash)
+        life.node.addChild(squash)
+        entity.addChild(life.node)
         // 3/4 view, beak toward camera-right (+X forward, yaw −30°).
         entity.orientation = Part.yaw(-30)
         entity.scale = SIMD3(repeating: Self.heroScale)
@@ -144,6 +174,16 @@ final class DuckView: PressObjectView {
     }
 
     func update(_ state: PressVisualState) {
+        if life.update(state) {
+            BeatFX.glint(fx, at: [0.022, 0.084, -0.008], in: entity, golden: golden, rng: &rng)
+        }
+        for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
+        // The face eases to its current squash step (cheap: two transforms).
+        let wanted = DuckFace.scale(level: faceLevel)
+        if simd_length(wanted - faceScale) > 0.002 {
+            faceScale = state.reduceMotion ? wanted : faceScale + (wanted - faceScale) * min(1, state.dt * 14)
+            applyEyes()
+        }
         // Elastic rebound is capped at 15% of the deepest squash (FOLD-PRESS §6.2, FOLD-REVIEW-2 #5): the reveal shows
         // the pressed specimen, not a duck that has re-inflated.
         var target = surfaceHeight(compression: state.compression) / restHeight
@@ -170,12 +210,12 @@ final class DuckView: PressObjectView {
             shapedC = headC
             let c = headC
             body.update { DuckSquash.headDeform($0, c: c) }
-            for eye in eyes {
-                eye.model.position = DuckSquash.eyePosition(rest: eye.rest, c: c)
-                eye.model.scale = SIMD3(1, DuckSquash.eyeFlatten(c), 1)
-            }
+            applyEyes()
             for segment in seamRest {
                 segment.model.position = DuckSquash.headDeform(segment.rest, c: c)
+            }
+            for (i, crease) in creases.enumerated() where i < DuckFace.creaseRests.count {
+                crease.position = DuckSquash.headDeform(DuckFace.creaseRests[i].position, c: c)
             }
             // Clearcoat 0.10 → 0.30 and base roughness 0.28 → 0.40: the highlight widens and dulls as it flattens.
             let level = DuckSquash.dullLevel(c)
@@ -235,13 +275,17 @@ final class DuckView: PressObjectView {
             seamPopped = true
             popC = state.compression
             seam.isEnabled = true
+            for segment in seamRest { segment.model.model?.materials = [seamMaterials[2]] }
+            faceLevel = max(faceLevel, 3)
+            life.kick(1.2)
             skirt.isEnabled = true
             let at = entity.convert(position: [-0.04, 0.03, 0], to: fx.root)
             fx.particles.burst(.dust, count: 5, at: at, speed: 0.08 * max(fx.motionScale, 0.4),
                                colors: [UIColor(hex: 0xFFFDF6)], size: 0.004...0.008, upBias: 0.3, life: 0.5, rng: &rng)
         } else {
-            // Honk: the beak pops and a little air ring leaves it.
+            // Honk: the beak pops and a little air ring leaves it; the face goes wide again for a beat.
             beakPop.kick(3)
+            life.kick(0.9)
             let at = entity.convert(position: [0.055, 0.055, 0], to: fx.root)
             fx.particles.burst(.dust, count: 3, at: at, speed: 0.05, colors: [UIColor(hex: 0xFFFDF6)],
                                size: 0.003...0.005, upBias: 0.1, life: 0.35, rng: &rng)
@@ -249,8 +293,102 @@ final class DuckView: PressObjectView {
     }
 
     func handle(_ event: PressEvent, state: PressVisualState) {
-        if event == .contact { beakPop.kick(1) }
+        switch event {
+        case .contact:
+            beakPop.kick(1)
+        case .preFailureTell:
+            life.tremor(0.3)
+        default:
+            break
+        }
     }
+
+    private func applyEyes() {
+        for eye in eyes {
+            eye.model.position = DuckSquash.eyePosition(rest: eye.rest, c: headC)
+            eye.model.scale = SIMD3(1, DuckSquash.eyeFlatten(headC), 1) * faceScale
+        }
+    }
+
+    /// The seam shows before it pops: pale, then darker (stress whitening on vinyl), then the popped seam.
+    private func strainSeam() {
+        guard !seamPopped else { return }
+        seamStrain = min(seamStrain + 1, 2)
+        seam.isEnabled = true
+        let material = seamMaterials[seamStrain - 1]
+        for segment in seamRest { segment.model.model?.materials = [material] }
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §2).
+    private func onBeat(_ beat: StoryBeat, state: PressVisualState) {
+        switch beat.kind {
+        case .kiss:
+            beakPop.kick(1.5)
+            life.kick(0.8)
+            BeatFX.glint(fx, at: [0.022, 0.084, -0.008], in: entity, golden: golden, rng: &rng)
+        case .bulge:
+            life.kick(1.0)
+            faceLevel = max(faceLevel, 1)
+            if beat.ordinal > 0 { BeatFX.puff(fx, at: [-0.045, 0.012, 0], in: entity, count: 3, rng: &rng) }
+        case .squeak:
+            beakPop.kick(2.5)
+            let at: SIMD3<Float> = beat.ordinal == 0 ? [0.058, 0.054, 0] : [-0.048, 0.034, 0]
+            BeatFX.puff(fx, at: at, in: entity, count: 3, rng: &rng)
+        case .squash:
+            faceLevel = max(faceLevel, min(2 + beat.ordinal, DuckFace.levels - 1))
+            life.kick(0.6)
+        case .crease:
+            let upTo = beat.ordinal == 0 ? 2 : creases.count
+            for i in shownCreases..<max(upTo, shownCreases) where i < creases.count { creases[i].isEnabled = true }
+            shownCreases = max(shownCreases, min(upTo, creases.count))
+            life.kick(0.5)
+        case .wobble:
+            life.tremor(0.25, level: 0.7)
+            beakPop.kick(1)
+        case .sheen:
+            BeatFX.glint(fx, at: [-0.01, 0.05, 0.012], in: entity, golden: golden, rng: &rng)
+            BeatFX.glint(fx, at: [0.02, 0.07, -0.012], in: entity, count: 1, golden: golden, rng: &rng)
+        case .strain:
+            strainSeam()
+            life.tremor(0.15, level: 0.5)
+        case .tell:
+            strainSeam()
+            life.tremor(0.3)
+            if beat.ordinal > 0 { BeatFX.puff(fx, at: [-0.02, 0.05, 0], in: entity, count: 2, rng: &rng) }
+        case .ooze:
+            BeatFX.puff(fx, at: [-0.03, 0.035, 0], in: entity, count: 5, speed: 0.07, rng: &rng)
+            life.kick(0.6)
+        case .settle:
+            BeatFX.puff(fx, at: [-0.045, 0.01, 0], in: entity, count: 2, rng: &rng)
+            BeatFX.glint(fx, at: [0.0, 0.02, 0.0], in: entity, count: 1, golden: golden, rng: &rng)
+        default:
+            life.kick(0.5)
+        }
+    }
+}
+
+/// The duck's cartoon face steps and its vinyl creases (OBJECT-STORYBOARDS §2), pure so SquishTests can pin them.
+/// The eyes squash with the head; nothing is ever damaged (bible content rule: faces survive).
+enum DuckFace {
+    static let levels = 5
+
+    /// Eye scale multipliers (x along the body, y up, z sideways): rest, surprised, squint, stretched ovals, pancake.
+    static func scale(level: Int) -> SIMD3<Float> {
+        switch clamp(level, 0, levels - 1) {
+        case 1: return SIMD3(1.2, 1.2, 1.2)
+        case 2: return SIMD3(1.15, 0.55, 1.25)
+        case 3: return SIMD3(1.3, 0.45, 1.45)
+        case 4: return SIMD3(1.45, 0.35, 1.6)
+        default: return SIMD3(repeating: 1)
+        }
+    }
+
+    /// Crease rest poses (duck-local, before the hero scale): two at the neck, one down the chest.
+    static let creaseRests: [(position: SIMD3<Float>, orientation: simd_quatf)] = [
+        (SIMD3(0.014, 0.047, 0.0195), simd_quatf(angle: 0.35, axis: [0, 1, 0]) * simd_quatf(angle: -0.5, axis: [1, 0, 0])),
+        (SIMD3(0.014, 0.047, -0.0195), simd_quatf(angle: -0.35, axis: [0, 1, 0]) * simd_quatf(angle: 0.5, axis: [1, 0, 0])),
+        (SIMD3(0.0385, 0.026, 0.0), simd_quatf(angle: .pi / 2, axis: [0, 1, 0]) * simd_quatf(angle: -1.2, axis: [0, 0, 1])),
+    ]
 }
 
 /// The duck's top-down squash numbers (FOLD-REVIEW-3 N4/N6), pure so SquishTests can pin them.

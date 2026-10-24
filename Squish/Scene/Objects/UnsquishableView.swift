@@ -18,6 +18,11 @@ final class UnsquishableView: PressObjectView {
     private var rng = SplitMix64(seed: 0)
     private let ball: ModelEntity
     private var dent: Entity?
+    /// The storyboard (OBJECT-STORYBOARDS §10): the ball never gives, so the events are the press losing: reflections
+    /// sweeping over it, the steel warming in steps, grit and sparks squeezed out at the contact.
+    private let life: ObjectLife
+    private var story: StoryCursor
+    private var heat = 0
 
     init(variant: PressVariant, fx: SceneFX) {
         self.fx = fx
@@ -25,15 +30,56 @@ final class UnsquishableView: PressObjectView {
         ball = ModelEntity(mesh: MeshCache.resource("ball") { MeshKit.sphere(radius: ObjectMeshes.ballRadius, segments: 64, rings: 48) }
                            ?? .generateSphere(radius: ObjectMeshes.ballRadius),
                            materials: [SceneMaterials.pbr(UIColor(hex: 0xF2F3F5), roughness: 0.03, metallic: 1)])
+        life = ObjectLife(seed: variant.seed, idle: .still, amount: 0, rate: 0.3, pulseHz: 10, pulseDamping: 0.6)
+        story = StoryCursor(.unsquishable, seed: variant.seed)
         ball.position = [0, ObjectMeshes.ballRadius, 0]
-        entity.addChild(ball)
+        life.node.addChild(ball)
+        entity.addChild(life.node)
+    }
+
+    /// The steel warms a step (a faint ember tint at the contact, never a deformation).
+    private func warm() {
+        heat = min(heat + 1, 4)
+        var material = SceneMaterials.pbr(UIColor(hex: 0xF2F3F5), roughness: 0.03 + 0.01 * Float(heat), metallic: 1)
+        material.emissiveColor = .init(color: UIColor(hex: 0xFF7A2E))
+        material.emissiveIntensity = 0.05 * Float(heat)
+        ball.model?.materials = [material]
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §10).
+    private func onBeat(_ beat: StoryBeat, state: PressVisualState) {
+        let r = ObjectMeshes.ballRadius
+        switch beat.kind {
+        case .kiss, .sheen:
+            let a = Float.random(in: 0...(2 * .pi), using: &rng)
+            BeatFX.glint(fx, at: [cos(a) * r * 0.5, r * 1.85, sin(a) * r * 0.5], in: entity, count: 2, rng: &rng)
+        case .glow:
+            warm()
+        case .chip:
+            // Grit and sparks squeezed out where the plate grinds on the ball.
+            let top = entity.convert(position: [0, restHeight, 0], to: fx.root)
+            fx.particles.burst(beat.ordinal % 2 == 0 ? .dust : .spark, count: 3, at: top, speed: 0.25 * max(fx.motionScale, 0.4),
+                               colors: beat.ordinal % 2 == 0 ? [UIColor(hex: 0xC9CDD3)] : [Palette.spark],
+                               size: 0.001...0.002, upBias: 0.05, life: 0.35, rng: &rng)
+        case .tell:
+            life.tremor(0.35)
+            warm()
+        default:
+            life.tremor(0.1, level: 0.5)
+        }
     }
 
     func surfaceHeight(compression c: Float) -> Float {
         restHeight + 0.001
     }
 
-    func update(_ state: PressVisualState) {}
+    func update(_ state: PressVisualState) {
+        if life.update(state) {
+            let a = Float.random(in: 0...(2 * .pi), using: &rng)
+            BeatFX.glint(fx, at: [cos(a) * 0.02, 0.1, sin(a) * 0.02], in: entity, count: 1, rng: &rng)
+        }
+        for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
+    }
 
     func fracture(index: Int, isFailure: Bool, state: PressVisualState) {
         let top = entity.convert(position: [0, restHeight, 0], to: fx.root)

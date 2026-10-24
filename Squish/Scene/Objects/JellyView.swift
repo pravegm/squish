@@ -62,6 +62,12 @@ final class JellyView: PressObjectView {
     private let plateHalf: SIMD2<Float>
     /// The tear across the puddle's skin (shown once it has relaxed).
     private var tear: [ModelEntity] = []
+    /// The storyboard (OBJECT-STORYBOARDS §3): idle wobble, beats, gel squeezed from the pinch line, taut skin.
+    private let life: ObjectLife
+    private var story: StoryCursor
+    private let ooze: OozeRing
+    /// Skin tautness 0…`JellySpread.tautSteps` (the gloss and glow rise before it splits).
+    private var taut = 0
 
     var shadowSpread: Float { spread }
 
@@ -93,6 +99,12 @@ final class JellyView: PressObjectView {
                                               padding: JellySpread.platePadding)
         plateHalf = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1), padding: 0)
         rim = JellyPuddle.Rim(seed: variant.seed ^ 0x9D11)
+        life = ObjectLife(seed: variant.seed, idle: .wobble, amount: 0.03, rate: 1.1, pulseHz: 3.2, pulseDamping: 0.22)
+        story = StoryCursor(.jelly, seed: variant.seed)
+        ooze = OozeRing(seed: variant.seed ^ 0x7E12, count: 8, radii: SIMD2(0.047, 0.047), reach: 0.012...0.026,
+                        width: 0.012...0.020, thickness: 0.0032,
+                        maxRadius: Self.oozeMaxRadius,
+                        material: Self.messMaterial(golden: look.golden, matt: 0.3))
         let shellMaterial = Self.shellMaterial(golden: look.golden, matt: 0)
         let coreMaterial = SceneMaterials.pbr(UIColor(hex: 0xB81E52), roughness: 0.3)
         dropColors = look.golden ? [Palette.goldMessColor] : [Palette.raspberry, UIColor(hex: 0xF0487A)]
@@ -103,9 +115,11 @@ final class JellyView: PressObjectView {
         spreadDisc = ModelEntity(mesh: MeshKit.spreadDisc(seed: variant.seed, height: 1, segments: 64, wobble: 0.12).resource()
                                  ?? .generateSphere(radius: 0.01), materials: [discMaterial])
         spreadDisc.isEnabled = false
-        entity.addChild(core)
-        entity.addChild(shell.entity)
+        life.node.addChild(core)
+        life.node.addChild(shell.entity)
+        entity.addChild(life.node)
         entity.addChild(spreadDisc)
+        entity.addChild(ooze.root)
 
         if variant.surprise == .fruitPieces {
             let colors = [Palette.hydraulicYellow, Palette.lime, Palette.tangerine]
@@ -117,7 +131,7 @@ final class JellyView: PressObjectView {
                 let cube = Part.add(cached: "jelly.fruit", { MeshKit.roundedBox([0.010, 0.010, 0.010], radius: 0.0025) },
                                     SceneMaterials.enamel(colors[k % colors.count], roughness: 0.25, clearcoat: 0.8,
                                                           clearcoatRoughness: 0.1),
-                                    at: rest, to: entity)
+                                    at: rest, to: life.node)
                 cube.orientation = simd_quatf(angle: Float.random(in: 0...3, using: &rng),
                                               axis: simd_normalize(SIMD3<Float>(1, Float.random(in: -1...1, using: &rng), 0.4)))
                 fruit.append((cube, rest))
@@ -141,6 +155,11 @@ final class JellyView: PressObjectView {
 
     func update(_ state: PressVisualState) {
         let dt = state.dt
+        if life.update(state) {
+            BeatFX.glint(fx, at: [-0.012, 0.074, -0.01], in: entity, golden: golden, rng: &rng)
+        }
+        for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
+        defer { ooze.update(compression: state.compression, spread: min(spread, 1.6)) }
         // Idle life: a gentle top lean at ~1.8 Hz after landing; impacts excite it.
         wobbleX.step(toward: 0, dt: dt)
         wobbleZ.step(toward: 0, dt: dt)
@@ -202,7 +221,7 @@ final class JellyView: PressObjectView {
         if level > mattLevel && !golden && !glossed {
             mattLevel = level
             let matt = Float(level) / Float(JellySpread.mattSteps)
-            shell.setMaterial(Self.shellMaterial(golden: golden, matt: matt), forSlot: 0)
+            shell.setMaterial(Self.shellMaterial(golden: golden, matt: matt, taut: taut), forSlot: 0)
             let mess = Self.messMaterial(golden: golden, matt: matt)
             spreadDisc.model?.materials = [mess]
             for blob in splorts { blob.entity.model?.materials = [mess] }
@@ -223,7 +242,7 @@ final class JellyView: PressObjectView {
             core.scale += (target - core.scale) * relax
         }
         core.position = SIMD3(lean.x * 0.5, 0, lean.y * 0.5) * (1 - relax)
-        for piece in fruit where piece.entity.parent === entity {
+        for piece in fruit where piece.entity.parent === life.node {
             piece.entity.position = SIMD3(piece.rest.x * core.scale.x * 1.05 + lean.x * piece.rest.y / restHeight,
                                           piece.rest.y * s * (1 - relax) + JellyPuddle.centreHeight * 0.5 * relax,
                                           piece.rest.z * core.scale.z * 1.05 + lean.y * piece.rest.y / restHeight)
@@ -265,14 +284,76 @@ final class JellyView: PressObjectView {
 
     /// The translucent raspberry shell; `matt` 0…1 takes it from a mirror (roughness 0.08, clearcoat 0.03) to a
     /// soft gloss (0.20, 0.14) as it flattens.
-    private static func shellMaterial(golden: Bool, matt: Float) -> PhysicallyBasedMaterial {
+    private static func shellMaterial(golden: Bool, matt: Float, taut: Int = 0) -> PhysicallyBasedMaterial {
         if golden { return SceneMaterials.gold }
         let m = clamp(matt, 0, 1)
+        // Taut skin (storyboard `.strain` / `.tell`): thinner, so it glows brighter and lets more light through.
+        let k = Float(clamp(taut, 0, JellySpread.tautSteps))
         var material = SceneMaterials.enamel(Palette.raspberry, roughness: 0.08 + 0.12 * m, clearcoat: 1,
-                                             clearcoatRoughness: 0.03 + 0.11 * m, opacity: 0.86)
+                                             clearcoatRoughness: 0.03 + 0.11 * m, opacity: 0.86 - 0.05 * k)
         material.emissiveColor = .init(color: UIColor(hex: 0xFF5A8A))
-        material.emissiveIntensity = 0.22
+        material.emissiveIntensity = 0.22 + 0.07 * k
         return material
+    }
+
+    /// The ooze stays on the Duo strike plate (no padding).
+    private static var oozeMaxRadius: Float {
+        let half = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2<Float>(repeating: 1), padding: 0)
+        return min(half.x, half.y) * 0.95
+    }
+
+    private func tighten() {
+        guard taut < JellySpread.tautSteps, !golden else { return }
+        taut += 1
+        if !glossed {
+            shell.setMaterial(Self.shellMaterial(golden: golden, matt: Float(mattLevel) / Float(JellySpread.mattSteps), taut: taut),
+                              forSlot: 0)
+        }
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §3): wobble and ooze, never a give.
+    private func onBeat(_ beat: StoryBeat, state: PressVisualState) {
+        let golden = self.golden
+        switch beat.kind {
+        case .kiss:
+            bounce.kick(-2)
+            BeatFX.glint(fx, at: [0, 0.077, 0], in: entity, count: 3, golden: golden, rng: &rng)
+        case .wobble:
+            let sign: Float = beat.ordinal % 2 == 0 ? 1 : -1
+            wobbleX.kick(1.6 * sign)
+            wobbleZ.kick(-1.1 * sign)
+            if splat {
+                let a = Float.random(in: 0...(2 * .pi), using: &rng)
+                BeatFX.fling(fx, at: [cos(a) * 0.05, 0.006, sin(a) * 0.05], in: entity, direction: SIMD2(cos(a), sin(a)),
+                             count: 2, colors: dropColors, rng: &rng)
+            }
+        case .bulge:
+            life.kick(0.8)
+            wobbleZ.kick(0.8)
+        case .ooze:
+            if let tip = ooze.emit(at: state.compression), beat.ordinal % 2 == 1 {
+                let d = simd_length(SIMD2(tip.x, tip.z)) > 1e-5 ? simd_normalize(SIMD2(tip.x, tip.z)) : SIMD2<Float>(1, 0)
+                BeatFX.fling(fx, at: tip, in: entity, direction: d, count: 1, colors: dropColors, speed: 0.12, rng: &rng)
+            }
+            bounce.kick(-1)
+        case .strain, .tell:
+            tighten()
+            life.tremor(beat.kind == .tell ? 0.3 : 0.15, level: 0.6)
+            if beat.kind == .tell && beat.ordinal > 0 {
+                let a = Float.random(in: 0...(2 * .pi), using: &rng)
+                BeatFX.fling(fx, at: [cos(a) * 0.045, 0.01, sin(a) * 0.045], in: entity, direction: SIMD2(cos(a), sin(a)),
+                             count: 1, colors: dropColors, speed: 0.1, rng: &rng)
+            }
+        case .fling:
+            let a = Float.random(in: 0...(2 * .pi), using: &rng)
+            BeatFX.fling(fx, at: [cos(a) * 0.055, 0.006, sin(a) * 0.055], in: entity, direction: SIMD2(cos(a), sin(a)),
+                         count: 3, colors: dropColors, rng: &rng)
+            wobbleX.kick(0.8)
+        case .settle:
+            BeatFX.glint(fx, at: [0.01, 0.006, 0.01], in: entity, count: 2, golden: golden, rng: &rng)
+        default:
+            bounce.kick(-1)
+        }
     }
 
     /// The splat disc and splorts: flat, so they get matted harder than the shell (roughness up to 0.24).
@@ -407,6 +488,8 @@ enum JellySpread {
     static let discAspect: Float = 0.92
     static let discRimReach: Float = 1.2
     static let mattSteps = 4
+    /// Skin tautness steps before the split (storyboard `.strain` / `.tell` beats).
+    static let tautSteps = 3
 
     /// Elliptical norm of a horizontal point against the half extents `half` (1 = on the edge).
     static func norm(_ xz: SIMD2<Float>, half: SIMD2<Float>) -> Float {

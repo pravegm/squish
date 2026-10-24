@@ -1076,4 +1076,153 @@ struct SceneTests {
         let floor = StudioEnvironment.radiance(StudioEnvironment.direction(azimuth: 0, elevation: -80 * .pi / 180), baseAt: -80)
         #expect(key.x > 4 && floor.x < 0.6)
     }
+
+    // MARK: Object storyboards (design/OBJECT-STORYBOARDS.md)
+
+    /// EXPERIENCE-PLAN: "a deformation event at least every 8°" between contact and flat, on the provisional Duo fold
+    /// mapping and on the P-48 / old fold mapping, for many seeds (the grid and the fractures are both jittered).
+    @Test func storyboardsNeverLeaveEightDegreesWithoutAnEvent() {
+        let mappings: [ObjectStoryboard.Mapping] = [.fold, .touch, ObjectStoryboard.Mapping(contact: 120, exponent: 1.4)]
+        for kind in ObjectKind.allCases {
+            for k in 0..<40 {
+                let seed = UInt64(k) &* 0x9E37_79B9_7F4A_7C15 &+ 17
+                for mapping in mappings {
+                    let gap = ObjectStoryboard.maxGapDegrees(kind, seed: seed, mapping: mapping)
+                    #expect(gap <= ObjectStoryboard.gapLimitDegrees, "\(kind) seed \(seed) contact \(mapping.contact): \(gap)°")
+                }
+            }
+        }
+    }
+
+    @Test func storyboardsAreCompleteAscendingAndFireOnce() {
+        for kind in ObjectKind.allCases {
+            #expect(ObjectStoryboard.gridKinds(kind).count == ObjectStoryboard.grid.count, "\(kind)")
+            let beats = ObjectStoryboard.beats(kind, seed: 42)
+            #expect(beats.count >= ObjectStoryboard.grid.count)
+            #expect(zip(beats, beats.dropFirst()).allSatisfy { $0.c <= $1.c })
+            #expect(beats.allSatisfy { $0.c > 0 && $0.c < 1 })
+            // Several different kinds of visible event per object, not one effect repeated.
+            #expect(Set(beats.map(\.kind)).count >= 4, "\(kind) storyboard is too repetitive")
+            if kind.profile.failureIndex != nil {
+                #expect(beats.filter { $0.kind == .tell }.count == 2, "\(kind) needs its two tells")
+            }
+            var cursor = StoryCursor(beats)
+            #expect(cursor.advance(to: 0).isEmpty)
+            var fired = 0
+            for step in 1...200 { fired += cursor.advance(to: Float(step) / 200).count }
+            #expect(fired == beats.count)
+            #expect(cursor.advance(to: 1).isEmpty)
+        }
+        // Seeded variety: two seeds never place every beat identically.
+        let a = ObjectStoryboard.beats(.egg, seed: 1).map(\.c)
+        let b = ObjectStoryboard.beats(.egg, seed: 2).map(\.c)
+        #expect(a != b)
+    }
+
+    @Test func duckFaceSquashesStepByStepAndSurvives() {
+        var previousHeight: Float = 2
+        for level in 1..<DuckFace.levels {
+            let s = DuckFace.scale(level: level)
+            if level >= 2 { #expect(s.y < previousHeight) }
+            previousHeight = s.y
+            // Cartoon squash: the eyes never vanish.
+            #expect(s.y >= 0.3 && s.x > 0.9 && s.z > 0.9)
+        }
+        #expect(DuckFace.creaseRests.count == 3)
+    }
+
+    @Test func gummyChewsInsteadOfSplatting() {
+        // The stretch is anisotropic and roughly keeps the volume.
+        let rest = GummyChew.scale(heightRatio: 1, stretch: 0)
+        #expect(abs(rest.x - 1) < 1e-5 && abs(rest.z - 1) < 1e-5)
+        let chewed = GummyChew.scale(heightRatio: 0.6, stretch: 0.3)
+        #expect(chewed.x > chewed.z * 1.3)
+        #expect(abs(chewed.x * chewed.y * chewed.z - 1) < 0.35)
+        #expect(GummyChew.stretch(compression: 0.3, steps: 2) > GummyChew.stretch(compression: 0.3, steps: 0))
+        #expect(GummyChew.stretch(compression: 1, steps: 20) <= GummyChew.maxStretch)
+        // Strands thin as they pull.
+        let short = GummyChew.strandRadius(rest: 0.002, length: 0.01)
+        let long = GummyChew.strandRadius(rest: 0.002, length: 0.04)
+        #expect(long < short && long >= 0.00035)
+        #expect(GummyChew.strandLength(gap: 0.01, height: 0.05, tilt: 0.2) > GummyChew.strandLength(gap: 0.01, height: 0, tilt: 0.2))
+        var rng = SplitMix64(seed: 9)
+        #expect(GummyChew.strandSpots(rng: &rng).count == GummyChew.strandCount)
+        #expect(GummyChew.seamPath.count >= 8)
+        #expect(GummyChew.strandMesh().isValid)
+    }
+
+    @Test func crayonBoxFillsItsRestHeightAndEndsFlat() {
+        // Seven nested crayons: the top row's top is the box's rest height (SpecimenPrint mirrors 2 × 0.016).
+        #expect(abs(CrayonBox.stackTop(sb: 1, st: 1) - 0.032) < 1e-5)
+        #expect(CrayonBox.colours.count == 7)
+        let flat = CrayonBox.rows(compression: 1, f1: 0.3, f2: 0.52, failedTop: true, failedBottom: true)
+        #expect(CrayonBox.stackTop(sb: flat.sb, st: flat.st) < 0.032 * 0.25)
+        // Founder P0: a crushed crayon must not look intact from above. It is a wide, thin slab.
+        let slab = CrayonBox.slabScale(flatten: flat.st)
+        #expect(slab.y < 0.2 && slab.z > 2)
+        let intact = CrayonBox.rows(compression: 0.29, f1: 0.3, f2: 0.52, failedTop: false, failedBottom: false)
+        #expect(intact.sb == 1 && intact.st == 1)
+        for cut in CrayonBox.cuts {
+            #expect(CrayonBox.pieceMesh(0...(cut * CrayonBox.length)).isValid)
+            #expect(CrayonBox.pieceMesh((cut * CrayonBox.length)...CrayonBox.length).isValid)
+        }
+        #expect(CrayonBox.smearSize(1, crumbled: true).x > CrayonBox.smearSize(1, crumbled: false).x)
+    }
+
+    @Test func glassStressGlowBuildsInSteps() {
+        #expect(GlassStress.glow(level: 0) == 0)
+        for level in 1...GlassStress.steps { #expect(GlassStress.glow(level: level) > GlassStress.glow(level: level - 1)) }
+        #expect(GlassStress.glow(level: 99) == GlassStress.glow(level: GlassStress.steps))
+    }
+
+    /// Founder P0 (the crayon still looked intact after the press): every object, driven through a full press the way
+    /// PressScene drives it (beats, fractures, the debris under the plate), ends clearly crushed: much lower than at
+    /// rest and, except the bubble-wrap sheet, with a wider footprint.
+    @MainActor
+    @Test func everyObjectEndsVisiblyCrushed() {
+        for kind in ObjectKind.allCases where kind != .unsquishable {
+            let variant = PressVariant(kind: kind, seed: SpecimenPrint.plainSeed(for: kind))
+            let fx = SceneFX()
+            let view = PressObjectFactory.make(kind, variant: variant, fx: fx)
+            let thresholds = PressObjectFactory.thresholds(kind, variant: variant)
+            let failure = kind.profile.failureIndex
+            var time: Float = 0
+            func state(_ c: Float, dt: Float, phase: PressPhase) -> PressVisualState {
+                PressVisualState(compression: c, ramCompression: c, ramFace: view.surfaceHeight(compression: c),
+                                 approach: c > 0 ? 1 : 0.5, dt: dt, time: time, closingSpeed: 40, loaded: c > 0,
+                                 reduceMotion: false, phase: phase)
+            }
+            view.update(state(0, dt: 1.0 / 60, phase: .armed))
+            let rest = Self.footprint(of: view, fx: fx)
+            view.handle(.contact, state: state(0, dt: 0, phase: .pressing))
+            var fired = 0
+            let steps = 240
+            for step in 0...(steps + 90) {
+                let c = min(Float(step) / Float(steps), 1)
+                time += 1.0 / 60
+                let s = state(c, dt: 1.0 / 60, phase: .pressing)
+                while fired < thresholds.count && c >= thresholds[fired] {
+                    view.fracture(index: fired, isFailure: fired == failure, state: s)
+                    fired += 1
+                }
+                view.update(s)
+                fx.step(dt: 1.0 / 60, ceiling: view.surfaceHeight(compression: c), plateHalfExtent: SIMD2(repeating: 1))
+            }
+            let crushed = Self.footprint(of: view, fx: fx)
+            #expect(crushed.height < rest.height * 0.45, "\(kind): crushed \(crushed.height) m vs rest \(rest.height) m")
+            if kind != .bubbleWrap {
+                #expect(crushed.area > rest.area * 1.1, "\(kind): crushed footprint \(crushed.area) vs rest \(rest.area)")
+            }
+        }
+    }
+
+    /// Height (top above the anvil) and top-down footprint area of an object view and its debris, visible parts only.
+    @MainActor
+    private static func footprint(of view: PressObjectView, fx: SceneFX) -> (height: Float, area: Float) {
+        var box = view.entity.visualBounds(recursive: true, relativeTo: nil, excludeInactive: true)
+        let debris = fx.debris.root.visualBounds(recursive: true, relativeTo: nil, excludeInactive: true)
+        if !debris.isEmpty { box = box.isEmpty ? debris : box.union(debris) }
+        let size = box.max - box.min
+        return (box.max.y, max(size.x, 0) * max(size.z, 0))
+    }
 }

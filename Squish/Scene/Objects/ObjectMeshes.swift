@@ -67,7 +67,7 @@ enum ObjectMeshes {
                 * simd_quatf(angle: -15 * .pi / 180, axis: [0, 0, 1])
             blob.add([-0.002, 0.030, 0.026 * side], [0.020, 0.011, 0.006], k: 0.004, rotation: rotation)
         }
-        return blob.mesh(centre: [0.0, 0.036, 0], reach: 0.1, rings: 36, segments: 52)
+        return blob.mesh(centre: [0.0, 0.036, 0], reach: 0.1, rings: 44, segments: 60)
     }
 
     static func duckBeak() -> MeshData {
@@ -102,7 +102,7 @@ enum ObjectMeshes {
     /// side +1 keeps x ≤ 0 (left half), −1 keeps x ≥ 0 (right half), nil = the whole bear.
     static func gummy(side: Float?, coreScale: Float) -> MeshData {
         let centre = gummyCentre(side)
-        var mesh = gummyBlob(side: side).mesh(centre: centre, reach: 0.11, rings: 34, segments: 44)
+        var mesh = gummyBlob(side: side).mesh(centre: centre, reach: 0.11, rings: 40, segments: 52)
         if coreScale != 1 {
             mesh.positions = mesh.positions.map { centre + ($0 - centre) * coreScale }
         }

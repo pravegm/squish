@@ -37,6 +37,11 @@ final class BubbleWrapView: PressObjectView {
     private var lowest: Float = .infinity
     /// Craters still snapping flat after their pop, with their settled radius (metres).
     private var snapping: [(crater: Entity, radius: Float, age: Float)] = []
+    /// The storyboard (OBJECT-STORYBOARDS §1): an idle shimmer over the domes, ripples between pops.
+    private let life: ObjectLife
+    private var story: StoryCursor
+    private var lastPopped: Cell?
+    private var craters: [Entity] = []
 
     private final class Cell {
         /// Carries the squash: (R·spread, H·squash, R·spread) of the unit dome.
@@ -47,6 +52,8 @@ final class BubbleWrapView: PressObjectView {
         let height: Float
         var popped = false
         var strain: Float = 0
+        /// The ripple: a dome jiggles when a neighbour pops (OBJECT-STORYBOARDS §1).
+        var wobble = JiggleSpring(value: 0, velocity: 0, omega: 2 * .pi * 9, zeta: 0.3)
         init(root: Entity, centre: SIMD2<Float>, radius: Float, height: Float) {
             self.root = root
             self.centre = centre
@@ -63,6 +70,8 @@ final class BubbleWrapView: PressObjectView {
         restHeight = BubbleWrapGrid.film + BubbleWrapGrid.domeHeight * (hasMega ? BubbleWrapGrid.megaHeightScale : 1)
         popOrder = BubbleWrapGrid.popOrder(seed: variant.seed)
         rng = SplitMix64(seed: variant.seed ^ 0xB0BB1E)
+        life = ObjectLife(seed: variant.seed, idle: .still, amount: 0, rate: 0.3)
+        story = StoryCursor(.bubbleWrap, seed: variant.seed)
         if look.golden {
             craterFilm = SceneMaterials.gold
             craterCrease = SceneMaterials.pbr(UIColor(hex: 0xB98A1E), roughness: 0.3, metallic: 1)
@@ -193,8 +202,18 @@ final class BubbleWrapView: PressObjectView {
         // Latched at the deepest squash (FOLD-REVIEW-3 N6): unpopped domes don't re-inflate on reopening, so the
         // reveal is at least as pressed as the sealed frame.
         lowest = min(lowest, surfaceHeight(compression: state.compression))
+        if life.update(state), !cells.isEmpty {
+            // Idle shimmer: the light catches one dome's crown.
+            let cell = cells[Int(rng.next() % UInt64(cells.count))]
+            if !cell.popped {
+                BeatFX.glint(fx, at: [cell.centre.x, BubbleWrapGrid.film + cell.height, cell.centre.y], in: entity, count: 1,
+                             golden: look.golden, rng: &rng)
+            }
+        }
+        for beat in story.advance(to: state.compression) { onBeat(beat) }
         let available = max(lowest - BubbleWrapGrid.film, 0.0003)
         for cell in cells where !cell.popped {
+            cell.wobble.step(toward: 0, dt: state.dt)
             apply(cell, available: available)
         }
         if let mega, !mega.popped {
@@ -212,7 +231,9 @@ final class BubbleWrapView: PressObjectView {
     }
 
     private func apply(_ cell: Cell, available: Float) {
-        let squash = BubbleWrapGrid.squash(available: available, height: cell.height) * (1 - 0.05 * cell.strain)
+        // The ripple only ever squashes a dome further (never up through the plate).
+        let jiggle = 1 - 0.15 * abs(clamp(cell.wobble.value, -1, 1))
+        let squash = BubbleWrapGrid.squash(available: available, height: cell.height) * (1 - 0.05 * cell.strain) * jiggle
         let spread = BubbleWrapGrid.spread(squash: squash)
         cell.root.scale = SIMD3(cell.radius * spread, cell.height / BubbleWrapGrid.unitHeight * squash, cell.radius * spread)
     }
@@ -233,9 +254,52 @@ final class BubbleWrapView: PressObjectView {
         pop(cell, big: false)
     }
 
+    /// The ripple: the domes round a pop (within ~1.3 pitches) jiggle, the nearest hardest.
+    private func ripple(from cell: Cell, strength: Float) {
+        for other in cells where !other.popped && other !== cell {
+            let d = simd_length(other.centre - cell.centre)
+            guard d < BubbleWrapGrid.pitch * 1.35 else { continue }
+            other.wobble.kick(strength * (1.4 - d / BubbleWrapGrid.pitch) / 0.4)
+        }
+    }
+
+    /// One storyboard beat (OBJECT-STORYBOARDS §1): between pops the sheet ripples and shimmers.
+    private func onBeat(_ beat: StoryBeat) {
+        switch beat.kind {
+        case .kiss:
+            for cell in cells where !cell.popped { cell.wobble.kick(10) }
+            if let first = popOrder.first, first < cells.count {
+                let cell = cells[first]
+                BeatFX.glint(fx, at: [cell.centre.x, BubbleWrapGrid.film + cell.height, cell.centre.y], in: entity, count: 2,
+                             golden: look.golden, rng: &rng)
+            }
+        case .ripple:
+            let source = lastPopped ?? cells.first(where: { !$0.popped })
+            if let source { ripple(from: source, strength: 9) }
+            let open = cells.filter { !$0.popped }
+            if !open.isEmpty {
+                let cell = open[Int(rng.next() % UInt64(open.count))]
+                cell.wobble.kick(14)
+                BeatFX.glint(fx, at: [cell.centre.x, BubbleWrapGrid.film + cell.height * 0.8, cell.centre.y], in: entity, count: 1,
+                             golden: look.golden, rng: &rng)
+            }
+        case .crease, .settle, .sheen:
+            // The popped film crinkles and catches the light across the sheet.
+            for _ in 0..<min(3, craters.count) {
+                let crater = craters[Int(rng.next() % UInt64(craters.count))]
+                let p = crater.position
+                BeatFX.glint(fx, at: [p.x, p.y + 0.001, p.z], in: entity, count: 1, golden: look.golden, rng: &rng)
+            }
+        default:
+            break
+        }
+    }
+
     private func pop(_ cell: Cell, big: Bool) {
         cell.popped = true
         cell.root.isEnabled = false
+        lastPopped = cell
+        ripple(from: cell, strength: big ? 24 : 16)
         if !craterMeshes.isEmpty {
             let meshes = craterMeshes[Int(rng.next() % UInt64(craterMeshes.count))]
             let crater = Entity()
@@ -246,6 +310,7 @@ final class BubbleWrapView: PressObjectView {
             let radius = cell.radius * BubbleCrater.radius
             crater.scale = SIMD3(repeating: radius * BubbleCrater.snapScale(age: 0))
             entity.addChild(crater)
+            craters.append(crater)
             snapping.append((crater: crater, radius: radius, age: 0))
         }
         let puffAt = entity.convert(position: SIMD3(cell.centre.x, BubbleWrapGrid.film + 0.003, cell.centre.y), to: fx.root)
