@@ -63,6 +63,13 @@ final class CakeSliceView: PressObjectView {
     /// The cream's mottle once it has loaded, and the albedo shade its material was last built at (−1: not yet).
     private var creamMottle: TextureResource?
     private var appliedCreamShade: Float = -1
+    /// The 3D-art round's maps: the crumb, its smeared crushed version, the cream's strokes.
+    private var spongeMaps: SurfaceMaps?
+    private var smearedSponge: TextureResource?
+    private var spongeSmearShown = false
+    private var creamNormal: TextureResource?
+    /// Crumbs left lying on the crushed cream top (they ride the squeeze).
+    private var topCrumbs: [(model: ModelEntity, rest: SIMD3<Float>)] = []
     /// Candle base on the top, in wedge space (apex at the origin, arc toward +X).
     static let candleBase = CakeSquash.candleBase
     /// The storyboard (OBJECT-STORYBOARDS §6): a soft breath, sprinkle hops, cream cracks, crumbs, and the filling
@@ -180,6 +187,17 @@ final class CakeSliceView: PressObjectView {
                 self.applyCreamShade()
             }
         }
+        if !look.golden { loadSurface() }
+        // A row of piped rosettes along the back of the cream top (they ride the squeeze like the drips).
+        let piped = look.body(UIColor(hex: 0xF59BB5), roughness: 0.4, clearcoat: 0.25)
+        for k in 0..<9 {
+            let a = (-17 + Float(k) * 4.25) * .pi / 180
+            let r = Self.radius - 0.0065
+            let rest = SIMD3<Float>(cos(a) * r, Self.cakeHeight - 0.0004, sin(a) * r)
+            let rosette = Part.add(cached: "cake.rosette", { CakeSquash.rosetteMesh() }, piped, at: rest, to: cake)
+            rosette.orientation = Part.yaw(Float(k) * 37)
+            drips.append((rosette, rest))
+        }
         // Five drips along the back frosting's top edge (they ride the bulge).
         for k in 0..<5 {
             let a = (-16 + Float(k) * 8) * .pi / 180
@@ -190,10 +208,11 @@ final class CakeSliceView: PressObjectView {
             drip.orientation = simd_quatf(angle: -a, axis: [0, 1, 0])
             drips.append((drip, rest))
         }
-        // Sprinkles on the cream top.
-        let colors: [UIColor] = [Palette.raspberry, Palette.lime, Palette.cobalt, Palette.duckYellow, UIColor(hex: 0xF8F8F8)]
-        for k in 0..<14 {
-            let r = Float.random(in: 0.025...0.098, using: &rng)
+        // Sprinkles on the cream top (24, seven colours).
+        let colors: [UIColor] = [Palette.raspberry, Palette.lime, Palette.cobalt, Palette.duckYellow, UIColor(hex: 0xF8F8F8),
+                                 Palette.tangerine, Palette.grape]
+        for k in 0..<24 {
+            let r = Float.random(in: 0.025...0.092, using: &rng)
             let a = Float.random(in: -0.28...0.28, using: &rng) * min(1, r / 0.05)
             let sprinkle = Part.add(cached: "cake.sprinkle", { MeshKit.capsule(radius: 0.0009, length: 0.007, segments: 12) },
                                     SceneMaterials.enamel(colors[k % colors.count], roughness: 0.25, clearcoat: 0.8,
@@ -230,15 +249,51 @@ final class CakeSliceView: PressObjectView {
     }
 
     /// The cream top's textured material, its albedo stepped down as the squash completes (FOLD-REVIEW-9 N3). Only
-    /// rebuilt when the shade has moved, which happens only while the bulge grows.
-    private func applyCreamShade() {
+    /// rebuilt when the shade has moved, which happens only while the bulge grows. Its spatula strokes (normal) once
+    /// they land.
+    private func applyCreamShade(force: Bool = false) {
         guard !look.golden, let texture = creamMottle else { return }
         let shade = CakeSquash.creamShade(progress: bulge)
-        guard abs(shade - appliedCreamShade) > 0.004 else { return }
+        guard force || abs(shade - appliedCreamShade) > 0.004 else { return }
         appliedCreamShade = shade
         var material = SceneMaterials.textured(texture, roughness: CakeSquash.creamRoughness)
         material.baseColor = .init(tint: UIColor(white: CGFloat(shade), alpha: 1), texture: .init(texture))
+        if let strokes = creamNormal { material.normal = .init(texture: SurfaceDetail.clamped(strokes)) }
         body?.setMaterial(material, forSlot: Int(CakeSquash.creamSlot))
+    }
+
+    /// The sponge's crumb (colour and pores, tiled on the box-projected sides), the frosting's piping and the cream's
+    /// strokes, drawn off the main actor; the smeared crumb is fetched now so the crush swap is instant.
+    private func loadSurface() {
+        let filling: UInt32 = hasJam ? 0xE0335A : 0xF9B9CB
+        Task { @MainActor [weak self] in
+            async let piping = SurfaceDetail.pipedFrosting()
+            async let strokes = SurfaceDetail.creamStrokes()
+            let sponge = await SurfaceDetail.sponge()
+            guard let self else { return }
+            self.spongeMaps = sponge
+            self.applySponge()
+            if let piping = await piping {
+                var m = SceneMaterials.pbr(UIColor(hex: 0xF59BB5), roughness: 0.35, clearcoat: 0.3)
+                m.normal = .init(texture: SurfaceDetail.tiled(piping))
+                self.body?.setMaterial(m, forSlot: Int(CakeSquash.frostingSlot))
+            }
+            self.creamNormal = await strokes
+            self.applyCreamShade(force: true)
+            self.smearedSponge = await SurfaceDetail.spongeSmeared(filling: filling)
+            if self.bulge > CakeSquash.smearAt { self.applySponge() }
+        }
+    }
+
+    /// The sponge layers' material: the crumb, or once the slice is crushed the crumb smeared with filling and cream.
+    private func applySponge() {
+        guard !look.golden, let maps = spongeMaps, let crumb = maps.colour else { return }
+        let smeared = bulge > CakeSquash.smearAt ? smearedSponge : nil
+        if smeared != nil { spongeSmearShown = true }
+        var m = SceneMaterials.pbr(.white, roughness: 0.85)
+        m.baseColor = .init(tint: .white, texture: SurfaceDetail.tiled(smeared ?? crumb))
+        if let pores = maps.normal { m.normal = .init(texture: SurfaceDetail.tiled(pores)) }
+        body?.setMaterial(m, forSlot: Int(CakeSquash.spongeSlot))
     }
 
     /// The cream's mottle (drawn once per session; FOLD-REVIEW-8 N4).
@@ -304,15 +359,20 @@ final class CakeSliceView: PressObjectView {
             for drip in drips {
                 drip.model.position = CakeSquash.deform(drip.rest, layer: CakeSquash.frostingLayer, progress: amount, noise: noise)
             }
+            for crumb in topCrumbs {
+                crumb.model.position = CakeSquash.deform(crumb.rest, layer: CakeSquash.creamLayer, progress: amount, noise: noise)
+            }
             applyCreamShade()
+            if !spongeSmearShown && bulge > CakeSquash.smearAt && smearedSponge != nil { applySponge() }
         }
         if bulge > 0.55 && !crumbled {
-            // Crumbs fall off the bulging sponge (they persist on the plate).
+            // Crumbs fall off the bulging sponge (they persist on the plate), and torn crumbs lie on the cream top.
             crumbled = true
             let crumbColors = look.golden ? [Palette.gold, Palette.goldMessColor] : [UIColor(hex: 0xE9C48A), UIColor(hex: 0xF4D9A8)]
             fx.particles.burst(.crumb, count: 8, at: entity.convert(position: [0, 0.01, 0], to: fx.root),
                                speed: 0.18 * max(fx.motionScale, 0.3), colors: crumbColors, size: 0.002...0.0035,
                                spread: 0.05, upBias: 0.25, rng: &rng)
+            scatterTopCrumbs()
         }
         // Candle: lean just enough to stay under the ram face, until it bends flat (unscaled: FOLD-REVIEW-7 N3).
         applyCandle(CakeSquash.candlePose(ramFace: h, bent: candleBent))
@@ -420,6 +480,22 @@ final class CakeSliceView: PressObjectView {
     func handle(_ event: PressEvent, state: PressVisualState) {
         if event == .contact && !flameOut { snuff() }
         if event == .preFailureTell { life.tremor(0.25, level: 0.7) }
+    }
+
+    /// Torn crumbs lying on the crushed cream top, in the sponge's colours (cake layers smeared with crumbs).
+    private func scatterTopCrumbs() {
+        let colours = look.golden ? [Palette.gold, Palette.goldMessColor] : [UIColor(hex: 0xE9C48A), UIColor(hex: 0xF4D9A8), UIColor(hex: 0xD9AE6E)]
+        let materials = colours.map { SceneMaterials.pbr($0, roughness: 0.85) }
+        for k in 0..<16 {
+            let r = Float.random(in: 0.03...0.1, using: &rng)
+            let a = Float.random(in: -0.3...0.3, using: &rng) * min(1, r / 0.05)
+            let rest = SIMD3<Float>(cos(a) * r, Self.cakeHeight + 0.0006, sin(a) * r)
+            let crumb = Part.add(cached: "cake.crumb", { CakeSquash.crumbMesh() }, materials[k % materials.count],
+                                 at: CakeSquash.deform(rest, layer: CakeSquash.creamLayer, progress: bulge, noise: bulgeNoise), to: cake)
+            crumb.orientation = simd_quatf(angle: Float.random(in: 0...(2 * .pi), using: &rng), axis: [0, 1, 0])
+            crumb.scale = SIMD3(repeating: Float.random(in: 0.7...1.4, using: &rng))
+            topCrumbs.append((crumb, rest))
+        }
     }
 
     /// The flame goes out with a little smoke puff.
@@ -566,14 +642,65 @@ enum CakeSquash {
         return parts
     }
 
-    /// Sponge, filling, sponge, cream top and the back frosting in one mesh (slots as `bodyParts`), with planar
-    /// top-down UVs (`planarUV`) for the cream's mottle (the parts' own UVs, where they have any, are replaced).
+    /// Sponge, filling, sponge, cream top and the back frosting in one mesh (slots as `bodyParts`). Each part has its
+    /// own texture coordinates (3D-art round): the sponge and filling are box-projected in `spongeTile` tiles (the crumb
+    /// reads on the sides, which planar UVs smeared into stripes), the cream top keeps its planar top-down UVs
+    /// (`planarUV`, 0…1 over the wedge, for its mottle and spatula strokes) and the back frosting keeps its lathe UVs,
+    /// scaled to `frostingTile` tiles for the piping.
     static func bodyMesh() -> MeshData {
         var mesh = MeshData()
         for part in bodyParts() {
-            mesh.append(part.mesh, materialOffset: part.slot)
+            var piece = part.mesh
+            switch Int(part.layer) {
+            case creamLayer:
+                piece.uvs = piece.positions.map { planarUV($0) }
+            case frostingLayer:
+                let around = 2 * .pi * (radius + 0.004) / frostingTile, up = cakeHeight / frostingTile
+                piece.uvs = piece.uvs.count == piece.positions.count
+                    ? piece.uvs.map { SIMD2($0.x * around, $0.y * up) }
+                    : piece.positions.map { planarUV($0) }
+            default:
+                piece.boxUV(tile: spongeTile)
+            }
+            mesh.append(piece, materialOffset: part.slot)
         }
-        mesh.uvs = mesh.positions.map { planarUV($0) }
+        return mesh
+    }
+
+    /// Texture tiles (metres): the sponge's crumb and the back frosting's piping.
+    static let spongeTile: Float = 0.03
+    static let frostingTile: Float = 0.022
+
+    /// The squeeze layer of every vertex that takes the planar 0…1 cream UVs (the cream top's).
+    static func isCreamVertex(_ layer: UInt8) -> Bool { Int(layer) == creamLayer }
+
+    /// A piped rosette (star nozzle, 8 ridges, a quarter twist), base at y 0, unit-ish size: radius 0.0045, 0.0055 tall.
+    static func rosetteMesh() -> MeshData {
+        var profile: [SIMD2<Float>] = []
+        let steps = 9
+        for k in 0...steps {
+            let t = Float(k) / Float(steps)
+            let r = 0.0045 * (1 - pow(t, 1.6)) * (0.85 + 0.15 * sin(.pi * t))
+            profile.append(SIMD2(k == steps ? 0 : max(r, 0.0002), 0.0055 * t))
+        }
+        profile.insert(SIMD2(0, 0), at: 0)
+        var mesh = MeshKit.lathe(profile: profile, segments: 48, rimScale: { theta in 1 + 0.16 * cos(8 * theta) })
+        for i in mesh.positions.indices {
+            let p = mesh.positions[i]
+            let twist = 0.5 * .pi * p.y / 0.0055
+            let c = cos(twist), s = sin(twist)
+            mesh.positions[i] = SIMD3(p.x * c - p.z * s, p.y, p.x * s + p.z * c)
+        }
+        mesh.recomputeNormals()
+        return mesh
+    }
+
+    /// A loose crumb: a lumpy little ellipsoid.
+    static func crumbMesh() -> MeshData {
+        var mesh = MeshKit.ellipsoid(radii: [0.0018, 0.0012, 0.0015], segments: 10, rings: 6)
+        var rng = SplitMix64(seed: 0xC2B)
+        for i in mesh.positions.indices { mesh.positions[i] *= Float.random(in: 0.8...1.2, using: &rng) }
+        mesh.recomputeNormals()
         return mesh
     }
 
@@ -642,6 +769,9 @@ enum CakeSquash {
     }
 
     // MARK: The squeeze
+
+    /// Squeeze progress past which the sponge shows its smeared, crumbed crush (3D-art round).
+    static let smearAt: Float = 0.6
 
     /// Squeeze progress (0…1) for the slice's height ratio `s`: none above 0.9, full at 0.3.
     static func progress(heightRatio s: Float) -> Float {

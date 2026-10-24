@@ -51,6 +51,12 @@ final class GummyBearView: PressObjectView {
     private var tilt: Float = 0
     private var pads: [ModelEntity] = []
     private let gooColors: [UIColor]
+    /// The 3D-art round's layers: a sugar-dusted, slightly matte skin (colour, crystal normal, crystal roughness), a
+    /// translucent glowing mid layer and a mottled glowing core, so light seems to soak into the gel.
+    private var maps: SurfaceMaps?
+    private var padMaps: SurfaceMaps?
+    private var mids: [ModelEntity] = []
+    private var cores: [ModelEntity] = []
 
     var shadowSpread: Float { spread }
 
@@ -90,20 +96,81 @@ final class GummyBearView: PressObjectView {
         life = ObjectLife(seed: variant.seed, idle: .breathe, amount: 0.012, rate: 0.5, pulseHz: 2.6, pulseDamping: 0.55)
         story = StoryCursor(.gummyBear, seed: variant.seed)
         build(seed: variant.seed)
+        if !look.golden { loadSurface() }
     }
 
+    /// The skin: translucent red gel under a dusting of sugar. With its maps the sugar is white, raised and matte (rough
+    /// 0.38–0.95 × 0.7) while the gel between the grains stays glossy; without them, the plain enamel.
     private func shellMaterial(glow: Float) -> PhysicallyBasedMaterial {
         if look.golden { return SceneMaterials.gold }
-        var m = SceneMaterials.enamel(shellColour, roughness: 0.20, clearcoat: 0.6, clearcoatRoughness: 0.28, opacity: 0.80)
+        var m = SceneMaterials.enamel(shellColour, roughness: 0.30, clearcoat: 0.35, clearcoatRoughness: 0.42, opacity: 0.80)
+        if let skin = maps?.colour { m.baseColor = .init(tint: .white, texture: SurfaceDetail.wrapped(skin)) }
+        if let sugar = maps?.normal { m.normal = .init(texture: SurfaceDetail.wrapped(sugar)) }
+        if let rough = maps?.rough { m.roughness = .init(scale: 0.7, texture: SurfaceDetail.wrapped(rough)) }
         m.emissiveColor = .init(color: UIColor(hex: 0xFF6B5A))
         m.emissiveIntensity = glow
         return m
     }
 
+    /// The translucent mid layer: no gloss of its own, just a soft red glow seen through the skin.
+    private func midMaterial() -> PhysicallyBasedMaterial {
+        var m = SceneMaterials.pbr(UIColor(hex: 0xFF3A34), roughness: 0.6, opacity: 0.42)
+        m.emissiveColor = .init(color: UIColor(hex: 0xFF4A3C))
+        m.emissiveIntensity = 0.35
+        return m
+    }
+
+    /// The opaque core: deep red, its mottle (light pooled inside) glowing faintly.
+    private func coreMaterial() -> PhysicallyBasedMaterial {
+        if look.golden { return SceneMaterials.gold }
+        var m = SceneMaterials.pbr(UIColor(hex: 0xC8203A), roughness: 0.35)
+        if let core = maps?.extra {
+            m.baseColor = .init(tint: .white, texture: SurfaceDetail.wrapped(core))
+            m.emissiveColor = .init(color: .white, texture: SurfaceDetail.wrapped(core))
+            m.emissiveIntensity = 0.28
+        }
+        return m
+    }
+
+    private func loadSurface() {
+        Task { @MainActor [weak self] in
+            async let pads = SurfaceDetail.gummyPad()
+            let maps = await SurfaceDetail.gummy()
+            guard let self else { return }
+            self.maps = maps
+            self.glowStep = -1   // rebuild the skin at the next frame's glow step, now with its maps
+            let core = self.coreMaterial()
+            for model in self.cores { model.model?.materials = [core] }
+            self.padMaps = await pads
+            self.applyPads()
+        }
+    }
+
+    private func padMaterial() -> PhysicallyBasedMaterial {
+        if look.golden { return SceneMaterials.goldMess }
+        var m = SceneMaterials.enamel(UIColor(hex: 0xFF5A4E), roughness: 0.22, clearcoat: 0.6, clearcoatRoughness: 0.3, opacity: 0.92)
+        if let colour = padMaps?.colour { m.baseColor = .init(tint: .white, texture: SurfaceDetail.clamped(colour)) }
+        if let normal = padMaps?.normal { m.normal = .init(texture: SurfaceDetail.clamped(normal)) }
+        return m
+    }
+
+    private func applyPads() {
+        guard !pads.isEmpty, padMaps != nil else { return }
+        let material = padMaterial()
+        for pad in pads { pad.model?.materials = [material] }
+    }
+
     private func build(seed: UInt64) {
-        let core = look.golden ? SceneMaterials.gold : SceneMaterials.pbr(UIColor(hex: 0xC8203A), roughness: 0.3)
+        let core = coreMaterial()
         let shell = shellMaterial(glow: 0.22)
-        Part.add(cached: "gummy.core.full", { ObjectMeshes.gummy(side: nil, coreScale: 0.82) }, core, to: welded)
+        let mid = midMaterial()
+        cores.append(Part.add(cached: "gummy.core.full", { ObjectMeshes.gummy(side: nil, coreScale: 0.82) }, core, to: welded))
+        if !look.golden {
+            let layer = Part.add(cached: "gummy.mid.full", { ObjectMeshes.gummy(side: nil, coreScale: ObjectMeshes.gummyMidScale) }, mid,
+                                 to: welded)
+            ShadowCasting.off(layer)
+            mids.append(layer)
+        }
         shells.append(Part.add(cached: "gummy.shell.full", { ObjectMeshes.gummy(side: nil, coreScale: 1) }, shell, to: welded))
         buildSeamLine()
         bear.addChild(welded)
@@ -111,7 +178,13 @@ final class GummyBearView: PressObjectView {
             // side = clip normal: +1 keeps x ≤ 0 (left half), −1 keeps x ≥ 0 (right half).
             let half = Entity()
             let key = side > 0 ? "L" : "R"
-            Part.add(cached: "gummy.core.\(key)", { ObjectMeshes.gummy(side: side, coreScale: 0.82) }, core, to: half)
+            cores.append(Part.add(cached: "gummy.core.\(key)", { ObjectMeshes.gummy(side: side, coreScale: 0.82) }, core, to: half))
+            if !look.golden {
+                let layer = Part.add(cached: "gummy.mid.\(key)", { ObjectMeshes.gummy(side: side, coreScale: ObjectMeshes.gummyMidScale) },
+                                     mid, to: half)
+                ShadowCasting.off(layer)
+                mids.append(layer)
+            }
             let shellModel = Part.add(cached: "gummy.shell.\(key)", { ObjectMeshes.gummy(side: side, coreScale: 1) }, shell, to: half)
             shells.append(shellModel)
             addCrossSection(to: half, side: side)
@@ -332,11 +405,11 @@ final class GummyBearView: PressObjectView {
             slapped = true
             slapC = state.compression
             life.kick(1.2)
-            let material = look.golden ? SceneMaterials.goldMess
-                : SceneMaterials.enamel(UIColor(hex: 0xFF5A4E), roughness: 0.18, clearcoat: 0.8, clearcoatRoughness: 0.2, opacity: 0.9)
+            let material = padMaterial()
             for k in 0..<2 {
-                let pad = Part.add(cached: "gummy.pad.\(k)", {
-                    MeshKit.spreadDisc(seed: 0x6B_0000 &+ UInt64(k) &* 0x9E37, height: 1, segments: 48, wobble: 0.1)
+                // A chewy torn pad: a ragged, notched rim (gummy tears, it doesn't splash), stretch streaks on its face.
+                let pad = Part.add(cached: "gummy.pad.torn.\(k)", {
+                    MeshKit.spreadDiscUV(seed: 0x6B_0000 &+ UInt64(k) &* 0x9E37, height: 1, segments: 128, wobble: 0.12, tear: 0.1)
                 }, material, to: entity)
                 pad.scale = SIMD3(repeating: 0.0001)
                 ShadowCasting.off(pad)

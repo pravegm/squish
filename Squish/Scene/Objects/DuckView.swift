@@ -64,6 +64,16 @@ final class DuckView: PressObjectView {
     private var shownCreases = 0
     private var seamStrain = 0
     private let seamMaterials: [PhysicallyBasedMaterial]
+    /// The vinyl's maps (3D-art round): painted eyes, the mould seam, orange-peel and a clearcoat breakup, and the
+    /// crushed duck's creased, stress-whitened version, swapped in once (never per frame) when the head is mostly flat.
+    private var bodyMaps: SurfaceMaps?
+    private var creasedMaps: SurfaceMaps?
+    private var creased = false
+    /// The torn seam's pale, stress-whitened lips either side of the dark split (shown when the seam pops).
+    private var seamLips: [(model: ModelEntity, rest: SIMD3<Float>)] = []
+    private var skirtMaterial: PhysicallyBasedMaterial
+    /// The painted-eye layout on the body texture (spherical UVs about the body blob's centre).
+    private static let paint = ObjectMeshes.duckPaint()
 
     var shadowSpread: Float { spread }
 
@@ -78,7 +88,9 @@ final class DuckView: PressObjectView {
                          SceneMaterials.pbr(UIColor(hex: 0x9A7414), roughness: 0.5)]
         rng = SplitMix64(seed: variant.seed ^ 0xD0C)
         golden = look.golden
-        let bodyMaterial = Self.bodyMaterial(golden: look.golden, dull: 0)
+        let bodyMaterial = Self.bodyMaterial(golden: look.golden, dull: 0, maps: nil)
+        skirtMaterial = look.golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(Palette.duckYellow, roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.16)
         let beakMaterial = SceneMaterials.enamel(Palette.beakOrange, roughness: 0.30, clearcoat: 0.8, clearcoatRoughness: 0.1)
         let eyeMaterial = SceneMaterials.enamel(UIColor(hex: 0x1E1B24), roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02)
 
@@ -105,27 +117,42 @@ final class DuckView: PressObjectView {
         }
         // Seam: short dark segments following the top of the back, hidden until the seam pops.
         let seamMaterial = SceneMaterials.pbr(UIColor(hex: 0x9A7414), roughness: 0.5)
+        let lipMaterial = look.golden ? SceneMaterials.pbr(UIColor(hex: 0xFFF1C4), roughness: 0.3, metallic: 1)
+            : SceneMaterials.enamel(UIColor(hex: 0xFFF2B8), roughness: 0.45, clearcoat: 0.3, clearcoatRoughness: 0.3)
         var previous: SIMD3<Float>?
-        for k in 0...7 {
-            let x = -0.040 + 0.060 * Float(k) / 7
+        for k in 0...10 {
+            let x = -0.042 + 0.064 * Float(k) / 10
             let top = 0.026 + 0.026 * max(1 - (x / 0.038) * (x / 0.038), 0).squareRoot() + 0.0006
-            let point = SIMD3<Float>(x, top, (k % 2 == 0 ? 0.0012 : -0.0012))
+            // A ragged zigzag, not a ruled line: the torn split wanders either side of the mould seam.
+            let point = SIMD3<Float>(x, top, (k % 2 == 0 ? 0.0014 : -0.0014) * (k % 3 == 0 ? 0.5 : 1))
             if let previous {
                 let d = point - previous
                 let length = simd_length(d)
+                let along = simd_quatf(from: [1, 0, 0], to: d / max(length, 1e-6))
                 let segment = MeshKit.model(MeshKit.roundedBox([length + 0.0008, 0.0016, 0.0024], radius: 0.0006, bevel: 0.0003),
                                             material: seamMaterial)
                 segment.position = (point + previous) / 2
-                segment.orientation = simd_quatf(from: [1, 0, 0], to: d / max(length, 1e-6))
+                segment.orientation = along
                 seam.addChild(segment)
                 seamRest.append((segment, segment.position))
+                // The torn lips: pale, stretched vinyl a little wider and lower than the dark split.
+                let lip = Part.add(cached: "duck.seam.lip", { MeshKit.roundedBox([1, 0.0011, 0.0046], radius: 0.0004, bevel: 0.0002) },
+                                   lipMaterial, at: (point + previous) / 2 - SIMD3(0, 0.0003, 0), to: squash)
+                lip.orientation = along
+                lip.scale = SIMD3(length + 0.0012, 1, 1)
+                lip.isEnabled = false
+                seamLips.append((lip, lip.position))
             }
             previous = point
         }
         seam.isEnabled = false
         squash.addChild(seam)
-        skirt = ModelEntity(mesh: MeshCache.resource("duck.skirt") { MeshKit.spreadDisc(seed: 0xD5C, height: 1, segments: 48, wobble: 0.08) }
-                            ?? .generateSphere(radius: 0.01), materials: [bodyMaterial])
+        // The squeezed-out vinyl skirt: a torn, ragged rim (no clean disc), orange-peel on its face.
+        skirt = ModelEntity(mesh: MeshCache.resource("duck.skirt.torn") {
+            var disc = MeshKit.spreadDiscUV(seed: 0xD5C, height: 1, segments: 128, wobble: 0.09, tear: 0.07)
+            disc.uvs = disc.uvs.map { $0 * 7 }
+            return disc
+        } ?? .generateSphere(radius: 0.01), materials: [skirtMaterial])
         skirt.isEnabled = false
         // Vinyl creases (hidden until their `.crease` beats): a pair at the neck, then one down the chest.
         let creaseMaterial = look.golden ? SceneMaterials.pbr(UIColor(hex: 0x9A7414), roughness: 0.4, metallic: 1)
@@ -144,6 +171,46 @@ final class DuckView: PressObjectView {
         // 3/4 view, beak toward camera-right (+X forward, yaw −30°).
         entity.orientation = Part.yaw(-30)
         entity.scale = SIMD3(repeating: Self.heroScale)
+        if !look.golden { loadSurface(beak: beak) }
+    }
+
+    /// The vinyl's maps land asynchronously (drawn off the main actor once per session); until then the plain enamel
+    /// shows. The crushed set is fetched too, so the swap at the squash is instant.
+    private func loadSurface(beak: ModelEntity) {
+        let paint = Self.paint
+        Task { @MainActor [weak self] in
+            async let beakColour = SurfaceDetail.duckBeak()
+            async let skirtNormal = SurfaceDetail.vinylTile()
+            let maps = await SurfaceDetail.duckBody(paint)
+            guard let self else { return }
+            self.bodyMaps = maps
+            self.applyBody()
+            if let colour = await beakColour {
+                var m = SceneMaterials.enamel(Palette.beakOrange, roughness: 0.30, clearcoat: 0.8, clearcoatRoughness: 0.1)
+                m.baseColor = .init(tint: .white, texture: SurfaceDetail.wrapped(colour))
+                beak.model?.materials = [m]
+            }
+            if let normal = await skirtNormal {
+                self.skirtMaterial.normal = .init(texture: SurfaceDetail.tiled(normal))
+                self.skirt.model?.materials = [self.skirtMaterial]
+            }
+            self.creasedMaps = await SurfaceDetail.duckCreased(paint)
+            if self.headC > DuckSquash.creaseAt { self.applyBody() }
+        }
+    }
+
+    /// Rebuilds the body's material at the current dulling step with whichever maps have landed (the creased set once
+    /// the head is mostly flat). Called a handful of times per press, never per frame.
+    private func applyBody() {
+        guard !golden else { return }
+        var maps = bodyMaps
+        if headC > DuckSquash.creaseAt, let crushed = creasedMaps, crushed.colour != nil {
+            creased = true
+            maps?.colour = crushed.colour
+            maps?.normal = crushed.normal ?? maps?.normal
+        }
+        let material = Self.bodyMaterial(golden: golden, dull: Float(dullLevel) / Float(DuckSquash.dullSteps), maps: maps)
+        body.setMaterial(material, forSlot: 0)
     }
 
     static func bodyBlob() -> SDFBlob {
@@ -214,16 +281,19 @@ final class DuckView: PressObjectView {
             for segment in seamRest {
                 segment.model.position = DuckSquash.headDeform(segment.rest, c: c)
             }
+            for lip in seamLips {
+                lip.model.position = DuckSquash.headDeform(lip.rest, c: c)
+            }
             for (i, crease) in creases.enumerated() where i < DuckFace.creaseRests.count {
                 crease.position = DuckSquash.headDeform(DuckFace.creaseRests[i].position, c: c)
             }
-            // Clearcoat 0.10 → 0.30 and base roughness 0.28 → 0.40: the highlight widens and dulls as it flattens.
+            // Clearcoat 0.10 → 0.30 and base roughness 0.28 → 0.40: the highlight widens and dulls as it flattens; past
+            // `creaseAt` the vinyl swaps to its creased, stress-whitened maps (once).
             let level = DuckSquash.dullLevel(c)
-            if level > dullLevel && !golden {
-                dullLevel = level
-                let material = Self.bodyMaterial(golden: golden, dull: Float(level) / Float(DuckSquash.dullSteps))
-                body.setMaterial(material, forSlot: 0)
-                skirt.model?.materials = [material]
+            let creaseNow = !creased && c > DuckSquash.creaseAt && creasedMaps?.colour != nil
+            if (level > dullLevel || creaseNow) && !golden {
+                dullLevel = max(dullLevel, level)
+                applyBody()
             }
         }
         // The beak rides the head: its centre follows the deformed head, it flattens to an ellipse (Y × 0.5 at full
@@ -256,12 +326,19 @@ final class DuckView: PressObjectView {
     }
 
     /// The vinyl: glossy yellow at rest; `dull` 0…1 widens and dulls the highlight (clearcoat roughness 0.10 → 0.30,
-    /// base roughness 0.28 → 0.40) as the duck is pressed flat.
-    private static func bodyMaterial(golden: Bool, dull: Float) -> PhysicallyBasedMaterial {
+    /// base roughness 0.28 → 0.40) as the duck is pressed flat. With its maps: the painted colour, the orange-peel and
+    /// seam normal, and the coat breakup modulating both roughnesses (its mean is ~0.7, so the scales keep the levels).
+    private static func bodyMaterial(golden: Bool, dull: Float, maps: SurfaceMaps?) -> PhysicallyBasedMaterial {
         if golden { return SceneMaterials.gold }
         let d = clamp(dull, 0, 1)
         var material = SceneMaterials.enamel(Palette.duckYellow, roughness: 0.28 + 0.12 * d, clearcoat: 0.8,
                                              clearcoatRoughness: 0.10 + 0.20 * d)
+        if let colour = maps?.colour { material.baseColor = .init(tint: .white, texture: SurfaceDetail.wrapped(colour)) }
+        if let normal = maps?.normal { material.normal = .init(texture: SurfaceDetail.wrapped(normal)) }
+        if let coat = maps?.rough {
+            material.roughness = .init(scale: (0.28 + 0.12 * d) / 0.7, texture: SurfaceDetail.wrapped(coat))
+            material.clearcoatRoughness = .init(scale: (0.10 + 0.20 * d) / 0.7, texture: SurfaceDetail.wrapped(coat))
+        }
         material.emissiveColor = .init(color: UIColor(hex: 0xFFB000))
         material.emissiveIntensity = 0.04
         return material
@@ -276,6 +353,7 @@ final class DuckView: PressObjectView {
             popC = state.compression
             seam.isEnabled = true
             for segment in seamRest { segment.model.model?.materials = [seamMaterials[2]] }
+            for lip in seamLips { lip.model.isEnabled = true }
             faceLevel = max(faceLevel, 3)
             life.kick(1.2)
             skirt.isEnabled = true
@@ -428,6 +506,8 @@ enum DuckSquash {
     static let weightInner: Float = 0.024
     static let weightOuter: Float = 0.050
     static let dullSteps = 5
+    /// Head progress past which the vinyl shows its creased, stress-whitened maps (3D-art round).
+    static let creaseAt: Float = 0.6
     /// The beak blob's centre (`ObjectMeshes.duckBeak`).
     static let beakCentre = SIMD3<Float>(0.043, 0.0555, 0)
 

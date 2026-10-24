@@ -32,7 +32,7 @@ final class BubbleWrapView: PressObjectView {
     private var mega: Cell?
     private var megaStrain = 0
     private var craterMeshes: [[MeshResource]] = []
-    private let craterFilm: any Material
+    private var craterFilm: any Material
     private let craterCrease: any Material
     private var lowest: Float = .infinity
     /// Craters still snapping flat after their pop, with their settled radius (metres).
@@ -42,6 +42,12 @@ final class BubbleWrapView: PressObjectView {
     private var story: StoryCursor
     private var lastPopped: Cell?
     private var craters: [Entity] = []
+    /// 3D-art round: the film's creases and handling marks, the craters' crinkle, the domes' air-cushion light. The
+    /// models whose materials take them once they land.
+    private var sheetModel: ModelEntity?
+    private var domeModels: [[ModelEntity]] = [[], [], []]
+    private var craterFilmModels: [ModelEntity] = []
+    private var surfaceMaps: SurfaceMaps?
 
     private final class Cell {
         /// Carries the squash: (R·spread, H·squash, R·spread) of the unit dome.
@@ -84,6 +90,56 @@ final class BubbleWrapView: PressObjectView {
                                                  clearcoatRoughness: 0.15)
         }
         build(hasMega: hasMega)
+        if !look.golden { loadSurface() }
+    }
+
+    private func loadSurface() {
+        Task { @MainActor [weak self] in
+            let maps = await SurfaceDetail.bubbleWrap()
+            guard let self else { return }
+            self.surfaceMaps = maps
+            if let film = maps.normal, let sheet = self.sheetModel {
+                var m = Self.filmMaterial()
+                m.normal = .init(texture: SurfaceDetail.clamped(film))
+                sheet.model?.materials = [m]
+            }
+            if let light = maps.colour {
+                var crown = Self.crownMaterial()
+                crown.emissiveColor = .init(color: UIColor(hex: BubbleWrapLook.cushionTint), texture: SurfaceDetail.clamped(light))
+                crown.emissiveIntensity = BubbleWrapLook.cushionGlow
+                var rim = Self.rimMaterial()
+                rim.emissiveColor = .init(color: UIColor(hex: BubbleWrapLook.cushionTint), texture: SurfaceDetail.clamped(light))
+                rim.emissiveIntensity = BubbleWrapLook.cushionGlow * 0.6
+                for model in self.domeModels[0] { model.model?.materials = [crown] }
+                for model in self.domeModels[2] { model.model?.materials = [rim] }
+            }
+            if let crinkle = maps.extra {
+                var film = Self.craterMaterial()
+                film.normal = .init(texture: SurfaceDetail.clamped(crinkle))
+                self.craterFilm = film
+                for model in self.craterFilmModels { model.model?.materials = [film] }
+            }
+        }
+    }
+
+    private static func filmMaterial() -> PhysicallyBasedMaterial {
+        SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.filmTint), roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.04,
+                              specular: 1, opacity: BubbleWrapLook.filmOpacity)
+    }
+
+    private static func crownMaterial() -> PhysicallyBasedMaterial {
+        SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.crownTint), roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03,
+                              specular: 1, opacity: BubbleWrapLook.crownOpacity)
+    }
+
+    private static func rimMaterial() -> PhysicallyBasedMaterial {
+        SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.rimTint), roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.03,
+                              specular: 1, opacity: BubbleWrapLook.rimOpacity)
+    }
+
+    private static func craterMaterial() -> PhysicallyBasedMaterial {
+        SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.craterTint), roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.2,
+                              specular: 0.7, opacity: BubbleWrapLook.craterOpacity)
     }
 
     private func build(hasMega: Bool) {
@@ -104,8 +160,10 @@ final class BubbleWrapView: PressObjectView {
         let filmMaterial = golden ? SceneMaterials.gold
             : SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.filmTint), roughness: 0.08, clearcoat: 1,
                                     clearcoatRoughness: 0.04, specular: 1, opacity: BubbleWrapLook.filmOpacity)
-        Part.add(cached: "bubble.sheet", {
-            MeshKit.roundedBox([size.x, film, size.y], radius: BubbleWrapGrid.sheetCorner, bevel: 0.0003)
+        sheetModel = Part.add(cached: "bubble.sheet.uv", {
+            var sheet = MeshKit.roundedBox([size.x, film, size.y], radius: BubbleWrapGrid.sheetCorner, bevel: 0.0003)
+            sheet.planarUV(half: size / 2)
+            return sheet
         }, filmMaterial, at: [0, film / 2, 0], to: entity)
         let sealMaterial = golden ? SceneMaterials.gold
             : SceneMaterials.enamel(UIColor(hex: BubbleWrapLook.sealTint), roughness: 0.2, clearcoat: 0.6,
@@ -148,7 +206,11 @@ final class BubbleWrapView: PressObjectView {
             let root = Entity()
             root.position = [centre.x, film + BubbleWrapGrid.layerStep, centre.y]
             for (slot, mesh) in dome.enumerated() where slot < domeMaterials.count {
-                if let mesh { root.addChild(ModelEntity(mesh: mesh, materials: [domeMaterials[slot]])) }
+                if let mesh {
+                    let model = ModelEntity(mesh: mesh, materials: [domeMaterials[slot]])
+                    root.addChild(model)
+                    domeModels[slot].append(model)
+                }
             }
             if let glintMesh {
                 for (highlight, material) in highlights {
@@ -303,7 +365,9 @@ final class BubbleWrapView: PressObjectView {
         if !craterMeshes.isEmpty {
             let meshes = craterMeshes[Int(rng.next() % UInt64(craterMeshes.count))]
             let crater = Entity()
-            crater.addChild(ModelEntity(mesh: meshes[0], materials: [craterFilm]))
+            let film = ModelEntity(mesh: meshes[0], materials: [craterFilm])
+            crater.addChild(film)
+            craterFilmModels.append(film)
             crater.addChild(ModelEntity(mesh: meshes[1], materials: [craterCrease]))
             crater.position = [cell.centre.x, BubbleWrapGrid.film + BubbleWrapGrid.layerStep * 2, cell.centre.y]
             crater.orientation = Part.yaw(Float.random(in: 0...360, using: &rng))
@@ -361,6 +425,9 @@ enum BubbleWrapLook {
     static let bounceTint: UInt32 = 0xE6F4FB
     static let craterTint: UInt32 = 0xE6F1F7
     static let craterOpacity: Float = 0.8
+    /// The air cushion's light (3D-art round): a soft cool-white glow ring high on each dome's crown.
+    static let cushionTint: UInt32 = 0xEAF6FF
+    static let cushionGlow: Float = 0.55
 
     /// Rec. 709 luma (0…255) of a hex colour.
     static func luma(_ hex: UInt32) -> Float {
@@ -476,8 +543,11 @@ enum BubbleWrapGrid {
     }
 
     /// Open at the base (it sits on the film). Slot 1: the crease foot; slot 2: the dark lower wall; slot 0: the crown.
+    /// Texture v runs up the dome (0 at the foot, 1 at the apex; u is constant) for the air-cushion light ring.
     static func domeMesh() -> MeshData {
-        MeshKit.lathe(profile: domeProfile, segments: 32, material: { (band: Int) -> UInt8 in Self.domeSlot(band: band) })
+        var mesh = MeshKit.lathe(profile: domeProfile, segments: 32, material: { (band: Int) -> UInt8 in Self.domeSlot(band: band) })
+        mesh.uvs = mesh.positions.map { SIMD2(0.5, clamp($0.y / unitHeight, 0, 1)) }
+        return mesh
     }
 
     /// A highlight lying on the unit dome's surface at profile parameter `t` (0 foot … π/2 apex), toward `direction`
@@ -592,6 +662,8 @@ enum BubbleWrapGrid {
         // Wind every triangle up (from the analytic up normals), then shade the crinkle from the real facets.
         mesh.orientToNormals()
         mesh.recomputeNormals()
+        // Planar UVs for the crinkle's fine folds (3D-art round).
+        mesh.planarUV(half: SIMD2(repeating: 1.2))
         return mesh
     }
 }

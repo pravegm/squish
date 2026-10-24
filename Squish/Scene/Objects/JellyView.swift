@@ -68,6 +68,11 @@ final class JellyView: PressObjectView {
     private let ooze: OozeRing
     /// Skin tautness 0…`JellySpread.tautSteps` (the gloss and glow rise before it splits).
     private var taut = 0
+    /// The 3D-art round: air bubbles and suspended fruit set in the gel (they ride the squash and end up trapped, flat,
+    /// in the puddle), the skin's faint ripples (specular breakup on the mirror gloss) and the core's caustics.
+    private var inclusions: [(entity: Entity, rest: SIMD3<Float>, bubble: Bool)] = []
+    private static var skinNormal: TextureResource?
+    private var causticCore: PhysicallyBasedMaterial?
 
     var shadowSpread: Float { spread }
 
@@ -137,7 +142,77 @@ final class JellyView: PressObjectView {
                 fruit.append((cube, rest))
             }
         }
+        buildInclusions(seed: variant.seed)
         wobbleX.kick(0.12)
+        if !look.golden { loadSurface() }
+    }
+
+    /// Bubbles and fruit set in the gel between the core (0.8) and the skin: a few high in the dome above the core (so
+    /// they read from above, on the Fold Press), the rest round the sides (the P-48's front view).
+    private func buildInclusions(seed: UInt64) {
+        guard !golden else { return }
+        var rng = SplitMix64(seed: seed ^ 0x7E1B)
+        let bubbleGlass = SceneMaterials.enamel(UIColor(hex: 0xFFF4F8), roughness: 0.02, clearcoat: 1, clearcoatRoughness: 0.02,
+                                                specular: 1, opacity: 0.34)
+        let glint = SceneMaterials.unlit(UIColor(hex: 0xFFFFFF))
+        for k in 0..<JellyInclusions.bubbles {
+            let rest = JellyInclusions.spot(top: k < 4, rng: &rng)
+            let size = Float.random(in: 0.0009...0.0024, using: &rng)
+            let bubble = Entity()
+            let shell = Part.add(cached: "jelly.bubble", { MeshKit.sphere(radius: 1, segments: 16, rings: 8) }, bubbleGlass, to: bubble)
+            shell.scale = SIMD3(repeating: size)
+            let spark = Part.add(cached: "jelly.bubble.glint", { MeshKit.sphere(radius: 1, segments: 8, rings: 4) }, glint,
+                                 at: SIMD3(-0.35, 0.55, -0.3) * size, to: bubble)
+            spark.scale = SIMD3(repeating: size * 0.28)
+            for model in [shell, spark] { ShadowCasting.off(model) }
+            bubble.position = rest
+            life.node.addChild(bubble)
+            inclusions.append((bubble, rest, true))
+        }
+        let berry = SceneMaterials.enamel(UIColor(hex: 0x2C2F6E), roughness: 0.35, clearcoat: 0.5, clearcoatRoughness: 0.25)
+        let raspberry = SceneMaterials.enamel(UIColor(hex: 0xD1194E), roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2)
+        let mandarin = SceneMaterials.candy(UIColor(hex: 0xFF9A2E), roughness: 0.22, glow: 0.18)
+        for k in 0..<JellyInclusions.fruit {
+            let rest = JellyInclusions.spot(top: k < 2, rng: &rng)
+            let piece: ModelEntity
+            switch k % 3 {
+            case 0:
+                piece = Part.add(cached: "jelly.blueberry", { MeshKit.sphere(radius: 0.0033, segments: 20, rings: 10) }, berry, to: life.node)
+            case 1:
+                piece = Part.add(cached: "jelly.mandarin", { MeshKit.ellipsoid(radii: [0.0062, 0.0028, 0.0034], segments: 20, rings: 10) },
+                                 mandarin, to: life.node)
+            default:
+                piece = Part.add(cached: "jelly.raspberry", { JellyInclusions.raspberryMesh() }, raspberry, to: life.node)
+            }
+            piece.orientation = simd_quatf(angle: Float.random(in: 0...(2 * .pi), using: &rng),
+                                           axis: simd_normalize(SIMD3<Float>(Float.random(in: -1...1, using: &rng), 1, 0.3)))
+            piece.position = rest
+            inclusions.append((piece, rest, false))
+        }
+    }
+
+    private func loadSurface() {
+        Task { @MainActor [weak self] in
+            let maps = await SurfaceDetail.jelly()
+            guard let self else { return }
+            Self.skinNormal = maps.normal
+            self.refreshShell()
+            if let caustics = maps.extra {
+                var m = SceneMaterials.pbr(UIColor(hex: 0xB81E52), roughness: 0.3)
+                m.baseColor = .init(tint: .white, texture: SurfaceDetail.wrapped(caustics))
+                m.emissiveColor = .init(color: .white, texture: SurfaceDetail.wrapped(caustics))
+                m.emissiveIntensity = 0.32
+                self.causticCore = m
+                self.core.model?.materials = [m]
+            }
+        }
+    }
+
+    /// The shell's material for its current state (the skin's map has just landed).
+    private func refreshShell() {
+        guard !golden else { return }
+        let matt = glossed ? JellyPuddle.gloss : Float(mattLevel) / Float(JellySpread.mattSteps)
+        shell.setMaterial(Self.shellMaterial(golden: golden, matt: matt, taut: glossed ? 0 : taut), forSlot: 0)
     }
 
     static func radius(at y: Float) -> Float {
@@ -248,6 +323,18 @@ final class JellyView: PressObjectView {
                                           piece.rest.z * core.scale.z * 1.05 + lean.y * piece.rest.y / restHeight)
             piece.entity.scale = SIMD3(1, max(s, 0.35), 1)
         }
+        // The bubbles and fruit ride the gel the same way; squashed they flatten into discs, and once the slab has
+        // relaxed they lie trapped in the puddle (bubbles as flat bright lenses).
+        let spreadXZ = SIMD2(core.scale.x, core.scale.z) * 1.04
+        for inclusion in inclusions {
+            let r = inclusion.rest
+            inclusion.entity.position = SIMD3(r.x * spreadXZ.x + lean.x * r.y / restHeight,
+                                              r.y * s * (1 - relax) + JellyPuddle.centreHeight * (inclusion.bubble ? 0.75 : 0.45) * relax,
+                                              r.z * spreadXZ.y + lean.y * r.y / restHeight)
+            let flat = max(s, inclusion.bubble ? 0.3 : 0.4) * (1 - relax) + (inclusion.bubble ? 0.28 : 0.35) * relax
+            let wide = 1 + 0.45 * (1 - flat)
+            inclusion.entity.scale = SIMD3(wide, flat, wide)
+        }
 
         // Spread (overflow → splat) grows with compression past the split, up to Ø 0.15.
         if split {
@@ -293,6 +380,8 @@ final class JellyView: PressObjectView {
                                              clearcoatRoughness: 0.03 + 0.11 * m, opacity: 0.86 - 0.05 * k)
         material.emissiveColor = .init(color: UIColor(hex: 0xFF5A8A))
         material.emissiveIntensity = 0.22 + 0.07 * k
+        // Faint ripples break the mirror highlight up into the wobbly, refracted look of real gel.
+        if let skin = skinNormal { material.normal = .init(texture: SurfaceDetail.wrapped(skin)) }
         return material
     }
 
@@ -446,6 +535,50 @@ final class JellyView: PressObjectView {
             if splat { relaxing = true }
         default: break
         }
+    }
+}
+
+/// The bubbles and fruit set in the gel (3D-art round), pure so SquishTests can pin where they sit.
+enum JellyInclusions {
+    static let bubbles = 12
+    static let fruit = 5
+
+    /// A seeded rest point in the gel between the core (0.8 of the mould) and the skin: `top` ones in the dome above
+    /// the core's top (seen from above), the others round the sides.
+    static func spot(top: Bool, rng: inout SplitMix64) -> SIMD3<Float> {
+        let a = Float.random(in: 0...(2 * .pi), using: &rng)
+        if top {
+            let y = Float.random(in: 0.064...0.0705, using: &rng)
+            let r = radius(at: y) * Float.random(in: 0.15...0.65, using: &rng)
+            return SIMD3(cos(a) * r, y, sin(a) * r)
+        }
+        let y = Float.random(in: 0.01...0.052, using: &rng)
+        let r = radius(at: y) * Float.random(in: 0.84...0.92, using: &rng)
+        return SIMD3(cos(a) * r, y, sin(a) * r)
+    }
+
+    /// The mould's rest radius at height `y` (`ObjectMeshes.jellyProfile`, before the flutes).
+    static func radius(at y: Float) -> Float {
+        let profile = ObjectMeshes.jellyProfile
+        for i in 0..<(profile.count - 1) where y <= profile[i + 1].y {
+            let a = profile[i], b = profile[i + 1]
+            return a.x + (b.x - a.x) * (y - a.y) / max(b.y - a.y, 1e-6)
+        }
+        return 0
+    }
+
+    /// A raspberry: a cluster of drupelets round a small core (one mesh).
+    static func raspberryMesh() -> MeshData {
+        var mesh = MeshKit.ellipsoid(radii: [0.0034, 0.004, 0.0034], segments: 16, rings: 8)
+        var rng = SplitMix64(seed: 0x2A5B)
+        for k in 0..<18 {
+            let y = -0.9 + 1.8 * (Float(k) + 0.5) / 18
+            let ring = (1 - y * y).squareRoot()
+            let a = Float(k) * 2.4 + Float.random(in: -0.2...0.2, using: &rng)
+            let centre = SIMD3<Float>(cos(a) * ring * 0.0034, y * 0.004, sin(a) * ring * 0.0034)
+            mesh.append(MeshKit.sphere(radius: 0.0014, segments: 10, rings: 5).translated(centre))
+        }
+        return mesh
     }
 }
 

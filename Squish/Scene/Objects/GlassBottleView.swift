@@ -947,8 +947,12 @@ enum GlassDebris {
     static let outlineInset: Float = 0.03
     /// Fragment slab thickness (bottle-local metres; ≈ 0.9 mm on the plate) and the per-shard height step that keeps
     /// overlapping pieces from z-fighting.
-    static let fragmentThickness: Float = 0.0012
+    /// 3D-art round: real bottle glass is 2–3 mm thick, so the pile is a chunky heap whose dark-green edges show their
+    /// thickness from the front (was 1.2 mm, a sheet of confetti from the P-48's eye).
+    static let fragmentThickness: Float = 0.0024
     static let layerStep: Float = 0.00015
+    /// Edge chipping: each edge of a piece gets small conchoidal bites out of it (up to this share of the piece's size).
+    static let chipDepth: ClosedRange<Float> = 0.015...0.05
     static let fragmentVariants = 8
     static let scrapVariants = 4
 
@@ -1032,11 +1036,39 @@ enum GlassDebris {
                                       Float.random(in: -0.04...0.04, using: &rng))
             let radii = SIMD2<Float>(Float.random(in: 0.18...0.21, using: &rng), Float.random(in: 0.38...0.46, using: &rng))
             let polygon = shardPolygon(sides: sides, radii: radii, centre: centre, rng: &rng)
-            mesh.append(MeshKit.polygonSlab(polygon, thickness: fragmentThickness, rimInset: rimInset,
+            mesh.append(MeshKit.polygonSlab(chipped(polygon, rng: &rng), thickness: fragmentThickness, rimInset: rimInset,
                                             outlineInset: outlineInset))
             mesh.append(streak(polygon, rng: &rng), materialOffset: 3)
         }
         return mesh
+    }
+
+    /// The outline with chipped edges: every edge is split into 3–4 runs, and some of the new points are bitten inward
+    /// (a conchoidal chip), so the bevel and the dark hairline follow a broken edge, not a ruled one. Only ever inside
+    /// the convex outline, so the piece stays star-shaped about its centre (and inside its unit square).
+    static func chipped(_ polygon: [SIMD2<Float>], rng: inout SplitMix64) -> [SIMD2<Float>] {
+        let count = polygon.count
+        guard count >= 3 else { return polygon }
+        let centre = polygon.reduce(SIMD2<Float>.zero, +) / Float(count)
+        var size: Float = 0
+        for p in polygon { size = max(size, simd_length(p - centre)) }
+        var out: [SIMD2<Float>] = []
+        for i in 0..<count {
+            let a = polygon[i], b = polygon[(i + 1) % count]
+            out.append(a)
+            let runs = 3 + Int(rng.next() % 2)
+            for k in 1..<runs {
+                let t = (Float(k) + Float.random(in: -0.25...0.25, using: &rng)) / Float(runs)
+                var p = a + (b - a) * t
+                if rng.next() % 3 != 0 {
+                    let toCentre = centre - p
+                    let d = simd_length(toCentre)
+                    if d > 1e-5 { p += toCentre / d * min(size * Float.random(in: chipDepth, using: &rng), d * 0.3) }
+                }
+                out.append(p)
+            }
+        }
+        return out
     }
 
     /// One big irregular piece filling ~0.9 of the unit square (FOLD-REVIEW-7 #5), slots as `fragmentPair`.
@@ -1046,7 +1078,7 @@ enum GlassDebris {
         let centre = SIMD2<Float>(Float.random(in: -0.02...0.02, using: &rng), Float.random(in: -0.02...0.02, using: &rng))
         let radii = SIMD2<Float>(Float.random(in: 0.42...0.47, using: &rng), Float.random(in: 0.42...0.47, using: &rng))
         let polygon = shardPolygon(sides: sides, radii: radii, centre: centre, rng: &rng)
-        var mesh = MeshKit.polygonSlab(polygon, thickness: fragmentThickness, rimInset: rimInset * 0.8,
+        var mesh = MeshKit.polygonSlab(chipped(polygon, rng: &rng), thickness: fragmentThickness, rimInset: rimInset * 0.8,
                                        outlineInset: outlineInset * 0.8)
         mesh.append(streak(polygon, rng: &rng), materialOffset: 3)
         return mesh

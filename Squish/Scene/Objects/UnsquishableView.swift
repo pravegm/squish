@@ -27,23 +27,42 @@ final class UnsquishableView: PressObjectView {
     init(variant: PressVariant, fx: SceneFX) {
         self.fx = fx
         rng = SplitMix64(seed: variant.seed ^ 0xBA11)
-        ball = ModelEntity(mesh: MeshCache.resource("ball") { MeshKit.sphere(radius: ObjectMeshes.ballRadius, segments: 64, rings: 48) }
+        ball = ModelEntity(mesh: MeshCache.resource("ball") { MeshKit.sphereUV(radius: ObjectMeshes.ballRadius, segments: 96, rings: 64) }
                            ?? .generateSphere(radius: ObjectMeshes.ballRadius),
-                           materials: [SceneMaterials.pbr(UIColor(hex: 0xF2F3F5), roughness: 0.03, metallic: 1)])
+                           materials: [Self.steel(heat: 0, maps: nil)])
         life = ObjectLife(seed: variant.seed, idle: .still, amount: 0, rate: 0.3, pulseHz: 10, pulseDamping: 0.6)
         story = StoryCursor(.unsquishable, seed: variant.seed)
         ball.position = [0, ObjectMeshes.ballRadius, 0]
         life.node.addChild(ball)
         entity.addChild(life.node)
+        Task { @MainActor [weak self] in
+            let maps = await SurfaceDetail.steel()
+            guard let self else { return }
+            self.maps = maps
+            self.ball.model?.materials = [Self.steel(heat: self.heat, maps: maps)]
+        }
     }
+
+    /// Machined bearing steel (3D-art round): fine turning rings and micro-scratches in the normal, and a specular
+    /// breakup (faint smudges, the scratches a touch rougher) over a near-mirror; `heat` warms it a step at a time.
+    private static func steel(heat: Int, maps: SurfaceMaps?) -> PhysicallyBasedMaterial {
+        let roughness = 0.03 + 0.01 * Float(heat)
+        var material = SceneMaterials.pbr(UIColor(hex: 0xF2F3F5), roughness: roughness, metallic: 1)
+        if let normal = maps?.normal { material.normal = .init(texture: SurfaceDetail.wrapped(normal)) }
+        if let breakup = maps?.rough { material.roughness = .init(scale: roughness + 0.07, texture: SurfaceDetail.wrapped(breakup)) }
+        if heat > 0 {
+            material.emissiveColor = .init(color: UIColor(hex: 0xFF7A2E))
+            material.emissiveIntensity = 0.05 * Float(heat)
+        }
+        return material
+    }
+
+    private var maps: SurfaceMaps?
 
     /// The steel warms a step (a faint ember tint at the contact, never a deformation).
     private func warm() {
         heat = min(heat + 1, 4)
-        var material = SceneMaterials.pbr(UIColor(hex: 0xF2F3F5), roughness: 0.03 + 0.01 * Float(heat), metallic: 1)
-        material.emissiveColor = .init(color: UIColor(hex: 0xFF7A2E))
-        material.emissiveIntensity = 0.05 * Float(heat)
-        ball.model?.materials = [material]
+        ball.model?.materials = [Self.steel(heat: heat, maps: maps)]
     }
 
     /// One storyboard beat (OBJECT-STORYBOARDS §10).

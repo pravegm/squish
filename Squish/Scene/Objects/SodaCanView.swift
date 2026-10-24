@@ -17,7 +17,9 @@ final class SodaCanView: PressObjectView {
     let restHeight: Float = 0.150 * ObjectMeshes.canY
     let footprint: Float = 0.045 * ObjectMeshes.canR
     private let minHeightRatio: Float = 0.13
-    private static var labelTextures: [UInt64: TextureResource] = [:]
+    /// The torn, curled metal at the puncture (3D-art round), riding the deformed wall at `tearVertex`.
+    private var tear: Entity?
+    private var tearVertex = -1
 
     private let fx: SceneFX
     private let look: Look
@@ -119,9 +121,10 @@ final class SodaCanView: PressObjectView {
         thresholds = PressObjectFactory.thresholds(.sodaCan, variant: variant)
 
         // Fully printed body (print up to the shoulder; brighter lime, less metallic: VISUAL-REVIEW-1 fix 11).
-        // The print texture is created asynchronously (never block main); the plain field shows until it lands.
+        // The print texture is created asynchronously (never block main); the plain field shows until it lands. The
+        // 3D-art round's print carries fine detail (halftone, nutrition panel, barcode, small print).
         let labelSeed = variant.seed % 4
-        let cachedLabel = look.golden ? nil : Self.labelTextures[labelSeed]
+        let cachedLabel = look.golden ? nil : SurfaceDetail.cached("can.label.fine.\(labelSeed)")
         let label: PhysicallyBasedMaterial
         if look.golden {
             label = SceneMaterials.gold
@@ -130,7 +133,9 @@ final class SodaCanView: PressObjectView {
         } else {
             label = SceneMaterials.enamel(UIColor(hex: 0x96DB4E), roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.06, metallic: 0.35)
         }
-        let aluminium = SceneMaterials.pbr(UIColor(hex: 0xD7DBE0), roughness: 0.20, metallic: 1)
+        let cachedLid = SurfaceDetail.cached("can.lid.colour")
+        let aluminium = look.golden ? SceneMaterials.pbr(UIColor(hex: 0xD7DBE0), roughness: 0.20, metallic: 1)
+            : Self.endMaterial(colour: cachedLid, normal: SurfaceDetail.cached("can.lid.normal"))
         let mesh = MeshCache.mesh("can.body") { ObjectMeshes.canBody() }
         can = DeformableMesh(mesh, materials: [label, aluminium], maxSpread: 1.6)
         puddle = ModelEntity(mesh: MeshKit.spreadDisc(seed: variant.seed &+ 9, height: 1, segments: 64, wobble: 0.13).resource()
@@ -156,28 +161,38 @@ final class SodaCanView: PressObjectView {
         tab = Part.add(cached: "can.tab", { MeshKit.roundedBox([0.022, 0.001, 0.012], radius: 0.004, bevel: 0.0004) },
                        aluminium, at: [0.008 * ObjectMeshes.canR, 0.1462 * ObjectMeshes.canY, 0], to: entity)
         entity.addChild(shoulderMarks)
+        // The puncture's torn metal is built now (hidden), so the break costs no mesh work: buckle 3 (the failure)
+        // folds band 2, at the spray's side.
+        buildTear(foldY: Self.bodyTop - Self.foldWidth * 2.5)
         entity.orientation = Part.yaw(-15)
         if !look.golden && cachedLabel == nil {
             Task { @MainActor [weak self] in
-                guard let texture = await Self.loadLabelTexture(seed: labelSeed), let self else { return }
+                guard let texture = await SurfaceDetail.canLabel(seed: labelSeed), let self else { return }
                 self.can.setMaterial(Self.labelMaterial(texture), forSlot: 0)
+            }
+        }
+        if !look.golden && cachedLid == nil {
+            Task { @MainActor [weak self] in
+                let lid = await SurfaceDetail.canLid()
+                guard let self else { return }
+                self.can.setMaterial(Self.endMaterial(colour: lid.colour, normal: lid.normal), forSlot: 1)
             }
         }
     }
 
     private static func labelMaterial(_ texture: TextureResource) -> PhysicallyBasedMaterial {
         var m = SceneMaterials.textured(texture, roughness: 0.22, clearcoat: 1, metallic: 0.35)
+        m.baseColor = .init(tint: .white, texture: SurfaceDetail.wrapped(texture))
         m.clearcoatRoughness = .init(floatLiteral: 0.06)
         return m
     }
 
-    /// The FIZZO print (one of 4 seeded bubble layouts), drawn once and uploaded asynchronously.
-    private static func loadLabelTexture(seed: UInt64) async -> TextureResource? {
-        if let cached = labelTextures[seed] { return cached }
-        let image = RigTextures.canLabel(field: UIColor(hex: 0x96DB4E), drop: UIColor(hex: 0x2F7A1E), seed: 0xF122 &+ seed)
-        let texture = await StudioEnvironment.textureAsync(image, name: "can.label.\(seed)")
-        labelTextures[seed] = texture
-        return texture
+    /// The bare aluminium ends: brushed, turned metal with the lid's countersink, scored opening and rivet (planar UVs).
+    private static func endMaterial(colour: TextureResource?, normal: TextureResource?) -> PhysicallyBasedMaterial {
+        var m = SceneMaterials.pbr(UIColor(hex: 0xD7DBE0), roughness: 0.24, metallic: 1)
+        if let colour { m.baseColor = .init(tint: .white, texture: SurfaceDetail.clamped(colour)) }
+        if let normal { m.normal = .init(texture: SurfaceDetail.clamped(normal)) }
+        return m
     }
 
     func surfaceHeight(compression c: Float) -> Float {
@@ -299,11 +314,12 @@ final class SodaCanView: PressObjectView {
                         let u = (p.y - bandBottom) / w
                         drop += a * u
                         shift += push * u * u * (3 - 2 * u)
-                        // Hinge fold: each half of the band swings out by √(w² − (w − a)²) / 2.
+                        // Hinge fold: each half of the band swings out by √(w² − (w − a)²) / 2, along a sharp fold line
+                        // (3D-art round: a pleat, not a smooth bulge), in diamond lobes with sharp ridges and crumples.
                         let depth = 0.5 * max(w * w - (w - a) * (w - a), 0).squareRoot()
-                        let lobes = 0.65 + 0.35 * cos(6 * theta + phases[k])
+                        let lobes = CanCrush.pleat(theta: theta, band: k, phase: phases[k])
                         let side = 0.8 + 0.4 * cos(theta - farSide)
-                        radial += depth * lobes * side * sin(.pi * u) / max(r, 0.01)
+                        radial += depth * lobes * side * CanCrush.foldProfile(u) / max(r, 0.01)
                     }
                 } else if k == nextBand, p.y > bandBottom, p.y < bandTop {
                     let u = (p.y - bandBottom) / w
@@ -345,6 +361,58 @@ final class SodaCanView: PressObjectView {
         let tabSink = dent * max(1 - Self.tabRadius / lidR, 0) * elasticScale
         tab.position = SIMD3(tabR + topShift.x, lidTop + 0.00065 - tabSink, topShift.y)
         tab.orientation = tilt
+        placeTear()
+    }
+
+    /// The torn hole rides the deformed wall: at its vertex, along its normal (the fold may turn it toward the plate).
+    private func placeTear() {
+        guard let tear, tearVertex >= 0, tearVertex < can.current.positions.count else { return }
+        let n = can.current.normals[tearVertex]
+        let p = can.current.positions[tearVertex]
+        let up = simd_length(n) > 1e-5 ? simd_normalize(n) : SIMD3<Float>(cos(sprayAngle), 0, sin(sprayAngle))
+        let around = simd_normalize(simd_cross(SIMD3<Float>(0, 1, 0), up) + SIMD3(1e-5, 0, 0))
+        let forward = simd_cross(around, up)
+        tear.orientation = simd_quatf(simd_float3x3(columns: (around, up, forward)))
+        tear.position = p + up * 0.0002
+    }
+
+    /// The puncture (3D-art round): a jagged dark hole in the fold with torn, curled aluminium petals round it, curling
+    /// out where the fizz burst through.
+    private func buildTear(foldY: Float) {
+        guard tear == nil else { return }
+        // The rest vertex of the printed wall nearest the puncture point.
+        var best = -1
+        var bestD: Float = .infinity
+        let target = SIMD3<Float>(cos(sprayAngle) * 0.055, foldY, sin(sprayAngle) * 0.055)
+        for (i, p) in can.rest.positions.enumerated() where p.y > Self.bodyBottom && p.y < Self.bodyTop {
+            let d = simd_distance(p, target)
+            if d < bestD {
+                bestD = d
+                best = i
+            }
+        }
+        guard best >= 0 else { return }
+        tearVertex = best
+        let root = Entity()
+        let hole = Part.add(cached: "can.tear.hole", { MeshKit.spreadDisc(seed: 0x7EA4, height: 1, segments: 48, wobble: 0.3) },
+                            SceneMaterials.unlit(UIColor(hex: 0x16181C)), to: root)
+        hole.scale = SIMD3(0.0042, 0.0004, 0.0032)
+        let metal = look.golden ? SceneMaterials.gold : SceneMaterials.pbr(UIColor(hex: 0xE4E7EB), roughness: 0.22, metallic: 1)
+        let printed = look.golden ? SceneMaterials.gold
+            : SceneMaterials.enamel(UIColor(hex: 0x96DB4E), roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.08, metallic: 0.35)
+        for k in 0..<CanCrush.petals {
+            let a = 2 * Float.pi * Float(k) / Float(CanCrush.petals) + Float.random(in: -0.3...0.3, using: &rng)
+            let petal = SlotMeshes.entity("can.tear.petal.\(k % 3)", { CanCrush.petalMesh(seed: UInt64(k % 3)) },
+                                          materials: [printed, metal])
+            let reach = Float.random(in: 0.8...1.25, using: &rng)
+            petal.orientation = simd_quatf(angle: -a, axis: [0, 1, 0])
+            petal.position = SIMD3(cos(a) * 0.0034, 0.0002, sin(a) * 0.0026)
+            petal.scale = SIMD3(reach, 1, Float.random(in: 0.8...1.2, using: &rng))
+            root.addChild(petal)
+        }
+        root.isEnabled = false
+        life.node.addChild(root)
+        tear = root
     }
 
     /// One crumpled chevron fold: two short dark-grey (#5A5E66 at 0.6, not black) arms meeting in a shallow V, lengths
@@ -476,6 +544,8 @@ final class SodaCanView: PressObjectView {
         if isFailure {
             punctured = true
             punctureC = state.compression
+            tear?.isEnabled = true
+            placeTear()
             sprayTime = state.reduceMotion ? 0.35 : 0.7
             // The initial "pssht": a burst of foam.
             let spray = entity.convert(position: [cos(sprayAngle) * 0.058, min(foldY, 0.085), sin(sprayAngle) * 0.058], to: fx.root)
@@ -529,5 +599,54 @@ enum CanCrush {
     /// Lid dent depth at the centre: 3 mm from the top strain, plus 2.5 mm as the bands fold.
     static func lidDent(topStrain: Float, foldedShare: Float) -> Float {
         0.0030 * clamp(topStrain, 0, 1) + 0.0025 * clamp(foldedShare, 0, 1)
+    }
+
+    // MARK: Sharp pleats and the torn puncture (3D-art round)
+
+    /// How far round the can a fired band folds out at `theta` (0.25…1): six diamond lobes with *sharp* ridges (the
+    /// cusp of 1 − |sin|), offset half a lobe band to band (the diamond pattern of a crushed can), and a finer crumple.
+    static func pleat(theta: Float, band: Int, phase: Float) -> Float {
+        let offset: Float = band % 2 == 0 ? 0 : .pi / 6
+        let ridge = 1 - abs(sin(3 * (theta + offset) + phase))
+        let crumple = abs(sin(11 * theta + 1.7 * phase))
+        return clamp(0.3 + 0.7 * ridge - 0.12 * crumple + 0.06, 0.2, 1)
+    }
+
+    /// The fold's shape up a band (u 0…1): a sharp crease line at its middle (Λ), softened a little.
+    static func foldProfile(_ u: Float) -> Float {
+        let u = clamp(u, 0, 1)
+        return 0.75 * (1 - abs(2 * u - 1)) + 0.25 * sin(.pi * u)
+    }
+
+    static let petals = 6
+
+    /// One torn petal of the puncture: a jagged sliver of can wall (printed outside, slot 0; bare aluminium inside and
+    /// on its torn edge, slot 1), ~5 mm long, curled outward like torn foil. Local +X runs out from the hole, +Y is out
+    /// of the wall.
+    static func petalMesh(seed: UInt64) -> MeshData {
+        var rng = SplitMix64(seed: seed ^ 0x9E7A)
+        let length = Float.random(in: 0.0042...0.0056, using: &rng)
+        let width = Float.random(in: 0.0022...0.003, using: &rng)
+        let outline: [SIMD2<Float>] = [
+            SIMD2(0, -width / 2), SIMD2(length * 0.45, -width * Float.random(in: 0.28...0.4, using: &rng)),
+            SIMD2(length, Float.random(in: -0.0004...0.0004, using: &rng)),
+            SIMD2(length * 0.5, width * Float.random(in: 0.25...0.42, using: &rng)), SIMD2(0, width / 2),
+        ]
+        var slab = MeshKit.polygonSlab(outline, thickness: 0.00025, rimInset: 0.0003)
+        // Slot 0 is the top face (the printed outside) and the bottom; the bottom shows the inside, so it goes bare too.
+        for t in 0..<slab.triangleCount where t < slab.triangleMaterials.count {
+            let a = slab.normals[Int(slab.indices[t * 3])]
+            if a.y < -0.5 { slab.triangleMaterials[t] = 1 }
+        }
+        // Curl it outward (toward +y) about a radius of ~0.7 of its length.
+        let rho = length * 0.7
+        for i in slab.positions.indices {
+            let p = slab.positions[i]
+            let angle = p.x / rho
+            slab.positions[i] = SIMD3((rho - p.y) * sin(angle), rho - (rho - p.y) * cos(angle), p.z)
+        }
+        slab.recomputeNormals()
+        slab.orientToNormals()
+        return slab
     }
 }

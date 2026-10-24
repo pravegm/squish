@@ -46,6 +46,8 @@ final class EggView: PressObjectView {
     private let hasChick: Bool
     private let surprise: Surprise?
     private var spread: Float = 1
+    /// Torn shell membrane lying on the white round the broken shell (3D-art round), shown at the give.
+    private var flaps: [ModelEntity] = []
 
     var shadowSpread: Float { spread }
 
@@ -111,8 +113,14 @@ final class EggView: PressObjectView {
                 offset + 2 * .pi * Float(k) / Float(n) + Float.random(in: -jitter...jitter, using: &rng)
             }
             cuts.append(cuts[0] + 2 * .pi)
+            // 3D-art round: the cracks between the pieces are jagged (each cut zigzags ring by ring, shared by the two
+            // pieces it separates, so the shell still closes), so the fragments break with real shell edges.
+            let bandSeed = variant.seed ^ (0xE66_C0 &+ UInt64(b) &* 0x9E37)
+            func cut(_ k: Int, _ ring: Int) -> Float {
+                cuts[k] + EggShell.jag(seed: bandSeed, cut: k % n, ring: ring, sector: 2 * .pi / Float(n))
+            }
             for k in 0..<n {
-                let patch = MeshKit.lathePatch(profile: Self.profile, rings: band, angles: cuts[k]...cuts[k + 1],
+                let patch = MeshKit.lathePatch(profile: Self.profile, rings: band, lower: { cut(k, $0) }, upper: { cut(k + 1, $0) },
                                                angularSteps: 9, thickness: 0.0012)
                 // Authored with its outward normal as local +Y (FOLD-REVIEW-6 N9), so the break can lay it flat and
                 // convex side up with a yaw-only turn (the lying egg's patches used to be pinned by the platen at
@@ -186,23 +194,55 @@ final class EggView: PressObjectView {
         life.node.addChild(shell)
         entity.addChild(life.node)
         if !look.golden {
-            // Shell detail (fidelity pass): a speckled, mottled shell with fine pores, once the textures are up.
+            // Shell detail (fidelity pass): a speckled, mottled shell with fine pores, once the textures are up; the
+            // 3D-art round adds a soft subsurface lift (the shell's own colour, faintly self-lit, so its shadow side
+            // glows warm like lit eggshell) and the fibrous membrane on the inside.
             let pieces = shards
             Task { @MainActor in
+                async let membraneMaps = SurfaceDetail.eggMembrane()
                 let detail = await SurfaceDetail.eggShell()
                 guard let colour = detail.colour else { return }
                 var material = SceneMaterials.pbr(.white, roughness: 0.62, clearcoat: 0.12)
                 material.baseColor = .init(tint: .white, texture: .init(colour))
                 if let normal = detail.normal { material.normal = .init(texture: .init(normal)) }
+                material.emissiveColor = .init(color: .white, texture: .init(colour))
+                material.emissiveIntensity = EggShell.subsurface
+                let membrane = await membraneMaps
+                var inner = SceneMaterials.pbr(.white, roughness: 0.75)
+                if let m = membrane.colour { inner.baseColor = .init(tint: .white, texture: SurfaceDetail.tiled(m)) }
+                if let n = membrane.normal { inner.normal = .init(texture: SurfaceDetail.tiled(n)) }
+                inner.emissiveColor = .init(color: UIColor(hex: 0xFFF6E4))
+                inner.emissiveIntensity = 0.06
                 for shard in pieces {
-                    GlassBottleView.models(in: shard).first?.model?.materials = [material]
+                    let models = GlassBottleView.models(in: shard)
+                    models.first?.model?.materials = [material]
+                    if models.count > 1 { models[1].model?.materials = [inner] }
                 }
             }
         }
+        buildMembraneFlaps(seed: variant.seed)
         entity.addChild(albumen)
         entity.addChild(whiteOoze.root)
         entity.addChild(yolkOoze.root)
         entity.orientation = Part.yaw(-20)
+    }
+
+    /// Translucent scraps of membrane torn off with the shell, lying on the white just inside the shard ring.
+    private func buildMembraneFlaps(seed: UInt64) {
+        var rng = SplitMix64(seed: seed ^ 0xE6F1)
+        let material = look.golden ? SceneMaterials.goldMess
+            : SceneMaterials.enamel(UIColor(hex: 0xFFFBF2), roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2, opacity: 0.62)
+        let reach = EggShell.yolkReach(doubleYolk: surprise == .doubleYolk)
+        for k in 0..<EggShell.flaps {
+            let a = Float(k) / Float(EggShell.flaps) * 2 * .pi + Float.random(in: -0.4...0.4, using: &rng)
+            let flap = Part.add(cached: "egg.membrane.flap.\(k % 3)", { EggShell.flapMesh(seed: UInt64(k % 3)) }, material,
+                                at: [cos(a) * (reach - 0.002), EggYolk.albumenHeight + 0.0003, sin(a) * (reach - 0.002) * EggShell.ringAspect],
+                                to: entity)
+            flap.orientation = Part.yaw(Float.random(in: 0...360, using: &rng))
+            flap.isEnabled = false
+            ShadowCasting.off(flap)
+            flaps.append(flap)
+        }
     }
 
     static func radius(at y: Float) -> Float {
@@ -282,6 +322,7 @@ final class EggView: PressObjectView {
             stress.removeFromParent()
             life.kick(1.2)
             breakShell()
+            for flap in flaps { flap.isEnabled = true }
             albumen.isEnabled = true
             albumen.scale = SIMD3(0.04, EggYolk.albumenHeight, 0.036)
             if hasChick {
@@ -521,6 +562,33 @@ enum EggShell {
     /// Every third shard lands inside up, so the pile reads as broken shell (tan outside, cream inside).
     static func showsInside(_ index: Int) -> Bool {
         index % 3 == 1
+    }
+
+    // MARK: Jagged breaks and membrane (3D-art round)
+
+    /// How far (radians) cut `cut` of a band zigzags off its straight line at profile ring `ring`: seeded per cut and
+    /// ring (so the two pieces either side agree), alternating in sign, up to `jagShare` of the sector.
+    static let jagShare: Float = 0.16
+    static func jag(seed: UInt64, cut: Int, ring: Int, sector: Float) -> Float {
+        var rng = SplitMix64(seed: seed &+ UInt64(cut) &* 0x9E37_79B9 &+ UInt64(ring) &* 0x51ED_2701)
+        let size = Float(rng.next() >> 40) / Float(1 << 24)
+        let sign: Float = (ring / 2) % 2 == 0 ? 1 : -1
+        return sign * (0.35 + 0.65 * size) * jagShare * sector
+    }
+
+    /// The shell's faint self-lit lift (fake subsurface scattering) once its maps are up.
+    static let subsurface: Float = 0.1
+    static let flaps = 6
+
+    /// A torn scrap of membrane: a thin, ragged 7-gon about 6 mm across.
+    static func flapMesh(seed: UInt64) -> MeshData {
+        var rng = SplitMix64(seed: seed ^ 0xF1A9)
+        let points: [SIMD2<Float>] = (0..<7).map { k in
+            let a = Float(k) / 7 * 2 * .pi + Float.random(in: -0.25...0.25, using: &rng)
+            let r = Float.random(in: 0.0018...0.0034, using: &rng)
+            return SIMD2(cos(a) * r, sin(a) * r * 0.8)
+        }
+        return MeshKit.polygonSlab(points, thickness: 0.0003)
     }
 }
 
