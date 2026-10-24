@@ -206,8 +206,9 @@ final class DuckView: PressObjectView {
         var maps = bodyMaps
         if headC > DuckSquash.creaseAt, let crushed = creasedMaps, crushed.colour != nil {
             creased = true
+            let normal = crushed.normal ?? maps?.normal
             maps?.colour = crushed.colour
-            maps?.normal = crushed.normal ?? maps?.normal
+            maps?.normal = normal
         }
         let material = Self.bodyMaterial(golden: golden, dull: Float(dullLevel) / Float(DuckSquash.dullSteps), maps: maps)
         body.setMaterial(material, forSlot: 0)

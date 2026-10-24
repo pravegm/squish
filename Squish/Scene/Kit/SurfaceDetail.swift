@@ -182,8 +182,10 @@ enum SurfaceImages {
         SIMD3(Float((hex >> 16) & 0xFF), Float((hex >> 8) & 0xFF), Float(hex & 0xFF)) / 255
     }
 
+    /// Smoothstep from `e0` to `e1`; with `e1 < e0` it falls (1 below `e1`, 0 above `e0`).
     static func smooth(_ e0: Float, _ e1: Float, _ x: Float) -> Float {
-        let t = clamp((x - e0) / max(e1 - e0, 1e-6), 0, 1)
+        let span = e1 - e0
+        let t = clamp((x - e0) / (abs(span) < 1e-6 ? 1e-6 : span), 0, 1)
         return t * t * (3 - 2 * t)
     }
 
