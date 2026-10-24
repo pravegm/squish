@@ -32,7 +32,13 @@ final class DeformableMesh {
     private let boundsMin: SIMD3<Float>
     private let boundsMax: SIMD3<Float>
 
+    private static var registered = false
+
     init(_ data: MeshData, materials: [any Material], maxSpread: Float = 2.5) {
+        if !Self.registered {
+            DeformedBoundsComponent.registerComponent()
+            Self.registered = true
+        }
         rest = data
         current = data
         let b = data.bounds()
@@ -64,6 +70,14 @@ final class DeformableMesh {
                                 indices: part.mesh.indices))
             #endif
         }
+        publishBounds()
+    }
+
+    /// The deformed shape's true bounds (the GPU mesh's bounds are padded so a spread shape is never culled), for
+    /// `VisibleBounds` (SquishTests: every object ends visibly crushed).
+    private func publishBounds() {
+        let b = current.bounds()
+        entity.components.set(DeformedBoundsComponent(min: b.min, max: b.max))
     }
 
     /// Deforms every rest vertex with `deform`, recomputes normals and uploads.
@@ -115,6 +129,7 @@ final class DeformableMesh {
     }
 
     private func upload() {
+        publishBounds()
         for group in groups {
             #if !SQUISH_NO_LOWLEVELMESH
             if let low = group.lowLevel {
@@ -182,6 +197,48 @@ final class DeformableMesh {
         return low
     }
     #endif
+}
+
+/// The CPU-side bounds of a `DeformableMesh` (entity-local metres).
+struct DeformedBoundsComponent: Component {
+    var min: SIMD3<Float>
+    var max: SIMD3<Float>
+}
+
+/// The world-space box round everything enabled under an entity, from mesh bounds (and a deformed mesh's true bounds),
+/// so it works on entities that aren't in a scene (SquishTests).
+@MainActor
+enum VisibleBounds {
+    static func of(_ root: Entity) -> (min: SIMD3<Float>, max: SIMD3<Float>)? {
+        var lo = SIMD3<Float>(repeating: .infinity)
+        var hi = SIMD3<Float>(repeating: -.infinity)
+        func visit(_ entity: Entity) {
+            guard entity.isEnabled else { return }
+            var local: (SIMD3<Float>, SIMD3<Float>)?
+            let deformed = entity.components[DeformedBoundsComponent.self]
+            if let deformed {
+                local = (deformed.min, deformed.max)
+            } else if let model = entity as? ModelEntity, let mesh = model.model?.mesh {
+                let b = mesh.bounds
+                if b.min.x <= b.max.x { local = (b.min, b.max) }
+            }
+            if let box = local {
+                let a = box.0, b = box.1
+                let m = entity.transformMatrix(relativeTo: nil)
+                for k in 0..<8 {
+                    let corner = SIMD3<Float>(k & 1 == 0 ? a.x : b.x, k & 2 == 0 ? a.y : b.y, k & 4 == 0 ? a.z : b.z)
+                    let w = m * SIMD4<Float>(corner, 1)
+                    lo = simd_min(lo, SIMD3(w.x, w.y, w.z))
+                    hi = simd_max(hi, SIMD3(w.x, w.y, w.z))
+                }
+            }
+            // A deformable's slot models carry padded GPU bounds: its component already covers them.
+            guard deformed == nil else { return }
+            for child in entity.children { visit(child) }
+        }
+        visit(root)
+        return lo.x.isFinite ? (lo, hi) : nil
+    }
 }
 
 /// Interleaved vertex for `LowLevelMesh`: position at 0, normal at 16, uv0 at 32 (SIMD3<Float> stride 16), stride 48.

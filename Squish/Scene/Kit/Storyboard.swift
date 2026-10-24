@@ -65,12 +65,15 @@ struct StoryBeat: Equatable, Sendable {
 }
 
 enum ObjectStoryboard {
-    /// The compression grid (16 beats). Gaps: ≤ 7.3° at exponent 1.7 from a 132° contact, ≤ 6° at exponent 1.
-    static let grid: [Float] = [0.012, 0.045, 0.09, 0.145, 0.21, 0.28, 0.35, 0.42, 0.49, 0.56, 0.63, 0.70, 0.77, 0.84, 0.91, 0.97]
+    /// The compression grid (16 beats). Worst gaps with worst-case jitter: 6.7° on the P-48 mapping (132°, ease 1.7),
+    /// 4.5° on the provisional fold mapping (106°, linear).
+    static let grid: [Float] = [0.01, 0.036, 0.075, 0.122, 0.178, 0.242, 0.312, 0.382, 0.452, 0.522, 0.592, 0.662, 0.732, 0.802,
+                                0.872, 0.942]
     /// The two tell beats sit this far (c) before the seeded failure threshold.
     static let tellLeads: [Float] = [0.09, 0.03]
-    /// Seeded jitter on every grid beat (never enough to reorder them).
-    static let jitter: Float = 0.006
+    /// Seeded jitter on every grid beat (never enough to reorder them), scaled down near contact where the mapping is
+    /// steepest.
+    static let jitter: Float = 0.004
     /// The design rule.
     static let gapLimitDegrees: Double = 8
 
@@ -116,7 +119,8 @@ enum ObjectStoryboard {
         let kinds = gridKinds(kind)
         var raw: [(c: Float, kind: BeatKind)] = []
         for (i, c) in grid.enumerated() where i < kinds.count {
-            let wiggle = i == 0 ? 0 : Float.random(in: -jitter...jitter, using: &rng)
+            let j = jitter * min(1, c / 0.25)
+            let wiggle = i == 0 ? 0 : Float.random(in: -j...j, using: &rng)
             raw.append((clamp(c + wiggle, 0.005, 0.99), kinds[i]))
         }
         if let failure = failureThreshold(kind, seed: seed) {

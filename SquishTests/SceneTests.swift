@@ -1219,10 +1219,15 @@ struct SceneTests {
     /// Height (top above the anvil) and top-down footprint area of an object view and its debris, visible parts only.
     @MainActor
     private static func footprint(of view: PressObjectView, fx: SceneFX) -> (height: Float, area: Float) {
-        var box = view.entity.visualBounds(recursive: true, relativeTo: nil, excludeInactive: true)
-        let debris = fx.debris.root.visualBounds(recursive: true, relativeTo: nil, excludeInactive: true)
-        if !debris.isEmpty { box = box.isEmpty ? debris : box.union(debris) }
-        let size = box.max - box.min
-        return (box.max.y, max(size.x, 0) * max(size.z, 0))
+        // Mesh bounds walked by hand: `visualBounds` is empty for entities that aren't in a scene.
+        let parts = [VisibleBounds.of(view.entity), VisibleBounds.of(fx.debris.root)].compactMap { $0 }
+        guard let first = parts.first else { return (0, 0) }
+        var lo = first.min, hi = first.max
+        for part in parts.dropFirst() {
+            lo = simd_min(lo, part.min)
+            hi = simd_max(hi, part.max)
+        }
+        let size = hi - lo
+        return (hi.y, max(size.x, 0) * max(size.z, 0))
     }
 }
