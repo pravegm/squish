@@ -135,6 +135,14 @@ final class FoldStageHostView: UIView {
 
     var onPoke: ((Double) -> Void)?
     var onSpin: ((Double) -> Void)?
+
+    /// UIView asks before any of its recognizers begins (and, as their delegate, for ours): only on the object.
+    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard recognizer === spinPan || recognizer === pokeTap || recognizer === zoomPinch else {
+            return super.gestureRecognizerShouldBegin(recognizer)
+        }
+        touchIsOnObject(recognizer.location(in: self))
+    }
     private lazy var spinPan = UIPanGestureRecognizer(target: self, action: #selector(handleSpin(_:)))
     private lazy var pokeTap = UITapGestureRecognizer(target: self, action: #selector(handlePoke(_:)))
     private lazy var zoomPinch = UIPinchGestureRecognizer(target: self, action: #selector(handleZoom(_:)))
@@ -369,10 +377,6 @@ final class FoldStageHostView: UIView {
 }
 
 extension FoldStageHostView: UIGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-        touchIsOnObject(recognizer.location(in: self))
-    }
-
     func gestureRecognizer(_ recognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         // Spin and pinch together; nothing else of ours competes.

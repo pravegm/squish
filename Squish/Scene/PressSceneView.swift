@@ -120,6 +120,17 @@ final class PressSceneHostView: UIView {
 
     var onPoke: ((Double) -> Void)?
     var onSpin: ((Double) -> Void)?
+
+    /// UIView asks before any of its recognizers begins (and, as their delegate, for ours): only on the object.
+    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard recognizer === spinPan || recognizer === pokeTap || recognizer === zoomPinch else {
+            return super.gestureRecognizerShouldBegin(recognizer)
+        }
+        let point = recognizer.location(in: self)
+        guard touchIsOnObject(point) else { return false }
+        if let pan = recognizer as? UIPanGestureRecognizer { return isHorizontal(pan) }
+        return true
+    }
     private lazy var spinPan = UIPanGestureRecognizer(target: self, action: #selector(handleSpin(_:)))
     private lazy var pokeTap = UITapGestureRecognizer(target: self, action: #selector(handlePoke(_:)))
     private lazy var zoomPinch = UIPinchGestureRecognizer(target: self, action: #selector(handleZoom(_:)))
@@ -246,13 +257,6 @@ final class PressSceneHostView: UIView {
 }
 
 extension PressSceneHostView: UIGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-        let point = recognizer.location(in: self)
-        guard touchIsOnObject(point) else { return false }
-        if let pan = recognizer as? UIPanGestureRecognizer { return isHorizontal(pan) }
-        return true
-    }
-
     func gestureRecognizer(_ recognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         // Alongside SwiftUI's touch-press drag (it only presses on a downward drag; the engine then ends the spin).
