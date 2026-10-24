@@ -13,6 +13,17 @@
 26-reveal-unlock|specimens=2;object=jelly;reveal
 27-reveal-golden|object=gummyBear;reveal;golden
 28-reveal-surprise|object=egg;reveal;surprise=toyChick
+# Experience screens (EXPERIENCE-PLAN "Screens"; RootView.runDemo): menu, tray, achievements, help, about, the
+# first-run cover, and the lesson / menu on the Fold layout (foldsim).
+2A-menu|menu
+2B-tray|tray|12
+2C-achievements|shelf=achievements|12
+2D-help|help|12
+2E-about|about|12
+2F-cover-firstrun|cover=firstrun
+2G-lesson-fold|object=bubbleWrap;foldsim=170;lesson|24
+2H-menu-fold|object=bubbleWrap;foldsim=170;menu|24
+2I-lesson|object=bubbleWrap;lesson
 
 # Scene v2: every object idle / mid-press (0.6) / done (1.0)
 30-bubble-idle|object=bubbleWrap

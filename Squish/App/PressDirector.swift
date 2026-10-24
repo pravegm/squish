@@ -33,6 +33,9 @@ final class PressDirector {
     private(set) var lastTrace: PressTrace?
     /// A gentle one-line coaching hint ("Slowly… it's more satisfying."), shown as a toast by the UI.
     private(set) var coachHint: CaptionEvent?
+    /// The reveal ceremony (S5): fold-to-keep only counts once the ceremony has had `foldToKeepDelay` seconds on a lit
+    /// display. The UI shows "Fold to keep" when this turns true.
+    private(set) var foldToKeepReady = false
     /// Set by the UI from the environment.
     var reduceMotion = false
 
