@@ -5,7 +5,7 @@ import Testing
 struct ObjectCatalogTests {
     private let rate = 30.0
 
-    /// Slow press 180° → 40° over 6 s, then hold, stepping the engine like a real frame loop.
+    /// Slow press 180° → 5° (really shut: a fold seals only when shut) over 6 s, then hold, like a real frame loop.
     private func slowPress(_ kind: ObjectKind, seed: UInt64) -> (PressEngine, EventLog) {
         let log = EventLog()
         let engine = PressEngine()
@@ -16,12 +16,12 @@ struct ObjectCatalogTests {
         let steps = Int(6 * rate)
         for i in 1...steps {
             time = Double(i) / rate
-            engine.ingest(angle: 180 - 140 * Double(i) / Double(steps), closed: false, at: time)
+            engine.ingest(angle: 180 - 175 * Double(i) / Double(steps), closed: false, at: time)
             engine.step(now: time, dt: 1 / rate)
         }
         for _ in 0..<Int(rate) {
             time += 1 / rate
-            engine.ingest(angle: 40, closed: false, at: time)
+            engine.ingest(angle: 5, closed: true, at: time)
             engine.step(now: time, dt: 1 / rate)
         }
         return (engine, log)
@@ -114,15 +114,15 @@ struct ObjectCatalogTests {
                 engine.step(now: time, dt: 1 / rate)
             }
         }
-        // Every reversal happens loaded: past the provisional fold contact (106°, PressConfig).
-        sweep(180, 95, 2)
-        sweep(95, 104, 0.5)
-        sweep(104, 85, 0.8)
-        sweep(85, 98, 0.5)
-        sweep(98, 40, 2)
+        // Every reversal happens loaded: past the provisional fold contact (100°, PressConfig); then really shut.
+        sweep(180, 90, 2)
+        sweep(90, 97, 0.5)
+        sweep(97, 80, 0.8)
+        sweep(80, 92, 0.5)
+        sweep(92, 5, 2)
         for _ in 0..<30 {
             time += 1 / rate
-            engine.ingest(angle: 40, closed: false, at: time)
+            engine.ingest(angle: 5, closed: true, at: time)
             engine.step(now: time, dt: 1 / rate)
         }
         #expect(engine.phase == .sealed)

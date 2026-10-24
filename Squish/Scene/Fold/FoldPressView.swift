@@ -39,10 +39,10 @@ private struct FoldStageRepresentable: UIViewRepresentable {
             // to ~150° on reopen), and the reopen must never wait for it.
             shut: { [weak director] in
                 guard let director else { return false }
-                return director.isShowingCover && director.engine.rawAngle <= PressEngine.staleClosedAngle
+                return director.isShowingCover   // the outer display, or really shut (never the .closed posture)
             },
             busy: { [weak director] in director?.engine.phase == .pressing },
-            watch: { [weak director] in _ = director?.hingeClosed })
+            watch: { [weak director] in _ = director?.isShowingCover })
         return host
     }
 

@@ -34,8 +34,39 @@ struct TuningLabView: View {
                 }
 
                 Section {
+                    TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+                        let p = engine.pipeline
+                        VStack(alignment: .leading, spacing: 4) {
+                            liveRow("Hinge updates", String(format: "%.0f / s", p.hingeRate))
+                            liveRow("Sample age", String(format: "%.0f ms", p.sampleAge * 1000))
+                            liveRow("Filter lag", String(format: "%+.1f°", p.filterLag))
+                            liveRow("Drawn vs raw", String(format: "%+.1f°", p.drawnVsRaw))
+                            liveRow("Render vs raw", String(format: "%+.1f°", p.renderVsRaw))
+                            liveRow("Display refresh", String(format: "%.0f Hz", p.displayRate))
+                            liveRow("Last resume", director.fold.lastResumeLatency.map { String(format: "%.0f ms", $0 * 1000) } ?? "–")
+                        }
+                        .font(.system(.footnote, design: .monospaced))
+                    }
+                } header: {
+                    Text("Sync")
+                } footer: {
+                    Text("Screenshot this while folding. Drawn vs raw near 0 means the screen keeps up with the hand.")
+                }
+
+                Section {
+                    TuneSlider(title: "Contact angle (squash starts)", value: $engine.config.contactCeiling, range: 60...160, format: "%.0f°")
+                    TuneSlider(title: "Fully crushed angle", value: $engine.config.endAngle, range: 15...100, format: "%.0f°")
+                    TuneSlider(title: "Display-off angle", value: $engine.config.displayOffAngle, range: 20...100, format: "%.0f°")
+                    TuneSlider(title: "Shut angle (seals)", value: $engine.config.shutAngle, range: 2...40, format: "%.0f°")
+                    TuneSlider(title: "Reveal opens at", value: $engine.config.revealOpenAngle, range: 15...90, format: "%.0f°")
+                } header: {
+                    Text("Angles")
+                } footer: {
+                    Text("Drag these on the phone, then Copy config JSON below and send it. Set the fully crushed angle a few degrees above where the inner screen turns off.")
+                }
+
+                Section {
                     TuneSlider(title: "Arm angle max", value: $engine.config.armAngleMax, range: 130...179, format: "%.0f°")
-                    TuneSlider(title: "End angle (θ_end)", value: $engine.config.endAngle, range: 20...100, format: "%.0f°")
                     TuneSlider(title: "Contact point", value: $engine.config.contactT, range: 0.05...0.4, format: "%.2f")
                     TuneSlider(title: "Ease exponent", value: $engine.config.easeExponent, range: 0.8...3, format: "%.2f")
                     TuneSlider(title: "Hysteresis", value: $engine.config.hysteresis, range: 1...10, format: "%.1f°")

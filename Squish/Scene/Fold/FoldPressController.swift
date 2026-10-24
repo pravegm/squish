@@ -144,8 +144,16 @@ final class FoldPressController {
     func setRenderPaused(_ paused: Bool) {
         guard paused != renderPaused else { return }
         renderPaused = paused
-        if !paused { settleOnResume = true }
+        if !paused {
+            settleOnResume = true
+            measureResume = true
+        }
     }
+
+    /// Seconds from the hinge reporting open (above `config.shutAngle`) to the stage's first frame back (the catch-up
+    /// frame, ≤ 1 display frame before the first render), for the Tuning Lab's Sync readout. Nil until measured.
+    private(set) var lastResumeLatency: Double?
+    private var measureResume = false
 
     // MARK: - Reveal on relight (FOLD-REVIEW-7 N10)
 
@@ -319,10 +327,20 @@ final class FoldPressController {
         if contacted && (phase == .pressing || phase == .sealed) {
             printCompression = max(printCompression, renderCompression)
         }
-        let angle = engine.angle
+        // Sync fix: every angle-driven visual (sheen, dimming, readout, lid shade, book camera) follows the drawn hinge,
+        // continuous between reports and one display frame ahead, with no extra smoothing.
+        let angle = engine.displayAngle
         lastAngle = engine.failureAngle ?? angle
         rawAngle = engine.rawAngle
+        revealLight.displayOnAngle = engine.config.displayOffAngle
         revealLight.track(angle: rawAngle, clock: clock)
+        if measureResume && !renderPaused {
+            measureResume = false
+            if let opened = engine.openedAt {
+                lastResumeLatency = max(CACurrentMediaTime() - opened, 0)
+                log(String(format: "resume latency %.0f ms", (lastResumeLatency ?? 0) * 1000))
+            }
+        }
         let objectPresent = sinceSet > (firstObject ? 0.9 : 1.2) || phase == .pressing
 
         // How the press was closed: the platen's stamp says PERFECT, or SLAMMED gently (EXPERIENCE-2 §A6.1).
@@ -370,7 +388,7 @@ final class FoldPressController {
         anvil.updateSpray(spread: platen.stack?.splatScale ?? 1, dt: vdt, reduceMotion: context.reduceMotion)
         bezel.update(instruments(engine: engine, approach: approach, reduceMotion: context.reduceMotion, dt: vdt),
                      frame: frame)
-        updateCamera(layout: layout, angle: angle, closingSpeed: engine.closingSpeed, approach: approach,
+        updateCamera(layout: layout, angle: angle, closingSpeed: engine.displaySpeed, approach: approach,
                      reduceMotion: context.reduceMotion, dt: vdt)
 
         // N10: a reveal from the dark plays its beats once the display is lit (after this frame's settled platen).
@@ -419,7 +437,7 @@ final class FoldPressController {
             // the light (`FoldRevealLight`), so none of them starts from zero in the dark. A reveal on an open, lit
             // display (sealed and left at ≥ 100°, or opened past 120° without closing) plays them at once, as before.
             revealPending = true
-            revealBeganDark = renderPaused || FoldRevealLight.isDark(angle: rawAngle)
+            revealBeganDark = renderPaused || revealLight.isDarkNow(angle: rawAngle)
             revealEventClock = clock
             revealEventAngle = rawAngle
             if revealBeganDark {
@@ -531,7 +549,8 @@ final class FoldPressController {
         }
         // Needle: spring response ≈ 0.18 s, damping 0.55 (as the P-48's).
         if dt > 0 {
-            let omega = 2 * Double.pi / 0.18, zeta = 0.55
+            // Sync fix: 0.18 s → 0.09 s, damping 0.55 → 0.7, so the gauge keeps up with the hand.
+            let omega = 2 * Double.pi / 0.09, zeta = 0.7
             let steps = max(1, Int((dt * 480).rounded(.up)))
             let h = dt / Double(steps)
             for _ in 0..<steps {
@@ -603,7 +622,8 @@ final class FoldPressController {
         let pose: FoldPose
         if layout.isBook {
             // Book: the eye rides the wedge bisector, so it moves every frame with θ (gently smoothed).
-            bookAngle += (clamp(angle, 40, 180) - bookAngle) * (1 - pow(0.5, dt / 0.03))
+            // (Sync fix: the drawn hinge is already continuous; no extra smoothing here.)
+            bookAngle = clamp(angle, 40, 180)
             pose = .book(hinge: bookAngle)
             if abs(bookAngle - lastCameraAngle) > 0.02 { cameraDirty = true }
         } else {
@@ -648,7 +668,7 @@ final class FoldPressController {
         if !contacted && FoldLean.leans(kind) && !reduceMotion {
             leanTarget += FoldLean.anticipation(approach: approach, closingSpeed: closingSpeed, time: clock)
         }
-        leanAngle += (leanTarget - leanAngle) * (1 - pow(0.5, dt / 0.06))
+        leanAngle += (leanTarget - leanAngle) * (1 - pow(0.5, dt / 0.02))
         if abs(leanAngle) < 1e-5 && leanTarget == 0 { leanAngle = 0 }
         let exposure = FoldCurve.exposure(eyeElevation: eye.renderElevation(pose))
         let ppm = FoldMetrics.pointsPerMM

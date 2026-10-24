@@ -149,6 +149,7 @@ struct RootView: View {
             }
             .onChange(of: CGSize(width: bands.fullWidth, height: bands.fullHeight), initial: true) { _, size in
                 canvasSize = size
+                director.setWindowSize(size)   // the outer display by size, not by hinge status
             }
         }
         .modifier(HingeReader(

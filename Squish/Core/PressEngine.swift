@@ -55,7 +55,10 @@ final class PressEngine {
         guard let armedContactT else { return config }
         var mapped = config
         mapped.contactT = armedContactT
-        if !armedOnHinge { mapped.easeExponent = PressConfig.touchEaseExponent }
+        if !armedOnHinge {
+            mapped.easeExponent = PressConfig.touchEaseExponent
+            mapped.endAngle = PressConfig.touchEndAngle
+        }
         return mapped
     }
     @ObservationIgnored private var armedContactT: Double?
@@ -178,7 +181,7 @@ final class PressEngine {
         detentAngle = θ
         for line in lines.prefix(3) {
             detentCount &+= 1
-            onBeat?(.detent(angle: line, closing: closing, speed: abs(closingSpeed)))
+            onBeat?(.detent(angle: line, closing: closing, speed: abs(displaySpeed)))
         }
     }
 
@@ -187,9 +190,9 @@ final class PressEngine {
         if lastSampleVirtual != false || phase == .pressing {
             target = 1
         } else {
-            target = HingeMotion.power(angle: angle, closed: isClosed)
+            target = HingeMotion.power(angle: displayAngle, closed: isClosed)
         }
-        hingePower += (target - hingePower) * (1 - pow(0.5, max(dt, 0) / 0.08))
+        hingePower += (target - hingePower) * (1 - pow(0.5, max(dt, 0) / 0.03))
         if abs(target - hingePower) < 1e-3 { hingePower = target }
         switch powered {
         case nil:
@@ -209,6 +212,23 @@ final class PressEngine {
     }
 
     @ObservationIgnored private var clockNow = 0.0
+    /// The hinge at display rate (Core/HingeTracker.swift): every hinge-driven visual reads `displayAngle`.
+    @ObservationIgnored private var tracker = HingeTracker()
+    @ObservationIgnored private var frameInterval = 1.0 / 60
+    /// The angle to draw this frame (degrees): the tracked hinge, one display frame ahead, continuous between
+    /// reports. Events still use the filtered `angle` (honest, never predicted).
+    @ObservationIgnored private(set) var displayAngle = 180.0
+    /// °/s, positive while closing: the drawn angle's own speed (unbiased; eases to 0 when reports stop). Sound and
+    /// haptics that follow the hinge should read this, with `displayAngle`.
+    @ObservationIgnored private(set) var displaySpeed = 0.0
+    /// The live pipeline lag, for the Tuning Lab.
+    @ObservationIgnored private(set) var pipeline = PipelineStats()
+    /// When the hinge last reported open after reading shut (at ≤ `config.shutAngle`), for the resume
+    /// latency readout.
+    @ObservationIgnored private(set) var openedAt: Double?
+    @ObservationIgnored private var lastReadShut = false
+    /// The phone was really shut since this press sealed (a reopen past `revealOpenAngle` then reveals).
+    @ObservationIgnored private var shutSinceSeal = false
     /// °/s, + closing: the speed of the filtered angle itself (the tell's lead time).
     @ObservationIgnored private var filteredSpeed = 0.0
     @ObservationIgnored private var lastFilteredAngle: Double?
@@ -303,6 +323,7 @@ final class PressEngine {
         isReversing = false
         reversals = 0
         lastResult = nil
+        shutSinceSeal = false
         armedContactT = nil
         armedOnHinge = false
         armObserved = false
@@ -329,13 +350,14 @@ final class PressEngine {
         ingestSample(angle: raw, closed: closed, at: time, virtual: false)
     }
 
-    /// A `closed` status whose angle reads above this is stale: the iPhone Duo simulator keeps reporting `closed` while
-    /// the phone reopens all the way to ~150° (store run 39895066549), which left every sealed press unrevealed.
-    /// The angle wins, as in RevealCollectGate. Not in PressConfig, so saved tunings keep decoding.
-    static let staleClosedAngle = 90.0
-
     private func ingestSample(angle raw: Double, closed reportedClosed: Bool, at time: Double, virtual: Bool) {
-        let closed = reportedClosed && raw <= Self.staleClosedAngle
+        // The real-Duo hinge log (25 Oct 2026, FOLD-PRESS §9.8): `.closed` is a coarse posture with big hysteresis. It sets
+        // at ~85° while closing and clears at ~21° on reopen, so it is NOT "shut": treating it as shut sealed every press at
+        // ~85°. Shut is the angle (≤ `shutAngle`, ~12°); the status is ignored (the director moves to the cover on the
+        // outer display by window size, not by status).
+        // The touch press is never shut (it seals at depth).
+        _ = reportedClosed
+        let closed = !virtual && raw <= config.shutAngle
         // The first sample from an input (at launch, or after switching between touch and hinge) is a state, not a
         // transition: launching with the phone shut is not "closing" it, and an earlier arm was taken on another
         // input's angle, so it must be re-anchored on this one (FOLD-REVIEW-6 N3).
@@ -343,6 +365,7 @@ final class PressEngine {
         lastSampleVirtual = virtual
         if newInput {
             filter.reset()
+            tracker.reset()
             if phase == .armed { armObserved = false }
         }
         rawAngle = raw
@@ -351,6 +374,10 @@ final class PressEngine {
         filter.beta = config.oneEuroBeta
         filter.dCutoff = config.oneEuroDCutoff
         let filtered = filter.filter(raw, at: time)
+        tracker.sample(raw, at: time)
+        let readShut = raw <= config.shutAngle
+        if lastReadShut && !readShut { openedAt = time }
+        lastReadShut = readShut
         // The tell's ETA needs the filtered angle's own speed: the One-Euro derivative is taken against the filtered
         // value, so at a steady close it reads ~2.5× the true speed (fine for its other uses, wrong for a lead time).
         if let last = lastFilteredAngle, lastSampleTime.isFinite, time - lastSampleTime > 1e-4, !newInput {
@@ -374,9 +401,8 @@ final class PressEngine {
         isClosed = closed
 
         guard time - activationTime >= config.ignoreInputAfterActivation else { return }
-        // The ratchet, any phase: the first reading from an input is a state, not motion.
+        // The ratchet (tracked per frame on the drawn angle): the first reading from an input is a state, not motion.
         if newInput { detentAngle = nil }
-        trackDetents(filtered)
 
         if closed && !wasClosed {
             handleClose(at: time)
@@ -410,14 +436,15 @@ final class PressEngine {
         case .pressing:
             guard !closed else { break }
             updatePress(angle: filtered, at: time)
-            if filtered >= startAngle + config.hysteresis && measuredDepth < 0.05 {
+            if filtered >= startAngle + config.hysteresis && measuredDepth < 0.05 && !bottomFired {
                 phase = .armed
                 nextGrainAngle = nil
             }
         case .sealed:
-            // Reveal as soon as the phone is opened (the system switches displays at that moment),
-            // or once it's clearly open again.
-            if !closed && (wasClosed || filtered >= config.revealAngle) {
+            // Reveal once a reopen from shut passes `revealOpenAngle` (~25°; the real `.closed` clears at ~21°), or once
+            // it's clearly open again.
+            if closed { shutSinceSeal = true }
+            if !closed && ((shutSinceSeal && raw >= config.revealOpenAngle) || filtered >= config.revealAngle) {
                 beginReveal()
             }
         case .revealing:
@@ -449,7 +476,14 @@ final class PressEngine {
         }
         fireBeats(upTo: now)
 
-        if phase == .pressing {
+        if phase == .pressing && lastSampleVirtual == false {
+            // A real fold seals only when it is really shut (`handleClose`), never at an angle: full compression just
+            // holds. Reopening a fully compressed press instead (never shut) seals and reveals it.
+            if bottomFired && angle >= config.revealAngle {
+                seal(blind: false, at: now)
+                beginReveal()
+            }
+        } else if phase == .pressing {
             if measuredDepth >= config.sealDepth {
                 if let start = sealHoldStart {
                     if now - start >= config.sealHold { seal(blind: false, at: now) }
@@ -494,33 +528,86 @@ final class PressEngine {
 
         let age = now - lastSampleTime
         isHolding = age > 0.25 || abs(closingSpeed) < 3
+        settleIfStale(now: now)
+        // The drawn hinge (sync fix): the tracker read one display frame ahead of now, continuous between reports.
+        if dt > 0 { frameInterval += (min(dt, 0.1) - frameInterval) * 0.2 }
+        let drawLead = min(frameInterval, 1.0 / 30)
+        if tracker.estimate != nil {
+            displayAngle = tracker.angle(at: now + drawLead)
+            displaySpeed = tracker.closingSpeed(at: now + drawLead)
+        } else {
+            displayAngle = angle
+            displaySpeed = 0
+        }
+        if lastSampleVirtual != nil, now - activationTime >= config.ignoreInputAfterActivation {
+            trackDetents(displayAngle)
+        }
         updateTension(at: now)
         updateHingePower(dt: dt)
 
+        // The render depth follows the drawn hinge directly: no spring on the hand's path (a spring is pure lag),
+        // only on real jumps (arming, the seal, the reveal on the touch press). The give's 80 ms ramp is its own.
+        let hinge = lastSampleVirtual == false
         let target: Double
+        var follows = false
         switch phase {
-        case .idle, .revealing:
+        case .idle:
             target = 0
+        case .revealing:
+            // On the Duo the lid lifts with the hand: the release tracks the angle in real time.
+            target = hinge && !isClosed ? PressMapping.depth(angle: displayAngle, start: startAngle, config: mapping) : 0
+            follows = hinge
         case .armed, .pressing:
-            // Predict a little ahead while samples are fresh; hold still when they stop.
-            // Low-rate mode: when samples arrive slower than ~10 Hz (thermal, Low Power), don't predict.
-            let fresh = age < max(config.staleAfter, sampleInterval * 1.5)
-            let lead = fresh && !isLowRate ? min(age + 1.0 / 60.0, config.maxPredict) : 0
-            // "Lag, then give": the eye's depth, never the hand's (the prediction can't cross a threshold: only
-            // `updatePress` fires events, from the measured depth).
-            target = eyeDepth(PressMapping.depth(angle: angle - closingSpeed * lead, start: startAngle, config: mapping))
+            target = eyeDepth(PressMapping.depth(angle: displayAngle, start: startAngle, config: mapping))
+            follows = true
             if phase == .pressing, let material {
                 // The give ratchets the plastic part with it (as the eye sees it).
                 plasticDepth = max(plasticDepth, eyeDepth(measuredDepth) * material.plasticity)
             }
         case .sealed:
-            target = 1
+            // Sealed and opening again before the reveal: the lid still tracks the hand (the object stays as flat as
+            // its plastic part).
+            target = hinge && !isClosed ? PressMapping.depth(angle: displayAngle, start: startAngle, config: mapping) : 1
+            follows = hinge
         }
-        var omega = isLowRate ? config.springOmega * 0.6 : config.springOmega
-        // The give is one lurch (~80 ms): a stiff spring while the backlog releases.
-        if let since = sinceBurst, since < resistance.give + 0.06, resistance.lags { omega = max(omega, 70) }
-        spring.step(toward: target, omega: omega, dt: dt)
+        if follows && abs(target - renderDepth) < Self.followJump {
+            spring.value = target
+            spring.velocity = 0
+        } else {
+            var omega = config.springOmega
+            if let since = sinceBurst, since < resistance.give + 0.06, resistance.lags { omega = max(omega, 70) }
+            spring.step(toward: target, omega: omega, dt: dt)
+        }
         renderDepth = clamp(spring.value, 0, 1)
+        updatePipeline(now: now, dt: dt)
+    }
+
+    /// A render-depth change bigger than this in one frame is a jump (springs); smaller ones are the hand (snaps).
+    static let followJump = 0.04
+
+    /// The hinge stopped reporting (a still Duo sends nothing): the event filter would rest short of the real lid by
+    /// its lag, so feed it the last raw reading at frame rate until it lands (no sample bookkeeping changes).
+    private func settleIfStale(now: Double) {
+        guard lastSampleVirtual == false, phase == .armed || phase == .pressing, !isClosed,
+              now - lastSampleTime > max(0.06, 1.5 * sampleInterval), abs(rawAngle - angle) > 0.02,
+              now - activationTime >= config.ignoreInputAfterActivation else { return }
+        let settled = filter.filter(rawAngle, at: now)
+        angle = settled
+        closingSpeed = -filter.derivative
+        if phase == .pressing { updatePress(angle: settled, at: now) }
+    }
+
+    private func updatePipeline(now: Double, dt: Double) {
+        var stats = PipelineStats()
+        stats.sampleAge = lastSampleTime.isFinite ? now - lastSampleTime : 0
+        stats.hingeRate = lastSampleVirtual == nil ? 0 : 1 / max(sampleInterval, 1e-3)
+        stats.filterLag = rawAngle - angle
+        stats.drawnVsRaw = displayAngle - rawAngle
+        if phase == .pressing || phase == .armed {
+            stats.renderVsRaw = PressMapping.angle(forDepth: renderDepth, start: startAngle, config: mapping) - rawAngle
+        }
+        stats.displayRate = frameInterval > 0 ? 1 / frameInterval : 0
+        pipeline = stats
     }
 
     // MARK: - Feel (Core/PressFeel.swift)
@@ -787,6 +874,7 @@ final class PressEngine {
         guard phase != .sealed, let kind else { return }
         flushPendingFailure(at: time)
         phase = .sealed
+        shutSinceSeal = blind || isClosed
         sealHoldStart = nil
         let duration = pressStartTime.map { time - $0 } ?? 0
         let slammed = peakClosingSpeed > config.slamSpeed

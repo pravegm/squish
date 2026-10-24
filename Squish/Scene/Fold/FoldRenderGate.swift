@@ -8,7 +8,8 @@ import UIKit
 /// The first rule that applies is the reason:
 ///  • `window`     the stage isn't in a window;
 ///  • `background` the scene is in the background;
-///  • `closed`     the hinge reads closed (the `PressEngine.staleClosedAngle` rule: a `closed` flag above 90° is stale);
+///  • `closed`     the app is on the outer display or the hinge is really shut (`PressDirector.isShowingCover`; never
+///                 the `.closed` status, a posture that sets at ~85° on a real Duo);
 ///  • `size`       the window isn't something to draw the stage in: zero size, the 466 × 678 cover display, or a stage
 ///                 that was never laid out;
 ///  • `inactive`   the scene has been inactive for `inactiveGrace` (Control Center, a call). Not when the hinge opened
@@ -277,8 +278,11 @@ struct FoldRevealLight {
 
     private var anchorAngle: Double?
     private var anchorClock: Double = 0
+    /// The display-on angle in use: `PressConfig.displayOffAngle` (a Tuning Lab slider: unmeasured on hardware).
+    var displayOnAngle = FoldRevealLight.litAngle
 
     static func isDark(angle: Double) -> Bool { angle < litAngle }
+    func isDarkNow(angle: Double) -> Bool { angle < displayOnAngle }
 
     /// Feed every frame (the latest raw hinge reading).
     mutating func track(angle: Double, clock: Double) {
@@ -288,6 +292,6 @@ struct FoldRevealLight {
     }
 
     func isLit(angle: Double, clock: Double) -> Bool {
-        !Self.isDark(angle: angle) || (anchorAngle != nil && clock - anchorClock >= Self.stillHold)
+        !isDarkNow(angle: angle) || (anchorAngle != nil && clock - anchorClock >= Self.stillHold)
     }
 }

@@ -204,21 +204,23 @@ struct PressResistance: Equatable, Sendable {
 
     static let none = PressResistance(gain: 1, window: 0)
 
-    /// Stiffness order as in bible §7: glass gets the deepest lag and the most violent give; jelly almost none.
+    /// Stiffness order as in bible §7: glass resists most, jelly not at all. Sync fix (founder, real Duo 1.0 (3): the
+    /// screen must move with the hand): the lag is now a hint, 0.85–0.95 gain over only the last 0.03 c, so the
+    /// geometry trails the hand by at most `maxTrail` (~0.0045 c, a quarter of a degree). The resistance is carried by
+    /// the tremor, the strain spike, sound and haptics instead.
     static func of(_ kind: ObjectKind) -> PressResistance {
         switch kind {
-        case .glassBottle: PressResistance(gain: 0.25, window: 0.14)
-        case .unsquishable: PressResistance(gain: 0.25, window: 0.14)
-        case .sodaCan: PressResistance(gain: 0.35, window: 0.12)
-        case .crayon: PressResistance(gain: 0.35, window: 0.12)
-        case .egg: PressResistance(gain: 0.35, window: 0.10)
-        case .rubberDuck: PressResistance(gain: 0.45, window: 0.12)
-        case .gummyBear: PressResistance(gain: 0.5, window: 0.10)
-        case .cakeSlice: PressResistance(gain: 0.6, window: 0.10)
-        case .jelly: PressResistance(gain: 0.85, window: 0.08)
-        case .bubbleWrap: .none
+        case .glassBottle, .unsquishable: PressResistance(gain: 0.85, window: 0.03)
+        case .sodaCan, .crayon, .egg: PressResistance(gain: 0.88, window: 0.03)
+        case .rubberDuck: PressResistance(gain: 0.9, window: 0.03)
+        case .gummyBear: PressResistance(gain: 0.92, window: 0.03)
+        case .cakeSlice: PressResistance(gain: 0.95, window: 0.03)
+        case .jelly, .bubbleWrap: .none
         }
     }
+
+    /// The most the eye can trail the hand (compression), at the failure threshold.
+    var maxTrail: Double { lags ? window * (1 - gain) : 0 }
 
     var lags: Bool { gain < 1 && window > 0 }
 

@@ -78,8 +78,11 @@ struct PressEngineTests {
         let log = EventLog()
         let engine = makeEngine(.bubbleWrap, log: log)
         #expect(engine.phase == .armed)
+        // A real fold seals only when really shut (≤ shutAngle), never at an angle (the hinge log, 25 Oct 2026).
         var time = sweep(engine, from: 180, to: 40, duration: 6, startTime: 0)
         time = hold(engine, at: 40, seconds: 0.5, startTime: time)
+        #expect(engine.phase == .pressing)
+        time = sweep(engine, from: 40, to: 5, duration: 0.5, startTime: time)
         #expect(engine.phase == .sealed)
         let indices = log.fractureIndices()
         #expect(indices == Array(0..<BubbleWrapLayout.count))
@@ -468,23 +471,26 @@ struct PressEngineTests {
         return nil
     }
 
-    /// Lag, then give: near the failure the eye falls behind the hand while measured depth stays honest; at the
-    /// burst the backlog is released within ~80 ms (plus the render spring).
+    /// Sync fix (founder, real Duo 1.0 (3)): the geometry never trails the hand by more than ~2°. The resistance lag
+    /// is a hint over the last 0.03 c (≤ ~0.25°); measured depth stays the hand; the give still releases at the burst.
     @Test func lagThenGiveIsRenderSideOnly() throws {
         let timeline = Timeline()
         let engine = timedEngine(.glassBottle, timeline)
         let failure = try #require(engine.failureThreshold)
-        let target = failure - 0.02
+        let target = failure - 0.01
         let held = angle(engine, compression: target)
         var time = drive(engine, timeline, from: 180, to: held, duration: 3, startTime: 0)
         time = drive(engine, timeline, from: held, to: held, duration: 0.6, startTime: time)
         #expect(engine.phase == .pressing)
         #expect(abs(engine.measuredCompression - target) < 0.01)   // the hand, exactly
         #expect(timeline.time(of: .hush) == nil)
-        let backlog = engine.resistance.backlog(failure: failure)
-        #expect(backlog > 0.05)
-        #expect(engine.renderCompression < engine.measuredCompression - 0.05)
+        let span = PressConfig.standard.contactCeiling - PressConfig.standard.endAngle
+        let trailDegrees = (engine.measuredCompression - engine.renderCompression) * span
+        #expect(trailDegrees >= -0.5 && trailDegrees <= 2, "trails \(trailDegrees)°")
         #expect(abs(engine.eyeCompression(engine.measuredCompression) - engine.renderCompression) < 0.01)
+        for kind in ObjectKind.allCases {
+            #expect(PressResistance.of(kind).maxTrail * span <= 0.3, "\(kind)")
+        }
         // Through the failure: hush, hit stop (frozen), burst, then the give catches up with the hand.
         let past = angle(engine, compression: failure + 0.05)
         time = drive(engine, timeline, from: held, to: past, duration: 0.2, startTime: time)
@@ -492,9 +498,9 @@ struct PressEngineTests {
         let burst = try #require(timeline.time(of: .fracture(index: 1, isFailure: true)))
         #expect(time - burst > 0.25)
         #expect(abs(engine.renderCompression - engine.measuredCompression) < 0.01)
-        // The material ordering of the lag: glass deepest, jelly almost none, bubble wrap none.
+        // The material ordering of the hint: glass most, jelly and bubble wrap none.
         #expect(PressResistance.of(.glassBottle).gain < PressResistance.of(.rubberDuck).gain)
-        #expect(PressResistance.of(.rubberDuck).gain < PressResistance.of(.jelly).gain)
+        #expect(!PressResistance.of(.jelly).lags)
         #expect(!PressResistance.of(.bubbleWrap).lags)
     }
 
@@ -724,5 +730,131 @@ struct PressEngineTests {
         steady.reading(at: 0)
         steady.sceneChanged(at: 5)
         #expect(steady.deadline == nil && steady.available)
+    }
+    // MARK: - Sync fix (founder, real Duo 1.0 (3)): the screen moves with the hand
+
+    /// The founder's real-Duo hinge log (Tuning Lab CSV, 25 Oct 2026): a slow close, shut, then a reopen. Note `.closed`
+    /// sets at 84° while closing and clears at ~21° on reopen: a posture, not "shut" (FOLD-PRESS §9.8).
+    static let realLog: [(time: Double, angle: Double, closed: Bool)] = [
+        (41.7843, 174.79, false), (42.0005, 160.28, false), (42.2269, 144.09, false), (42.4186, 124.91, false),
+        (42.6672, 109.55, false), (42.8833, 91.12, false), (42.9671, 84.07, true), (43.2376, 64.44, true),
+        (43.5363, 47.99, true), (43.8862, 35.36, true), (44.3613, 35.84, true), (44.7863, 21.74, true),
+        (45.0988, 9.10, true), (45.2006, 0.00, true), (46.5703, 6.52, true), (46.6365, 19.71, true),
+        (46.6990, 21.17, false), (46.8200, 51.82, false), (47.0948, 104.16, false), (47.4552, 180.00, false),
+    ]
+
+    /// Replays the real log at 60 Hz frames: no seal until the angle is really shut (≤ ~12°, never at the ~85° `.closed`
+    /// posture), a reveal on the reopen once past ~25°, and a render depth that moves smoothly between the sparse reports.
+    @Test func realHingeLogSealsOnlyWhenShutAndRevealsOnReopen() throws {
+        let timeline = Timeline()
+        let engine = PressEngine()
+        engine.onEvent = { timeline.events.append((time: timeline.now, event: $0)) }
+        engine.ingest(angle: 180, closed: false, at: 0)
+        engine.load(.rubberDuck, seed: 42, at: 0)
+        timeline.now = 41.70
+        engine.step(now: 41.70, dt: 1.0 / 60)
+        var next = 0
+        var lastAngle = 180.0
+        var sealedAt: Double?
+        var revealedAt: Double?
+        var maxStep = 0.0
+        var previous = engine.renderDepth
+        var frame = 0
+        while true {
+            let now = 41.70 + Double(frame) / 60
+            if now > 48.5 { break }
+            timeline.now = now
+            while next < Self.realLog.count, Self.realLog[next].time <= now {
+                let s = Self.realLog[next]
+                engine.ingest(angle: s.angle, closed: s.closed, at: s.time)
+                lastAngle = s.angle
+                next += 1
+            }
+            engine.step(now: now, dt: 1.0 / 60)
+            if sealedAt == nil, engine.phase == .sealed {
+                sealedAt = now
+                #expect(lastAngle <= PressConfig.standard.shutAngle, "sealed at \(lastAngle)°")
+            }
+            if revealedAt == nil, engine.phase == .revealing {
+                revealedAt = now
+                #expect(lastAngle >= PressConfig.standard.revealOpenAngle, "revealed at \(lastAngle)°")
+            }
+            if sealedAt == nil, engine.phase == .pressing || engine.phase == .armed {
+                maxStep = max(maxStep, abs(engine.renderDepth - previous))
+            }
+            previous = engine.renderDepth
+            frame += 1
+        }
+        let sealed = try #require(sealedAt)
+        #expect(sealed >= 45.0988 - 1e-9)   // the 9.10° report, not the 84.07° `.closed` one
+        #expect(timeline.events.firstIndex { $0.event == .kaChunk }.map { timeline.events[$0].time >= 45.0988 - 1e-9 } ?? false)
+        let revealed = try #require(revealedAt)
+        #expect(revealed >= 46.8200 - 1e-9 && revealed < 47.0)
+        #expect(engine.phase == .revealing)
+        // Continuous between reports 0.2 s apart: no frame jumps (a 1:1 track of the hand moves ~0.01 a frame here).
+        #expect(maxStep <= 0.06, "max render-depth step \(maxStep) per frame")
+        // The duck failed on the way down, lit and with the lid near.
+        let failure = try #require(engine.failureAngle)
+        #expect(failure >= PressFeel.failureFloorAngle && failure <= PressConfig.standard.contactCeiling)
+    }
+
+    /// The `.closed` status alone is never shut: closing to 60° with `.closed` set neither seals nor ka-chunks.
+    @Test func closedPostureAloneIsNotShut() {
+        let log = EventLog()
+        let engine = makeEngine(.egg, log: log)
+        var time = sweep(engine, from: 180, to: 86, duration: 2, startTime: 0)
+        time = sweep(engine, from: 86, to: 60, duration: 1, startTime: time, closed: true)
+        time = hold(engine, at: 60, seconds: 2, startTime: time)
+        #expect(engine.phase == .pressing && !engine.isClosed)
+        #expect(log.count { $0 == .kaChunk || $0 == .sealed(blind: true) || $0 == .sealed(blind: false) } == 0)
+        _ = time
+    }
+
+    /// The tracker at the rates the hinge really uses (25–30 Hz, gaps; the coordinator asks for 5–120 Hz): ~no lag at a
+    /// steady speed, continuous at display rate, and a stop overshoots by at most about one report interval of travel.
+    @Test func hingeTrackerFollowsTheHandBetweenReports() {
+        for hz in [5.0, 10.0, 30.0, 60.0, 120.0] {
+            for speed in [20.0, 60.0] {
+                var tracker = HingeTracker()
+                var nextSample = 0.0
+                var worst = 0.0, step = 0.0
+                var previous: Double?
+                for frame in 0...168 {   // 2.8 s: the hinge stays above 0° at 60°/s
+                    let now = Double(frame) / 60
+                    while nextSample <= now + 1e-9 {
+                        tracker.sample(180 - speed * nextSample, at: nextSample)
+                        nextSample += 1 / hz
+                    }
+                    let shown = tracker.angle(at: now + 1.0 / 60)
+                    let truth = 180 - speed * (now + 1.0 / 60)
+                    if now > 1.5 {   // after the rate estimate has settled
+                        worst = max(worst, abs(shown - truth))
+                        if let previous { step = max(step, abs(shown - previous)) }
+                    }
+                    previous = shown
+                }
+                let truthStep = speed / 60
+                #expect(worst <= (hz >= 10 ? 0.6 : 3.0), "\(hz) Hz \(speed)°/s: off by \(worst)°")
+                #expect(step <= truthStep * (hz >= 10 ? 1.6 : 3.2), "\(hz) Hz \(speed)°/s: step \(step)° a frame")
+            }
+        }
+        // A stop at 30 Hz: overshoot bounded, then it settles back on the report.
+        var tracker = HingeTracker()
+        var t = 0.0
+        while t <= 1 {
+            tracker.sample(180 - 40 * t, at: t)
+            t += 1.0 / 30
+        }
+        let stop = 180 - 40 * (t - 1.0 / 30)
+        var worst = 0.0
+        var frame = 0.0
+        while frame < 0.5 {
+            worst = max(worst, abs(tracker.angle(at: t + frame) - stop))
+            frame += 1.0 / 60
+        }
+        #expect(worst <= 40.0 / 30 * 2.5, "overshoot \(worst)°")
+        // A slam between two reports (a 120° jump) snaps rather than swinging past.
+        tracker.sample(10, at: t + 0.03)
+        #expect(abs(tracker.angle(at: t + 0.03) - 10) < 1e-9)
     }
 }

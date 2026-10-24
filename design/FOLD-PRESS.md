@@ -507,6 +507,38 @@ An anamorphic frame looks *wrong* in a flat screenshot: it's stretched toward th
 7. Watch five people in tabletop: their real eye elevation and distance, used to tune ε and s.
 8. The `.division` frame at flat versus folded, in both orientations.
 
+#### 9.8.1 First real-Duo hinge log (founder, Tuning Lab CSV, 25 Oct 2026, build 1.0 (3))
+
+**The `.closed` status is a posture, not "shut".** It has big hysteresis:
+
+| Move | `.closed` sets / clears | Samples around it |
+|---|---|---|
+| Slow close | sets between 87.50° and 84.07° and stays set down to 0° | … 91.12 open · 84.07 **closed** · 64.44 · 47.99 · 35.36 · 21.74 · 9.10 · 0.00 |
+| Fast close | sets between 86.36° and 76.28° | |
+| Reopen | clears at ~21–22° | 16.74 closed → 22.33 open; 19.71 closed → 21.17 open |
+
+Build 1.0 (3) treated `closed` as shut, so on the device the press sealed blind and ka-chunked at ~85°, the cover logic
+fired, and the inner stage could be parked while the inner display was still lit. That is the founder's "squash at the
+wrong angle", "jumpy" and "out of sync". Fixed (25 Oct 2026), per APPLE-DUO-GUIDE items 3 and 5:
+
+- **Shut is the angle:** ≤ `PressConfig.shutAngle` (12°). The engine ignores the status. A fold seals only when it is
+  really shut, or, if a fully compressed press is reopened past `revealAngle` without ever shutting, then.
+- **The cover and the render gate's parking:** only when the app is on the outer display (the window is not the inner
+  canvas: 466 × 678 pt, by size, `PressDirector.setWindowSize`), or the hinge is really shut. Never on the status.
+- **Reveal on reopen:** once a reopen from shut passes `revealOpenAngle` (25°), or the press is opened past 120°.
+- `PressEngine.staleClosedAngle` is retired. RevealCollectGate is fed the angle-based shut.
+
+**Report rate:** about 25–30 Hz while moving (intervals 20–60 ms), with occasional 100–200 ms gaps. A fast close runs
+175° → 0° in ~0.37 s (~470°/s); a slow close runs ~25–60°/s. Fully open reads 180°; slow presses start around 175°.
+The picture must move between reports: `HingeTracker` (Core) is an alpha-beta model read at display rate, which
+extrapolates one report interval and eases out, with no lag at a steady speed and continuity at 5–120 Hz. Every
+hinge-driven visual reads `PressEngine.displayAngle`; the events keep the filtered angle.
+
+**Still unknown:** the display-off angle. The inner screen may stay lit well below 85°. Until it's measured, the
+contact, fully crushed, display-off, shut and reveal angles are all Tuning Lab sliders (Settings → long-press Version →
+Angles); the crush should complete before the real display-off point. The replay test is
+`PressEngineTests.realHingeLogSealsOnlyWhenShutAndRevealsOnReopen`.
+
 ---
 
 ## 10. Storyboard (θ0 = 168; tabletop eye 40°/380 mm; book on the bisector)

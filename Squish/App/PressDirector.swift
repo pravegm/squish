@@ -90,7 +90,23 @@ final class PressDirector {
 
     // MARK: - Derived state for the UI
 
-    var isShowingCover: Bool { hingeAvailable && hingeClosed }
+    /// The app is on the outer (cover) display: the window is not the inner canvas (466 × 678 pt, by size). Set from
+    /// RootView's window size (`setWindowSize`), never from the hinge status.
+    private(set) var onOuterDisplay = false
+
+    /// The cover UI (and the inner stage's render-gate parking): only when the app is on the outer display, or the
+    /// hinge is really shut (≤ `config.shutAngle`). Never on the `.closed` status alone: on a real Duo it sets at ~85°
+    /// while closing (founder's hinge log, 25 Oct 2026; FOLD-PRESS §9.8).
+    var isShowingCover: Bool { hingeAvailable && (onOuterDisplay || hingeClosed) }
+
+    /// RootView's window size: the outer display is detected by size (APPLE-DUO-GUIDE item 3), not by status.
+    func setWindowSize(_ size: CGSize) {
+        guard size.width > 1, size.height > 1 else { return }   // transient zero sizes say nothing
+        let outer = hingeAvailable && !InnerDisplayPolicy.isInnerCanvas(size)
+        guard outer != onOuterDisplay else { return }
+        onOuterDisplay = outer
+        hingeContextChanged()
+    }
 
     /// True when the touch press drives the engine (no hinge, or the user chose to press without folding).
     var usesTouchPress: Bool { !hingeAvailable || settings.pressWithoutFolding }
@@ -167,7 +183,7 @@ final class PressDirector {
             angle: engine.angle,
             speed: engine.closingSpeed,
             moving: !engine.isHolding,
-            shut: hingeClosed && engine.rawAngle <= PressEngine.staleClosedAngle,
+            shut: hingeClosed,
             phase: engine.phase,
             loaded: engine.isLoaded
         )
@@ -338,7 +354,8 @@ final class PressDirector {
         if !hingeAvailable {
             hingeAvailable = true
         }
-        hingeClosed = closed
+        // Shut is the angle, not the `.closed` posture (it sets at ~85° on a real Duo). `closed` stays in the log.
+        hingeClosed = angle <= engine.config.shutAngle
         // CI (ci/duo-screenshots.sh) counts these to prove onHingeChange fired on the Duo simulator, and reads the
         // phase from them, so log after the engine has taken this sample (deferred), not before.
         defer {
@@ -356,7 +373,7 @@ final class PressDirector {
         let now = CACurrentMediaTime()
         if revealed != nil && !settings.pressWithoutFolding {
             var gate = revealGate ?? RevealCollectGate(start: now, angle: angle)
-            let collect = gate.ingest(angle: angle, closed: closed, at: now)
+            let collect = gate.ingest(angle: angle, closed: hingeClosed, at: now)
             revealGate = gate
             if collect && foldToKeepReady {
                 next()

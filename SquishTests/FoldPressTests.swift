@@ -123,14 +123,16 @@ struct FoldPressTests {
 
     // MARK: Mapping (§4.1–4.3)
 
-    /// The provisional fold mapping (PressConfig, 24 Oct 2026; EXPERIENCE-PLAN decision 3): contact at 106°, where the
-    /// lid is visibly near, and compression linear in θ after it: θ = 106 − 58·c, whatever the arm angle ≥ 118°.
+    /// The provisional fold mapping (PressConfig, 25 Oct 2026): from the contact angle (100°) to the fully crushed angle
+    /// (50°), linear in θ: θ = contact − (contact − end)·c, whatever the arm angle ≥ 118°. Both are Tuning Lab sliders.
     @Test func eventAnglesFollowTheProvisionalFoldMapping() {
-        #expect(near(FoldCurve.contactAngle(), 106, 0.01))
-        #expect(near(FoldCurve.contactAngle(start: 130), 106, 0.01))
+        let contact = PressConfig.standard.contactCeiling, end = PressConfig.standard.endAngle
+        #expect(contact == 100 && end == 50)
+        #expect(near(FoldCurve.contactAngle(), contact, 0.01))
+        #expect(near(FoldCurve.contactAngle(start: 130), contact, 0.01))
         for kind in ObjectKind.allCases {
             for c in kind.profile.fractures {
-                #expect(near(FoldCurve.angle(forCompression: c), 106 - 58 * c, 0.01), "\(kind) c=\(c)")
+                #expect(near(FoldCurve.angle(forCompression: c), contact - (contact - end) * c, 0.01), "\(kind) c=\(c)")
             }
             // Resistance you can feel: every failure, even at its earliest jitter, lands ≥ 10° after contact.
             if let index = kind.profile.failureIndex {
@@ -138,9 +140,9 @@ struct FoldPressTests {
                 #expect(FoldCurve.angle(forCompression: earliest) <= FoldCurve.contactAngle() - 10, "\(kind)")
             }
         }
-        // Bubble wrap: 24 pops from just after contact (~104°) to ~58°.
+        // Bubble wrap: 24 pops from just after contact (~98.5°) to ~58.5°.
         let pops = MaterialProfile.bubbleWrap.fractures.map { FoldCurve.angle(forCompression: $0) }
-        #expect(abs((pops.first ?? 0) - 104.3) <= 1 && abs((pops.last ?? 0) - 57.9) <= 1)
+        #expect(abs((pops.first ?? 0) - 98.5) <= 1 && abs((pops.last ?? 0) - 58.5) <= 1)
     }
 
     /// The touch press (P-48) keeps the 1.0 mapping its store frames and CI expectations were made on.
@@ -148,7 +150,8 @@ struct FoldPressTests {
         let touch = PressConfig.standard.armed(at: 168)
         #expect(near(touch.contactT, 0.3, 1e-9) && touch.easeExponent == 1.7)
         let fold = PressConfig.standard.armed(at: 168, hinge: true)
-        #expect(near(fold.contactT, (168.0 - 106) / 120, 1e-9) && fold.easeExponent == 1.0)
+        #expect(near(fold.contactT, (168.0 - 100) / (168 - 50), 1e-9) && fold.easeExponent == 1.0 && fold.endAngle == 50)
+        #expect(touch.endAngle == PressConfig.touchEndAngle)
     }
 
     @Test func everyFailureStaysAboveSixtyTwoDegrees() {
@@ -168,11 +171,12 @@ struct FoldPressTests {
     }
 
     @Test func printAndShadowCurves() {
-        // §12, on the provisional mapping: the kiss/print radius is 0.15–0.3 R 3° past contact, ≥ 0.55 R at 90°.
-        let pressed: (Double) -> Double = { θ in (FoldCurve.contactAngle() - θ) / (FoldCurve.contactAngle() - 48) }
+        // §12, on the provisional mapping: the kiss/print radius is 0.15–0.3 R 3° past contact, ≥ 0.55 R 15° past it.
+        let end = PressConfig.standard.endAngle
+        let pressed: (Double) -> Double = { θ in (FoldCurve.contactAngle() - θ) / (FoldCurve.contactAngle() - end) }
         let kiss = FoldCurve.printFraction(compression: pressed(FoldCurve.contactAngle() - 3))
         #expect(kiss >= 0.15 && kiss <= 0.3)
-        #expect(FoldCurve.printFraction(compression: pressed(90)) >= 0.55)
+        #expect(FoldCurve.printFraction(compression: pressed(FoldCurve.contactAngle() - 15)) >= 0.55)
         let open = FoldCurve.shadow(gap: 1), shut = FoldCurve.shadow(gap: 0)
         #expect(near(open.blur, 40) && near(open.alpha, 0.08) && near(open.scale, 1.25))
         #expect(near(shut.blur, 4) && near(shut.alpha, 0.35) && near(shut.scale, 1))
