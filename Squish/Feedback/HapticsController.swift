@@ -41,7 +41,10 @@ final class HapticsController {
     private var lastUpdate: CFTimeInterval = 0
     private var hushUntil: CFTimeInterval = 0
     private var tellActive = false
-    private var nextTransientTime: TimeInterval = 0
+    /// Engine times of transients already scheduled (pruned as they pass), for the 12 ms gap rule.
+    private var scheduledTransients: [TimeInterval] = []
+    /// The hinge outside the press (texture), set by the director every frame before `update` (`HingeFeel`).
+    var hinge = HingeBed.still
     private var grainCount = 0
     private var tell = PulseSchedule(kind: .tell)
     private var settle = PulseSchedule(kind: .settle)
@@ -206,8 +209,13 @@ final class HapticsController {
 
         if now < hushUntil {
             ramp = 0.01 // hush: bed off (01 §6 step 5)
-        } else if !press.isLoaded || press.closingSpeed < -2 {
-            ramp = 0.06 // opening: relief within 80 ms
+        } else if !press.isLoaded {
+            // Not loaded: the hinge texture while it moves (quiet), nothing while still (HingeFeel).
+            target = HapticTuning.lift(hinge.texture)
+            sharpness = hinge.textureSharpness - 0.5
+            ramp = 0.08
+        } else if press.closingSpeed < -2 {
+            ramp = 0.06 // opening under load: relief within 80 ms
         } else if memory.hasFailed {
             // Crush: softer, speed-driven bed (01 §6 step 7); a low hum while held.
             target = HapticTuning.crushBed(intensity: beds.crushHapticIntensity, speed: speed, holding: press.isHolding)
@@ -226,7 +234,7 @@ final class HapticsController {
             if press.isHolding { ramp = 0.3 }
         }
 
-        if target > 0.01 { fatigue.record(dt, at: now) }
+        if target > 0.01 && press.isLoaded { fatigue.record(dt, at: now) }
         target *= fatigue.factor(at: now) * level.scale
         target = clamp(target, 0, isThermallyLimited ? HapticTuning.thermalBedCeiling : HapticTuning.bedCeiling)
         lastBedTarget = target
@@ -321,29 +329,37 @@ final class HapticsController {
         play(CueBook.preview(.place, context: context, dice: auditionDice))
     }
 
+    /// One pattern per event: the shared layers and the recipe's notes together, so the 12 ms gap rule interleaves
+    /// them instead of queueing one behind the other (which put the reveal's recipe taps ~0.3 s behind their sound).
     private func perform(_ event: PressEvent, recipeCue: FeedbackCue?) {
+        var cue = recipeCue ?? FeedbackCue()
         switch event {
-        case .fracture(_, true):
-            // The failure: the recipe's break plus the heavy body, in one pattern (Duo test 1: "weak").
-            play((recipeCue ?? FeedbackCue()).adding(BrandCues.failureBody))
-            return
-        case .armed, .sealed, .preFailureTell, .hush, .contact, .fracture, .released, .reveal:
-            break
         case .grain:
             // Thermal guard: halve the grain rate (bible §7).
             grainCount += 1
             if isThermallyLimited && grainCount % 2 == 0 { return }
-            if let recipeCue { play(recipeCue, timing: .grain) }
+            play(cue, timing: .grain)
             return
+        case .fracture(_, true):
+            // The failure: the recipe's break plus the heavy body (Duo test 1: "weak").
+            cue.add(BrandCues.failureBody)
         case .bottomOut:
-            play(BrandCues.bottomOut)
+            cue.add(BrandCues.bottomOut)
         case .kaChunk:
-            play(BrandCues.kaChunk)
+            cue.add(BrandCues.kaChunk)
+        case .reveal:
+            cue.add(BrandCues.unlatch)
+            cue.add(BrandCues.sting)
+        case .armed, .sealed, .preFailureTell, .hush, .contact, .fracture, .released:
+            break
         }
-        if case .reveal = event {
-            play(BrandCues.sting)
-        }
-        if let recipeCue { play(recipeCue) }
+        play(cue)
+    }
+
+    /// A cue built once by the director and handed to both controllers in the same frame (hinge moments, pokes).
+    /// `light`: frequent, droppable cues (detents) never delay and are skipped when they would collide.
+    func playShared(_ cue: FeedbackCue, light: Bool = false) {
+        play(cue, timing: light ? .grain : .event)
     }
 
     // MARK: - Diagnostics (Tuning Lab)
@@ -498,18 +514,27 @@ final class HapticsController {
             lastTransient = notes[index].time
         }
 
-        // Keep the gap against patterns already scheduled.
+        // Keep the gap against transients already scheduled, but never drift from the sound by more than 15 ms
+        // (EXPERIENCE-PLAN: every haptic within ±15 ms of its sound). 1.0 (1) queued behind the *last* scheduled
+        // transient, so the ka-chunk's "ready" taps 1.6 s out delayed every cue in between by up to 1.6 s.
         let now = engine.currentTime
+        scheduledTransients.removeAll { $0 < now - 0.05 }
         var startTime = now
-        if let firstTransient = notes.first(where: { $0.kind == .transient })?.time,
-           now + firstTransient < nextTransientTime {
-            let delay = nextTransientTime - (now + firstTransient)
-            if timing == .grain && delay > 0.1 { return }
-            startTime = now + delay
+        if let firstTransient = notes.first(where: { $0.kind == .transient })?.time {
+            let at = now + firstTransient
+            if let clash = scheduledTransients.filter({ abs($0 - at) < 0.012 }).max() {
+                let delay = clash + 0.012 - at
+                if delay > 0.015 {
+                    if timing == .grain { return }
+                } else {
+                    startTime = now + max(delay, 0)
+                }
+            }
         }
-        if lastTransient > -Double.infinity {
-            nextTransientTime = max(nextTransientTime, startTime + lastTransient + 0.012)
+        for note in notes where note.kind == .transient {
+            scheduledTransients.append(startTime + note.time)
         }
+        if scheduledTransients.count > 256 { scheduledTransients.removeFirst(scheduledTransients.count - 256) }
 
         let events = notes.map { event(for: $0, scale: scale, cap: cap) }
         var curves: [CHHapticParameterCurve] = []

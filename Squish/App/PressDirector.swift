@@ -37,6 +37,10 @@ final class PressDirector {
     var reduceMotion = false
 
     @ObservationIgnored private let traceStore = TraceStore()
+    @ObservationIgnored private var hingeFeel = HingeFeel()
+    /// Randomness for hinge moments and pokes (outside the seeded press, so share-clip replays are unaffected).
+    @ObservationIgnored private let feelDice = FeedbackDice(seed: 0x4849_4E47)
+    @ObservationIgnored private var lastPoke: Double = 0
     @ObservationIgnored private var lastSpecimenID: UUID?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var renderedFrames = 0
@@ -136,6 +140,43 @@ final class PressDirector {
         audio.enabled = settings.soundEnabled
         audio.style = settings.soundStyle
         audio.playsInSilentMode = settings.playSoundInSilentMode
+    }
+
+    /// The hinge outside the press (HingeFeel): creak and texture every frame, and each detent, open and shut as one
+    /// cue for both controllers in the same frame. Off for the touch press. Input seam: when hinge-motion events land
+    /// from the press-feel work, build `HingeMotionInput` from them here.
+    private func updateHingeFeel(at now: Double) {
+        let input = HingeMotionInput(
+            available: usesFoldPress && engine.hasHingeSample,
+            angle: engine.angle,
+            speed: engine.closingSpeed,
+            moving: !engine.isHolding,
+            shut: hingeClosed && engine.rawAngle <= PressEngine.staleClosedAngle,
+            phase: engine.phase,
+            loaded: engine.isLoaded
+        )
+        let result = hingeFeel.update(input, at: now)
+        audio.hinge = result.bed
+        haptics.hinge = result.bed
+        for moment in result.moments {
+            let cue = HingeCues.cue(for: moment, speed: engine.closingSpeed, dice: feelDice)
+            var light = false
+            if case .detent = moment { light = true }
+            haptics.playShared(cue, light: light)
+            audio.playShared(cue)
+        }
+    }
+
+    /// A tap on the object on the anvil: its material answers in sound and touch (duck squeak, jelly wobble, can tink…).
+    /// For the touch-event work to call. Only while the object is resting (not mid-press or on the reveal).
+    func poke() {
+        let now = CACurrentMediaTime()
+        guard now - lastPoke > 0.08, revealed == nil, !engine.isLoaded,
+              engine.phase == .idle || engine.phase == .armed else { return }
+        lastPoke = now
+        let cue = TouchCues.poke(currentKind, dice: feelDice)
+        haptics.playShared(cue)
+        audio.playShared(cue)
     }
 
     /// Frames the loop has run (rendered or blind clock), for the Tuning Lab diagnostics.
@@ -283,6 +324,7 @@ final class PressDirector {
             if DemoScenario.current != nil { storeShotReadoutAngle = engine.angle }   // demo store shots only
             #endif
         }
+        updateHingeFeel(at: CACurrentMediaTime())
         haptics.update(engine: engine, context: context)
         audio.update(engine: engine, context: context)
     }

@@ -64,11 +64,15 @@ struct AudioSessionChoice: Equatable {
 enum AudioMix {
     /// Master gain into the synth's −1 dBFS peak limiter.
     ///
-    /// 1.0 (1) ran 0.8, which put the whole mix well under the −16 LUFS target (02 §6) on a phone speaker:
-    /// beds near −30 dBFS and most one-shots short and quiet. 1.6 (+6 dB) lifts everything evenly; the climaxes
-    /// (ka-chunk thock, failures) now ride into the limiter for a few milliseconds instead of clipping, which on a
-    /// phone speaker reads as "punch". `FeedbackTests.pressMixLandsNearTheLoudnessTarget` measures it.
-    static let masterGain: Float = 1.6
+    /// 1.0 (1) ran 0.8: measured (BS.1770, `FeedbackTests.pressMixLandsNearTheLoudnessTarget`, every object's press)
+    /// at about −26 LUFS, 10 dB under the −16 LUFS target (02 §6). At 1.6 the mean was −20.3 LUFS with every peak
+    /// already at the −1 dBFS limiter, so the rest comes from the beds (`bedBus`), not from pushing the climaxes
+    /// harder into the limiter. The climaxes ride the limiter for a few milliseconds, which on a phone speaker reads
+    /// as punch.
+    static let masterGain: Float = 1.8
+    /// Extra gain on the continuous layers (strain, crush, hiss, motor, creak) before the master. They sat near
+    /// −30 dBFS, which a phone speaker in a hand can't carry; +6.8 dB brings the press bed up where the strain is heard.
+    static let bedBus: Float = 2.2
 
     /// Linear → dBFS, for the diagnostics.
     static func decibels(_ linear: Float) -> String {

@@ -114,7 +114,8 @@ enum Captions {
 ### What the UI can rely on (director surface)
 Read: `engine` (phase, depths, angles, `lastResult`), `settings: AppSettings`, `collection`, `currentKind`, `variant`, `hingeAvailable`, `isShowingCover`, `usesTouchPress`, `canChooseObject`, `completedPresses`, `failureFlashCount`, `revealed: RecordOutcome?`, `caption: CaptionEvent?`, `lastTrace: PressTrace?`, `hingeLog`.
 Write: `reduceMotion`.
-Call: `start()`, `sceneBecameActive()`, `choose(_:)`, `queue(_:)` (cover display only), `next()`, `again()`, `trace(for: SpecimenRecord) -> PressTrace?`, `virtualPress(_ fraction:)`, `virtualRelease()`, `hingeUpdate(angle:closed:)`, `hingeUnavailable()`, `playPressFeelTest()` (Tuning Lab).
+Call: `start()`, `sceneBecameActive()`, `choose(_:)`, `queue(_:)` (cover display only), `next()`, `again()`, `trace(for: SpecimenRecord) -> PressTrace?`, `virtualPress(_ fraction:)`, `virtualRelease()`, `hingeUpdate(angle:closed:)`, `hingeUnavailable()`, `playPressFeelTest()` (Tuning Lab), `poke()` (a tap on the resting object: its material's sound and haptic, `TouchCues`).
+The hinge outside the press (creak, texture, 6° detents, open power-up, shut clack) is `Feedback/HingeFeel.swift`, fed by the director every frame from `HingeMotionInput`; that struct is the seam for richer hinge-motion events.
 Tuning Lab diagnostics read `audio.diagnosticRows()`, `haptics.diagnosticRows()` and `diagnosticsFrameCount`, and call `audio.playTestSound()` and `haptics.playTestVibration()`.
 `AppSettings.playSoundInSilentMode` (default on, added after 1.0 (1), decoded as on when missing) picks the audio session: `.playback` + `.mixWithOthers` when on, `.ambient` when off (`Feedback/FeedbackTuning.swift`, `AudioSessionChoice`).
 Demo keys honoured by the director: `object=`, `depth=`, `reveal`, `seed=<UInt64>`, `golden`, `surprise=<Surprise>`. UI demo keys: `shelf[=squished]`, `settings`, `detail`, `cover[=sealed]`, `specimens=N`.

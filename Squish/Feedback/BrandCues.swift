@@ -41,6 +41,17 @@ enum BrandCues {
         ]
     )
 
+    /// The unlatch on the reopen after a seal (the reveal): a latch click and a low clunk, under the release sigh.
+    static let unlatch = FeedbackCue(
+        sounds: [
+            .noise(.press("unlatch", "click"), .highPass, 3200, attack: 0.0002, decay: 0.0025, gain: 0.16),
+            .tone(.press("unlatch", "clunk"), 110, to: 70, glide: 0.05, duration: 0.14, attack: 0.001, decay: 0.035,
+                  gain: 0.3, harmonics: 3, delay: 0.015),
+            .noise(.press("unlatch", "body"), .lowPass, 700, decay: 0.025, gain: 0.14, delay: 0.015),
+        ],
+        haptics: [.tap(0.45, 0.8), .tap(0.75, 0.25, at: 0.015)]
+    )
+
     /// Haptic weight under every failure (Duo test 1: "weak"): the recipe's break is mostly sharp transients, which
     /// read as a click. This adds the body: a full-strength low-sharpness hit, a 220 ms heavy rumble, and an aftershock.
     /// Played in the same pattern as the recipe's failure, so the 12 ms gap rule interleaves them instead of queueing.

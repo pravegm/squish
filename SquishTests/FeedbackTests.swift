@@ -433,6 +433,116 @@ struct FeedbackTests {
         #expect(zip(cue.haptics, BrandCues.bottomOut.haptics).allSatisfy { abs($0.time - $1.time - 0.5) < 1e-9 })
     }
 
+    // MARK: - Hinge feel (opening and closing always sound and feel like something)
+
+    private func hingeInput(_ angle: Double, speed: Double = 30, moving: Bool = true, shut: Bool = false,
+                            phase: PressPhase = .armed, loaded: Bool = false) -> HingeMotionInput {
+        HingeMotionInput(available: true, angle: angle, speed: speed, moving: moving, shut: shut, phase: phase, loaded: loaded)
+    }
+
+    @Test func detentsClickEverySixDegreesWithoutChatter() {
+        var tracker = DetentTracker()
+        var clicks: [Bool] = []
+        var time = 0.0
+        for step in 0...120 {
+            if let closing = tracker.track(angle: 180 - Double(step), at: time) { clicks.append(closing) }
+            time += 0.05
+        }
+        #expect(clicks.count >= 19 && clicks.count <= 21, "got \(clicks.count)")
+        #expect(clicks.allSatisfy { $0 })
+        // Sensor jitter of ±1° around a detent never clicks.
+        var jitter = DetentTracker()
+        var chatter = 0
+        for step in 0..<200 {
+            if jitter.track(angle: 120 + (step % 2 == 0 ? 1 : -1), at: Double(step) * 0.05) != nil { chatter += 1 }
+        }
+        #expect(chatter == 0)
+        // Opening clicks too, reported as opening.
+        var opening = DetentTracker()
+        _ = opening.track(angle: 60, at: 0)
+        let opened = opening.track(angle: 70, at: 1)
+        #expect(opened == .some(false))
+    }
+
+    @Test func hingeOpensAndShutsWithACueButNotAroundASeal() {
+        var feel = HingeFeel()
+        // Launch shut: a state, not a transition.
+        let launch = feel.update(hingeInput(5, moving: false, shut: true, phase: .idle), at: 0)
+        #expect(launch.moments.isEmpty)
+        // Opening past 55° wakes the press once.
+        var opened = 0
+        for (index, angle) in stride(from: 10.0, through: 120, by: 5).enumerated() {
+            let moments = feel.update(hingeInput(angle, speed: -60, phase: .idle), at: 0.1 + Double(index) * 0.05).moments
+            opened += moments.filter { $0 == .opened }.count
+        }
+        #expect(opened == 1)
+        // Shutting outside a press clacks.
+        let shut = feel.update(hingeInput(3, speed: 40, shut: true, phase: .idle), at: 5).moments
+        #expect(shut.contains(.shut))
+        // Reopening after a seal is the reveal's job (unlatch), not the power-up.
+        var sealedFeel = HingeFeel()
+        _ = sealedFeel.update(hingeInput(150, phase: .armed), at: 0)
+        let sealShut = sealedFeel.update(hingeInput(3, shut: true, phase: .sealed), at: 1).moments
+        #expect(!sealShut.contains(.shut))
+        let reopen = sealedFeel.update(hingeInput(70, speed: -80, phase: .revealing), at: 2).moments
+        #expect(!reopen.contains(.opened))
+    }
+
+    @Test func hingeIsSilentWhenStillOrLoadedAndRisesWithSpeed() {
+        var feel = HingeFeel()
+        _ = feel.update(hingeInput(150), at: 0)
+        let still = feel.update(hingeInput(150, speed: 0, moving: false), at: 0.1)
+        #expect(still.bed == .still)
+        let slow = feel.update(hingeInput(140, speed: 15), at: 0.2).bed
+        let brisk = feel.update(hingeInput(130, speed: 90), at: 0.3).bed
+        #expect(slow.creakGain > 0 && slow.texture > 0)
+        #expect(brisk.creakGain > slow.creakGain)
+        #expect(brisk.creakPitch > slow.creakPitch)
+        #expect(brisk.texture > slow.texture)
+        // Under load the press feedback owns everything: no hinge bed, no detents.
+        var loaded = 0
+        for step in 0..<40 {
+            let result = feel.update(hingeInput(120 - Double(step), loaded: true), at: 1 + Double(step) * 0.05)
+            #expect(result.bed == .still)
+            loaded += result.moments.count
+        }
+        #expect(loaded == 0)
+        // Off without a real hinge.
+        var touch = HingeFeel()
+        var input = hingeInput(100)
+        input.available = false
+        let off = touch.update(input, at: 0)
+        #expect(off.bed == .still)
+    }
+
+    @Test func hingeCuesStayQuieterThanThePress() {
+        let dice = FeedbackDice(seed: 3)
+        let detent = HingeCues.cue(for: .detent(closing: true), speed: 90, dice: dice)
+        #expect(!detent.sounds.isEmpty && !detent.haptics.isEmpty)
+        #expect(detent.sounds.allSatisfy { $0.command.gain <= 0.08 })
+        #expect(detent.haptics.allSatisfy { $0.intensity <= 0.3 })
+        for moment in [HingeMoment.opened, .shut] {
+            let cue = HingeCues.cue(for: moment, speed: 40, dice: dice)
+            #expect(!cue.sounds.isEmpty && !cue.haptics.isEmpty)
+            #expect(!cue.isClimax)
+            #expect(cue.haptics.allSatisfy { $0.intensity < BrandCues.kaChunk.haptics.map(\.intensity).max() ?? 1 })
+        }
+        #expect(!BrandCues.unlatch.sounds.isEmpty && !BrandCues.unlatch.haptics.isEmpty)
+    }
+
+    @Test(arguments: ObjectKind.allCases)
+    func everyObjectAnswersAPoke(_ kind: ObjectKind) {
+        let cue = TouchCues.poke(kind, dice: FeedbackDice(seed: 12))
+        #expect(!cue.sounds.isEmpty)
+        #expect(!cue.haptics.isEmpty)
+        #expect(!cue.isClimax)
+        for layer in cue.sounds {
+            #expect(layer.command.gain > 0 && layer.command.gain <= 0.2, "\(layer.slot) gain")
+            #expect(layer.slot.id.hasPrefix(kind.slotPrefix + ".poke."), "\(layer.slot) prefix")
+        }
+        #expect(cue.haptics.allSatisfy { $0.intensity <= 0.8 && $0.time < 0.5 })
+    }
+
     // MARK: - Loudness (02 §6: −16 LUFS integrated ±2 on the phone speaker)
 
     /// A steady 4-second touch close from 180° to 30°, then the hold to the reveal.
@@ -491,8 +601,8 @@ struct FeedbackTests {
         }
         let mean = all.reduce(0, +) / Double(max(all.count, 1))
         print(String(format: "SQUISH-LOUD mean lufs=%.1f", mean))
-        // Target −16 ±2 (02 §6); the bound is wider so one quiet or loud object never blocks CI, and the log shows it.
-        #expect(mean > -21 && mean < -11, "mean press loudness \(mean) LUFS")
+        // Target −16 ±2 (02 §6); the bound is ±3 so a small recipe change never blocks CI, and the log shows it.
+        #expect(mean > -19 && mean < -13, "mean press loudness \(mean) LUFS")
     }
 
     @Test func loudnessMeterReadsAFullScaleSineCorrectly() {

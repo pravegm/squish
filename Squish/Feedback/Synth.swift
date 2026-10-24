@@ -395,9 +395,12 @@ final class Synth: @unchecked Sendable {
     private let lowPassCoefficient: Float
     private let limiterRelease: Float
     private let creakExciteDecay: Float
+    /// `AudioMix.bedBus`, read once here so the audio thread never runs a global initialiser.
+    private let bedBus: Float
 
     init(sampleRate: Float) {
         self.sampleRate = sampleRate
+        bedBus = AudioMix.bedBus
         smoothFast = 1 - exp(-1 / (0.025 * sampleRate))
         smoothSlow = 1 - exp(-1 / (0.15 * sampleRate))
         duckDown = 1 - exp(-1 / (0.006 * sampleRate))
@@ -489,7 +492,7 @@ final class Synth: @unchecked Sendable {
                 bed += renderCrushBed()
             }
 
-            var sample = bed * duck
+            var sample = bed * duck * bedBus
             for index in 0..<voices.count where voices[index].active {
                 let value = renderVoice(&voices[index], slot: index)
                 sample += voices[index].ducked ? value * duck : value

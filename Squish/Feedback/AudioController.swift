@@ -28,6 +28,8 @@ final class AudioController {
             ensureRunning(reason: "silent-mode setting changed")
         }
     }
+    /// The hinge outside the press (creak), set by the director every frame before `update` (`HingeFeel`).
+    var hinge = HingeBed.still
     /// Sampled-layer seam (bible §15.1). Nil in v1: everything is synthesised.
     var sampleBank: (any SampleBank)?
 
@@ -283,6 +285,12 @@ final class AudioController {
         case .idle, .revealing:
             break
         }
+        // The hinge creak when the press isn't loaded (under load the press creak owns the resonators).
+        if !press.isLoaded && hinge.creakGain > 0 {
+            params.creakRate = hinge.creakRate
+            params.creakGain = hinge.creakGain
+            params.creakPitch = hinge.creakPitch
+        }
         synth.setBeds(params)
         updateGaugeTicks(press, failed: memory.hasFailed)
     }
@@ -480,12 +488,18 @@ final class AudioController {
         case .released:
             play(BrandCues.releaseSigh)
         case .reveal:
+            play(BrandCues.unlatch)
             play(BrandCues.releaseSigh)
             play(BrandCues.sting)
         }
         if playRecipe, let recipeCue {
             play(recipeCue)
         }
+    }
+
+    /// A cue built once by the director and handed to both controllers in the same frame (hinge moments, pokes).
+    func playShared(_ cue: FeedbackCue) {
+        play(cue)
     }
 
     private func play(_ cue: FeedbackCue) {

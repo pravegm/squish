@@ -184,6 +184,7 @@ final class OfflineAudio {
         case .released:
             play(BrandCues.releaseSigh)
         case .reveal:
+            play(BrandCues.unlatch)
             play(BrandCues.releaseSigh)
             play(BrandCues.sting)
         }
