@@ -122,6 +122,36 @@ struct MeshData: Sendable {
         MeshKit.computeNormals(positions: positions, indices: indices, into: &normals)
     }
 
+    /// Vertices that share a position (UV seams, pole rings) get one averaged normal, so a duplicated seam column
+    /// never shows as a shading line on a static mesh (`DeformableMesh` does the same after every deform).
+    mutating func weldNormals() {
+        var buckets: [SIMD3<Int32>: [Int]] = [:]
+        for (i, p) in positions.enumerated() {
+            let key = SIMD3<Int32>(Int32((p.x * 1e5).rounded()), Int32((p.y * 1e5).rounded()), Int32((p.z * 1e5).rounded()))
+            buckets[key, default: []].append(i)
+        }
+        for group in buckets.values where group.count > 1 {
+            var sum = SIMD3<Float>.zero
+            for i in group { sum += normals[i] }
+            let n = simd_length(sum) > 1e-9 ? simd_normalize(sum) : normals[group[0]]
+            for i in group { normals[i] = n }
+        }
+    }
+
+    /// Top-down planar texture coordinates: u = 0.5 + x / (2 · halfX), v = 0.5 + z / (2 · halfZ) about `centre`
+    /// (spread discs, sheets, puddles, can ends).
+    mutating func planarUV(centre: SIMD2<Float> = .zero, half: SIMD2<Float>) {
+        uvs = positions.map { p in
+            SIMD2(0.5 + (p.x - centre.x) / (2 * max(half.x, 1e-6)), 0.5 + (p.z - centre.y) / (2 * max(half.y, 1e-6)))
+        }
+    }
+
+    /// Box-projected texture coordinates in tiles of `tile` metres (each vertex projected along its normal's dominant
+    /// axis), for tileable surface detail such as sponge crumb or cardboard fibre.
+    mutating func boxUV(tile: Float, offset: SIMD3<Float> = .zero) {
+        uvs = positions.indices.map { i in MeshKit.boxUV(positions[i] + offset, normal: normals[i], tile: tile) }
+    }
+
     func bounds() -> (min: SIMD3<Float>, max: SIMD3<Float>) {
         guard var lo = positions.first else { return (.zero, .zero) }
         var hi = lo
@@ -178,6 +208,22 @@ struct MeshData: Sendable {
         if !uvs.isEmpty { descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs) }
         descriptor.primitives = .triangles(indices)
         return try? MeshResource.generate(from: [descriptor])
+    }
+}
+
+/// Multi-material meshes whose per-slot `MeshResource`s are cached for the session (so building one at a beat costs
+/// no mesh generation after the first).
+@MainActor
+enum SlotMeshes {
+    static func entity(_ key: String, _ build: () -> MeshData, materials: [any Material]) -> Entity {
+        let mesh = MeshCache.mesh(key, build)
+        let parts = mesh.splitByMaterial()
+        let parent = Entity()
+        for part in parts {
+            guard let resource = MeshCache.resource("\(key).slot\(part.slot)", { part.mesh }) else { continue }
+            parent.addChild(ModelEntity(mesh: resource, materials: [materials[min(part.slot, materials.count - 1)]]))
+        }
+        return parent
     }
 }
 
@@ -338,16 +384,28 @@ enum MeshKit {
     /// and flat side walls. Returned relative to its own centroid; `centre` is where to place it.
     static func lathePatch(profile: [SIMD2<Float>], rings: ClosedRange<Int>, angles: ClosedRange<Float>,
                            angularSteps: Int, thickness: Float) -> (mesh: MeshData, centre: SIMD3<Float>) {
+        lathePatch(profile: profile, rings: rings, lower: { _ in angles.lowerBound }, upper: { _ in angles.upperBound },
+                   angularSteps: angularSteps, thickness: thickness)
+    }
+
+    /// As `lathePatch`, with cut angles that vary per profile ring (`lower(ring)`, `upper(ring)`): a jagged break line.
+    /// Neighbouring patches that share a cut function still tile exactly (a pre-fractured egg's zigzag cracks).
+    static func lathePatch(profile: [SIMD2<Float>], rings: ClosedRange<Int>, lower: (Int) -> Float, upper: (Int) -> Float,
+                           angularSteps: Int, thickness: Float) -> (mesh: MeshData, centre: SIMD3<Float>) {
         let normals2 = profile2DNormals(profile)
         let rows = Array(rings)
         let cols = max(angularSteps, 1)
         var outer: [[SIMD3<Float>]] = []
         var outerN: [[SIMD3<Float>]] = []
+        var thetas: [[Float]] = []
         for i in rows {
             var rowP: [SIMD3<Float>] = []
             var rowN: [SIMD3<Float>] = []
+            var rowT: [Float] = []
+            let lo = lower(i), hi = upper(i)
             for k in 0...cols {
-                let theta = angles.lowerBound + (angles.upperBound - angles.lowerBound) * Float(k) / Float(cols)
+                let theta = lo + (hi - lo) * Float(k) / Float(cols)
+                rowT.append(theta)
                 let c = cos(theta), s = sin(theta)
                 let r = profile[i].x
                 rowP.append(SIMD3(r * c, profile[i].y, r * s))
@@ -356,16 +414,16 @@ enum MeshKit {
             }
             outer.append(rowP)
             outerN.append(rowN)
+            thetas.append(rowT)
         }
         var mesh = MeshData()
         let rCount = rows.count
         // Texture coordinates follow the whole lathe (u = θ / 2π from the patch's own turn, v = height along the
         // profile), so a shell texture runs on across neighbouring patches; the side walls sample one texel.
         let y0 = profile.first?.y ?? 0, y1 = profile.last?.y ?? 1
-        let turn = (angles.lowerBound / (2 * .pi)).rounded(.down)
+        let turn = ((thetas.first?.first ?? 0) / (2 * .pi)).rounded(.down)
         func uv(_ a: Int, _ k: Int) -> SIMD2<Float> {
-            let theta = angles.lowerBound + (angles.upperBound - angles.lowerBound) * Float(k) / Float(cols)
-            return SIMD2(theta / (2 * .pi) - turn, (profile[rows[a]].y - y0) / max(y1 - y0, 1e-6))
+            SIMD2(thetas[a][k] / (2 * .pi) - turn, (profile[rows[a]].y - y0) / max(y1 - y0, 1e-6))
         }
         // Outer and inner surfaces.
         for side in 0..<2 {
@@ -433,6 +491,50 @@ enum MeshKit {
 
     static func sphere(radius: Float, segments: Int = 48, rings: Int = 24) -> MeshData {
         ellipsoid(radii: SIMD3(repeating: radius), segments: segments, rings: rings)
+    }
+
+    /// An ellipsoid with texture coordinates (u round the Y axis, v from the bottom pole 0 to the top pole 1) and exact
+    /// analytic normals (the poles are rings of coincident vertices, so the top-down view never shows a pole artefact).
+    static func ellipsoidUV(radii: SIMD3<Float>, segments: Int = 48, rings: Int = 24) -> MeshData {
+        var mesh = MeshData()
+        let n = max(segments, 3), m = max(rings, 2)
+        let inv = SIMD3<Float>(1 / radii.x, 1 / radii.y, 1 / radii.z)
+        var grid: [[Int]] = []
+        for i in 0...m {
+            let phi = -Float.pi / 2 + Float.pi * Float(i) / Float(m)
+            var row: [Int] = []
+            for j in 0...n {
+                let theta = Float(j) / Float(n) * 2 * .pi
+                let unit = SIMD3<Float>(cos(phi) * cos(theta), sin(phi), cos(phi) * sin(theta))
+                let normal = simd_normalize(unit * inv)
+                row.append(mesh.addVertex(unit * radii, normal))
+                mesh.uvs.append(SIMD2(1 - Float(j) / Float(n), Float(i) / Float(m)))
+            }
+            grid.append(row)
+        }
+        // Quad (a b c d); at the bottom pole a and d coincide, at the top pole b and c, so skip the degenerate half.
+        for i in 0..<m {
+            for j in 0..<n {
+                let a = grid[i][j], b = grid[i + 1][j], c = grid[i + 1][j + 1], d = grid[i][j + 1]
+                if i < m - 1 { mesh.addTriangle(a, b, c) }
+                if i > 0 { mesh.addTriangle(a, c, d) }
+            }
+        }
+        mesh.orientToNormals()
+        return mesh
+    }
+
+    static func sphereUV(radius: Float, segments: Int = 48, rings: Int = 24) -> MeshData {
+        ellipsoidUV(radii: SIMD3(repeating: radius), segments: segments, rings: rings)
+    }
+
+    /// Box projection of one point (metres → tiles of `tile`): the face the normal points at most decides the plane.
+    static func boxUV(_ p: SIMD3<Float>, normal n: SIMD3<Float>, tile: Float) -> SIMD2<Float> {
+        let a = simd_abs(n)
+        let k = 1 / max(tile, 1e-5)
+        if a.y >= a.x && a.y >= a.z { return SIMD2(p.x, p.z) * k }
+        if a.x >= a.z { return SIMD2(p.z, p.y) * k }
+        return SIMD2(p.x, p.y) * k
     }
 
     /// Profile of an upright cylinder with rounded top and bottom rims, from the bottom pole to the top pole.
@@ -718,6 +820,34 @@ enum MeshKit {
 
     /// A low puddle/spread disc with a soft bevelled edge and a seeded noisy rim (jam, yolk, fizz, jelly overflow).
     /// Unit radius, `height` tall; scale XZ to grow it.
+    /// A spread disc with top-down planar UVs (0…1 over its unit radius, ×1.25 for the rim's lobes) and, with `tear` > 0,
+    /// a ragged torn rim: seeded high-frequency notches on top of the lobes (torn vinyl, torn gummy pads).
+    static func spreadDiscUV(seed: UInt64, height: Float = 0.1, segments: Int = 96, wobble: Float = 0.14,
+                             tear: Float = 0) -> MeshData {
+        var rng = SplitMix64(seed: seed ^ 0x7EA2)
+        let notches: [(k: Float, amp: Float, phase: Float)] = (0..<3).map { i in
+            (k: Float([17, 29, 43][i]), amp: tear * Float.random(in: 0.5...1, using: &rng) / Float(i + 1),
+             phase: Float.random(in: 0...(2 * .pi), using: &rng))
+        }
+        var mesh = spreadDisc(seed: seed, height: height, segments: segments, wobble: wobble)
+        if tear > 0 {
+            for i in mesh.positions.indices {
+                let p = mesh.positions[i]
+                let r = (p.x * p.x + p.z * p.z).squareRoot()
+                guard r > 0.5 else { continue }
+                let theta = atan2(p.z, p.x)
+                var k: Float = 0
+                for n in notches { k += n.amp * abs(sin(n.k * theta + n.phase)) }
+                let w = (r - 0.5) / 0.5
+                let scale = 1 - k * w
+                mesh.positions[i] = SIMD3(p.x * scale, p.y, p.z * scale)
+            }
+            mesh.recomputeNormals()
+        }
+        mesh.planarUV(half: SIMD2(repeating: 1.25))
+        return mesh
+    }
+
     static func spreadDisc(seed: UInt64, height: Float = 0.1, segments: Int = 64, wobble: Float = 0.14) -> MeshData {
         var rng = SplitMix64(seed: seed)
         let lobes: [(k: Float, amp: Float, phase: Float)] = (0..<4).map { i in
