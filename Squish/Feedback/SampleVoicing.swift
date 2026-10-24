@@ -30,6 +30,14 @@ enum SampleMap {
     }
 
     static func rule(for key: String, isClimax: Bool) -> Rule? {
+        // Storyboard beats: "<prefix>.beat-<kind>", at half the group's level (smaller than the fractures).
+        if let range = key.range(of: ".beat-") {
+            let prefix = String(key[..<range.lowerBound])
+            guard let beat = BeatKind(rawValue: String(key[range.upperBound...])),
+                  let group = storyGroup(prefix: prefix, beat: beat) else { return nil }
+            // The can's hiss is a full fizz recording: further down still.
+            return Rule(picks: [Pick(group: group, gain: beat == .hiss ? 0.3 : 0.5)])
+        }
         switch key {
         // The press and the brand: recordings layered under the synth.
         case "press.kachunk":
@@ -50,12 +58,13 @@ enum SampleMap {
         case "jelly.split", "jelly.grain": return rule("jelly_squelch")
         case "jelly.place", "jelly.reveal", "jelly.release", "jelly.poke": return rule("jelly_wobble")
         // Crayon.
-        case "crayon.snap": return rule("crayon_snap")
+        // Short breaks: lifted so they stand over the bed like the others (CI: crayon 4.1 LU, egg 5.4 LU).
+        case "crayon.snap": return Rule(picks: [Pick(group: "crayon_snap", gain: 1.4)])
         case "crayon.crumble", "crayon.reveal", "crayon.crush": return rule("crayon_crumb")
         case "crayon.place", "crayon.contact", "crayon.poke": return rule("crayon_tap")
         // Egg.
         case "egg.failure":
-            return Rule(picks: [Pick(group: "egg_crack"), Pick(group: "egg_yolk", delay: 0.05, gain: 0.8)])
+            return Rule(picks: [Pick(group: "egg_crack", gain: 1.4), Pick(group: "egg_yolk", delay: 0.05, gain: 0.8)])
         case "egg.hairline", "egg.contact", "egg.poke", "egg.grain": return rule("egg_tick")
         case "egg.crush": return rule("egg_crunch")
         case "egg.spread": return rule("egg_yolk")
@@ -87,6 +96,27 @@ enum SampleMap {
             return Rule(picks: [Pick(group: "steel_crash"), Pick(group: "steel_boing", delay: 0.3, gain: 0.8)])
         case "unsquishable.place", "unsquishable.contact", "unsquishable.poke": return rule("steel_clink")
         default: return nil
+        }
+    }
+
+    /// The recording for one storyboard beat of one object (nil: the quiet synth grain stays). Grains and details only.
+    static func storyGroup(prefix: String, beat: BeatKind) -> String? {
+        switch (prefix, beat) {
+        case ("bubblewrap", .ripple): "bubblewrap_popsmall"
+        case ("bubblewrap", .crease), ("bubblewrap", .settle): "bubblewrap_crinkle"
+        case ("duck", .squeak), ("duck", .crease): "duck_squeak"
+        case ("jelly", .wobble), ("jelly", .ooze), ("jelly", .fling), ("jelly", .bulge): "jelly_squelch"
+        case ("crayon", .bend), ("crayon", .fold), ("crayon", .chip), ("crayon", .smear), ("crayon", .crease): "crayon_crumb"
+        case ("egg", .crack), ("egg", .branch), ("egg", .chip), ("egg", .strain): "egg_tick"
+        case ("egg", .ooze), ("egg", .fling), ("egg", .wobble): "jelly_squelch"
+        case ("cake", .chip), ("cake", .crease), ("cake", .bulge), ("cake", .settle): "cake_crumb"
+        case ("can", .crease), ("can", .buckle), ("can", .strain): "can_crumple"
+        case ("can", .hiss): "can_open_fizz"
+        case ("gummy", .strand), ("gummy", .stretch), ("gummy", .bulge): "gummy_squish"
+        case ("glass", .crack), ("glass", .strain), ("glass", .chip): "glass_tick"
+        case ("glass", .settle): "glass_grit"
+        case ("unsquishable", .chip): "steel_clink"
+        default: nil
         }
     }
 

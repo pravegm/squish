@@ -569,6 +569,25 @@ struct FeedbackTests {
         #expect((soft.haptics.first?.intensity ?? 1) < (loud.haptics.first?.intensity ?? 0))
     }
 
+    /// Storyboard beats: every beat of every object sounds and feels lighter than the fractures, and every recording
+    /// the map names exists.
+    @Test(arguments: ObjectKind.allCases)
+    func storyboardBeatsStayUnderTheFractures(_ kind: ObjectKind) {
+        let library = SampleLibrary.loadNow()
+        let dice = FeedbackDice(seed: 6)
+        for beat in ObjectStoryboard.beats(kind, seed: 42) {
+            guard let raw = BeatCues.story(kind, beat: beat.kind, speed: 1, dice: dice) else { continue }
+            let cue = BeatCues.softened(SampleVoicing.voice(raw, style: .workshop, speed: 1, library: library, dice: dice))
+            #expect(!cue.isClimax)
+            #expect(!cue.haptics.isEmpty, "\(kind) \(beat.kind) has no touch")
+            #expect(cue.haptics.allSatisfy { $0.intensity <= 0.4 })
+            #expect(cue.sounds.allSatisfy { $0.command.gain <= 0.35 }, "\(kind) \(beat.kind) too loud")
+            if let group = SampleMap.storyGroup(prefix: kind.slotPrefix, beat: beat.kind) {
+                #expect(library.groups[group] != nil, "\(kind) \(beat.kind) → \(group) missing")
+            }
+        }
+    }
+
     @Test(arguments: ObjectKind.allCases)
     func everyObjectAnswersAPoke(_ kind: ObjectKind) {
         let cue = TouchCues.poke(kind, dice: FeedbackDice(seed: 12))

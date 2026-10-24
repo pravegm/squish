@@ -223,6 +223,47 @@ enum BeatCues {
         return cue
     }
 
+    /// A storyboard beat (Scene/Kit/Storyboard.swift): the visible deformation event every ≤ 4.5° of closing. A quiet
+    /// synthesised grain in the material's band, slot `<object>.beat-<kind>.grain`, which `SampleMap` voices with the
+    /// matching recording; a light tick. Always smaller than the fractures, so the press builds.
+    static func story(_ kind: ObjectKind, beat: BeatKind, speed: Float, dice: FeedbackDice) -> FeedbackCue? {
+        let beds = Recipes.recipe(for: kind).beds
+        let slot = SoundSlot.object(kind, "beat-\(beat.rawValue)", "grain")
+        let v = min(max(speed, 0), 1)
+        let sharpness = min(max(kind.profile.bedSharpness, 0.1), 0.95)
+        switch beat {
+        case .tell:
+            // The tell's creak spike and a haptic swell (EXPERIENCE-PLAN "Tell").
+            var cue = SharedCues.settle(beds, dice: dice).scaledSounds(1.6)
+            cue.haptics = [.buzz(0.3, sharpness, duration: 0.18, attack: 0.12, decay: 0.05)]
+            return cue
+        case .sheen, .glow:
+            // Light only: a faint glint for hard materials, otherwise nothing to hear.
+            guard sharpness >= 0.7 else { return nil }
+            return FeedbackCue(sounds: [
+                .tone(slot, 2093 * dice.grainPitch(), duration: 0.06, attack: 0.001, decay: 0.015, gain: 0.012),
+            ], haptics: [.tap(0.1, 0.9)])
+        default:
+            let low = max(beds.crush.low, 300)
+            let centre = low * pow(max(beds.crush.high, low + 1) / low, dice.unit())
+            return FeedbackCue(sounds: [
+                .noise(slot, .bandPass, centre, q: 2, attack: 0.0004, decay: 0.006, gain: (0.03 + 0.02 * v) * dice.level()),
+            ], haptics: [.tap(0.16 + 0.1 * v, sharpness)])
+        }
+    }
+
+    /// Storyboard beats stay under the fractures in touch too (after voicing with a recording's own hits).
+    static func softened(_ cue: FeedbackCue) -> FeedbackCue {
+        var quiet = cue
+        quiet.isClimax = false
+        quiet.haptics = cue.haptics.map { note in
+            var light = note
+            light.intensity = min(note.intensity * 0.55, 0.4)
+            return light
+        }
+        return quiet
+    }
+
     /// One debris grain of the slow-motion break (quiet: the failure cue already carries its own debris).
     static func debris(_ kind: ObjectKind, intensity: Double, dice: FeedbackDice) -> FeedbackCue {
         let band = Recipes.recipe(for: kind).beds.crush

@@ -38,6 +38,8 @@ final class PressDirector {
 
     @ObservationIgnored private let traceStore = TraceStore()
     @ObservationIgnored private var hingeFeel = HingeFeel()
+    /// The object's storyboard beats for this press (the object views keep an identical cursor).
+    @ObservationIgnored private var storyCursor = StoryCursor([])
     /// Randomness for hinge moments and pokes (outside the seeded press, so share-clip replays are unaffected).
     @ObservationIgnored private let feelDice = FeedbackDice(seed: 0x4849_4E47)
     @ObservationIgnored private var lastPoke: Double = 0
@@ -206,6 +208,21 @@ final class PressDirector {
         case .poke, .settle, .settled:
             // Pokes come through `poke()` from the views (after the scene accepts the tap).
             break
+        }
+    }
+
+    /// The object's storyboard beats (Scene/Kit/Storyboard.swift) in sound and touch. The cursor is seeded and
+    /// advanced exactly like the object views' (variant seed, `engine.visualCompression`, right after the scene's
+    /// update), so each beat sounds in the frame it is drawn. Quieter than the fractures, so the press builds.
+    private func playStoryBeats() {
+        let beats = storyCursor.advance(to: Float(engine.visualCompression))
+        guard engine.phase == .pressing, !beats.isEmpty else { return }
+        let speed = Float(min(max(engine.closingSpeed / 60, 0), 1))
+        for beat in beats.prefix(2) {
+            guard let raw = BeatCues.story(currentKind, beat: beat.kind, speed: speed, dice: feelDice) else { continue }
+            let voiced = SampleVoicing.voice(raw, style: settings.soundStyle, speed: speed, library: SampleLibrary.loaded,
+                                             dice: feelDice)
+            playBoth(BeatCues.softened(voiced), light: true)
         }
     }
 
@@ -410,6 +427,7 @@ final class PressDirector {
         engine.step(now: CACurrentMediaTime(), dt: dt)
         let context = feedbackContext
         scene.update(engine: engine, context: context, dt: Float(dt))
+        playStoryBeats()
         if usesFoldPress {
             // Fold Press only exists while it is showing: (re)load it lazily so non-Duo iPhones never touch it.
             if foldVariantSeed != variant.seed {
@@ -468,6 +486,7 @@ final class PressDirector {
         }
         engine.load(kind, seed: seed, at: CACurrentMediaTime())
         scene.setObject(kind, variant: variant)
+        storyCursor = StoryCursor(kind, seed: variant.seed)
         foldVariantSeed = nil
         let context = feedbackContext
         audio.place(context: context)

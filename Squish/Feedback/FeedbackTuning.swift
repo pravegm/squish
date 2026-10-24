@@ -73,14 +73,14 @@ enum AudioMix {
     static let masterGain: Float = 2.4
     /// Extra gain on the synthesised continuous layers (strain, crush, hiss, motor, creak) before the master. They sat
     /// near −30 dBFS; +6.8 dB (2.2) brought them up but measured only 3.9 LU under the break, against SOUND-2's 10–12
-    /// (`FeedbackTests` prints the contrast). 1.2 (+1.6 dB) keeps the strain audible and leaves the break room.
-    static let bedBus: Float = 1.2
+    /// (`FeedbackTests` prints the contrast). At 1.2 it measured 8.3 LU; 1.0 aims at the 10.
+    static let bedBus: Float = 1.0
     /// Recorded samples arrive loudness-normalised per category (the manifest's `gainDb` is the trim on top); this
     /// sets them against the synth layers before the master, so a "hero" break peaks just into the limiter.
     static let sampleBus: Float = 0.8
     /// The recorded strain loops (normalised around −24 LUFS, then the manifest's −14 dB trim). This sits the held
     /// strain bed ~10–12 LU under the break (SOUND-2 §5.1 item 6).
-    static let loopBus: Float = 1.6
+    static let loopBus: Float = 1.3
 
     /// Linear → dBFS, for the diagnostics.
     static func decibels(_ linear: Float) -> String {
