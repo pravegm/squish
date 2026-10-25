@@ -17,21 +17,24 @@
    - Paid Apps agreement **Active**, with tax and banking done.
    - Digital Services Act: "I am a trader". Enter your address, phone and email, then the verification codes. Or untick the 27 EU countries in step 5.
    - The Small Business Program enrolment is approved (developer.apple.com).
-2. **Push the listing.** Actions → App Store Connect tool → `push=true`, `store_run=40222956174`. First add your copyright line and review contact locally (`tools/appstore/README.md`); they never go in the repo.
+2. **Listing: pushed on 26 Oct** by the tool.
+   - Already in App Store Connect: name, subtitle, description, keywords, categories and age rating, plus the review notes and release schedule. Also the 10 achievements with badges, every screenshot set (6.9", 6.1", and the iPhone Duo set with 7 inner and 2 outer frames), the price of **£2.49 with the UK as base country**, and **availability in 174 of 175 territories** (all but China mainland, plus new countries).
+   - Still yours: add your **copyright line** and **review contact** (name, phone, email) on the 1.0 page, or locally for the tool (`tools/appstore/README.md`). They never go in the repo.
 3. **App Privacy:** Get Started → **No, we do not collect data** → Publish.
 4. **App Information:**
    - Content Rights → **Yes** → tick **I have the necessary rights**.
    - Check the age rating is **9+**.
-5. **Pricing and Availability:**
-   - **United Kingdom £2.49** as the base country, with automatic prices elsewhere. Note the US price.
-   - All countries except China mainland.
-   - Pre-order off. Family Sharing on.
-   - **Untick** "iPhone and iPad Apps on Apple Silicon Macs" and **Apple Vision Pro**.
+5. **Pricing and Availability.** The price and countries are already set, so just check them:
+   - **£2.49** with the UK as base country. Note the US price Apple picked.
+   - **174 countries and regions**: every one except China mainland, where paid games need a government licence.
+   - Pre-order off. **Family Sharing on** (App Information).
+   - **Untick** "iPhone and iPad Apps on Apple Silicon Macs" and **Apple Vision Pro** (no API for these).
+   - **The EU** only goes live once step 1's Digital Services Act trader status is verified.
 6. **The 1.0 version page:**
    - Select build **1.0 (9)**.
    - Game Center on → add all 10 achievements.
-   - Check the 6.9" and 6.1" screenshots are P1–P5 in order, plus the 6.9" preview.
-   - Open the **iPhone Duo** slot. Upload `duo-inner-01…07` and `duo-outer-O1, O2` from the `press-kit` release, plus `appstore-preview-duo-886x1920.mp4`.
+   - The screenshots are already in place; check they look right.
+   - The tool can't upload **App Previews**: add `appstore-preview-iphone-6.9-886x1920.mp4` to the 6.9" slot and `appstore-preview-duo-886x1920.mp4` to the iPhone Duo slot. Both are in the `press-kit` release.
    - Version Release: scheduled for **24 Nov 2026, 08:00 UTC** (`DECISIONS.md` #4), or "automatically after approval" if you'd rather launch sooner.
 7. **Export compliance:** nothing to do (`ITSAppUsesNonExemptEncryption` = NO). If asked anyway, answer **No**.
 8. **Add for Review**, then **Submit to App Review**.
