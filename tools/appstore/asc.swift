@@ -1697,8 +1697,14 @@ final class Engine {
             if let res = try await api.getOptional("/v1/apps/\(appID)/appPriceSchedule"), let sched = dataOne(res) {
                 let sid = idOf(sched)
                 let base = idOf(dataOne(try await api.getOptional("/v1/appPriceSchedules/\(sid)/baseTerritory")))
-                let (prices, included) = try await api.getAll("/v1/appPriceSchedules/\(sid)/manualPrices",
-                                                              [("include", "appPricePoint"), ("filter[territory]", territory), ("limit", "50")])
+                // A new app reports a schedule whose manualPrices 404 until a first price is set: treat that as none.
+                let (prices, included): ([JSON], [JSON])
+                if base.isEmpty {
+                    (prices, included) = ([], [])
+                } else {
+                    (prices, included) = (try? await api.getAll("/v1/appPriceSchedules/\(sid)/manualPrices",
+                                                                [("include", "appPricePoint"), ("filter[territory]", territory), ("limit", "50")])) ?? ([], [])
+                }
                 let now = Date()
                 let currentPoint = prices.first { p in
                     let a = attrs(p)
@@ -1720,11 +1726,64 @@ final class Engine {
                                                  "manualPrices": refs("appPrices", ["${price-1}"])],
                                  included: [["type": "appPrices", "id": "${price-1}", "attributes": ["startDate": NSNull()],
                                              "relationships": ["appPricePoint": ref("appPricePoints", point)]]])
-            manual.append("Availability: check Pricing and Availability > Availability (all countries, pre-order date if wanted); this tool sets the price only.")
         } catch {
             out("   ! price not set automatically: \(error)")
             manual.append(manualSteps)
         }
+        do {
+            try await syncAvailability()
+        } catch {
+            out("   ! availability not set automatically: \(error)")
+            manual.append("Availability: App Store Connect > Pricing and Availability > Availability: every country or region except "
+                          + "\(Self.excludedTerritories.sorted().joined(separator: ", ")), and 'make available in new countries' on.")
+        }
+    }
+
+    /// Worldwide except China mainland (`DECISIONS.md` #7: paid games there need an ISBN licence). Override with
+    /// ASC_EXCLUDED_TERRITORIES="CHN,…" (ISO 3166-1 alpha-3, comma-separated).
+    static var excludedTerritories: Set<String> {
+        let raw = ProcessInfo.processInfo.environment["ASC_EXCLUDED_TERRITORIES"] ?? "CHN"
+        return Set(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).uppercased() }.filter { !$0.isEmpty })
+    }
+
+    func syncAvailability() async throws {
+        let excluded = Self.excludedTerritories
+        let (territories, _) = try await api.getAll("/v1/territories", [("limit", "200")])
+        let codes = territories.map { idOf($0) }.filter { !$0.isEmpty }.sorted()
+        guard !codes.isEmpty else { throw ToolError("GET /v1/territories returned none") }
+        if let res = try await api.getOptional("/v1/apps/\(appID)/appAvailabilityV2"), let av = dataOne(res) {
+            let avID = idOf(av)
+            let (current, _) = try await api.getAll("/v2/appAvailabilities/\(avID)/territoryAvailabilities",
+                                                    [("include", "territory"), ("limit", "200")])
+            var changed = 0
+            for ta in current {
+                guard let code = relID(ta, "territory") else { continue }
+                let want = !excluded.contains(code)
+                if (attrs(ta)["available"] as? Bool) != want {
+                    try await update("availability \(code) → \(want ? "available" : "not available")",
+                                     "/v1/territoryAvailabilities/\(idOf(ta))", type: "territoryAvailabilities", id: idOf(ta),
+                                     attributes: ["available": want], lines: [])
+                    changed += 1
+                }
+            }
+            if changed == 0 { same("availability: \(current.count) territories, all but \(excluded.sorted().joined(separator: ", "))") }
+            if (attrs(av)["availableInNewTerritories"] as? Bool) != true {
+                manual.append("Availability: tick 'make available in new countries or regions' in Pricing and Availability.")
+            }
+            return
+        }
+        let included: [JSON] = codes.map { code in
+            ["type": "territoryAvailabilities", "id": "${ta-\(code)}",
+             "attributes": ["available": !excluded.contains(code)],
+             "relationships": ["territory": ref("territories", code)]]
+        }
+        _ = try await create("availability: \(codes.count - codes.filter { excluded.contains($0) }.count) of \(codes.count) territories "
+                             + "(all but \(excluded.sorted().joined(separator: ", "))), new territories on",
+                             "/v2/appAvailabilities", type: "appAvailabilities",
+                             attributes: ["availableInNewTerritories": true],
+                             relationships: ["app": ref("apps", appID),
+                                             "territoryAvailabilities": refs("territoryAvailabilities", codes.map { "${ta-\($0)}" })],
+                             included: included)
     }
 
     // MARK: Accessibility Nutrition Labels (optional "accessibility" block)
