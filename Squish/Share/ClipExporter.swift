@@ -94,7 +94,9 @@ final class ClipExporter {
                 try ClipMuxer.writeAudio(pcm, sampleRate: OfflineAudio.sampleRate, to: audioURL)
                 return true
             } catch {
+                #if DEBUG
                 print("SQUISH-CLIP audio skipped: \(error.localizedDescription)")
+                #endif
                 return false
             }
         }.value
@@ -138,7 +140,9 @@ final class ClipExporter {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    #if DEBUG
                     print("SQUISH-CLIP mux failed, sharing picture only: \(error.localizedDescription)")
+                    #endif
                     try? FileManager.default.removeItem(at: files.output)
                     try FileManager.default.moveItem(at: files.video, to: files.output)
                 }

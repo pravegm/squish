@@ -270,7 +270,7 @@ struct ShelfView: View {
                     Button {
                         detail = DetailRef(id: specimen.id)
                     } label: {
-                        SquishedRow(specimen: specimen, thumbnail: collection.thumbnail(for: specimen), index: index)
+                        SquishedRow(specimen: specimen, thumbnail: collection.rowThumbnail(for: specimen), index: index)
                     }
                     .buttonStyle(TileButtonStyle())
                     .accessibilityLabel(specimen.accessibilitySentence)
