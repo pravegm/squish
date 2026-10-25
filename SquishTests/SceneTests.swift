@@ -1447,6 +1447,22 @@ struct SceneTests {
         }
     }
 
+    /// Launch QA: the object pictures ship in the bundle (no ARView renders them at run time), so every kind and look is
+    /// there synchronously, square, at the shipped size.
+    @MainActor
+    @Test func everyObjectPictureShipsAndLoadsSynchronously() {
+        for look in ObjectThumbnails.Look.allCases {
+            for kind in ObjectKind.allCases {
+                let image = ObjectThumbnails.cached(kind, look: look, size: CGSize(width: 160, height: 160))
+                #expect(image != nil, "\(kind) \(look): no shipped picture")
+                if let image {
+                    let w = image.size.width * image.scale, h = image.size.height * image.scale
+                    #expect(w == ObjectThumbnails.pixelSize && h == ObjectThumbnails.pixelSize, "\(kind) \(look): \(w)×\(h)")
+                }
+            }
+        }
+    }
+
     /// LAUNCH-QA (duo-reveal-slomo-after): after a requested slow-mo replay the duck came back in the replay tape's
     /// puffier, rebounded shape. The replay must play on a copy and hand back the very specimen the reveal showed: the
     /// same entity, drawn exactly as before.
