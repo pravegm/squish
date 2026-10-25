@@ -1266,6 +1266,9 @@ final class Engine {
     var versionLocCache: [JSON] = []
 
     func syncVersionLocalizations() async throws {
+        // Re-read first: creating an app-info localization earlier in the same push can make App Store Connect create
+        // the matching version localization too, and a stale cache then POSTs a duplicate (HTTP 409).
+        try await loadVersionLocalizations()
         let keys = ["description", "keywords", "promotionalText", "supportUrl", "marketingUrl"]
         for locale in meta.locales {
             guard let t = meta.text[locale] else { continue }
