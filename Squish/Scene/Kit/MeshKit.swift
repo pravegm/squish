@@ -201,13 +201,27 @@ struct MeshData: Sendable {
     /// A RealityKit mesh (single material slot; use `MeshKit.entity` for multi-material meshes).
     @MainActor
     func resource(name: String = "mesh") -> MeshResource? {
+        guard let descriptor = descriptor(name: name) else { return nil }
+        return try? MeshResource.generate(from: [descriptor])
+    }
+
+    /// The same mesh made without blocking the main actor (Launch QA P0: on the Duo simulator the synchronous
+    /// `generate` waited behind RealityKit's resource queue for up to 145 s while a view was built).
+    @MainActor
+    func resourceAsync(name: String = "mesh") async -> MeshResource? {
+        guard let descriptor = descriptor(name: name) else { return nil }
+        return try? await MeshResource(from: [descriptor])
+    }
+
+    /// The single-slot RealityKit descriptor of this mesh, or nil if it isn't valid.
+    func descriptor(name: String) -> MeshDescriptor? {
         guard isValid else { return nil }
         var descriptor = MeshDescriptor(name: name)
         descriptor.positions = MeshBuffers.Positions(positions)
         descriptor.normals = MeshBuffers.Normals(normals)
         if !uvs.isEmpty { descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs) }
         descriptor.primitives = .triangles(indices)
-        return try? MeshResource.generate(from: [descriptor])
+        return descriptor
     }
 }
 

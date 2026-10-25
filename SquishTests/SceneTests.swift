@@ -1447,6 +1447,25 @@ struct SceneTests {
         }
     }
 
+    /// Launch QA P0 (Duo run 40195860241: the jelly's view took 145 s to build on the main thread, the gummy's 16 s):
+    /// with its heavy meshes made off the main actor first, as `PressScene.setObject` does, building any object's view
+    /// takes well under a second on the CI simulator (the app's budget is ~300 ms; 1 s here so it never flakes).
+    @MainActor
+    @Test func everyObjectViewBuildsInUnderASecond() async {
+        for kind in ObjectKind.allCases {
+            let results = await Task.detached(priority: .userInitiated) { ObjectMeshes.build(kind) }.value
+            for (key, data) in results { MeshCache.store(key, data) }
+            await MeshCache.prepareResources(results.map { $0.0 })
+            let variant = PressVariant(kind: kind, seed: SpecimenPrint.plainSeed(for: kind))
+            let start = Date()
+            let view = PressObjectFactory.make(kind, variant: variant, fx: SceneFX())
+            let took = Date().timeIntervalSince(start)
+            #expect(view.restHeight > 0)
+            #expect(took < 1.0, "\(kind): building its view took \(Int(took * 1000)) ms on the main thread")
+            print(String(format: "SQUISH-BUILD %@ %.0f ms", kind.rawValue, took * 1000))
+        }
+    }
+
     /// Launch QA: the object pictures ship in the bundle (no ARView renders them at run time), so every kind and look is
     /// there synchronously, square, at the shipped size.
     @MainActor

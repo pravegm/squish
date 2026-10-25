@@ -109,6 +109,16 @@ enum MeshCache {
         if data[key] == nil { data[key] = mesh }
     }
 
+    /// Makes the RealityKit meshes for `keys` (already in the data cache) without blocking the main actor, so building
+    /// the view finds them ready (Launch QA P0).
+    @MainActor
+    static func prepareResources(_ keys: [String]) async {
+        for key in keys where resources[key] == nil {
+            guard let mesh = data[key], let resource = await mesh.resourceAsync(name: key) else { continue }
+            if resources[key] == nil { resources[key] = resource }
+        }
+    }
+
     static func resource(_ key: String, _ build: () -> MeshData) -> MeshResource? {
         if let cached = resources[key] { return cached }
         guard let resource = mesh(key, build).resource(name: key) else { return nil }

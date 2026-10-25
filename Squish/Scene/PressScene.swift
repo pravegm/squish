@@ -136,6 +136,7 @@ final class PressScene {
 
     init() {
         SceneTrace.mark("init begin")
+        StallWatch.start()
         root.addChild(sweep)
         root.addChild(rig.root)
         root.addChild(objectSlot)
@@ -171,6 +172,11 @@ final class PressScene {
             }.value
             guard let self else { return }
             for (key, data) in results { MeshCache.store(key, data) }
+            // Their RealityKit meshes too, awaited rather than generated synchronously inside the view's build.
+            let uploadStart = CACurrentMediaTime()
+            await MeshCache.prepareResources(results.map { $0.0 })
+            SceneTrace.mark(String(format: "meshes %@ uploaded (async, %.0f ms)", kind.rawValue,
+                                   (CACurrentMediaTime() - uploadStart) * 1000))
             self.warmedKinds.insert(kind)
             if request == self.objectRequest { self.buildObject(kind, variant: variant) }
         }
@@ -192,9 +198,11 @@ final class PressScene {
             fx.clear()
             rig.repair()
         }
+        StallWatch.step = "object view \(kind.rawValue)"
         let view = SceneTrace.measure("object view \(kind.rawValue) (main)") {
             PressObjectFactory.make(kind, variant: variant, fx: fx)
         }
+        StallWatch.step = "placing \(kind.rawValue)"
         objectSlot.addChild(view.entity)
         ShadowCasting.offForTranslucent(in: view.entity)
         objectView = view
