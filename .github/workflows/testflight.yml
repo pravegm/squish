@@ -97,6 +97,9 @@ jobs:
           <dict>
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>upload</string>
+            <!-- Keep our build number (the run number). Left on, Xcode renumbers the upload to Apple's next free number,
+                 so run 7 arrived as 1.0 (6) and the summary named the wrong build. -->
+            <key>manageAppVersionAndBuildNumber</key><false/>
             <key>teamID</key><string>${APPLE_TEAM_ID}</string>
             <key>signingStyle</key><string>automatic</string>
             <key>uploadSymbols</key><true/>
