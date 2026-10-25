@@ -571,6 +571,66 @@ struct CollectionTests {
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
+    private func solidPNG(_ color: UIColor) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 80), format: format).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 80))
+        }
+        return image.pngData() ?? Data()
+    }
+
+    /// The channel (0 red, 1 green, 2 blue) a solid-colour photo is, read at its centre.
+    private func dominantChannel(_ image: UIImage) -> Int? {
+        let width = image.cgImage?.width ?? 0, height = image.cgImage?.height ?? 0
+        guard let p = pixel(image, x: width / 2, y: height / 2) else { return nil }
+        let channels = [p.r, p.g, p.b]
+        return channels.firstIndex(of: channels.max() ?? 0)
+    }
+
+    /// The P4 store frame: every Shelf card drew the same photo (the one cached last). Each card shows its own photo,
+    /// warm or cold, at both sizes, however the off-main decodes interleave.
+    @Test func eachCardShowsItsOwnPhoto() async throws {
+        #expect(CollectionStore.cacheKey("a.png", 512) != CollectionStore.cacheKey("b.png", 512))
+        #expect(CollectionStore.cacheKey("a.png", 512) != CollectionStore.cacheKey("a.png", 180))
+        let (store, folder) = makeStore()
+        let colors: [UIColor] = [.red, .green, .blue]
+        var ids: [UUID] = []
+        for (index, kind) in [ObjectKind.bubbleWrap, .rubberDuck, .jelly].enumerated() {
+            let outcome = press(store, kind)
+            await store.attachThumbnail(solidPNG(colors[index]), to: outcome.specimen.id).value
+            ids.append(outcome.specimen.id)
+        }
+        // Warm: just attached, straight from the cache.
+        for (index, id) in ids.enumerated() {
+            let card = try #require(store.specimen(withID: id))
+            let image = try #require(store.thumbnail(for: card), "card \(index) has no photo")
+            #expect(dominantChannel(image) == index, "card \(index) shows another card's photo")
+        }
+        // Cold: a fresh store asks for every card at both sizes at once, newest first, so an older card's decode can
+        // land after a newer one's; each cell must still get its own.
+        let (cold, _) = makeStore(at: folder)
+        let cards = ids.compactMap { cold.specimen(withID: $0) }
+        #expect(cards.count == 3)
+        for card in cards.reversed() {
+            _ = cold.thumbnail(for: card)
+            _ = cold.rowThumbnail(for: card)
+        }
+        for _ in 0..<100 {
+            let ready = cards.allSatisfy { cold.thumbnail(for: $0) != nil && cold.rowThumbnail(for: $0) != nil }
+            if ready { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        for (index, card) in cards.enumerated() {
+            let full = try #require(cold.thumbnail(for: card), "card \(index) never decoded")
+            let row = try #require(cold.rowThumbnail(for: card), "card \(index) row never decoded")
+            #expect(dominantChannel(full) == index, "card \(index): full-size photo is another card's")
+            #expect(dominantChannel(row) == index, "card \(index): row photo is another card's")
+            #expect(row.size.width <= CollectionStore.rowThumbnailPixels)
+        }
+    }
+
     /// Thumbnails decode off the main thread on demand, at the size asked for.
     @Test func rowThumbnailsAreSmallAndArriveAsync() async throws {
         let (store, folder) = makeStore()

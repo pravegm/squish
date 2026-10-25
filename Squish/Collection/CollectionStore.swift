@@ -180,8 +180,10 @@ final class CollectionStore {
         for size in [Self.thumbnailSize, Self.rowThumbnailPixels] { imageCache.removeObject(forKey: Self.cacheKey(file, size)) }
     }
 
-    private nonisolated static func cacheKey(_ file: String, _ maxPixel: CGFloat) -> NSString {
-        "(file)@(Int(maxPixel))" as NSString
+    /// One entry per photo file and size. (396121e shipped this as a constant string, a shell-escaping slip, so every
+    /// card drew whichever photo was cached last: the P4 store frame.)
+    nonisolated static func cacheKey(_ file: String, _ maxPixel: CGFloat) -> NSString {
+        "\(file)@\(Int(maxPixel))" as NSString
     }
 
     /// ImageIO thumbnail decode: never inflates the full file first, and never upsizes.
