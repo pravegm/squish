@@ -100,7 +100,7 @@ Then offer that change in the next build: add the line to the first inner-displa
 
 ## If rejected under 2.3.7 (subtitle) or 2.3.1
 
-- **Subtitle:** 1.0 already uses the low-risk "The priciest hydraulic press" (no number, no currency; see `DECISIONS.md`). If even that is flagged, change it to `A hydraulic press for the fold` (29 characters) in the same rejected submission and resubmit. No new build is needed while the version is still in review.
+- **Subtitle:** 1.0 uses the plain `A hydraulic press for the fold` (29 characters): no price, no number, no superlative (`DECISIONS.md` #1).
 - **"Hidden features" (2.3.1):** point the reviewer to §4. The secret object is reachable in about 5 minutes of normal play, and there's no code, shortcut or purchase.
 
 ## Sources

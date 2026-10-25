@@ -60,7 +60,7 @@ Once it feels right, tap *Copy config JSON* and send it to Claude. Those values 
 |---|---|
 | **Now (Thu 22 Oct)** | Reserve **"Squish: Fold-to-Crush Press"** in App Store Connect with bundle ID `com.pravegm.squish`. Fallback name: Hingepress. Enrol in the Small Business Program. Set up a domain with `/privacy`, `/support` and `/press`; the copy is in `docs/appstore/`. |
 | Fri 23 – Sun 25 Oct | Film the 15 s teaser (`preview-video.md` §B). Post it, then email the tip lines (`press-kit.md`). |
-| Sun 1 Nov | Choose the subtitle: the £/$ joke or the fallback **"The priciest hydraulic press"**. The joke risks Guideline 2.3.7 (`metadata.md` §2). |
+| Sun 1 Nov | Subtitle decided (25 Oct): **"A hydraulic press for the fold"**. "Priciest" was dropped as a pricing reference under 2.3.7 (`DECISIONS.md` #1). |
 | **By Tue 3 Nov** | Submit **featuring nomination 1**. The text is in `featuring-nomination.md`. |
 | Before the pre-order build (5 Nov) | Create the 10 Game Center achievements. The IDs and copy are in `achievements.md`; the IDs must match exactly. |
 | Tue 24 Nov | Release. |

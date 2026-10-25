@@ -11,7 +11,7 @@
 
 | Item | Status | Note |
 |---|---|---|
-| Subtitle (£/$ joke vs fallback) | ✅ Done (Claude) | "The priciest hydraulic press". The 2.3.7 risk isn't worth a review cycle |
+| Subtitle (£/$ joke vs fallback) | ✅ Done (Claude) | "A hydraulic press for the fold" (25 Oct). "Priciest" read as a pricing reference under 2.3.7 |
 | Keywords, categories, price, territories, age rating | ✅ Done (Claude) | `DECISIONS.md` #2–9 |
 | Release date and type; pre-orders | ✅ Done (Claude) | 24 Nov 08:00 UTC, scheduled; no pre-order |
 | Description and promo text, checked against the code | ✅ Done (Claude) | `metadata.md` / `asc-metadata.json` |

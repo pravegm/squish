@@ -14,7 +14,7 @@ Squish: Fold-to-Crush Press
 ## 2. Subtitle (limit 30): decided
 
 ```
-The priciest hydraulic press
+A hydraulic press for the fold
 ```
 **28 / 30**, the same in en-GB and en-US.
 - The £/$2,000 version is retired: Guideline 2.3.7 says subtitles "should not include prices", and a rejection costs a review cycle (`DECISIONS.md` #1).
@@ -99,7 +99,7 @@ Copy rules this text keeps:
 smash,squash,flatten,squeeze,satisfying,asmr,fidget,toy,foldable,hinge,bubble,wrap,stress,simulator
 ```
 **99 / 100 bytes.**
-- No word repeats the name or subtitle. Squish, fold, crush, press, hydraulic and priciest are already indexed.
+- No word repeats the name or subtitle. Squish, fold, crush, press, hydraulic and "for the fold" are already indexed.
 - No Apple marks and no competitor or brand names.
 - Apple combines terms across fields, so "bubble"+"wrap", "stress"+"toy" and "hydraulic"+"press"+"simulator" all form the phrases people search for.
 
