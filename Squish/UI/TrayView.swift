@@ -15,7 +15,40 @@ struct TrayView: View {
 
     private var collection: CollectionStore { director.collection }
 
+    @Environment(\.windowIsLandscape) private var windowIsLandscape
+    @AppStorage("squish.hasHinge") private var hasHinge = false
+
     var body: some View {
+        if SheetPose.isBook(hasHinge: hasHinge, windowIsLandscape: windowIsLandscape) {
+            // Book pose: the anvil and the legend on the leading page, the wings on the trailing one.
+            BookSpread {
+                VStack(alignment: .leading, spacing: Theme.s4) {
+                    header
+                    onTheAnvil
+                    GoalLegend()
+                    closingLine
+                }
+            } right: {
+                VStack(alignment: .leading, spacing: Theme.s5) {
+                    ForEach(MuseumWing.allCases) { wing in
+                        wingSection(wing, columns: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+                    }
+                }
+            }
+            .onAppear { appeared = true }
+        } else {
+            singleColumn
+        }
+    }
+
+    private var closingLine: some View {
+        Text("Every object breaks its own way. Some hide things. One in fifty is golden.".keepingLastWordsTogether)
+            .font(Theme.footnote)
+            .foregroundStyle(Theme.inkSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var singleColumn: some View {
         GeometryReader { proxy in
             let wide = proxy.size.width > 560
             // An even number of columns (HIG for grids near the fold); one at accessibility sizes.
@@ -28,12 +61,11 @@ struct TrayView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.s5) {
                         onTheAnvil
+                        GoalLegend()
                         ForEach(MuseumWing.allCases) { wing in
                             wingSection(wing, columns: columns)
                         }
-                        Text("Every object breaks its own way. Some hide things. One in fifty is golden.".keepingLastWordsTogether)
-                            .font(Theme.footnote)
-                            .foregroundStyle(Theme.inkSecondary)
+                        closingLine
                             .frame(maxWidth: .infinity)
                             .multilineTextAlignment(.center)
                     }
@@ -227,6 +259,8 @@ struct MuseumTile: View {
                     Text((unlocked || !kind.isSecret ? kind.verb : "???").uppercased())
                         .font(Theme.micro)
                         .tracking(Theme.microTracking * 0.6)
+                        .lineLimit(1)
+                        .fixedSize()
                         .foregroundStyle(Theme.graphite)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -322,6 +356,36 @@ struct StiffnessBar: View {
     }
 }
 
+/// The key to the goal slots, once above the wings: "✦ Perfect · 🎁 Surprise · 👑 Golden".
+struct GoalLegend: View {
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Theme.s3) { items }
+            VStack(alignment: .leading, spacing: 4) { items }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Each object has three goals: a Perfect Squish, a hidden surprise, and a golden one.")
+    }
+
+    @ViewBuilder
+    private var items: some View {
+        item("sparkles", "Perfect squish")
+        item("gift.fill", "Surprise inside")
+        item("crown.fill", "Golden, 1 in 50")
+    }
+
+    private func item(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol).font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.graphite)
+            Text(text.uppercased())
+                .font(Theme.micro)
+                .tracking(Theme.microTracking * 0.5)
+                .foregroundStyle(Theme.inkSecondary)
+                .fixedSize()
+        }
+    }
+}
+
 /// Perfect ◇ · Surprise ◇ · Golden ◇, filled when found; a dash where the object can't have one.
 struct GoalSlots: View {
     let goals: CollectionStore.Goals
@@ -335,21 +399,15 @@ struct GoalSlots: View {
         .accessibilityHidden(true)
     }
 
+    /// Icons only (the legend above the wings names them), so a narrow tile never cuts a word off.
     @ViewBuilder
     private func slot(_ symbol: String, _ title: String, found: Bool?, tint: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        HStack(spacing: 2) {
-            Image(systemName: found == nil ? "minus" : symbol)
-                .font(.system(size: 9, weight: .bold))
-            Text(title)
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .foregroundStyle(found == true ? Theme.graphite : Theme.inkTertiary)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 3)
-        .frame(maxWidth: .infinity)
+        Image(systemName: found == nil ? "minus" : symbol)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(found == true ? Theme.graphite : Theme.inkTertiary)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
         .background(shape.fill(found == true ? tint.opacity(0.55) : Color.clear))
         .overlay(shape.strokeBorder(found == true ? tint : Theme.paperEdge,
                                     style: StrokeStyle(lineWidth: 1, dash: found == true ? [] : [2, 2])))

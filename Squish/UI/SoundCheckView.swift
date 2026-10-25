@@ -9,38 +9,111 @@ struct SoundCheckView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var message: String?
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: Theme.s1) {
-                    Text("Sound & vibration check")
-                        .font(Theme.sheetTitle)
-                        .foregroundStyle(Theme.ink)
-                        .accessibilityAddTraits(.isHeader)
-                    Text("ORANGE ROWS COULD EXPLAIN SILENCE")
-                        .font(Theme.label)
-                        .tracking(Theme.labelTracking)
-                        .foregroundStyle(Theme.inkSecondary)
-                }
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(.subheadline, weight: .semibold))
-                }
-                .buttonStyle(KeycapStyle(kind: .secondary, round: true))
-                .accessibilityLabel("Close")
-            }
-            .padding(.horizontal, Theme.s4)
-            .padding(.top, 20)
-            .padding(.bottom, Theme.s3)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
+    @Environment(\.windowIsLandscape) private var windowIsLandscape
+    @AppStorage("squish.hasHinge") private var hasHinge = false
 
-            ScrollView {
+    var body: some View {
+        if SheetPose.isBook(hasHinge: hasHinge, windowIsLandscape: windowIsLandscape) {
+            // Book pose: the test keys on the leading page, what the phone reports on the trailing one.
+            BookSpread {
                 VStack(alignment: .leading, spacing: Theme.s4) {
+                    header
+                    testKeys
+                    copyKey
+                }
+            } right: {
+                diagnostics
+            }
+        } else {
+            VStack(spacing: 0) {
+                header
+                    .padding(.horizontal, Theme.s4)
+                    .padding(.top, 20)
+                    .padding(.bottom, Theme.s3)
+                    .frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.s4) {
+                        testKeys
+                        diagnostics
+                        copyKey
+                    }
+                    .padding(.horizontal, Theme.s4)
+                    .padding(.bottom, Theme.s6)
+                    .frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: Theme.s1) {
+                Text("Sound & vibration check")
+                    .font(Theme.sheetTitle)
+                    .foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text("ORANGE ROWS COULD EXPLAIN SILENCE")
+                    .font(Theme.label)
+                    .tracking(Theme.labelTracking)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(.subheadline, weight: .semibold))
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, round: true))
+            .accessibilityLabel("Close")
+        }
+    }
+
+    private var diagnostics: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            VStack(alignment: .leading, spacing: Theme.s4) {
+                group("Sound", director.audio.diagnosticRows())
+                group("Vibration", director.haptics.diagnosticRows())
+            }
+        }
+    }
+
+    private var copyKey: some View {
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            Button {
+                UIPasteboard.general.string = report()
+                message = "Copied. Paste it into a message to us."
+            } label: {
+                KeyLabel(title: "Copy this report", systemImage: "doc.on.doc")
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
+            Text("The vibration tests play at full strength whatever your Haptics setting.".keepingLastWordsTogether)
+                .font(Theme.footnote)
+                .foregroundStyle(Theme.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The feedback engineer's Vibration strength (Settings → Feel), mirrored here so a weak buzz can be fixed on the spot.
+    private var strengthRow: some View {
+        @Bindable var settings = director.settings
+        return VStack(alignment: .leading, spacing: Theme.s2) {
+            Text("Vibration strength").font(Theme.body).foregroundStyle(Theme.ink)
+            ChipChoice(selection: $settings.vibrationStrength, options: VibrationStrength.allCases) { $0.title }
+        }
+        .onChange(of: settings.vibrationStrength) { _, _ in settings.save() }
+    }
+
+    private var testKeys: some View {
                     VStack(spacing: Theme.s2) {
+                        strengthRow
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, Theme.s2)
                         testKey("Play a test sound", "speaker.wave.2.fill", primary: true) {
                             director.audio.playTestSound()
                             message = "Test sound sent. Heard nothing? Check the Sound rows below."
@@ -61,30 +134,6 @@ struct SoundCheckView: View {
                                 .accessibilityAddTraits(.updatesFrequently)
                         }
                     }
-                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                        VStack(alignment: .leading, spacing: Theme.s4) {
-                            group("Sound", director.audio.diagnosticRows())
-                            group("Vibration", director.haptics.diagnosticRows())
-                        }
-                    }
-                    Button {
-                        UIPasteboard.general.string = report()
-                        message = "Copied. Paste it into a message to us."
-                    } label: {
-                        KeyLabel(title: "Copy this report", systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
-                    Text("The vibration tests play at full strength whatever your Haptics setting.".keepingLastWordsTogether)
-                        .font(Theme.footnote)
-                        .foregroundStyle(Theme.inkSecondary)
-                }
-                .padding(.horizontal, Theme.s4)
-                .padding(.bottom, Theme.s6)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
-            }
-            .scrollIndicators(.hidden)
-        }
     }
 
     private func testKey(_ title: String, _ symbol: String, primary: Bool = false,

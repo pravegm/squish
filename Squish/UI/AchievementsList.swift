@@ -28,6 +28,55 @@ struct AchievementsList: View {
     }
 }
 
+/// The Shelf's leading page in book pose: each wing of the museum with its objects, pressed ones in colour.
+struct WingProgress: View {
+    let collection: CollectionStore
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.sectionRadius, style: .continuous)
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            Text("THE MUSEUM")
+                .font(Theme.label)
+                .tracking(Theme.labelTracking)
+                .foregroundStyle(Theme.inkSecondary)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(MuseumWing.allCases) { wing in
+                VStack(alignment: .leading, spacing: Theme.s2) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(wing.title)
+                            .font(.system(.headline, design: .rounded, weight: .heavy))
+                            .foregroundStyle(Theme.ink)
+                        Spacer(minLength: Theme.s2)
+                        Text("\(collection.pressedCount(in: wing))/\(wing.kinds.count)")
+                            .font(Theme.label)
+                            .foregroundStyle(Theme.inkSecondary)
+                    }
+                    HStack(spacing: Theme.s2) {
+                        ForEach(wing.kinds) { kind in
+                            let pressed = collection.stats.squishedKinds.contains(kind)
+                            Group {
+                                if pressed {
+                                    ObjectTile(kind: kind, cornerRadius: 9)
+                                } else {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.paperShade.opacity(0.55))
+                                        EmbossedSilhouette(kind: kind).padding(6)
+                                    }
+                                }
+                            }
+                            .frame(width: 44, height: 44)
+                        }
+                    }
+                }
+                .padding(Theme.s3)
+                .background { shape.fill(Theme.paperWarm).elevation(.e1) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(wing.title): \(collection.pressedCount(in: wing)) of \(wing.kinds.count) pressed.")
+            }
+        }
+    }
+}
+
 private struct AchievementRow: View {
     let achievement: Achievement
     let earned: Bool

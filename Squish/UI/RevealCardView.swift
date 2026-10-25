@@ -188,7 +188,8 @@ struct RevealCardView: View {
             RevealTicket(specimen: specimen, badges: badges, state: ceremony)
                 .frame(width: ticketWidth)
                 .fixedSize(horizontal: false, vertical: true)
-                .position(x: plate.midX, y: min(ticketTop + 44, (ticketTop + floor) / 2 + 4))
+                // Centred between the print and the crease (tabletop) or the foot band (book), never over either.
+                .position(x: plate.midX, y: (ticketTop + floor) / 2)
                 .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
                 .offset(y: ceremony.ticketIn || reduceMotion ? 0 : -14)
                 .accessibilitySortPriority(2)
@@ -198,7 +199,8 @@ struct RevealCardView: View {
             UnlockRibbon(kinds: outcome.newlyUnlocked)
                 .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
                 .scaleEffect(ceremony.ticketIn || reduceMotion ? 1 : 1.2)
-                .position(x: plate.minX + 104, y: plate.minY + 2)
+                // The plate's bottom-left corner: the top corners belong to the NEW BEST / GOLDEN ribbon.
+                .position(x: plate.minX + 104, y: plate.maxY - 6)
             MuseumStrip(collection: collection, kind: outcome.specimen.kind, firstOfKind: firstOfKind, state: ceremony,
                         foldToKeep: foldToKeep && !collecting)
                 .frame(maxWidth: actionsWidth)

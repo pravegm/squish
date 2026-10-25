@@ -527,7 +527,8 @@ struct RootView: View {
 
     /// The half you touch (HIG seated layout: controls at the bottom; book: the trailing page).
     private func menuRegion(_ bands: ScreenBands) -> CGRect {
-        let margin = Theme.s4
+        // Clear of the hazard jaws and the display's rounded corners.
+        let margin = Theme.s5
         if isCoverUp {
             let width = min(bands.size.width - margin * 2, 460)
             return CGRect(x: bands.size.width / 2 - width / 2, y: margin, width: width, height: bands.size.height - margin * 2)
@@ -1020,7 +1021,8 @@ private struct SheetChrome: ViewModifier {
             .presentationCornerRadius(Theme.sheetRadius)
             .presentationBackground { AlbumPage(dots: dots) }
             .sheetTypeCap()
-            .creaseSafe()
+            // No `creaseSafe()`: in book pose each of these sheets lays itself out as a two-page spread (`BookSpread`)
+            // instead of leaving the leading page blank.
             .environment(\.windowIsLandscape, windowLandscape)
             .environment(\.tabletopCreaseAboveSafeBottom, tabletopCrease)
     }

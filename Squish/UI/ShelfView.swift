@@ -42,7 +42,54 @@ struct ShelfView: View {
 
     private var collection: CollectionStore { director.collection }
 
+    @AppStorage("squish.hasHinge") private var hasHinge = false
+
     var body: some View {
+        Group {
+            if SheetPose.isBook(hasHinge: hasHinge, windowIsLandscape: windowIsLandscape) {
+                bookSpread
+            } else {
+                singlePage
+            }
+        }
+        .sheet(item: $detail) { ref in
+            CardDetailView(director: director, specimenID: ref.id, onPressAnother: { kind in
+                detail = nil
+                choose(kind)
+            })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.sheetRadius)
+                .presentationBackground { AlbumPage(dots: false) }
+                .sheetTypeCap()
+                .creaseSafe()
+                .environment(\.windowIsLandscape, windowIsLandscape)
+        }
+        .task {
+            guard let demoDetail else { return }
+            try? await Task.sleep(for: .milliseconds(700))
+            detail = DetailRef(id: demoDetail)
+        }
+    }
+
+    /// Book pose: the header, tabs and wing progress on the leading page, the tab's content on the trailing one.
+    private var bookSpread: some View {
+        BookSpread {
+            VStack(alignment: .leading, spacing: Theme.s4) {
+                header
+                tabs
+                WingProgress(collection: collection)
+            }
+        } right: {
+            switch tab {
+            case .objects: objectsGrid(columns: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+            case .squished: squishedList
+            case .achievements: AchievementsList(collection: collection)
+            }
+        }
+    }
+
+    private var singlePage: some View {
         GeometryReader { proxy in
             let wide = proxy.size.width > 600
             // Tabletop Duo at `.large`: the grid on the ram half, the latest prints on the anvil half (FOLD-REVIEW-7
@@ -78,24 +125,6 @@ struct ShelfView: View {
             }
             .coordinateSpace(.named(Self.sheetSpace))
         }
-        .sheet(item: $detail) { ref in
-            CardDetailView(director: director, specimenID: ref.id, onPressAnother: { kind in
-                detail = nil
-                choose(kind)
-            })
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(Theme.sheetRadius)
-                .presentationBackground { AlbumPage(dots: false) }
-                .sheetTypeCap()
-                .creaseSafe()
-                .environment(\.windowIsLandscape, windowIsLandscape)
-        }
-        .task {
-            guard let demoDetail else { return }
-            try? await Task.sleep(for: .milliseconds(700))
-            detail = DetailRef(id: demoDetail)
-        }
     }
 
     // MARK: Header (§6.7) and tabs (§6.9: two chips)
@@ -128,8 +157,9 @@ struct ShelfView: View {
         }
     }
 
+    /// The tab chips wrap to a second line rather than cut a word ("ACHIEVE…" on the book page).
     private var tabs: some View {
-        HStack(spacing: Theme.s2) {
+        FlowLayout(spacing: Theme.s2, lineSpacing: Theme.s2) {
             ForEach(Tab.allCases) { item in
                 let selected = item == tab
                 Button {
@@ -140,9 +170,10 @@ struct ShelfView: View {
                 .buttonStyle(KeycapStyle(kind: .chip, selected: selected))
                 .accessibilityLabel(item.title)
                 .accessibilityAddTraits(selected ? [.isSelected] : [])
+                .fixedSize()
             }
-            Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Objects

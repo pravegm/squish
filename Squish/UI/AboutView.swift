@@ -11,65 +11,99 @@ struct AboutView: View {
     private static let supportURL = URL(string: "https://pravegm.github.io/squish/support/")!
     private static let privacyURL = URL(string: "https://pravegm.github.io/squish/privacy/")!
 
+    @Environment(\.windowIsLandscape) private var windowIsLandscape
+    @AppStorage("squish.hasHinge") private var hasHinge = false
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(.subheadline, weight: .semibold))
-                }
-                .buttonStyle(KeycapStyle(kind: .secondary, round: true))
-                .accessibilityLabel("Close")
-            }
-            .padding(.horizontal, Theme.s4)
-            .padding(.top, 16)
-            ScrollView {
-                VStack(spacing: Theme.s5) {
-                    VStack(spacing: Theme.s2) {
-                        AppIconArt()
-                            .frame(width: 88, height: 88)
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            .elevation(.e2)
-                            .accessibilityHidden(true)
-                        Text("Squish")
-                            .font(Theme.display)
-                            .foregroundStyle(Theme.ink)
-                            .accessibilityAddTraits(.isHeader)
-                        Text("THE MUSEUM OF PRESSED THINGS")
-                            .font(Theme.label)
-                            .tracking(Theme.labelTracking)
-                            .foregroundStyle(Theme.inkSecondary)
+        Group {
+            if SheetPose.isBook(hasHinge: hasHinge, windowIsLandscape: windowIsLandscape) {
+                // Book pose: the name on the leading page, the facts on the trailing one.
+                BookSpread {
+                    VStack(spacing: Theme.s5) {
+                        closeRow
+                        masthead
                     }
-                    AboutRows(director: director, showTuning: $showTuning)
-                    HStack(spacing: Theme.s2) {
-                        Button {
-                            openURL(Self.supportURL)
-                        } label: {
-                            KeyLabel(title: "Support", systemImage: "envelope.fill")
-                        }
-                        .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
-                        .accessibilityHint("Opens the support page in Safari.")
-                        Button {
-                            openURL(Self.privacyURL)
-                        } label: {
-                            KeyLabel(title: "Privacy", systemImage: "hand.raised.fill")
-                        }
-                        .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
-                        .accessibilityHint("Opens the privacy policy in Safari.")
+                } right: {
+                    VStack(spacing: Theme.s5) {
+                        AboutRows(director: director, showTuning: $showTuning)
+                        links
                     }
                 }
-                .padding(.horizontal, Theme.s4)
-                .padding(.bottom, Theme.s6)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
+            } else {
+                VStack(spacing: 0) {
+                    closeRow
+                        .padding(.horizontal, Theme.s4)
+                        .padding(.top, 16)
+                    ScrollView {
+                        VStack(spacing: Theme.s5) {
+                            masthead
+                            AboutRows(director: director, showTuning: $showTuning)
+                            links
+                        }
+                        .padding(.horizontal, Theme.s4)
+                        .padding(.bottom, Theme.s6)
+                        .frame(maxWidth: 560)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .scrollIndicators(.hidden)
+                }
             }
-            .scrollIndicators(.hidden)
         }
         .sheet(isPresented: $showTuning) {
             TuningLabView(director: director)
+        }
+    }
+
+    private var closeRow: some View {
+        HStack(alignment: .top) {
+            Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(.subheadline, weight: .semibold))
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, round: true))
+            .accessibilityLabel("Close")
+        }
+    }
+
+    private var masthead: some View {
+        VStack(spacing: Theme.s2) {
+            AppIconArt()
+                .frame(width: 88, height: 88)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .elevation(.e2)
+                .accessibilityHidden(true)
+            Text("Squish")
+                .font(Theme.display)
+                .foregroundStyle(Theme.ink)
+                .accessibilityAddTraits(.isHeader)
+            Text("THE MUSEUM OF PRESSED THINGS")
+                .font(Theme.label)
+                .tracking(Theme.labelTracking)
+                .foregroundStyle(Theme.inkSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var links: some View {
+        HStack(spacing: Theme.s2) {
+            Button {
+                openURL(Self.supportURL)
+            } label: {
+                KeyLabel(title: "Support", systemImage: "envelope.fill")
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
+            .accessibilityHint("Opens the support page in Safari.")
+            Button {
+                openURL(Self.privacyURL)
+            } label: {
+                KeyLabel(title: "Privacy", systemImage: "hand.raised.fill")
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
+            .accessibilityHint("Opens the privacy policy in Safari.")
         }
     }
 }

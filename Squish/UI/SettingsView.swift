@@ -31,68 +31,50 @@ struct SettingsView: View {
         var noFold: Bool
     }
 
+    @Environment(\.windowIsLandscape) private var windowIsLandscape
+
     var body: some View {
         @Bindable var settings = director.settings
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: Theme.s1) {
-                    Text("Settings")
-                        .font(Theme.sheetTitle)
-                        .foregroundStyle(Theme.ink)
-                        .accessibilityAddTraits(.isHeader)
-                    Text("SAVED AS YOU GO")
-                        .font(Theme.label)
-                        .tracking(Theme.labelTracking)
-                        .foregroundStyle(Theme.inkSecondary)
-                }
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(.subheadline, weight: .semibold))
-                }
-                .buttonStyle(KeycapStyle(kind: .secondary, round: true))
-                .accessibilityLabel("Close settings")
-            }
-            .padding(.horizontal, Theme.s4)
-            .padding(.top, 20)
-            .padding(.bottom, Theme.s3)
-            // The same 560 pt column as the sections, so on a wide sheet (Duo, 669 pt) the title lines up with them.
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.s5) {
-                    soundSection(settings)
-                    feelSection(settings)
-                    helpSection
-
-                    if showsGameCenter {
-                        section("Game Center", index: 3) {
-                            gameCenterRow
-                        }
+        Group {
+            if SheetPose.isBook(hasHinge: hasHinge, windowIsLandscape: windowIsLandscape) {
+                // Book pose: a spread. Sound and feel on the leading page, help and about on the trailing one.
+                BookSpread {
+                    VStack(alignment: .leading, spacing: Theme.s5) {
+                        header
+                        soundSection(settings)
+                        feelSection(settings)
                     }
-
-                    VStack(alignment: .leading, spacing: Theme.s2) {
-                        sectionTitle("About")
-                        NavCard(title: "Sound & vibration check", systemImage: "waveform",
-                                footnote: "Test buttons, and what your phone says about sound and vibration.") {
-                            showSoundCheck = true
-                        }
-                        AboutRows(director: director, showTuning: $showTuning)
+                } right: {
+                    VStack(alignment: .leading, spacing: Theme.s5) {
+                        helpSection
+                        laterSections
                     }
-                    .opacity(appeared ? 1 : 0)
-                    .offset(y: appeared || reduceMotion ? 0 : 8)
-                    .animation(Theme.row(4, reduceMotion), value: appeared)
                 }
-                .padding(.horizontal, Theme.s4)
-                .padding(.top, Theme.s2)
-                .padding(.bottom, Theme.s6)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
+            } else {
+                VStack(spacing: 0) {
+                    header
+                        .padding(.horizontal, Theme.s4)
+                        .padding(.top, 20)
+                        .padding(.bottom, Theme.s3)
+                        // The same 560 pt column as the sections, so on a wide sheet (Duo, 669 pt) the title lines up.
+                        .frame(maxWidth: 560)
+                        .frame(maxWidth: .infinity)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: Theme.s5) {
+                            soundSection(settings)
+                            feelSection(settings)
+                            helpSection
+                            laterSections
+                        }
+                        .padding(.horizontal, Theme.s4)
+                        .padding(.top, Theme.s2)
+                        .padding(.bottom, Theme.s6)
+                        .frame(maxWidth: 560)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .scrollIndicators(.hidden)
+                }
             }
-            .scrollIndicators(.hidden)
         }
         .sheet(isPresented: $showTuning) {
             TuningLabView(director: director)
@@ -104,7 +86,7 @@ struct SettingsView: View {
                 .presentationCornerRadius(Theme.sheetRadius)
                 .presentationBackground { AlbumPage(dots: false) }
                 .sheetTypeCap()
-                .creaseSafe()
+                .environment(\.windowIsLandscape, windowIsLandscape)
         }
         .sheet(isPresented: $showHelp) {
             HelpView(onReplayIntro: replayIntroFromHelp)
@@ -113,7 +95,7 @@ struct SettingsView: View {
                 .presentationCornerRadius(Theme.sheetRadius)
                 .presentationBackground { AlbumPage(dots: false) }
                 .sheetTypeCap()
-                .creaseSafe()
+                .environment(\.windowIsLandscape, windowIsLandscape)
         }
         .onAppear { appeared = true }
         .onChange(of: Snapshot(sound: settings.soundEnabled, playOnSilent: settings.playSoundInSilentMode,
@@ -125,6 +107,51 @@ struct SettingsView: View {
     }
 
     // MARK: Sections
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: Theme.s1) {
+                Text("Settings")
+                    .font(Theme.sheetTitle)
+                    .foregroundStyle(Theme.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text("SAVED AS YOU GO")
+                    .font(Theme.label)
+                    .tracking(Theme.labelTracking)
+                    .foregroundStyle(Theme.inkSecondary)
+            }
+            Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(.subheadline, weight: .semibold))
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, round: true))
+            .accessibilityLabel("Close settings")
+        }
+    }
+
+    /// Game Center and About, after Help.
+    @ViewBuilder
+    private var laterSections: some View {
+        if showsGameCenter {
+            section("Game Center", index: 3) {
+                gameCenterRow
+            }
+        }
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            sectionTitle("About")
+            NavCard(title: "Sound & vibration check", systemImage: "waveform",
+                    footnote: "Test buttons, and what your phone says about sound and vibration.") {
+                showSoundCheck = true
+            }
+            AboutRows(director: director, showTuning: $showTuning)
+        }
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared || reduceMotion ? 0 : 8)
+        .animation(Theme.row(4, reduceMotion), value: appeared)
+    }
 
     private func soundSection(_ model: AppSettings) -> some View {
         @Bindable var settings = model

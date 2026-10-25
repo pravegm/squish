@@ -8,77 +8,107 @@ struct HelpView: View {
     var onReplayIntro: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
+    @Environment(\.windowIsLandscape) private var windowIsLandscape
+    @AppStorage("squish.hasHinge") private var hasHinge = false
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: Theme.s1) {
-                    Text("How to press")
-                        .font(Theme.sheetTitle)
-                        .foregroundStyle(Theme.ink)
-                        .accessibilityAddTraits(.isHeader)
-                    Text("THREE WAYS. ALL OF THEM SLOWLY.")
-                        .font(Theme.label)
-                        .tracking(Theme.labelTracking)
-                        .foregroundStyle(Theme.inkSecondary)
+        if SheetPose.isBook(hasHinge: hasHinge, windowIsLandscape: windowIsLandscape) {
+            // Book pose: the cards on the leading page, the reminders and the keys on the trailing one.
+            BookSpread {
+                VStack(alignment: .leading, spacing: Theme.s4) {
+                    header
+                    cards
                 }
-                Spacer()
+            } right: {
+                VStack(alignment: .leading, spacing: Theme.s4) {
+                    reminders
+                }
+            }
+        } else {
+            VStack(spacing: 0) {
+                header
+                    .padding(.horizontal, Theme.s4)
+                    .padding(.top, 20)
+                    .padding(.bottom, Theme.s3)
+                    .frame(maxWidth: 620)
+                    .frame(maxWidth: .infinity)
+                ScrollView {
+                    VStack(spacing: Theme.s4) {
+                        cards
+                        reminders
+                    }
+                    .padding(.horizontal, Theme.s4)
+                    .padding(.bottom, Theme.s6)
+                    .frame(maxWidth: 620)
+                    .frame(maxWidth: .infinity)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: Theme.s1) {
+                Text("How to press")
+                    .font(Theme.sheetTitle)
+                    .foregroundStyle(Theme.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text("THREE WAYS. ALL OF THEM SLOWLY.")
+                    .font(Theme.label)
+                    .tracking(Theme.labelTracking)
+                    .foregroundStyle(Theme.inkSecondary)
+            }
+            Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(.subheadline, weight: .semibold))
+            }
+            .buttonStyle(KeycapStyle(kind: .secondary, round: true))
+            .accessibilityLabel("Close")
+        }
+    }
+
+    @ViewBuilder
+    private var cards: some View {
+            HelpCard(title: "Like a tiny laptop",
+                     detail: "Stand it on a table, open it wide, then push the top half down slowly.",
+                     art: .tabletop)
+            HelpCard(title: "Like a book",
+                     detail: "Hold it open in both hands and close it slowly, like a book you're done with.",
+                     art: .book)
+            HelpCard(title: "Or drag",
+                     detail: "Settings → Press without folding. Then drag down on the press. Same squish.",
+                     art: .drag)
+    }
+
+    @ViewBuilder
+    private var reminders: some View {
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                bullet("arrow.up.left.and.arrow.down.right", "Open it again to see what's left.")
+                bullet("pause.fill", "Ease off any time. The damage stays.")
+                bullet("tortoise.fill", "Slow and steady earns a Perfect Squish.")
+                bullet("hand.raised.fill", "It's all on-screen. Never close your phone on real things.")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let onReplayIntro {
                 Button {
                     dismiss()
+                    onReplayIntro()
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(.subheadline, weight: .semibold))
+                    KeyLabel(title: "Show me on the press", systemImage: "play.fill")
                 }
-                .buttonStyle(KeycapStyle(kind: .secondary, round: true))
-                .accessibilityLabel("Close")
+                .buttonStyle(KeycapStyle(kind: .primary, fullWidth: true))
+                .accessibilityHint("Replays the first-run lesson with bubble wrap.")
             }
-            .padding(.horizontal, Theme.s4)
-            .padding(.top, 20)
-            .padding(.bottom, Theme.s3)
-            .frame(maxWidth: 620)
-            .frame(maxWidth: .infinity)
-
-            ScrollView {
-                VStack(spacing: Theme.s4) {
-                    HelpCard(title: "Like a tiny laptop",
-                             detail: "Stand it on a table, open it wide, then push the top half down slowly.",
-                             art: .tabletop)
-                    HelpCard(title: "Like a book",
-                             detail: "Hold it open in both hands and close it slowly, like a book you're done with.",
-                             art: .book)
-                    HelpCard(title: "Or drag",
-                             detail: "Settings → Press without folding. Then drag down on the press. Same squish.",
-                             art: .drag)
-                    VStack(alignment: .leading, spacing: Theme.s2) {
-                        bullet("arrow.up.left.and.arrow.down.right", "Open it again to see what's left.")
-                        bullet("pause.fill", "Ease off any time. The damage stays.")
-                        bullet("tortoise.fill", "Slow and steady earns a Perfect Squish.")
-                        bullet("hand.raised.fill", "It's all on-screen. Never close your phone on real things.")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if let onReplayIntro {
-                        Button {
-                            dismiss()
-                            onReplayIntro()
-                        } label: {
-                            KeyLabel(title: "Show me on the press", systemImage: "play.fill")
-                        }
-                        .buttonStyle(KeycapStyle(kind: .primary, fullWidth: true))
-                        .accessibilityHint("Replays the first-run lesson with bubble wrap.")
-                    }
-                    Button {
-                        dismiss()
-                    } label: {
-                        Text("Got it")
-                    }
-                    .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
-                }
-                .padding(.horizontal, Theme.s4)
-                .padding(.bottom, Theme.s6)
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity)
+            Button {
+                dismiss()
+            } label: {
+                Text("Got it")
             }
-            .scrollIndicators(.hidden)
-        }
+            .buttonStyle(KeycapStyle(kind: .secondary, fullWidth: true))
     }
 
     private func bullet(_ symbol: String, _ text: String) -> some View {

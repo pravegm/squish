@@ -85,7 +85,7 @@ struct FoldLessonCard: View {
                         .font(Theme.headline)
                         .foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(Self.detail(pose).keepingLastWordsTogether)
+                    Text(Self.detail(pose, book: book).keepingLastWordsTogether)
                         .font(Theme.footnote)
                         .foregroundStyle(Theme.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -115,22 +115,22 @@ struct FoldLessonCard: View {
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("How to press. \(Self.title(pose, book: book)) \(Self.detail(pose)) \(soundLine)")
+        .accessibilityLabel("How to press. \(Self.title(pose, book: book)) \(Self.detail(pose, book: book)) \(soundLine)")
     }
 
     static func title(_ pose: LessonPose, book: Bool) -> String {
         switch pose {
         case .tooClosed: book ? "Hold it like a book. Open it wide." : "Stand it up like a tiny laptop."
-        case .flat: "Lift the top half a little."
+        case .flat: book ? "Fold it a little, like a book." : "Lift the top half a little."
         case .ready: "Now close it slowly."
         case .touch: "Drag down on the press, slowly."
         }
     }
 
-    static func detail(_ pose: LessonPose) -> String {
+    static func detail(_ pose: LessonPose, book: Bool = false) -> String {
         switch pose {
         case .tooClosed: "Open it wide first. The press starts as you close it."
-        case .flat: "Like a laptop. The top half is the press."
+        case .flat: book ? "Either page can be the lid. The press starts as it folds." : "Like a laptop. The top half is the press."
         case .ready: "The bubble wrap starts popping just after the halves meet it."
         case .touch: "The slower you go, the better it sounds."
         }

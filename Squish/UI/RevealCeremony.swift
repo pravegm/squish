@@ -30,6 +30,28 @@ struct RevealBadge: Identifiable, Equatable {
     }
 }
 
+/// The ticket's small badge: an 18 pt pill, so three lines of ticket fit between the print and the crease.
+struct TicketChip: View {
+    let text: String
+    let symbol: String
+    var tone: SpecimenRecord.Trait.Tone = .perfect
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol).font(.system(size: 9, weight: .bold))
+            Text(text)
+                .font(Theme.micro)
+                .tracking(Theme.microTracking * 0.4)
+        }
+        .foregroundStyle(Theme.ink)
+        .padding(.horizontal, 7)
+        .frame(height: 18)
+        .background(Capsule().fill(tone == .surprise ? Theme.rgb(0xDCEBFA) : Theme.yellowSoft))
+        .overlay(Capsule().strokeBorder(tone == .surprise ? Theme.rgb(0x9CC2EA) : Theme.yellow.opacity(0.7), lineWidth: 1))
+        .fixedSize()
+    }
+}
+
 /// "UNLOCKED · GLASS BOTTLE": a ribbon on the print's other top corner when this press opened something.
 struct UnlockRibbon: View {
     let kinds: [ObjectKind]
@@ -117,7 +139,7 @@ struct RevealTicket: View {
         //   CRAYON BOX                     55 TONS
         //   №0001 · 8 SNAPS
         //   ▱→▬  11 mm → 1.1 mm     [★ FIRST SQUISH]
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
                 Text(specimen.kind.displayName.uppercased())
                     .font(.system(.subheadline, design: .rounded, weight: .heavy))
@@ -136,11 +158,24 @@ struct RevealTicket: View {
                 .foregroundStyle(Theme.ink)
                 .fixedSize()
             }
-            Text("\(specimen.numberLabel) · \(specimen.kind.breaksLine(fractureCount: specimen.fractureCount))".gluingDotSeparators)
-                .font(Theme.micro)
-                .tracking(Theme.microTracking * 0.4)
-                .foregroundStyle(Theme.inkSecondary)
-                .fixedSize()
+            HStack(alignment: .center, spacing: Theme.s2) {
+                Text("\(specimen.numberLabel) · \(specimen.kind.breaksLine(fractureCount: specimen.fractureCount))".gluingDotSeparators)
+                    .font(Theme.micro)
+                    .tracking(Theme.microTracking * 0.4)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .fixedSize()
+                Spacer(minLength: Theme.s2)
+                if !shown.isEmpty {
+                    // As many whole badges as fit, then "+N MORE": never a cut-off word.
+                    ViewThatFits(in: .horizontal) {
+                        ForEach(Array(stride(from: shown.count, through: 1, by: -1)), id: \.self) { count in
+                            badgeRow(Array(shown.prefix(count)), hidden: shown.count - count)
+                        }
+                        badgeRow([], hidden: shown.count)
+                    }
+                }
+            }
+            .frame(minHeight: 18)
             HStack(alignment: .center, spacing: Theme.s3) {
                 BeforeAfterGlyph(kind: specimen.kind, ratio: measure.before > 0 ? after / measure.before : 1)
                     .frame(width: 44, height: 22)
@@ -149,20 +184,11 @@ struct RevealTicket: View {
                     .foregroundStyle(Theme.ink)
                     .monospacedDigit()
                     .fixedSize()
-                Spacer(minLength: Theme.s2)
-                if !badges.isEmpty {
-                    // As many whole badges as fit, then "+N MORE": never a cut-off word.
-                    ViewThatFits(in: .horizontal) {
-                        ForEach(Array(stride(from: shown.count, through: 1, by: -1)), id: \.self) { count in
-                            badgeRow(Array(shown.prefix(count)), hidden: shown.count - count)
-                        }
-                        Color.clear.frame(width: 1, height: 1)
-                    }
-                }
+                Spacer(minLength: 0)
             }
         }
         .padding(.horizontal, Theme.s4)
-        .padding(.vertical, 9)
+        .padding(.vertical, 7)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.paper).elevation(.e2)
         }
@@ -179,11 +205,12 @@ struct RevealTicket: View {
     private func badgeRow(_ list: [RevealBadge], hidden: Int) -> some View {
         HStack(spacing: 5) {
             ForEach(list) { badge in
-                TraitChip(text: badge.text, systemImage: badge.symbol, tone: badge.tone)
-                    .fixedSize()
+                TicketChip(text: badge.text, symbol: badge.symbol, tone: badge.tone)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
-            if hidden > 0 {
+            if hidden > 0 && list.isEmpty {
+                TicketChip(text: hidden == 1 ? "1 BADGE" : "\(hidden) BADGES", symbol: "star.fill", tone: .perfect)
+            } else if hidden > 0 {
                 Text("+\(hidden) MORE")
                     .font(Theme.micro)
                     .foregroundStyle(Theme.inkSecondary)

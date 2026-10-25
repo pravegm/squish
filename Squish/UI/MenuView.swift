@@ -48,7 +48,8 @@ struct MenuPanel: View {
             .accessibilityHint("Back to the press.")
             LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.s2), GridItem(.flexible())], spacing: Theme.s2) {
                 item(.objects, "Objects", "The museum", "square.stack.3d.up.fill")
-                item(.shelf, "Shelf", "\(collection.pressedKindsCount)/\(ObjectKind.allCases.count) pressed", "square.grid.2x2.fill")
+                item(.shelf, "Shelf", collection.pressedKindsCount == 0 ? "Empty so far" : "\(collection.pressedKindsCount) pressed",
+                     "square.grid.2x2.fill")
                 item(.howTo, "How to press", "Show me again", "questionmark.circle.fill")
                 item(.settings, "Settings", "Sound, haptics", "gearshape.fill")
             }
