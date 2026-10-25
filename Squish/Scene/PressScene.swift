@@ -258,7 +258,9 @@ final class PressScene {
         let contactT = Float(engine.mapping.contactT)
         let renderDepth = Float(engine.renderDepth)
         let renderC = Float(engine.renderCompression)
-        let visualC = Float(engine.visualCompression)
+        // The object's own deformation: the hand's (height locked to it), held through the hush and hit stop, then the
+        // give collapsing ahead of the hand for 60–80 ms (`PressEngine.objectCompression`, EXPERIENCE-REVIEW-1 #1).
+        let visualC = Float(engine.objectCompression)
         let rest = view.restHeight
         let start = PressRig.homeFace
         let approach = clamp(renderDepth / max(contactT, 0.01), 0, 1)
@@ -289,9 +291,12 @@ final class PressScene {
             objectDt = 0
         }
         if engine.breakPhase == .hitStop { objectDt = 0 }
-        let state = makeState(compression: visualC, ramCompression: renderC, approach: approach, dt: objectDt,
+        var state = makeState(compression: visualC, ramCompression: renderC, approach: approach, dt: objectDt,
                               loaded: engine.isLoaded, closingSpeed: Float(engine.closingSpeed),
                               reduceMotion: context.reduceMotion, phase: engine.phase)
+        state.resistanceBulge = Float(engine.resistanceStrain)
+        state.collapseLead = Float(engine.collapseLead)
+        state.sealing = Float(engine.sealProgress)
         lastState = state
         if objectDt > 0 || state.compression == 0 {
             view.update(state)
@@ -825,7 +830,8 @@ final class PressScene {
                 offset += frozenTremor
             } else {
                 let a = Self.tremorAmplitude(tell: tell, held: engine.isHeldUnderLoad, tension: Float(engine.tension),
-                                             phase: phase)
+                                             strain: Float(engine.resistanceStrain), phase: phase,
+                                             rest: objectView?.restHeight ?? 0.05)
                 let w = clock * 2 * .pi * 14
                 frozenTremor = a > 0 ? SIMD3<Float>(a * sin(w), 0, a * 0.6 * sin(w * 1.37 + 0.7)) : .zero
                 offset += frozenTremor
@@ -841,6 +847,20 @@ final class PressScene {
             if resting {
                 scale.y *= 1 + style.breathing * sin(clock * 2 * .pi * 0.35)
             }
+        }
+        // The fight (EXPERIENCE-REVIEW-1 #1): the object bulges sideways as it resists (height untouched, so it stays
+        // locked to the hand), and on the seal stroke the crush creeps a little flatter and wider as the lid clamps.
+        let strain = Float(engine.resistanceStrain)
+        if strain > 0 {
+            let bulge = 1 + Float(engine.resistance.bulge) * strain
+            scale.x *= bulge
+            scale.z *= bulge
+        }
+        let seal = Float(engine.sealProgress)
+        if seal > 0 {
+            scale.y *= 1 - 0.04 * seal
+            scale.x *= 1 + 0.03 * seal
+            scale.z *= 1 + 0.03 * seal
         }
         objectSlot.position = offset
         objectSlot.scale = scale * Float(inspection.zoom)
@@ -943,17 +963,23 @@ final class PressScene {
         return context.reduceMotion ? 0 : 0.004 * wave
     }
 
-    /// Object-local tremor amplitude (metres; ~1–3 px at our framing). Pure, for tests.
-    static func tremorAmplitude(tell: Bool, held: Bool, tension: Float, phase: BreakPhase) -> Float {
+    /// Object-local tremor amplitude (scene units), as a share of the object's rest height `rest` so it reads the same
+    /// on every object and on both machines: ~2–4 px on the Duo anvil at full strain (EXPERIENCE-REVIEW-1 #1: the old
+    /// mm-scale tremor was invisible). It rises with the fight toward the break, peaks in the hush and is frozen in the
+    /// hit stop. Pure, for tests.
+    static func tremorAmplitude(tell: Bool, held: Bool, tension: Float, strain: Float, phase: BreakPhase,
+                                rest: Float) -> Float {
         switch phase {
         case .hush:
-            return 0.0005
+            return rest * 0.025
         case .hitStop, .slowDebris, .settle:
             return 0
         case .none:
             var a: Float = 0
-            if tell { a = max(a, 0.00025) }
-            if held { a = max(a, 0.00018 * clamp(tension, 0, 1)) }
+            if tell { a = max(a, rest * 0.010) }
+            if held { a = max(a, rest * 0.006 * clamp(tension, 0, 1)) }
+            let s = clamp(strain, 0, 1)
+            if s > 0 { a = max(a, rest * 0.02 * s * s) }
             return a
         }
     }
@@ -1035,7 +1061,7 @@ final class PressScene {
             } else if kind == .unsquishable {
                 tons = 10 + (dialMax - 10) * min(1, renderC * 1.6)
             } else {
-                tons = Float(PressGauge.liveTons(compression: Double(renderC), seed: variant.seed))
+                tons = Float(PressGauge.liveTons(kind: kind, compression: Double(renderC), seed: variant.seed))
             }
             peakTons = max(peakTons, tons)
         case .sealed:

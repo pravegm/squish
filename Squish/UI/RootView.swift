@@ -669,7 +669,7 @@ struct RootView: View {
 
     /// The gauge's reading right now, on the same scale as the card's tonnage.
     private var liveTons: Int {
-        min(80, 10 + Int(director.engine.measuredCompression * 44))
+        Int(director.engine.liveTons.rounded())   // the force on the press (`Tonnage`), as the gauge shows it
     }
 
     // MARK: - Reveal (S5) and collect (S6)

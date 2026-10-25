@@ -161,7 +161,9 @@ final class PressEngine {
     /// Touch on the object is allowed: nothing is pressed (open and resting, or idle). Never during a press, the
     /// seal or the reveal.
     var canInspect: Bool {
-        (phase == .idle || phase == .armed) && measuredDepth < 0.01 && !isClosed
+        // Before the press, and the crushed specimen after it (EXPERIENCE-REVIEW-1 #8). The scene also waits for a
+        // replay to hand back.
+        ((phase == .idle || phase == .armed) && measuredDepth < 0.01 || phase == .revealing) && !isClosed
     }
 
     /// A flick set the object spinning (`turnsPerSecond`): emits `.spin` if inspection is allowed and it is a spin.
@@ -237,6 +239,8 @@ final class PressEngine {
     @ObservationIgnored private var burstAt: Double?
     /// The eye's compression, frozen from the crossing to the burst (hush + hit stop); the give releases from it.
     @ObservationIgnored private var heldEyeCompression: Double?
+    /// Seal-stroke latches fired this press (0…2).
+    @ObservationIgnored private var latchesFired = 0
     /// The hinge angle at which this press reaches its failure threshold (for the tell's lead).
     @ObservationIgnored private var failureThresholdAngle: Double?
     @ObservationIgnored private var pendingBeats: [(time: Double, beat: PressBeat)] = []
@@ -335,6 +339,7 @@ final class PressEngine {
         crossedAt = nil
         burstAt = nil
         heldEyeCompression = nil
+        latchesFired = 0
         failureThresholdAngle = nil
         pendingBeats = []
         nextCreakAt = nil
@@ -544,6 +549,7 @@ final class PressEngine {
         }
         updateTension(at: now)
         updateHingePower(dt: dt)
+        trackLatches()
 
         // The render depth follows the drawn hinge directly: no spring on the hand's path (a spring is pure lag),
         // only on real jumps (arming, the seal, the reveal on the touch press). The give's 80 ms ramp is its own.
@@ -575,7 +581,6 @@ final class PressEngine {
             spring.velocity = 0
         } else {
             var omega = config.springOmega
-            if let since = sinceBurst, since < resistance.give + 0.06, resistance.lags { omega = max(omega, 70) }
             spring.step(toward: target, omega: omega, dt: dt)
         }
         renderDepth = clamp(spring.value, 0, 1)
@@ -612,24 +617,89 @@ final class PressEngine {
 
     // MARK: - Feel (Core/PressFeel.swift)
 
-    /// The compression the eye sees for hand compression `c`: 1:1, then lagging inside the resistance window, frozen
-    /// from the crossing through the hit stop, then released to the hand over `resistance.give` at the burst.
-    func eyeCompression(_ c: Double) -> Double {
-        guard resistance.lags, let failure = failureThreshold else { return c }
-        if let since = sinceBurst {
-            return resistance.released(from: heldEyeCompression ?? c, to: c, after: since)
-        }
-        let lagged = resistance.lagged(c, failure: failure)
-        if let held = heldEyeCompression { return min(held, lagged) }
-        return lagged
+    /// The render path's compression for hand compression `c`: the hand, always (EXPERIENCE-REVIEW-1 #1: the height is
+    /// locked to the hand; the fight is `resistanceStrain` and the give is `objectCompression`).
+    func eyeCompression(_ c: Double) -> Double { c }
+
+    private func depth(atCompression c: Double) -> Double {
+        let m = mapping
+        return m.contactT + (1 - m.contactT) * clamp(c, 0, 1)
     }
 
-    /// `eyeCompression` as a depth (the free approach before contact is untouched).
-    private func eyeDepth(_ depth: Double) -> Double {
-        let contact = mapping.contactT
-        guard depth > contact, contact < 1 else { return depth }
-        let c = (depth - contact) / (1 - contact)
-        return contact + (1 - contact) * eyeCompression(min(c, 1))
+    /// The render depth for a hand depth: the hand.
+    private func eyeDepth(_ depth: Double) -> Double { depth }
+
+    /// 0…1: how hard the object fights right now (`PressResistance.strain` on the hand), held at its peak through the
+    /// hush and hit stop, released over the give. Drives the side bulge, the push-back, the tremor and the lid shadow.
+    var resistanceStrain: Double {
+        guard resistance.fights, let failure = failureThreshold else { return 0 }
+        if let since = sinceBurst {
+            guard since < resistance.give else { return 0 }
+            return 1 - since / resistance.give
+        }
+        if crossedAt != nil { return 1 }
+        guard phase == .pressing else { return 0 }
+        return resistance.strain(measuredCompression, failure: failure)
+    }
+
+    /// The give's over-collapse right now (compression ahead of the hand; 0 outside the 60–80 ms after the burst).
+    var collapseLead: Double {
+        guard let since = sinceBurst else { return 0 }
+        return resistance.lead(after: since)
+    }
+
+    /// The object's own deformation compression: the hand's (with its plastic part), held where it was when the hand
+    /// crossed the failure through the hush and hit stop (the hit stop is the object only), then the give: it catches
+    /// up and collapses ahead of the hand by `collapseLead`, then locks back on. Never behind the hand otherwise.
+    var objectCompression: Double {
+        let c = visualCompression
+        guard resistance.fights, failureThreshold != nil, let held = heldEyeCompression else { return c }
+        if crossedAt != nil, sinceBurst == nil { return min(held, c) }
+        if let since = sinceBurst, since < resistance.give {
+            return min(1, resistance.released(from: min(held, c), to: c, after: since) + resistance.lead(after: since))
+        }
+        return c
+    }
+
+    /// 0…1 over the seal stroke (EXPERIENCE-REVIEW-1 #7): a fully crushed fold closing on from the fully crushed angle
+    /// to the real shut. 1 once sealed. Sound and haptics can build on it into the ka-chunk; the scene creeps the crush.
+    var sealProgress: Double {
+        if phase == .sealed || phase == .revealing { return phase == .sealed ? 1 : 0 }
+        guard phase == .pressing, bottomFired, lastSampleVirtual == false else { return 0 }
+        let span = config.endAngle - config.shutAngle
+        guard span > 1 else { return 1 }
+        return clamp((config.endAngle - displayAngle) / span, 0, 1)
+    }
+
+    /// The force on the press right now, in tons (`Tonnage`, EXPERIENCE-REVIEW-1 #4): it climbs as the object fights,
+    /// drops when it gives, climbs again as the remains compact; sealed, the press's peak (what the card prints).
+    var liveTons: Double {
+        guard let kind else { return 0 }
+        switch phase {
+        case .sealed, .revealing:
+            return Double(Tonnage.record(kind: kind, maxCompression: lastResult?.maxCompression ?? maxCompression,
+                                         seed: seed))
+        case .pressing:
+            return Tonnage.live(kind: kind, compression: measuredCompression, seed: seed, failed: crossedAt != nil)
+        case .idle, .armed:
+            return 0
+        }
+    }
+
+    /// The latch angles of the seal stroke: a third and two thirds of the way from the fully crushed to the shut angle.
+    var latchAngles: [Double] {
+        let span = config.endAngle - config.shutAngle
+        return [config.endAngle - span / 3, config.endAngle - 2 * span / 3]
+    }
+
+    /// Fires `.latch` once per angle as the crushed fold closes past it.
+    private func trackLatches() {
+        guard phase == .pressing, bottomFired, lastSampleVirtual == false, latchesFired < 2 else { return }
+        let angles = latchAngles
+        while latchesFired < angles.count, displayAngle <= angles[latchesFired] {
+            onBeat?(.latch(index: latchesFired, angle: angles[latchesFired]))
+            latchesFired += 1
+        }
     }
 
     /// Tension you can hold (EXPERIENCE-2 §A1.3): the level never decays on a hold, and a held, loaded press creaks
@@ -791,7 +861,8 @@ final class PressEngine {
             if index == material.failureIndex {
                 // Break part 1, the hush. The eye freezes at peak strain (lagged) until the burst gives.
                 failureAngle = θ
-                heldEyeCompression = resistance.lags ? resistance.lagged(c, failure: thresholds[index]) : nil
+                // The object (only) is held where the hand crossed, through the hush and hit stop.
+                heldEyeCompression = resistance.fights ? PressMapping.compression(depth: max(plasticDepth, depth(atCompression: c)), config: mapping) : nil
                 crossedAt = time
                 isTelling = false
                 emit(.hush)

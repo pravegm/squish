@@ -12,6 +12,10 @@ struct FoldInstruments {
     var power: Double = 1
     /// Points the hazard stripes have slid (the ratchet: one stripe per detent), unwrapped.
     var stripeOffset: Double = 0
+    /// 0…1: the gauge grown from the crown's corner to its hero place, big and central (EXPERIENCE-REVIEW-1 #4).
+    var hero: Double = 0
+    /// What the nameplate reads, in tons (nil: blank). Never the hinge angle.
+    var readoutTons: Int? = nil
 }
 
 /// "The phone becomes the press" (§5): the 40 pt graphite crease band, the anvil's back lips, the yellow rails
@@ -43,6 +47,12 @@ final class FoldBezel {
     private let creaseShadePlaten = CAGradientLayer()
     private var readyLabelImage: CGImage?
     private var loadLabelImage: CGImage?
+    /// The gauge's layers live in one group, so the hero move is one transform.
+    private let gaugeGroup = CALayer()
+    private var gaugeHome = CGPoint.zero
+    private var gaugeHeroCentre = CGPoint.zero
+    /// The hero gauge's diameter (pt); the corner gauge is `gaugeSize` (60).
+    static let heroDiameter: CGFloat = 104
     private let gaugeFace = CALayer()
     private let gaugeRing = CAShapeLayer()
     private let needle = CAShapeLayer()
@@ -102,6 +112,8 @@ final class FoldBezel {
         loadLabel.contents = loadLabelImage
         platenFoot.backgroundColor = Palette.graphite.cgColor
         layer.insertSublayer(platenFoot, above: console)
+        for l in [gaugeFace, gaugeRing, needle, hub, gaugeGlass, gaugeCrack] as [CALayer] { gaugeGroup.addSublayer(l) }
+        layer.addSublayer(gaugeGroup)
         layer.insertSublayer(plateShade, at: 0)
         vignette.type = .radial
         vignette.colors = [UIColor(white: 0, alpha: 0).cgColor, UIColor(white: 0, alpha: 0).cgColor,
@@ -200,10 +212,16 @@ final class FoldBezel {
         let cr = layout.crownStrip
         crown.frame = cr
         console.frame = layout.consoleBand
-        let gaugeCentre = CGPoint(x: cr.minX + 38, y: cr.midY)
         let gaugeSize: CGFloat = 60   // FOLD-REVIEW-1 #15: 56 → 60 pt (the 64 pt strip leaves a 2 pt margin)
-        gaugeFace.contents = FoldTextures.gaugeFace(diameter: gaugeSize - 6)
-        let gaugeRect = CGRect(x: gaugeCentre.x - gaugeSize / 2, y: gaugeCentre.y - gaugeSize / 2, width: gaugeSize, height: gaugeSize)
+        // The group is the gauge's square; its children use the square's own coordinates.
+        gaugeHome = CGPoint(x: cr.minX + 38, y: cr.midY)
+        gaugeHeroCentre = CGPoint(x: cr.midX, y: cr.minY + Self.heroDiameter / 2 - 2)
+        gaugeGroup.bounds = CGRect(x: 0, y: 0, width: gaugeSize, height: gaugeSize)
+        gaugeGroup.position = gaugeHome
+        gaugeGroup.setAffineTransform(.identity)
+        let gaugeCentre = CGPoint(x: gaugeSize / 2, y: gaugeSize / 2)
+        gaugeFace.contents = FoldTextures.gaugeFace(diameter: Self.heroDiameter - 10)   // drawn for the hero size
+        let gaugeRect = CGRect(x: 0, y: 0, width: gaugeSize, height: gaugeSize)
         gaugeFace.frame = gaugeRect.insetBy(dx: 3, dy: 3)
         gaugeFace.cornerRadius = (gaugeSize - 6) / 2
         gaugeFace.masksToBounds = true
@@ -291,7 +309,8 @@ final class FoldBezel {
         // hinge): it gathers from 160° and is gone by the reveal's open lid.
         let lid = 0.75 * clamp((160 - f.angle) / 110, 0, 1)
         let a = max(clamp(f.approach, 0, 1), lid)
-        plateShade.opacity = Float(0.18 * a * a)
+        // The fight and the clamp tighten the lid's shadow (EXPERIENCE-REVIEW-1 #1, #7).
+        plateShade.opacity = Float(min(0.42, 0.18 * a * a + 0.14 * clamp(f.strain, 0, 1) + 0.12 * clamp(f.sealing, 0, 1)))
         vignette.opacity = Float(Self.vignetteMax * clamp(f.vignette, 0, 1))
         // Power with the hinge: the instruments dim as the phone closes outside a press, and light as it opens.
         let lit = Float(0.3 + 0.7 * clamp(instruments.power, 0, 1))
@@ -312,23 +331,30 @@ final class FoldBezel {
             pilotLamp.contents = pilotImages[load]
             lampState = (instruments.ready, instruments.load)
         }
-        updateReadout(f)
+        updateReadout(instruments)
+        // The hero gauge: grown from the corner to the crown's centre while pressing and sealing.
+        let h = CGFloat(clamp(instruments.hero, 0, 1))
+        let k = h * h * (3 - 2 * h)
+        let scale = 1 + (Self.heroDiameter / 60 - 1) * k
+        gaugeGroup.position = CGPoint(x: gaugeHome.x + (gaugeHeroCentre.x - gaugeHome.x) * k,
+                                      y: gaugeHome.y + (gaugeHeroCentre.y - gaugeHome.y) * k)
+        gaugeGroup.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
         updateStrands(f)
     }
 
     /// The live hinge angle in whole degrees, ticking with θ; frozen in stamp red at the failure angle until the next
     /// object (FOLD-REVIEW-3 N7).
-    private func updateReadout(_ f: FoldFrame) {
-        let value = f.failureAngle ?? f.angle
-        guard value.isFinite else { return }
-        let degrees = Int(min(max(value, 0), 180).rounded())
-        let red = f.failureAngle != nil
-        let key = degrees * 2 + (red ? 1 : 0)
+    private func updateReadout(_ instruments: FoldInstruments) {
+        // Tons are for people (EXPERIENCE-REVIEW-1 #4): the nameplate reads the force, never the hinge angle (and never
+        // a frozen red failure angle at the reveal). Hidden behind the hero gauge while it is up.
+        readout.opacity = instruments.hero > 0.5 ? 0 : 1
+        let tons = min(max(instruments.readoutTons ?? -1, -1), 999)
+        let key = tons
         guard key != readoutKey else { return }
         readoutKey = key
         if readoutImages[key] == nil {
             if readoutImages.count > 96 { readoutImages.removeAll() }
-            readoutImages[key] = FoldTextures.engraved("\(degrees)°", fontSize: 16, red: red)
+            readoutImages[key] = tons < 0 ? nil : FoldTextures.engraved("\(tons) T", fontSize: 16, red: false)
         }
         let image = readoutImages[key]
         readout.contents = image

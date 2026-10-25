@@ -530,10 +530,11 @@ struct FoldPressTests {
                         #expect(Double(record.tons) > PressGauge.maxTons)
                         continue
                     }
-                    #expect(record.tons >= 0 && Double(record.tons) < PressGauge.redZoneTons)
-                    // The live needle arrives on it once past the seed's ramp (to within the integer truncation).
-                    if step >= 5 {
-                        #expect(abs(PressGauge.liveTons(compression: c, seed: seed) - Double(record.tons)) < 1.0001)
+                    #expect(record.tons >= 1 && Double(record.tons) < PressGauge.redZoneTons)
+                    // The live needle (the force) arrives on it at full crush (to within the rounding).
+                    if step == 20 {
+                        let live = PressGauge.liveTons(kind: kind, compression: 1, seed: seed, failed: true)
+                        #expect(abs(live - Double(record.tons)) <= 0.5001, "\(kind) \(live) vs \(record.tons)")
                     }
                 }
             }
@@ -820,13 +821,18 @@ struct FoldPressTests {
 
     @Test func burstLooksAndTremorFollowTheScore() {
         // The tremor peaks in the hush and is frozen (held) through the hit stop, never above ~3 px.
-        let hush = PressScene.tremorAmplitude(tell: true, held: true, tension: 1, phase: .hush)
-        let tell = PressScene.tremorAmplitude(tell: true, held: false, tension: 0, phase: .none)
-        let held = PressScene.tremorAmplitude(tell: false, held: true, tension: 0.5, phase: .none)
-        #expect(hush > tell && tell > held && held > 0)
-        #expect(PressScene.tremorAmplitude(tell: true, held: true, tension: 1, phase: .hitStop) == 0)
-        #expect(hush <= 0.0006)
-        #expect(PressScene.tremorAmplitude(tell: false, held: false, tension: 1, phase: .none) == 0)
+        let rest: Float = 0.06
+        let hush = PressScene.tremorAmplitude(tell: true, held: true, tension: 1, strain: 1, phase: .hush, rest: rest)
+        let fight = PressScene.tremorAmplitude(tell: false, held: false, tension: 0, strain: 1, phase: .none, rest: rest)
+        let early = PressScene.tremorAmplitude(tell: false, held: false, tension: 0, strain: 0.3, phase: .none, rest: rest)
+        let tell = PressScene.tremorAmplitude(tell: true, held: false, tension: 0, strain: 0, phase: .none, rest: rest)
+        let held = PressScene.tremorAmplitude(tell: false, held: true, tension: 0.5, strain: 0, phase: .none, rest: rest)
+        #expect(hush > fight && fight > tell && tell > held && held > 0)
+        #expect(early < fight)   // it rises toward the break
+        #expect(PressScene.tremorAmplitude(tell: true, held: true, tension: 1, strain: 1, phase: .hitStop, rest: rest) == 0)
+        // Visible: at full strain ~2 % of the rest height, which is ~3 px on the Duo anvil (24 mm ↔ the rest height).
+        #expect(fight >= rest * 0.015 && hush <= rest * 0.03)
+        #expect(PressScene.tremorAmplitude(tell: false, held: false, tension: 1, strain: 0, phase: .none, rest: rest) == 0)
         // Soft things squash under a poke, hard ones rattle.
         #expect(PressScene.pokeSoftness(.jelly) > PressScene.pokeSoftness(.egg))
         #expect(PressScene.pokeSoftness(.egg) > PressScene.pokeSoftness(.unsquishable))

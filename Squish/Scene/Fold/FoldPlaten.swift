@@ -29,6 +29,10 @@ struct FoldFrame {
     /// 0…1: the anvil's edges darken as the tension narrows attention onto the object (the tell, a held press, the
     /// hush; EXPERIENCE-2 §A3.1: 0 → 12 % edge darkening).
     var vignette: Double = 0
+    /// 0…1: the object fighting the plate (`PressEngine.resistanceStrain`): the lid's shadow tightens on the anvil.
+    var strain: Double = 0
+    /// 0…1 over the seal stroke (`PressEngine.sealProgress`): the lid clamps down.
+    var sealing: Double = 0
 }
 
 /// One object's print on the platen (§9.5 items 5–7), in print space: approach shadows, the growing ink (masked by a

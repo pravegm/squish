@@ -471,55 +471,151 @@ struct PressEngineTests {
         return nil
     }
 
-    /// Sync fix (founder, real Duo 1.0 (3)): the geometry never trails the hand by more than ~2°. The resistance lag
-    /// is a hint over the last 0.03 c (≤ ~0.25°); measured depth stays the hand; the give still releases at the burst.
-    @Test func lagThenGiveIsRenderSideOnly() throws {
+    /// Fight, then give (EXPERIENCE-REVIEW-1 #1), without breaking sync: the render depth (ram, print, gauge) stays on
+    /// the hand within 2°; the fight is the strain (bulge, push-back, tremor, lid shadow), rising over the window before
+    /// the failure; at the burst the object collapses ahead of the hand for 60–80 ms, then locks back on.
+    @Test func fightThenGiveStaysLockedToTheHand() throws {
         let timeline = Timeline()
         let engine = timedEngine(.glassBottle, timeline)
         let failure = try #require(engine.failureThreshold)
-        let target = failure - 0.01
+        let resistance = engine.resistance
+        let target = failure - resistance.window / 2
         let held = angle(engine, compression: target)
         var time = drive(engine, timeline, from: 180, to: held, duration: 3, startTime: 0)
         time = drive(engine, timeline, from: held, to: held, duration: 0.6, startTime: time)
-        #expect(engine.phase == .pressing)
+        #expect(engine.phase == .pressing && timeline.time(of: .hush) == nil)
         #expect(abs(engine.measuredCompression - target) < 0.01)   // the hand, exactly
-        #expect(timeline.time(of: .hush) == nil)
         let span = PressConfig.standard.contactCeiling - PressConfig.standard.endAngle
-        let trailDegrees = (engine.measuredCompression - engine.renderCompression) * span
-        #expect(trailDegrees >= -0.5 && trailDegrees <= 2, "trails \(trailDegrees)°")
-        #expect(abs(engine.eyeCompression(engine.measuredCompression) - engine.renderCompression) < 0.01)
-        for kind in ObjectKind.allCases {
-            #expect(PressResistance.of(kind).maxTrail * span <= 0.3, "\(kind)")
+        #expect(abs(engine.measuredCompression - engine.renderCompression) * span <= 2)
+        #expect(abs(engine.objectCompression - engine.visualCompression) < 1e-9)   // the object too, before the break
+        let strain = engine.resistanceStrain
+        #expect(strain > 0.2 && strain < 0.8, "half-way into the window: \(strain)")
+        // Through the failure, a frame at a time: held through the hush and hit stop, then ahead of the hand.
+        let past = angle(engine, compression: failure + 0.08)
+        var sawHold = false, sawLead = false, maxLead = 0.0
+        for k in 1...60 {
+            let now = time + Double(k) / rate
+            timeline.now = now
+            let a = held + (past - held) * min(Double(k) / 8, 1)
+            engine.ingest(angle: a, closed: false, at: now)
+            engine.step(now: now, dt: 1 / rate)
+            if engine.breakPhase == .hitStop {
+                sawHold = engine.objectCompression < engine.visualCompression - 0.01 || sawHold
+                #expect(engine.resistanceStrain == 1)
+            }
+            if let since = engine.sinceBurst, since < resistance.give {
+                maxLead = max(maxLead, engine.collapseLead)
+                if engine.objectCompression > engine.visualCompression + 0.01 { sawLead = true }
+            }
+            #expect(abs(engine.measuredCompression - engine.renderCompression) * span <= 2.5)   // never trails
         }
-        // Through the failure: hush, hit stop (frozen), burst, then the give catches up with the hand.
-        let past = angle(engine, compression: failure + 0.05)
-        time = drive(engine, timeline, from: held, to: past, duration: 0.2, startTime: time)
-        time = drive(engine, timeline, from: past, to: past, duration: 0.6, startTime: time)
-        let burst = try #require(timeline.time(of: .fracture(index: 1, isFailure: true)))
-        #expect(time - burst > 0.25)
-        #expect(abs(engine.renderCompression - engine.measuredCompression) < 0.01)
-        // The material ordering of the hint: glass most, jelly and bubble wrap none.
-        #expect(PressResistance.of(.glassBottle).gain < PressResistance.of(.rubberDuck).gain)
-        #expect(!PressResistance.of(.jelly).lags)
-        #expect(!PressResistance.of(.bubbleWrap).lags)
+        time += 60 / rate
+        #expect(sawHold, "the object is held through the hit stop")
+        #expect(sawLead, "the object collapses ahead of the hand at the give")
+        #expect(maxLead > 0.5 * resistance.collapse && maxLead <= resistance.collapse + 1e-9)
+        #expect(abs(engine.objectCompression - engine.visualCompression) < 1e-9)   // locked back on
+        #expect(engine.resistanceStrain == 0 && engine.collapseLead == 0)
+        _ = time
     }
 
-    @Test func resistanceMathIsContinuousMonotonicAndGives() {
+    @Test func resistanceMathRampsAndGives() {
         for kind in ObjectKind.allCases {
             let r = PressResistance.of(kind)
             let f = 0.5
             var previous = -1.0
             for i in 0...200 {
                 let c = Double(i) / 200
-                let v = r.lagged(c, failure: f)
-                #expect(v <= c + 1e-12 && v >= previous - 1e-12, "\(kind) c=\(c)")
+                let v = r.strain(c, failure: f)
+                #expect(v >= previous - 1e-12 && v >= 0 && v <= 1, "\(kind) c=\(c)")
                 previous = v
             }
-            // Continuous at the window start; the give lands on the hand at `give`, ease-out (past halfway at half).
-            #expect(abs(r.lagged(f - r.window, failure: f) - (f - r.window)) < 1e-12)
+            if r.fights {
+                #expect(r.strain(f - r.window, failure: f) == 0 && r.strain(f, failure: f) == 1)
+                #expect(r.give >= 0.06 && r.give <= 0.08)
+            }
+            #expect(r.lead(after: -0.01) == 0 && r.lead(after: r.give) == 0)
             #expect(r.released(from: 0.4, to: 0.6, after: r.give) == 0.6)
             #expect(r.released(from: 0.4, to: 0.6, after: r.give / 2) > 0.5)
         }
+        // The stiff ones bulge and give the most; bubble wrap never fights; the ball fights and never gives.
+        #expect(PressResistance.of(.glassBottle).collapse > PressResistance.of(.jelly).collapse)
+        #expect(PressResistance.of(.sodaCan).bulge >= 0.15)
+        #expect(!PressResistance.of(.bubbleWrap).fights)
+        #expect(PressResistance.of(.unsquishable).collapse == 0)
+    }
+
+    /// Tons that mean something (EXPERIENCE-REVIEW-1 #4): per material and per press. The force climbs as the object
+    /// fights, drops when it gives, and the card prints the peak.
+    @Test func tonnageTellsTheObjectsStory() {
+        func tons(_ kind: ObjectKind) -> Int { Tonnage.record(kind: kind, maxCompression: 1, seed: 5) }
+        #expect(tons(.jelly) < tons(.bubbleWrap) && tons(.bubbleWrap) < tons(.egg))
+        #expect(tons(.egg) < tons(.sodaCan) && tons(.sodaCan) < tons(.glassBottle))
+        #expect(Double(tons(.glassBottle)) < PressGauge.redZoneTons)
+        #expect(Double(tons(.unsquishable)) > PressGauge.maxTons)
+        for kind in ObjectKind.allCases where kind != .unsquishable {
+            for seed in UInt64(0)..<30 {
+                let t = Double(Tonnage.record(kind: kind, maxCompression: 1, seed: seed))
+                let r = Tonnage.rated(kind)
+                #expect(t >= (r * 0.9).rounded(.down) && t <= (r * 1.1).rounded(.up), "\(kind) \(t) t")
+                guard let f = Tonnage.failure(kind, seed: seed) else { continue }
+                let before = Tonnage.live(kind: kind, compression: f - 0.001, seed: seed, failed: false)
+                let after = Tonnage.live(kind: kind, compression: f + 0.001, seed: seed, failed: true)
+                #expect(after < before * 0.6, "\(kind): the needle drops when it gives")
+                #expect(Tonnage.live(kind: kind, compression: f * 0.5, seed: seed) < before * 0.5)
+            }
+        }
+        // No two everyday objects read the same any more (was 54–59 t across the board).
+        let distinct = Set([ObjectKind.bubbleWrap, .egg, .rubberDuck, .crayon, .sodaCan, .glassBottle].map(tons))
+        #expect(distinct.count == 6)
+    }
+
+    /// The seal stroke (EXPERIENCE-REVIEW-1 #7): after full compression the crushed fold keeps reading as sealing:
+    /// `sealProgress` ramps 0 → 1 toward the real shut, two latches click at ~40° and ~25°, then the ka-chunk. And the
+    /// mapping holds with the fully crushed angle at 48° (a Tuning Lab slider): every break still lit.
+    @Test func sealStrokeBuildsToTheKaChunk() {
+        let timeline = Timeline()
+        let engine = timedEngine(.rubberDuck, timeline)
+        let latches = engine.latchAngles
+        #expect(abs(latches[0] - 40) < 0.01 && abs(latches[1] - 25) < 0.01)
+        var time = drive(engine, timeline, from: 180, to: 50, duration: 4, startTime: 0)
+        time = drive(engine, timeline, from: 50, to: 50, duration: 0.3, startTime: time)
+        #expect(engine.phase == .pressing && engine.sealProgress > 0 && engine.sealProgress < 0.2)
+        time = drive(engine, timeline, from: 50, to: 30, duration: 1, startTime: time)
+        let mid = engine.sealProgress
+        #expect(mid > 0.4 && mid < 0.75)
+        time = drive(engine, timeline, from: 30, to: 5, duration: 1, startTime: time, closedAtEnd: true)
+        let fired = timeline.beats.compactMap { b -> Int? in
+            if case let .latch(index, _) = b.beat { return index } else { return nil }
+        }
+        #expect(fired == [0, 1])
+        let lastLatch = timeline.beats.last { if case .latch = $0.beat { return true } else { return false } }
+        let kaChunk = timeline.time(of: .kaChunk)
+        #expect(lastLatch != nil && kaChunk != nil && (lastLatch?.time ?? 99) <= (kaChunk ?? 0))
+        #expect(engine.phase == .sealed && engine.sealProgress == 1)
+        _ = time
+
+        var config = PressConfig.standard
+        config.endAngle = 48
+        for kind in ObjectKind.allCases {
+            guard let index = kind.profile.failureIndex else { continue }
+            let worst = min(1, kind.profile.fractures[index] + kind.profile.thresholdJitter)
+            let angle = FoldCurve.angle(forCompression: worst, config: config)
+            #expect(angle >= config.displayOffAngle + 10, "\(kind) at end 48: fails at \(angle)°")
+        }
+    }
+
+    /// Inspect the crushed specimen (EXPERIENCE-REVIEW-1 #8): touch works again once the reveal is up.
+    @Test func crushedSpecimenCanBeInspectedOnTheReveal() {
+        let timeline = Timeline()
+        let engine = timedEngine(.jelly, timeline)
+        var time = drive(engine, timeline, from: 180, to: 5, duration: 3, startTime: 0, closedAtEnd: true)
+        time = drive(engine, timeline, from: 5, to: 5, duration: 0.3, startTime: time, closed: true)
+        #expect(engine.phase == .sealed && !engine.canInspect)
+        time = drive(engine, timeline, from: 5, to: 160, duration: 1, startTime: time)
+        #expect(engine.phase == .revealing && engine.canInspect)
+        engine.spun(turnsPerSecond: 1)
+        #expect(timeline.count { $0 == .spin(speed: 1) } == 1)
+        _ = time
     }
 
     /// The break scored in five parts: hush 50–80 ms, hit stop 70–140 ms, burst, debris at 0.3× for 250–400 ms, a

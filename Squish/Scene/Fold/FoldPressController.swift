@@ -99,6 +99,8 @@ final class FoldPressController {
     private var stripeShown: Double = 0
     /// Seconds into the needle's wake-up sweep after a power-up, nil when none is running.
     private var wakeAge: Double?
+    /// 0…1, eased: the gauge grown to the crown's centre (the hero gauge).
+    private var hero: Double = 0
     private var reduceMotion = false
 
     // Instruments (same feel as the P-48's, VISUAL-TARGET §4.4–4.5)
@@ -361,7 +363,8 @@ final class FoldPressController {
                                   reduceMotion: context.reduceMotion, dt: vdt)
         // The tell, a held press and the hush narrow attention onto the object (EXPERIENCE-2 §A3.1).
         let breakPhase = engine.breakPhase
-        var vignetteTarget = engine.isHeldUnderLoad ? 0.6 * engine.tension : 0
+        var vignetteTarget = max(engine.isHeldUnderLoad ? 0.6 * engine.tension : 0, 0.8 * engine.resistanceStrain,
+                                 engine.sealProgress)
         if tell || breakPhase == .hush || breakPhase == .hitStop { vignetteTarget = 1 }
         let vignetteHalfLife = vignetteTarget > vignette ? 0.08 : 0.25
         vignette += (vignetteTarget - vignette) * (1 - pow(0.5, vdt / vignetteHalfLife))
@@ -374,6 +377,8 @@ final class FoldPressController {
                               sweep: sweepPosition, inviting: sweepPosition != nil && revealAge == nil && !revealPending,
                               failureAngle: failureAngle)
         frame.vignette = vignette
+        frame.strain = engine.resistanceStrain
+        frame.sealing = engine.sealProgress
         platen.update(frame)
         // The escaped droplets land clear of the spreading specimen (FOLD-REVIEW-5): its live extent, 10 Hz.
         if anvil.hasSpray {
@@ -532,7 +537,9 @@ final class FoldPressController {
             } else if kind == .unsquishable {
                 tons = 10 + (dialMax - 10) * min(1, renderCompression * 1.6)
             } else {
-                tons = PressGauge.liveTons(compression: renderCompression, seed: variant.seed)
+                // The force (EXPERIENCE-REVIEW-1 #4): it climbs as the object fights, drops when it gives.
+                tons = PressGauge.liveTons(kind: kind, compression: renderCompression, seed: variant.seed,
+                                           failed: failureCompression != nil)
             }
             peakTons = max(peakTons, tons)
         case .sealed:
@@ -564,6 +571,9 @@ final class FoldPressController {
         let buzz = kind == .unsquishable && engine.phase != .revealing && engine.phase != .idle && tons >= dialMax
         if !reduceMotion {
             if tell { shown += 0.8 / 4.5 * sin(clock * 2 * .pi * 14) }
+            // The fight: the needle trembles harder as the object resists toward its break.
+            let strain = engine.resistanceStrain
+            if strain > 0 && !tell { shown += 1.6 / 4.5 * strain * sin(clock * 2 * .pi * 13) }
             // Tension you can hold: the needle quivers while the press is held still under load, never going dead.
             if engine.isHeldUnderLoad && !tell { shown += 0.5 / 4.5 * engine.tension * sin(clock * 2 * .pi * 11) }
             if slamming { shown += 3.5 * sin(clock * 2 * .pi * 19) * sin(clock * 2 * .pi * 3.1) }
@@ -590,8 +600,25 @@ final class FoldPressController {
         }
         // The ratchet's stripes ease one stripe per detent (70 ms), a visual tick.
         stripeShown += (stripeTarget - stripeShown) * (reduceMotion ? 1 : 1 - pow(0.5, dt / 0.025))
+        // The hero gauge (EXPERIENCE-REVIEW-1 #4): big and central on the lid half while pressing and sealing, back in
+        // the corner for the reveal. The nameplate reads tons, never the hinge angle: live while pressing, the peak after.
+        let heroTarget: Double
+        switch engine.phase {
+        case .pressing: heroTarget = engine.renderDepth >= engine.mapping.contactT * 0.6 ? 1 : 0
+        case .sealed: heroTarget = 1
+        case .idle, .armed, .revealing: heroTarget = 0
+        }
+        hero += (heroTarget - hero) * (reduceMotion ? 1 : 1 - pow(0.5, dt / 0.08))
+        var readout: Int?
+        switch engine.phase {
+        case .pressing: readout = kind == .unsquishable ? nil : Int(tons.rounded())
+        case .sealed, .revealing:
+            let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
+            readout = PressGauge.recordTons(kind: kind, maxCompression: maxC, seed: variant.seed)
+        case .idle, .armed: readout = nil
+        }
         return FoldInstruments(needle: shown, ready: ready, load: load, power: engine.hingePower,
-                               stripeOffset: stripeShown)
+                               stripeOffset: stripeShown, hero: hero, readoutTons: readout)
     }
 
     /// The hinge as a living control (founder, real Duo): every detent ticks the stripes and the needle; each creak of a

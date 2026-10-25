@@ -9,21 +9,20 @@ import UIKit
 enum PressGauge {
     /// Full scale of every tonnage dial.
     static let maxTons: Double = 80
-    /// The red zone runs from here to full scale. Real objects top out at 59 t, so only The Unsquishable reaches it.
+    /// The red zone runs from here to full scale. Real objects top out at ~42 t (glass), so only The Unsquishable
+    /// reaches it.
     static let redZoneTons: Double = 60
 
-    /// The record's tonnage (`SpecimenRecord.tons`): 10 + 44·c_max + seed % 6, clamped to the dial; the Unsquishable
-    /// reads 400-odd and pins every needle.
+    /// The record's tonnage (`SpecimenRecord.tons`): the press's peak force, per material and per press (`Tonnage`,
+    /// EXPERIENCE-REVIEW-1 #4: bubble wrap ~3 t, can ~22 t, glass ~38 t); the Unsquishable reads 400-odd and pins.
     static func recordTons(kind: ObjectKind, maxCompression: Double, seed: UInt64) -> Int {
-        if kind == .unsquishable { return 400 + Int(seed % 97) }
-        return min(Int(maxTons), 10 + Int(maxCompression * 44) + Int(seed % 6))
+        Tonnage.record(kind: kind, maxCompression: maxCompression, seed: seed)
     }
 
-    /// The live needle target after contact for compression `c`: the seed's 10–15 t base comes in over the first
-    /// quarter of the crush, then 44 t·c, so the needle arrives on `recordTons` (to within its integer truncation).
-    static func liveTons(compression c: Double, seed: UInt64) -> Double {
-        let base = 10 + Double(seed % 6)
-        return base * min(1, max(c, 0) * 4) + 44 * clamp(c, 0, 1)
+    /// The live needle target for compression `c`: the force (`Tonnage.live`). It climbs as the object fights, drops
+    /// when it gives (`failed`), and arrives on `recordTons` at full crush.
+    static func liveTons(kind: ObjectKind, compression c: Double, seed: UInt64, failed: Bool? = nil) -> Double {
+        Tonnage.live(kind: kind, compression: c, seed: seed, failed: failed)
     }
 
     /// Dial angle in degrees (CCW from +x, y up) for a tonnage.

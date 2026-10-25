@@ -22,6 +22,19 @@ struct PressVisualState {
     var loaded: Bool
     var reduceMotion: Bool
     var phase: PressPhase
+    /// 0…1: how hard the object is fighting the plate right now ("fight, then give", EXPERIENCE-REVIEW-1 #1;
+    /// `PressEngine.resistanceStrain`): ramps in over the last ~0.12 c before the failure, held through the hush and hit
+    /// stop, released at the burst. The scene already widens the slot (a side bulge, height untouched) and trembles it;
+    /// views can add their own push-back here: the centre doming up against the lid while the edges flatten, a bow, a
+    /// shear, stress whitening. Never change the height with it (the height is locked to the hand).
+    var resistanceBulge: Float = 0
+    /// The give's over-collapse (compression ahead of the hand, 0 except for the 60–80 ms after the burst;
+    /// `PressEngine.collapseLead`). Already included in `compression`; a view can use it to fling its squeeze-out
+    /// outward in the same moment.
+    var collapseLead: Float = 0
+    /// 0…1 over the seal stroke, from the fully crushed angle to the real shut (`PressEngine.sealProgress`): the final
+    /// creep and clamp. The scene creeps the slot a little; views can spread their ooze with it.
+    var sealing: Float = 0
 }
 
 /// A pressable object. Its entity's origin sits on the anvil surface (y = 0), centred under the ram.

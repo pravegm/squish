@@ -169,10 +169,10 @@ struct SpecimenRecord: Codable, Identifiable, Equatable, Sendable {
 
     /// Fun, deterministic "tonnage" for the label.
     var tons: Int {
-        // Every gauge (P-48, Fold crown, cover) reads 0–80 t (`PressGauge`, FOLD-REVIEW-4 F12), and every needle seals on
-        // this number, so real objects stay on the dial (≤ 59 t, under the 60 t red zone); only The Unsquishable pins it.
-        if kind == .unsquishable { return 400 + Int(variant.seed % 97) }
-        return min(80, 10 + Int(maxCompression * 44) + Int(variant.seed % 6))
+        // The press's peak force, per material and per press (`Tonnage`, EXPERIENCE-REVIEW-1 #4): bubble wrap ~3 t, can
+        // ~22 t, glass ~38 t. Every gauge (P-48, Fold crown, cover) reads 0–80 t and seals on this number; only The
+        // Unsquishable (400-odd) pins it.
+        Tonnage.record(kind: kind, maxCompression: maxCompression, seed: variant.seed)
     }
 
     var flavourLine: String {

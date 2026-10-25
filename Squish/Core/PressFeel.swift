@@ -31,6 +31,10 @@ enum PressBeat: Equatable, Sendable {
     case powerUp
     /// The machine powered down as the phone closed (outside a press): `hingePower` fell below 0.1.
     case powerDown
+    /// The seal stroke (EXPERIENCE-REVIEW-1 #7): the crushed press closes on toward the real shut and a latch clicks home
+    /// (`index` 0 and 1, at a third and two thirds of the way from the fully crushed angle to the shut angle: ~40° and ~25°).
+    /// The ka-chunk follows at the shut. `PressEngine.sealProgress` ramps 0 → 1 over the same stroke.
+    case latch(index: Int, angle: Double)
 
     // Touch on the object (inspection, only while nothing is pressed). A tap is `PressDirector.poke()` (Feedback
     // plays the material's answer); the scene jiggles the object.
@@ -95,7 +99,7 @@ struct ObjectInspection: Equatable {
     static let yawPerPoint = 0.012
     static let tiltPerPoint = 0.004
     static let maxTilt = 0.14
-    static let maxZoom = 1.25
+    static let maxZoom = 2.0
     /// Below this spin rate (rad/s), the inertia hands over to the spring back.
     static let settleSpeed = 0.6
 
@@ -189,60 +193,123 @@ enum PressFeel {
     static let displayOffAngle = 45.0
 }
 
-// MARK: - 2. Resistance: "lag, then give"
+// MARK: - 2. Resistance: "fight, then give" (EXPERIENCE-REVIEW-1 #1)
 
-/// Visual compression lags the hand as the object resists near its failure, then the backlog releases in one lurch at
-/// the burst (EXPERIENCE-2 §A1.1, top-15 #2). Perceived stiffness comes from the ratio of visual change to hand travel.
-/// Render side only: the engine's measured depth and every irreversible event stay on the hand.
+/// The object fights the plate, then gives way, without ever trailing the hand (founder, real Duo: the screen must move
+/// with the hand). The height stays locked to the hand; the fight is in the other axes and in time:
+/// - **resist:** over the last `window` of compression before the failure, `strain` ramps 0 → 1. The scene and the
+///   object views turn it into a side bulge (up to `bulge` of the width), the centre pushing back up against the lid,
+///   a tremor you can see (2–4 px) and the lid's shadow tightening (`PressVisualState.resistanceBulge`);
+/// - **give:** at the burst the object collapses *ahead* of the hand by `collapse` (compression) over `give` seconds
+///   (60–80 ms), then locks back onto the hand (`PressVisualState.collapseLead`). It yields faster than the plate moves.
+/// Render side only: the engine's measured depth and every event stay on the hand, and the render depth (the ram, the
+/// print, the gauge) never lags it. Only the object's own deformation is held through the hush and hit stop.
 struct PressResistance: Equatable, Sendable {
-    /// Visual compression per unit of hand compression inside the window (1 = no lag).
-    var gain: Double
-    /// How far before the failure threshold (compression) the lag starts.
+    /// The strain ramps in over this much compression before the failure.
     var window: Double
-    /// Seconds the backlog takes to release at the burst.
-    var give: Double = 0.08
+    /// The side bulge at full strain, as a share of the width.
+    var bulge: Double
+    /// The over-collapse at the give (compression ahead of the hand).
+    var collapse: Double
+    /// Seconds the give takes (the held object catching up and over-collapsing, then locking back on).
+    var give: Double = 0.07
 
-    static let none = PressResistance(gain: 1, window: 0)
+    static let none = PressResistance(window: 0, bulge: 0, collapse: 0)
 
-    /// Stiffness order as in bible §7: glass resists most, jelly not at all. Sync fix (founder, real Duo 1.0 (3): the
-    /// screen must move with the hand): the lag is now a hint, 0.85–0.95 gain over only the last 0.03 c, so the
-    /// geometry trails the hand by at most `maxTrail` (~0.0045 c, a quarter of a degree). The resistance is carried by
-    /// the tremor, the strain spike, sound and haptics instead.
+    /// Stiffness order as in bible §7: glass fights hardest and gives most violently; jelly barely fights and oozes.
+    /// The Unsquishable fights and never gives (the press does).
     static func of(_ kind: ObjectKind) -> PressResistance {
         switch kind {
-        case .glassBottle, .unsquishable: PressResistance(gain: 0.85, window: 0.03)
-        case .sodaCan, .crayon, .egg: PressResistance(gain: 0.88, window: 0.03)
-        case .rubberDuck: PressResistance(gain: 0.9, window: 0.03)
-        case .gummyBear: PressResistance(gain: 0.92, window: 0.03)
-        case .cakeSlice: PressResistance(gain: 0.95, window: 0.03)
-        case .jelly, .bubbleWrap: .none
+        case .glassBottle: PressResistance(window: 0.12, bulge: 0.08, collapse: 0.10, give: 0.06)
+        case .unsquishable: PressResistance(window: 0.15, bulge: 0, collapse: 0, give: 0.06)
+        case .sodaCan: PressResistance(window: 0.12, bulge: 0.18, collapse: 0.08, give: 0.07)
+        case .crayon: PressResistance(window: 0.12, bulge: 0.10, collapse: 0.08, give: 0.06)
+        case .egg: PressResistance(window: 0.10, bulge: 0.12, collapse: 0.08, give: 0.07)
+        case .rubberDuck: PressResistance(window: 0.12, bulge: 0.20, collapse: 0.06, give: 0.08)
+        case .gummyBear: PressResistance(window: 0.12, bulge: 0.18, collapse: 0.06, give: 0.08)
+        case .cakeSlice: PressResistance(window: 0.10, bulge: 0.16, collapse: 0.05, give: 0.08)
+        case .jelly: PressResistance(window: 0.08, bulge: 0.15, collapse: 0.05, give: 0.08)
+        case .bubbleWrap: .none
         }
     }
 
-    /// The most the eye can trail the hand (compression), at the failure threshold.
-    var maxTrail: Double { lags ? window * (1 - gain) : 0 }
+    var fights: Bool { window > 0 }
 
-    var lags: Bool { gain < 1 && window > 0 }
-
-    /// The compression the eye sees for hand compression `c` ahead of a failure at `failure`: 1:1 until the window,
-    /// then `gain`. Continuous, monotonic, never above `c`.
-    func lagged(_ c: Double, failure: Double) -> Double {
-        guard lags else { return c }
-        let start = max(failure - window, 0)
-        guard c > start else { return c }
-        return start + gain * (c - start)
+    /// 0…1: how hard the object is fighting at hand compression c, ahead of a failure at `failure` (smoothstep over
+    /// the window; 1 at the threshold).
+    func strain(_ c: Double, failure: Double) -> Double {
+        guard fights else { return 0 }
+        let x = clamp((c - (failure - window)) / window, 0, 1)
+        return x * x * (3 - 2 * x)
     }
 
-    /// How far behind the hand the eye is when the hand reaches the failure threshold.
-    func backlog(failure: Double) -> Double { failure - lagged(failure, failure: failure) }
+    /// The over-collapse t s after the burst: a half-sine of height `collapse` over `give`, 0 after.
+    func lead(after t: Double) -> Double {
+        guard collapse > 0, give > 0, t >= 0, t < give else { return 0 }
+        return collapse * sin(.pi * t / give)
+    }
 
-    /// The give: `t` s after the burst, from the `held` compression to the hand's `c` (ease-out cubic, so the lurch
-    /// lands early); exactly `c` from `give` on.
+    /// The give: t s after the burst, from the held compression to the hand's c (ease-out cubic, so the lurch lands
+    /// early); exactly c from `give` on.
     func released(from held: Double, to c: Double, after t: Double) -> Double {
         guard give > 0, t < give else { return c }
         let x = clamp(t / give, 0, 1)
         let k = 1 - (1 - x) * (1 - x) * (1 - x)
         return held + (c - held) * k
+    }
+}
+
+// MARK: - Tonnage (EXPERIENCE-REVIEW-1 #4): tons that mean something
+
+/// The force on the gauge and the card, per material and per press, so the number tells the object's story: bubble
+/// wrap is a few tons, a can is heavy, glass heavier, the steel ball is off the scale. Every needle (P-48, Fold crown,
+/// cover) rests on `record`, and `SpecimenRecord.tons` is `record`. Pure, seeded.
+enum Tonnage {
+    /// The force the material takes at its break (or at full crush, for bubble wrap).
+    static func rated(_ kind: ObjectKind) -> Double {
+        switch kind {
+        case .bubbleWrap: 3
+        case .jelly: 2
+        case .cakeSlice: 4
+        case .egg: 6
+        case .gummyBear: 8
+        case .rubberDuck: 9
+        case .crayon: 12
+        case .sodaCan: 22
+        case .glassBottle: 38
+        case .unsquishable: 400
+        }
+    }
+
+    /// ±10 % per press, seeded.
+    static func variation(seed: UInt64) -> Double { 0.9 + 0.2 * Double(seed % 11) / 10 }
+
+    /// This press's failure threshold, if the material has one.
+    static func failure(_ kind: ObjectKind, seed: UInt64) -> Double? {
+        guard let index = kind.profile.failureIndex else { return nil }
+        let t = kind.profile.jitteredFractures(seed: seed)
+        return index < t.count ? t[index] : nil
+    }
+
+    /// The live force at compression c. The fight: it climbs steeply as the object resists, to 95 % of the rated force at
+    /// the break. The give: it drops to 40 % when the object yields, then climbs back to the rated force as the remains
+    /// compact. Bubble wrap just stiffens. `failed`: nil works it out from c and the seed.
+    static func live(kind: ObjectKind, compression c: Double, seed: UInt64, failed: Bool? = nil) -> Double {
+        let r = rated(kind) * variation(seed: seed)
+        let c = clamp(c, 0, 1)
+        guard let f = failure(kind, seed: seed) else { return r * pow(c, 1.2) }
+        if !(failed ?? (c >= f)) { return 0.95 * r * pow(min(c / max(f, 0.01), 1), 1.6) }
+        let t = clamp((c - f) / max(1 - f, 0.05), 0, 1)
+        return r * (0.4 + 0.6 * t)
+    }
+
+    /// The press's peak force, as the card prints it (whole tons, ≥ 1; the Unsquishable reads 400-odd).
+    static func record(kind: ObjectKind, maxCompression c: Double, seed: UInt64) -> Int {
+        if kind == .unsquishable { return 400 + Int(seed % 97) }
+        let r = rated(kind) * variation(seed: seed)
+        var peak = live(kind: kind, compression: c, seed: seed)
+        if let f = failure(kind, seed: seed), c >= f { peak = max(peak, 0.95 * r) }
+        return max(1, Int(peak.rounded()))
     }
 }
 

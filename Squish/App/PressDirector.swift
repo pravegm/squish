@@ -245,7 +245,8 @@ final class PressDirector {
             playBoth(HingeCues.cue(for: .powerDown, speed: engine.closingSpeed, dice: feelDice))
         case .spin(let speed):
             playBoth(TouchCues.spin(kind, turnsPerSecond: speed, dice: feelDice), light: true)
-        case .poke, .settle, .settled:
+        case .poke, .settle, .settled, .latch:
+            // `.latch` (the seal stroke's two latch clicks, ~40° and ~25°) is the press-feel round's: bind its sound.
             // Pokes come through `poke()` from the views (after the scene accepts the tap).
             break
         }
@@ -306,8 +307,9 @@ final class PressDirector {
     /// For the touch-event work to call. Only while the object is resting (not mid-press or on the reveal).
     func poke() {
         let now = CACurrentMediaTime()
-        guard now - lastPoke > 0.08, revealed == nil, !engine.isLoaded,
-              engine.phase == .idle || engine.phase == .armed else { return }
+        // Before the press, and the crushed specimen on the reveal (EXPERIENCE-REVIEW-1 #8).
+        let resting = revealed == nil && !engine.isLoaded && (engine.phase == .idle || engine.phase == .armed)
+        guard now - lastPoke > 0.08, resting || engine.phase == .revealing else { return }
         lastPoke = now
         // The material's recorded answer where the library has one (duck squeak, can tink, glass clink…).
         let cue = SampleVoicing.voice(TouchCues.poke(currentKind, dice: feelDice), style: settings.soundStyle, speed: 0,
