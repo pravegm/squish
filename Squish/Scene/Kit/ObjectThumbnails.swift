@@ -71,9 +71,18 @@ enum ObjectThumbnails {
         return await task.value
     }
 
-    static func prewarm(size: CGSize) async {
+    /// `canRender` is asked before each render; while it says no, the prewarm waits. A render runs a second ARView and
+    /// a full offscreen press on the main actor, so it must never share frames with a live press (soft objects looked
+    /// frozen in the Duo book pass while the prewarm ran under the press).
+    static func prewarm(size: CGSize, canRender: @MainActor () -> Bool = { true }) async {
         for look in Look.allCases {
             for kind in ObjectKind.allCases {
+                if cached(kind, look: look, size: size) != nil { continue }
+                park()
+                while !canRender() {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    if Task.isCancelled { return }
+                }
                 _ = await image(kind, look: look, size: size)
             }
         }

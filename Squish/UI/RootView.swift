@@ -965,8 +965,12 @@ struct RootView: View {
         UIAccessibility.post(notification: .screenChanged, argument: nil)
         // Real 3D object pictures for the Tray, the console chip, the cover and the Shelf (EXPERIENCE-REVIEW-1 #10),
         // rendered in the background a moment after the press room is up; cached on disk after the first launch.
+        // Only between presses: never while the hand is moving the hinge or an object is under the plate.
         try? await Task.sleep(for: .seconds(3))
-        await ObjectArt.prewarm()
+        await ObjectArt.prewarm { [director] in
+            let engine = director.engine
+            return (engine.phase == .idle || engine.phase == .armed) && abs(engine.displaySpeed) < 15
+        }
     }
 
     /// UI demo keys for CI screenshots (see ci/scenarios.txt): `shelf[=squished|achievements]`, `detail`, `settings`,
