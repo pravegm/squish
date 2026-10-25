@@ -44,6 +44,13 @@ p fs151216 bubblewrap/bubblewrap_crinkle --n 4 --max 0.4 --range 12 --norm m-20 
 p fs403507 duck/duck_squeak --to 6.3 --n 8 --max 0.7 --tail 45 --hp 150 --eq "$NOTCH" --whole 1 --note "squeeze squeak (bend pitch up with c at runtime)"
 p fs403507 duck/duck_squeak --from 9.0 --n 2 --max 0.7 --tail 45 --hp 150 --eq "$NOTCH" --whole 1 --note "squeeze squeak"
 r duck/duck_honk.caf          fs403507 6.35 8.70 2,120 m-14 150 0 0 "$NOTCH" "long squeal: the comic honk at c 0.7"
+# EXPERIENCE-REVIEW-1 #9: the honk is the most-heard sound in the app; six more takes from the licensed toy sources.
+r duck/duck_honk.caf          fs350917 4.595 5.861 2,120 m-14 150 0 0 "$NOTCH" "comic honk (rubber duck)"
+r duck/duck_honk.caf          fs201285 5.109 6.189 2,120 m-14 150 0 0 "$NOTCH" "comic honk (duck toy)"
+r duck/duck_honk.caf          fs454575 20.317 21.471 2,120 m-14 150 0 0 "$NOTCH" "comic honk (duck toy)"
+r duck/duck_honk.caf          fs454575 17.522 18.229 2,100 m-14 150 0 0 "$NOTCH" "short honk (duck toy)"
+r duck/duck_honk.caf          fs622335 4.090 4.885 2,100 m-14 150 0 0 "$NOTCH" "squeeze-toy honk"
+r duck/duck_honk.caf          fs528421 1.849 2.667 2,100 m-14 150 0 0 "$NOTCH" "rubber squeal honk"
 r duck/duck_squeaklow.caf     fs483922 0.0 1.25 1,60 m-16 120 0 0 - "low squeak (contact, release)"
 r duck/duck_squeaklow.caf     fs240015 0.0 1.23 1,60 m-16 120 0 0 - "low squeak (contact, release)"
 r duck/duck_wheeze.caf        fs217351 0.0 0.78 2,150 m-18 150 0 0 - "air wheeze after the seam pops"
@@ -93,6 +100,8 @@ r cake/cake_squish_loop.caf fs32921 4.0 6.6 0,0 i-24 100 0 300 - "creamy compres
 r cake/cake_squish_loop.caf fs190456 0.4 3.4 0,0 i-24 100 0 300 - "sponge compress loop"
 p fs414310 cake/cake_crumb --n 12 --max 0.25 --range 18 --gap 0.3 --norm p-6 --note "crumb grain (crush bed)"
 p fs414310 cake/cake_collapse --n 2 --max 0.6 --gap 3.0 --norm m-16 --whole 1 --note "layer collapse (fracture)"
+r cake/cake_collapse.caf fs234872 7.392 7.992 1,100 m-16 100 0 0 - "layer collapse (sponge squeeze)"
+r cake/cake_collapse.caf fs594753 6.069 6.669 1,100 m-16 100 0 0 - "layer collapse (sponge press)"
 p fs593990 cake/cake_squirt --from 10 --n 2 --max 0.5 --range 6 --gap 3.0 --norm m-16 --hp 100 --whole 1 --note "frosting/jam squirt at c 0.65 (wet)"
 r cake/cake_icing.caf fs406336 0.0 0.6 1,100 m-18L6 100 0 0 - "icing crack (fracture at c 0.3)"
 r cake/cake_icing.caf fs406336 0.9 1.5 5,100 m-18L6 100 0 0 - "icing crack (fracture at c 0.3)"
@@ -111,6 +120,9 @@ r can/can_buckle.caf fs521896 8.85 9.60 1,100 m-14L8 80 0 0 - "buckle"
 r can/can_buckle.caf fs735890 1.00 1.60 1,100 m-14L8 80 0 0 - "buckle"
 r can/can_crush.caf  bsb0118 0.55 1.30 1,150 m-12L4 80 0 0 - "full crush (final failure body)"
 r can/can_crush.caf  bsb0118 5.25 6.10 1,150 m-12L4 80 0 0 - "full crush (final failure body)"
+# EXPERIENCE-REVIEW-1 #9: heroes get >= 4 variants.
+r can/can_crush.caf  fs758998 3.451 3.953 1,150 m-12L4 80 0 0 - "full crush (slow crush, the give)"
+r can/can_crush.caf  fs735890 0.173 0.790 1,150 m-12L4 80 0 0 - "full crush (empty can)"
 r can/can_strain_loop.caf fs758998 9.0 11.8 0,0 i-24 100 0 300 - "slow-crush crackle bed under load"
 p fs758998 can/can_crumple --n 12 --max 0.22 --range 20 --gap 0.4 --norm p-6 --note "crumple grain (strain, crush bed)"
 r can/can_open_fizz.caf fs689705 0.55 2.6 0,300 m-14 80 0 0 - "tab pop + fizz burst (first buckle, unopened can)"
@@ -125,7 +137,16 @@ r gummy/gummy_stretch_loop.caf fs125160 10.0 12.8 0,0 i-24 120 0 300 - "chewy ru
 p fs399008 gummy/gummy_squish --n 8 --max 0.45 --range 18 --gap 0.3 --hp 100 --whole 1 --note "chewy squish grain"
 p fs330249 gummy/gummy_split --n 2 --max 0.6 --gap 0.6 --norm m-14 --hp 100 --eq "$NOTCH" --whole 1 --note "seam split (failure)"
 r gummy/gummy_split.caf fs686363 0.0 0.48 1,80 m-14 100 0 0 - "seam split (failure)"
+# EXPERIENCE-REVIEW-1 #9: the gummy was 10 files. More splits, squishes and boings from the licensed rubber sources.
+r gummy/gummy_split.caf fs125160 2.956 3.556 1,80 m-14 100 0 0 "$NOTCH" "seam split (rubbery tear)"
+r gummy/gummy_split.caf fs125160 17.864 18.464 1,80 m-14 100 0 0 "$NOTCH" "seam split (rubbery tear)"
+r gummy/gummy_split.caf fs125160 25.530 26.130 1,80 m-14 100 0 0 "$NOTCH" "seam split (rubbery tear)"
+r gummy/gummy_squish.caf fs125160 46.605 47.205 1,60 m-18 100 0 0 - "chewy squish grain"
+r gummy/gummy_squish.caf fs528419 0.911 1.511 1,60 m-18 100 0 0 "$NOTCH" "chewy squish grain"
 r gummy/gummy_boing.caf fs542195 0.0 1.6 1,300 m-18 60 0 0 - "wobble boing (release)"
+r gummy/gummy_boing.caf fs681950 3.311 4.836 1,300 m-18 60 0 0 - "floppy wobble boing"
+r gummy/gummy_boing.caf fs681950 5.571 6.305 1,200 m-18 60 0 0 - "floppy wobble boing"
+r gummy/gummy_boing.caf fs510496 3.997 5.285 2,300 m-18 60 0 0 - "spring boing (a third take, not the steel one)"
 
 # ---------- Glass bottle: the finale ----------
 r glass/glass_creak_loop.caf fs174754 4.0 7.0 0,0 i-26 200 9000 300 "$NOTCH;pk2800:-3:1.2" "glass strain creak loop (2.5-4.5 kHz notched)"
@@ -161,6 +182,14 @@ r steel/steel_groan.caf fs496836 0.0 1.8 5,400 m-16 80 0 0 - "metallic groan swe
 r steel/steel_groan.caf fs453333 0.0 1.5 5,300 m-16 80 0 0 - "crank groan (tell)"
 p fs535286 steel/steel_clink --n 5 --max 0.3 --range 12 --gap 1.0 --norm m-18L6 --whole 1 --note "ball clink (place, contact)"
 r steel/steel_snap.caf  fs752070 0.0 1.0 0,150 m-12L4 60 0 0 - "spring snap: the press gives up (hero)"
+# EXPERIENCE-REVIEW-1 #9: the vault's punchline was one file each. Kenney Impact (CC0) heavy metal and bell takes.
+for n in 000 001 002 003 004; do
+  r steel/steel_snap.caf "kenney-impact--impactMetal_medium_$n" 0 2 0,150 m-12L4 60 0 0 - "steel gives up (hero)"
+  r steel/steel_ring.caf "kenney-impact--impactBell_heavy_$n" 0 2.5 2,500 m-18 80 0 0 - "long ring tail"
+done
+for n in 000 001 002; do
+  r steel/steel_crash.caf "kenney-impact--impactPlate_heavy_$n" 0 1.6 0,300 m-12L4 60 0 0 - "metal plate crash (hero body)"
+done
 r steel/steel_crash.caf fs859154 0.0 1.6 0,350 m-12L4 60 0 0 - "metal chunk crash (hero body)"
 r steel/steel_crash.caf fs562198 0.0 1.3 0,300 m-12L4 60 0 0 - "metal smash (hero body)"
 r steel/steel_boing.caf fs510496 0.0 1.3 2,300 m-16 80 0 0 - "comic sproing after the snap"

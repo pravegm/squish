@@ -195,6 +195,9 @@ enum SampleVoicing {
             for (index, pick) in rule.picks.enumerated() {
                 guard let group = library.groups[pick.group], !group.files.isEmpty else { continue }
                 if group.wet && style == .soft { continue } // Soft keeps liquid synthesised
+                // A group with a single recording alternates with the synth voice, so the same file never plays twice in
+                // a row (EXPERIENCE-REVIEW-1 #9).
+                if group.files.count == 1 && dice.chance(0.5) { continue }
                 let file = group.files[dice.pick(group.files.count, for: SoundSlot("sample.\(group.name)"))]
                 let layered: Float = rule.mode == .layer ? 0.8 : 1
                 let gain = pow(10, group.gainDb / 20) * AudioMix.sampleBus * dice.level() * pick.gain * layered

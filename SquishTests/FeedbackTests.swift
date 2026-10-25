@@ -695,6 +695,18 @@ struct FeedbackTests {
         SampleVoicing.voice(cue, style: style, speed: 0.5, library: SampleLibrary.loadNow(), dice: FeedbackDice(seed: seed))
     }
 
+    /// EXPERIENCE-REVIEW-1 #9: every hero and signature sound has at least four takes, so a press never repeats itself.
+    @Test func heroPoolsAreDeep() {
+        let library = SampleLibrary.loadNow()
+        let heroes = ["duck_honk", "gummy_split", "gummy_boing", "steel_snap", "steel_ring", "steel_crash", "crayon_snap",
+                      "egg_crack", "can_crush", "can_buckle", "glass_shatter", "jelly_splat", "cake_collapse",
+                      "bubblewrap_pop"]
+        for name in heroes {
+            let count = library.groups[name]?.files.count ?? 0
+            #expect(count >= 4, "\(name) has only \(count) takes")
+        }
+    }
+
     @Test func samplesReplaceTheCompetingSynthLayersAndBringTheirHits() {
         let failure = cue(.glassBottle, .fracture(index: kindFailure(.glassBottle), isFailure: true))
         let voiced = voice(failure)

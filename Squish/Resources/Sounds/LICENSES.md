@@ -5,7 +5,7 @@ This file is **generated** by `ci/sounds/cut.mjs` from `ci/sounds/sources.tsv` a
 
 ## Licences in use
 
-- **CC0-1.0**: 274 files. Creative Commons Zero 1.0 (public-domain dedication): commercial use, modification and redistribution allowed; no attribution required. https://creativecommons.org/publicdomain/zero/1.0/
+- **CC0-1.0**: 305 files. Creative Commons Zero 1.0 (public-domain dedication): commercial use, modification and redistribution allowed; no attribution required. https://creativecommons.org/publicdomain/zero/1.0/
 
 Only CC0 material is committed, because this repository is public. Sonniss GDC, Pixabay, ZapSplat and paid-library material may be bundled in the app but must never be committed here (see design/SOUND-2.md §2).
 
@@ -28,6 +28,11 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | fs522200 | Freesound (HQ preview) | fthrll | HeavyPlasticCrinkle.wav | CC0-1.0 | https://freesound.org/people/fthrll/sounds/522200/ | https://cdn.freesound.org/previews/522/522200_3717585-hq.ogg (`9989dfa583b4b388…`) |
 | fs151216 | Freesound (HQ preview) | OwlStorm | Crumpling Plastic | CC0-1.0 | https://freesound.org/people/OwlStorm/sounds/151216/ | https://cdn.freesound.org/previews/151/151216_140737-hq.ogg (`530579cde7169e36…`) |
 | fs403507 | Freesound (HQ preview) | LamaMakesMusic | Rubber-Duck_Squeezes.wav | CC0-1.0 | https://freesound.org/people/LamaMakesMusic/sounds/403507/ | https://cdn.freesound.org/previews/403/403507_3012788-hq.ogg (`7d2e3bfa05aac26b…`) |
+| fs350917 | Freesound (HQ preview) | csaszi | rubber duck -CsG-.wav | CC0-1.0 | https://freesound.org/people/csaszi/sounds/350917/ | https://cdn.freesound.org/previews/350/350917_1147184-hq.ogg (`cb636c938e44007d…`) |
+| fs201285 | Freesound (HQ preview) | panmaterac | Rubber duck toy squeaking.wav | CC0-1.0 | https://freesound.org/people/panmaterac/sounds/201285/ | https://cdn.freesound.org/previews/201/201285_3740507-hq.ogg (`c3122f1b275a5c83…`) |
+| fs454575 | Freesound (HQ preview) | The-Sacha-Rush | Duck Toy Sounds | CC0-1.0 | https://freesound.org/people/The-Sacha-Rush/sounds/454575/ | https://cdn.freesound.org/previews/454/454575_685248-hq.ogg (`7ef74fcf0e12df0f…`) |
+| fs622335 | Freesound (HQ preview) | sirplus | SqueezeToy24.wav | CC0-1.0 | https://freesound.org/people/sirplus/sounds/622335/ | https://cdn.freesound.org/previews/622/622335_30374-hq.ogg (`b444772831b898fd…`) |
+| fs528421 | Freesound (HQ preview) | Sonicquinn | Rubber_Squeak_Type_01_192_Mono.wav | CC0-1.0 | https://freesound.org/people/Sonicquinn/sounds/528421/ | https://cdn.freesound.org/previews/528/528421_8913961-hq.ogg (`1fecd0bfc4580a9c…`) |
 | fs483922 | Freesound (HQ preview) | Breviceps | Squeaky Toy #4 | CC0-1.0 | https://freesound.org/people/Breviceps/sounds/483922/ | https://cdn.freesound.org/previews/483/483922_9159316-hq.ogg (`1d494f68b795a2dd…`) |
 | fs240015 | Freesound (HQ preview) | survivalzombie | Squeeze Toy.mp3 | CC0-1.0 | https://freesound.org/people/survivalzombie/sounds/240015/ | https://cdn.freesound.org/previews/240/240015_2297991-hq.ogg (`2b7493d334b4fa83…`) |
 | fs217351 | Freesound (HQ preview) | VKProduktion | Deflating Balloon.MP3 | CC0-1.0 | https://freesound.org/people/VKProduktion/sounds/217351/ | https://cdn.freesound.org/previews/217/217351_4034520-hq.ogg (`702d9adf3f5ff07c…`) |
@@ -61,6 +66,8 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | fs32921 | Freesound (HQ preview) | ToddBradley | whipped cream.wav | CC0-1.0 | https://freesound.org/people/ToddBradley/sounds/32921/ | https://cdn.freesound.org/previews/32/32921_30464-hq.ogg (`51a3ba722aac5b93…`) |
 | fs190456 | Freesound (HQ preview) | sangtao | sponge | CC0-1.0 | https://freesound.org/people/sangtao/sounds/190456/ | https://cdn.freesound.org/previews/190/190456_3491884-hq.ogg (`2a08fc3120a5ed00…`) |
 | fs414310 | Freesound (HQ preview) | newagesoup | Graham Cracker Steps | CC0-1.0 | https://freesound.org/people/newagesoup/sounds/414310/ | https://cdn.freesound.org/previews/414/414310_4067257-hq.ogg (`cfaa9ab9ddd4623f…`) |
+| fs234872 | Freesound (HQ preview) | mlsulli | Sponge Being Squeezed.wav | CC0-1.0 | https://freesound.org/people/mlsulli/sounds/234872/ | https://cdn.freesound.org/previews/234/234872_3883507-hq.ogg (`63887b253f181686…`) |
+| fs594753 | Freesound (HQ preview) | emilyneiswonger | Pressing down on sponge | CC0-1.0 | https://freesound.org/people/emilyneiswonger/sounds/594753/ | https://cdn.freesound.org/previews/594/594753_13373365-hq.ogg (`52cf330b4254b579…`) |
 | fs406336 | Freesound (HQ preview) | Slowmote | crunch crispy breadbun | CC0-1.0 | https://freesound.org/people/Slowmote/sounds/406336/ | https://cdn.freesound.org/previews/406/406336_3848616-hq.ogg (`387ba764455a1738…`) |
 | fs131323 | Freesound (HQ preview) | nahmandub | Crushing aluminum can 2.wav | CC0-1.0 | https://freesound.org/people/nahmandub/sounds/131323/ | https://cdn.freesound.org/previews/131/131323_1513948-hq.ogg (`38d2e8163c6d0f8e…`) |
 | fs445240 | Freesound (HQ preview) | DMDoom | Beer can crush.wav | CC0-1.0 | https://freesound.org/people/DMDoom/sounds/445240/ | https://cdn.freesound.org/previews/445/445240_2824308-hq.ogg (`ca7f5642a4e9a627…`) |
@@ -76,7 +83,9 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | fs125160 | Freesound (HQ preview) | alienistcog | rubbery-crumple.aif | CC0-1.0 | https://freesound.org/people/alienistcog/sounds/125160/ | https://cdn.freesound.org/previews/125/125160_296888-hq.ogg (`8699ff9b191e53fb…`) |
 | fs399008 | Freesound (HQ preview) | Anthousai | rubber.wav | CC0-1.0 | https://freesound.org/people/Anthousai/sounds/399008/ | https://cdn.freesound.org/previews/399/399008_5923045-hq.ogg (`61af491e5954905e…`) |
 | fs330249 | Freesound (HQ preview) | deleted_user_2104797 | Rubber squeeze 6.wav | CC0-1.0 | https://freesound.org/people/deleted_user_2104797/sounds/330249/ | https://cdn.freesound.org/previews/330/330249_2104797-hq.ogg (`679c28dea141c77d…`) |
+| fs528419 | Freesound (HQ preview) | Sonicquinn | Rubber_Squeak_Type_03_192_Mono.wav | CC0-1.0 | https://freesound.org/people/Sonicquinn/sounds/528419/ | https://cdn.freesound.org/previews/528/528419_8913961-hq.ogg (`2471b009b1c8c81b…`) |
 | fs542195 | Freesound (HQ preview) | Breviceps | Cartoon Wobble | CC0-1.0 | https://freesound.org/people/Breviceps/sounds/542195/ | https://cdn.freesound.org/previews/542/542195_9159316-hq.ogg (`c1d20f77827fb799…`) |
+| fs510496 | Freesound (HQ preview) | Slanted | SpringBoing.wav | CC0-1.0 | https://freesound.org/people/Slanted/sounds/510496/ | https://cdn.freesound.org/previews/510/510496_10007932-hq.ogg (`3920ebff529b8425…`) |
 | fs174754 | Freesound (HQ preview) | sgarrison2127 | glass creaking.aif | CC0-1.0 | https://freesound.org/people/sgarrison2127/sounds/174754/ | https://cdn.freesound.org/previews/174/174754_2977210-hq.ogg (`24bdb578bebb5ec9…`) |
 | fs342546 | Freesound (HQ preview) | timbreknight | Ice cracking | CC0-1.0 | https://freesound.org/people/timbreknight/sounds/342546/ | https://cdn.freesound.org/previews/342/342546_3562222-hq.ogg (`8329ff024b587efa…`) |
 | fs418194 | Freesound (HQ preview) | deleted_user_3656686 | Hard Glass Impact | CC0-1.0 | https://freesound.org/people/deleted_user_3656686/sounds/418194/ | https://cdn.freesound.org/previews/418/418194_3656686-hq.ogg (`4d0dc21d2128f48a…`) |
@@ -100,7 +109,6 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | fs752070 | Freesound (HQ preview) | qubodup | Trap Springing Shut | CC0-1.0 | https://freesound.org/people/qubodup/sounds/752070/ | https://cdn.freesound.org/previews/752/752070_71257-hq.ogg (`35f6e94714671fab…`) |
 | fs859154 | Freesound (HQ preview) | qubodup | Loud Bang Crashing Metal Chunk Dropped in Metal Dumpster | CC0-1.0 | https://freesound.org/people/qubodup/sounds/859154/ | https://cdn.freesound.org/previews/859/859154_71257-hq.ogg (`01fe28ee9131c5d1…`) |
 | fs562198 | Freesound (HQ preview) | gristi | snd_metal_smash.wav | CC0-1.0 | https://freesound.org/people/gristi/sounds/562198/ | https://cdn.freesound.org/previews/562/562198_12618935-hq.ogg (`99f39cab3e999794…`) |
-| fs510496 | Freesound (HQ preview) | Slanted | SpringBoing.wav | CC0-1.0 | https://freesound.org/people/Slanted/sounds/510496/ | https://cdn.freesound.org/previews/510/510496_10007932-hq.ogg (`3920ebff529b8425…`) |
 | fs789214 | Freesound (HQ preview) | Vrymaa | Metal impact - Long | CC0-1.0 | https://freesound.org/people/Vrymaa/sounds/789214/ | https://cdn.freesound.org/previews/789/789214_13973196-hq.ogg (`2c13d0ee8ca5ec8b…`) |
 | kenney-interface | Kenney | Kenney (kenney.nl) | Interface Sounds | CC0-1.0 | https://kenney.nl/assets/interface-sounds | https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip (`f2193d072726d675…`) |
 
@@ -166,6 +174,12 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | duck/duck_squeak_05.caf | fs403507 | 6.136–6.379 | pk3300:-5:1.4 |
 | duck/duck_squeak_06.caf | fs403507 | 9.698–10.026 | pk3300:-5:1.4 |
 | duck/duck_honk_01.caf | fs403507 | 6.350–8.700 | pk3300:-5:1.4 |
+| duck/duck_honk_02.caf | fs350917 | 4.595–5.861 | pk3300:-5:1.4 |
+| duck/duck_honk_03.caf | fs201285 | 5.109–6.189 | pk3300:-5:1.4 |
+| duck/duck_honk_04.caf | fs454575 | 20.317–21.471 | pk3300:-5:1.4 |
+| duck/duck_honk_05.caf | fs454575 | 17.522–18.229 | pk3300:-5:1.4 |
+| duck/duck_honk_06.caf | fs622335 | 4.090–4.885 | pk3300:-5:1.4 |
+| duck/duck_honk_07.caf | fs528421 | 1.849–2.667 | pk3300:-5:1.4 |
 | duck/duck_squeaklow_01.caf | fs483922 | 0.000–1.250 | - |
 | duck/duck_squeaklow_02.caf | fs240015 | 0.000–1.230 | - |
 | duck/duck_wheeze_01.caf | fs217351 | 0.000–0.780 | - |
@@ -257,6 +271,8 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | cake/cake_crumb_10.caf | fs414310 | 12.702–12.952 | - |
 | cake/cake_collapse_01.caf | fs414310 | 4.796–5.108 | - |
 | cake/cake_collapse_02.caf | fs414310 | 12.702–13.260 | - |
+| cake/cake_collapse_03.caf | fs234872 | 7.392–7.992 | - |
+| cake/cake_collapse_04.caf | fs594753 | 6.069–6.669 | - |
 | cake/cake_squirt_01.caf | fs593990 | 14.197–14.413 | - |
 | cake/cake_squirt_02.caf | fs593990 | 25.625–25.792 | - |
 | cake/cake_icing_01.caf | fs406336 | 0.000–0.600 | - |
@@ -274,6 +290,8 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | can/can_buckle_11.caf | fs735890 | 1.000–1.600 | - |
 | can/can_crush_01.caf | bsb0118 | 0.550–1.300 | - |
 | can/can_crush_02.caf | bsb0118 | 5.250–6.100 | - |
+| can/can_crush_03.caf | fs758998 | 3.451–3.953 | - |
+| can/can_crush_04.caf | fs735890 | 0.173–0.790 | - |
 | can/can_strain_loop_01.caf | fs758998 | 9.000–11.800 | - |
 | can/can_crumple_01.caf | fs758998 | 1.054–1.128 | - |
 | can/can_crumple_02.caf | fs758998 | 2.831–2.923 | - |
@@ -304,7 +322,15 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | gummy/gummy_split_01.caf | fs330249 | 1.079–1.679 | pk3300:-5:1.4 |
 | gummy/gummy_split_02.caf | fs330249 | 2.024–2.624 | pk3300:-5:1.4 |
 | gummy/gummy_split_03.caf | fs686363 | 0.000–0.480 | - |
+| gummy/gummy_split_04.caf | fs125160 | 2.956–3.556 | pk3300:-5:1.4 |
+| gummy/gummy_split_05.caf | fs125160 | 17.864–18.464 | pk3300:-5:1.4 |
+| gummy/gummy_split_06.caf | fs125160 | 25.530–26.130 | pk3300:-5:1.4 |
+| gummy/gummy_squish_06.caf | fs125160 | 46.605–47.205 | - |
+| gummy/gummy_squish_07.caf | fs528419 | 0.911–1.511 | pk3300:-5:1.4 |
 | gummy/gummy_boing_01.caf | fs542195 | 0.000–1.600 | - |
+| gummy/gummy_boing_02.caf | fs681950 | 3.311–4.836 | - |
+| gummy/gummy_boing_03.caf | fs681950 | 5.571–6.305 | - |
+| gummy/gummy_boing_04.caf | fs510496 | 3.997–5.285 | - |
 | glass/glass_creak_loop_01.caf | fs174754 | 4.000–7.000 | pk3300:-5:1.4;pk2800:-3:1.2 |
 | glass/glass_tick_01.caf | fs342546 | 0.556–0.706 | - |
 | glass/glass_tick_02.caf | fs342546 | 1.325–1.475 | - |
@@ -362,11 +388,24 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | steel/steel_clink_04.caf | fs535286 | 12.831–13.131 | - |
 | steel/steel_clink_05.caf | fs535286 | 19.168–19.468 | - |
 | steel/steel_snap_01.caf | fs752070 | 0.000–1.000 | - |
-| steel/steel_crash_01.caf | fs859154 | 0.000–1.600 | - |
-| steel/steel_crash_02.caf | fs562198 | 0.000–1.300 | - |
+| steel/steel_snap_02.caf | kenney-impact (impactMetal_medium_000) | 0.000–2.000 | - |
+| steel/steel_ring_01.caf | kenney-impact (impactBell_heavy_000) | 0.000–2.500 | - |
+| steel/steel_snap_03.caf | kenney-impact (impactMetal_medium_001) | 0.000–2.000 | - |
+| steel/steel_ring_02.caf | kenney-impact (impactBell_heavy_001) | 0.000–2.500 | - |
+| steel/steel_snap_04.caf | kenney-impact (impactMetal_medium_002) | 0.000–2.000 | - |
+| steel/steel_ring_03.caf | kenney-impact (impactBell_heavy_002) | 0.000–2.500 | - |
+| steel/steel_snap_05.caf | kenney-impact (impactMetal_medium_003) | 0.000–2.000 | - |
+| steel/steel_ring_04.caf | kenney-impact (impactBell_heavy_003) | 0.000–2.500 | - |
+| steel/steel_snap_06.caf | kenney-impact (impactMetal_medium_004) | 0.000–2.000 | - |
+| steel/steel_ring_05.caf | kenney-impact (impactBell_heavy_004) | 0.000–2.500 | - |
+| steel/steel_crash_01.caf | kenney-impact (impactPlate_heavy_000) | 0.000–1.600 | - |
+| steel/steel_crash_02.caf | kenney-impact (impactPlate_heavy_001) | 0.000–1.600 | - |
+| steel/steel_crash_03.caf | kenney-impact (impactPlate_heavy_002) | 0.000–1.600 | - |
+| steel/steel_crash_04.caf | fs859154 | 0.000–1.600 | - |
+| steel/steel_crash_05.caf | fs562198 | 0.000–1.300 | - |
 | steel/steel_boing_01.caf | fs510496 | 0.000–1.300 | - |
 | steel/steel_boing_02.caf | fs510496 | 2.000–3.300 | - |
-| steel/steel_ring_01.caf | fs789214 | 0.250–2.000 | - |
+| steel/steel_ring_06.caf | fs789214 | 0.250–2.000 | - |
 | ui/ui_click_01.caf | kenney-interface (click_001) | 0.000–1.000 | - |
 | ui/ui_click_02.caf | kenney-interface (click_004) | 0.000–1.000 | - |
 | ui/ui_select_01.caf | kenney-interface (select_001) | 0.000–1.000 | - |

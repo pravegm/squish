@@ -57,6 +57,12 @@ duck/duck_squeak_04.caf	fs403507	3.912	4.248	1,25	m-16	150	0	0	pk3300:-5:1.4	squ
 duck/duck_squeak_05.caf	fs403507	6.136	6.379	1,25	m-16	150	0	0	pk3300:-5:1.4	squeeze squeak (bend pitch up with c at runtime); pk -15.5 dB, centroid 6591 Hz
 duck/duck_squeak_06.caf	fs403507	9.698	10.026	1,25	m-16	150	0	0	pk3300:-5:1.4	squeeze squeak; pk -9.2 dB, centroid 6346 Hz
 duck/duck_honk_01.caf	fs403507	6.35	8.70	2,120	m-14	150	0	0	pk3300:-5:1.4	long squeal: the comic honk at c 0.7
+duck/duck_honk_02.caf	fs350917	4.595	5.861	2,120	m-14	150	0	0	pk3300:-5:1.4	comic honk (rubber duck)
+duck/duck_honk_03.caf	fs201285	5.109	6.189	2,120	m-14	150	0	0	pk3300:-5:1.4	comic honk (duck toy)
+duck/duck_honk_04.caf	fs454575	20.317	21.471	2,120	m-14	150	0	0	pk3300:-5:1.4	comic honk (duck toy)
+duck/duck_honk_05.caf	fs454575	17.522	18.229	2,100	m-14	150	0	0	pk3300:-5:1.4	short honk (duck toy)
+duck/duck_honk_06.caf	fs622335	4.090	4.885	2,100	m-14	150	0	0	pk3300:-5:1.4	squeeze-toy honk
+duck/duck_honk_07.caf	fs528421	1.849	2.667	2,100	m-14	150	0	0	pk3300:-5:1.4	rubber squeal honk
 duck/duck_squeaklow_01.caf	fs483922	0.0	1.25	1,60	m-16	120	0	0	-	low squeak (contact, release)
 duck/duck_squeaklow_02.caf	fs240015	0.0	1.23	1,60	m-16	120	0	0	-	low squeak (contact, release)
 duck/duck_wheeze_01.caf	fs217351	0.0	0.78	2,150	m-18	150	0	0	-	air wheeze after the seam pops
@@ -148,6 +154,8 @@ cake/cake_crumb_09.caf	fs414310	10.120	10.370	1,25	p-6	80	0	0	-	crumb grain (cru
 cake/cake_crumb_10.caf	fs414310	12.702	12.952	1,25	p-6	80	0	0	-	crumb grain (crush bed); pk -3.9 dB, centroid 3970 Hz
 cake/cake_collapse_01.caf	fs414310	4.796	5.108	1,25	m-16	80	0	0	-	layer collapse (fracture); pk -8.5 dB, centroid 5117 Hz
 cake/cake_collapse_02.caf	fs414310	12.702	13.260	1,25	m-16	80	0	0	-	layer collapse (fracture); pk -3.9 dB, centroid 3970 Hz
+cake/cake_collapse_03.caf	fs234872	7.392	7.992	1,100	m-16	100	0	0	-	layer collapse (sponge squeeze)
+cake/cake_collapse_04.caf	fs594753	6.069	6.669	1,100	m-16	100	0	0	-	layer collapse (sponge press)
 cake/cake_squirt_01.caf	fs593990	14.197	14.413	1,25	m-16	100	0	0	-	frosting/jam squirt at c 0.65 (wet); pk -7.4 dB, centroid 7578 Hz
 cake/cake_squirt_02.caf	fs593990	25.625	25.792	1,25	m-16	100	0	0	-	frosting/jam squirt at c 0.65 (wet); pk -6.9 dB, centroid 8876 Hz
 cake/cake_icing_01.caf	fs406336	0.0	0.6	1,100	m-18L6	100	0	0	-	icing crack (fracture at c 0.3)
@@ -165,6 +173,8 @@ can/can_buckle_10.caf	fs521896	8.85	9.60	1,100	m-14L8	80	0	0	-	buckle
 can/can_buckle_11.caf	fs735890	1.00	1.60	1,100	m-14L8	80	0	0	-	buckle
 can/can_crush_01.caf	bsb0118	0.55	1.30	1,150	m-12L4	80	0	0	-	full crush (final failure body)
 can/can_crush_02.caf	bsb0118	5.25	6.10	1,150	m-12L4	80	0	0	-	full crush (final failure body)
+can/can_crush_03.caf	fs758998	3.451	3.953	1,150	m-12L4	80	0	0	-	full crush (slow crush, the give)
+can/can_crush_04.caf	fs735890	0.173	0.790	1,150	m-12L4	80	0	0	-	full crush (empty can)
 can/can_strain_loop_01.caf	fs758998	9.0	11.8	0,0	i-24	100	0	300	-	slow-crush crackle bed under load
 can/can_crumple_01.caf	fs758998	1.054	1.128	1,25	p-6	80	0	0	-	crumple grain (strain, crush bed); pk -0.2 dB, centroid 696 Hz
 can/can_crumple_02.caf	fs758998	2.831	2.923	1,25	p-6	80	0	0	-	crumple grain (strain, crush bed); pk -0.2 dB, centroid 4982 Hz
@@ -195,7 +205,15 @@ gummy/gummy_squish_05.caf	fs399008	7.000	7.411	1,25	m-16	100	0	0	-	chewy squish 
 gummy/gummy_split_01.caf	fs330249	1.079	1.679	1,25	m-14	100	0	0	pk3300:-5:1.4	seam split (failure); pk -6.9 dB, centroid 3929 Hz
 gummy/gummy_split_02.caf	fs330249	2.024	2.624	1,25	m-14	100	0	0	pk3300:-5:1.4	seam split (failure); pk -12.9 dB, centroid 3717 Hz
 gummy/gummy_split_03.caf	fs686363	0.0	0.48	1,80	m-14	100	0	0	-	seam split (failure)
+gummy/gummy_split_04.caf	fs125160	2.956	3.556	1,80	m-14	100	0	0	pk3300:-5:1.4	seam split (rubbery tear)
+gummy/gummy_split_05.caf	fs125160	17.864	18.464	1,80	m-14	100	0	0	pk3300:-5:1.4	seam split (rubbery tear)
+gummy/gummy_split_06.caf	fs125160	25.530	26.130	1,80	m-14	100	0	0	pk3300:-5:1.4	seam split (rubbery tear)
+gummy/gummy_squish_06.caf	fs125160	46.605	47.205	1,60	m-18	100	0	0	-	chewy squish grain
+gummy/gummy_squish_07.caf	fs528419	0.911	1.511	1,60	m-18	100	0	0	pk3300:-5:1.4	chewy squish grain
 gummy/gummy_boing_01.caf	fs542195	0.0	1.6	1,300	m-18	60	0	0	-	wobble boing (release)
+gummy/gummy_boing_02.caf	fs681950	3.311	4.836	1,300	m-18	60	0	0	-	floppy wobble boing
+gummy/gummy_boing_03.caf	fs681950	5.571	6.305	1,200	m-18	60	0	0	-	floppy wobble boing
+gummy/gummy_boing_04.caf	fs510496	3.997	5.285	2,300	m-18	60	0	0	-	spring boing (a third take, not the steel one)
 glass/glass_creak_loop_01.caf	fs174754	4.0	7.0	0,0	i-26	200	9000	300	pk3300:-5:1.4;pk2800:-3:1.2	glass strain creak loop (2.5-4.5 kHz notched)
 glass/glass_tick_01.caf	fs342546	0.556	0.706	1,25	p-6	80	12000	0	-	strain tick (tell micro-cracks); pk -8.1 dB, centroid 6098 Hz
 glass/glass_tick_02.caf	fs342546	1.325	1.475	1,25	p-6	80	12000	0	-	strain tick (tell micro-cracks); pk -9.0 dB, centroid 7791 Hz
@@ -253,11 +271,24 @@ steel/steel_clink_03.caf	fs535286	10.464	10.764	1,25	m-18L6	80	0	0	-	ball clink 
 steel/steel_clink_04.caf	fs535286	12.831	13.131	1,25	m-18L6	80	0	0	-	ball clink (place, contact); pk -0.8 dB, centroid 627 Hz
 steel/steel_clink_05.caf	fs535286	19.168	19.468	1,25	m-18L6	80	0	0	-	ball clink (place, contact); pk -0.6 dB, centroid 750 Hz
 steel/steel_snap_01.caf	fs752070	0.0	1.0	0,150	m-12L4	60	0	0	-	spring snap: the press gives up (hero)
-steel/steel_crash_01.caf	fs859154	0.0	1.6	0,350	m-12L4	60	0	0	-	metal chunk crash (hero body)
-steel/steel_crash_02.caf	fs562198	0.0	1.3	0,300	m-12L4	60	0	0	-	metal smash (hero body)
+steel/steel_snap_02.caf	kenney-impact--impactMetal_medium_000	0	2	0,150	m-12L4	60	0	0	-	steel gives up (hero)
+steel/steel_ring_01.caf	kenney-impact--impactBell_heavy_000	0	2.5	2,500	m-18	80	0	0	-	long ring tail
+steel/steel_snap_03.caf	kenney-impact--impactMetal_medium_001	0	2	0,150	m-12L4	60	0	0	-	steel gives up (hero)
+steel/steel_ring_02.caf	kenney-impact--impactBell_heavy_001	0	2.5	2,500	m-18	80	0	0	-	long ring tail
+steel/steel_snap_04.caf	kenney-impact--impactMetal_medium_002	0	2	0,150	m-12L4	60	0	0	-	steel gives up (hero)
+steel/steel_ring_03.caf	kenney-impact--impactBell_heavy_002	0	2.5	2,500	m-18	80	0	0	-	long ring tail
+steel/steel_snap_05.caf	kenney-impact--impactMetal_medium_003	0	2	0,150	m-12L4	60	0	0	-	steel gives up (hero)
+steel/steel_ring_04.caf	kenney-impact--impactBell_heavy_003	0	2.5	2,500	m-18	80	0	0	-	long ring tail
+steel/steel_snap_06.caf	kenney-impact--impactMetal_medium_004	0	2	0,150	m-12L4	60	0	0	-	steel gives up (hero)
+steel/steel_ring_05.caf	kenney-impact--impactBell_heavy_004	0	2.5	2,500	m-18	80	0	0	-	long ring tail
+steel/steel_crash_01.caf	kenney-impact--impactPlate_heavy_000	0	1.6	0,300	m-12L4	60	0	0	-	metal plate crash (hero body)
+steel/steel_crash_02.caf	kenney-impact--impactPlate_heavy_001	0	1.6	0,300	m-12L4	60	0	0	-	metal plate crash (hero body)
+steel/steel_crash_03.caf	kenney-impact--impactPlate_heavy_002	0	1.6	0,300	m-12L4	60	0	0	-	metal plate crash (hero body)
+steel/steel_crash_04.caf	fs859154	0.0	1.6	0,350	m-12L4	60	0	0	-	metal chunk crash (hero body)
+steel/steel_crash_05.caf	fs562198	0.0	1.3	0,300	m-12L4	60	0	0	-	metal smash (hero body)
 steel/steel_boing_01.caf	fs510496	0.0	1.3	2,300	m-16	80	0	0	-	comic sproing after the snap
 steel/steel_boing_02.caf	fs510496	2.0	3.3	2,300	m-16	80	0	0	-	comic sproing after the snap
-steel/steel_ring_01.caf	fs789214	0.25	2.0	2,500	m-18	80	0	0	-	long ring tail
+steel/steel_ring_06.caf	fs789214	0.25	2.0	2,500	m-18	80	0	0	-	long ring tail
 ui/ui_click_01.caf	kenney-interface--click_001	0	1	0,40	m-22	80	0	0	-	menu tap / select / navigate
 ui/ui_click_02.caf	kenney-interface--click_004	0	1	0,40	m-22	80	0	0	-	menu tap / select / navigate
 ui/ui_select_01.caf	kenney-interface--select_001	0	1	0,40	m-22	80	0	0	-	menu tap / select / navigate
