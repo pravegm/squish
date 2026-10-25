@@ -9,7 +9,7 @@ This is how Squish got here, kept so a new owner (human or Claude) inherits the 
 - **Price:** £2.49, no ads, no in-app purchases.
 - **Rating:** 9+. The 12+ teen tone lives only in the copy; there's no gore.
 - **Devices:** universal iPhone app. The Duo is the hero; other iPhones get the P-48 drag-to-press machine.
-- **Sound:** free and synthesised first, with a path to paid libraries later. Today every sound is synthesised.
+- **Sound:** free and synthesised first, with a path to paid libraries later. Since round 2 (25 Oct 2026) the synth is layered with recorded CC0 foley.
 - **Schedule:** ship as soon as possible, about 4 weeks, with about 10 objects and more in free updates. The launch plan targets **Tue 24 Nov 2026** (`docs/appstore/launch-checklist.md`).
 - **Team:** no other humans. Claude is the whole studio, and is open to buying asset libraries if needed.
 - **Process:** design and UX before code. "Do iterations… operate as an entire firm… test compile without me."

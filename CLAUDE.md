@@ -85,7 +85,7 @@ gh run download <id> -R pravegm/squish -D <empty-dir>
     - `FoldPressController`, `FoldPressView`.
     - `FoldRenderGate`: pauses rendering while shut.
     - `FoldStoreShot`: marketing renders of a modelled folded Duo.
-- `Squish/Feedback`: Core Haptics and a real-time synth. All sound is synthesised, so there are no audio files. `CueBook` and `Recipes/*` hold per-object sound and haptic recipes.
+- `Squish/Feedback`: Core Haptics and a real-time synth. Sound is a real-time synth layered with 319 recorded CC0 samples in `Squish/Resources/Sounds/` (played as a voice inside the synth, so offline clip rendering includes them; provenance in `LICENSES.md`). `CueBook` and `Recipes/*` hold per-object sound and haptic recipes.
 - `Squish/UI`: SwiftUI (root, overlays, reveal card, cover display, shelf, settings, Tuning Lab, `AppIconArt` (CI renders the icon), `Theme`).
 - `Squish/Collection`: specimens (JSON plus thumbnails), unlocks, achievements, Game Center, and `SpecimenPrint`, which rebuilds a print from a record.
 - `Squish/Share`: share image and share clip (offscreen ARView → AVAssetWriter → AAC → mux).

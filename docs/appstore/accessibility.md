@@ -22,7 +22,9 @@
 | Captions | Not supported (no video or audio-only content) | Not applicable |
 | Audio Descriptions | Not supported (no time-based video content) | Not applicable |
 
-**Publish only VoiceOver and Reduced Motion for iPhone**, and leave every other box unticked.
+**Publish four labels for iPhone: VoiceOver, Reduced Motion, Differentiate Without Color Alone and Sufficient Contrast.** Leave every other box unticked. (The last two were earned by the 23 Oct chip fix; see the update at the end.)
+
+*File:line references below were taken on 23 Oct 2026 and have drifted since; search for the named symbol if a line no longer matches.*
 
 **Timing:**
 - Apple only lets you publish labels for a device that has a **live version**, so this happens **on launch day, Tue 24 Nov**. The step is in `SUBMISSION.md` §8.
@@ -111,7 +113,7 @@ Apple's bar is that users can complete all common tasks using only VoiceOver. Th
 
 ### Differentiate Without Color Alone: Supported (fixed before submission)
 
-- **Why not:**
+- **Before the fix** (kept for the record):
   - A selected chip is shown **only by colour**: soft-yellow face and yellow lip vs paper (`Theme.swift:499, 507`).
   - This covers Sound style and Haptics in Settings (`SettingsView.swift:65, 80`), and every other `ChipChoice` and selected chip.
   - VoiceOver hears "selected" (`SettingsView.swift:304`), but sighted users who can't separate the colours get no other cue.
@@ -135,7 +137,7 @@ Apple's bar is that users can complete all common tasks using only VoiceOver. Th
   | ink | yellow keys | 7.96:1 |
 
   `inkTertiary` (3.39:1) is used only for a chevron glyph (`ShelfView.swift:641`), which meets the 3:1 rule for non-text.
-- **Why not:** the **selected-chip state indicator** is 1.18:1 (face, `#FFE3A1` vs `#FBF8F1`) and 1.89:1 (lip) against the unselected chip. Apple's bar for state indicators is 3:1.
+- **Before the fix** (kept for the record): the **selected-chip state indicator** is 1.18:1 (face, `#FFE3A1` vs `#FBF8F1`) and 1.89:1 (lip) against the unselected chip. Apple's bar for state indicators is 3:1.
   - Increase Contrast adds a border to every key (`Theme.swift:454-456`), but it doesn't separate selected from unselected.
 - **1.0.1 fix:** the same chip fix as Differentiate Without Color. A graphite border on the selected chip is about 13:1. Then re-test with Bold Text, Increase Contrast and Reduce Transparency on.
 
@@ -143,7 +145,7 @@ Apple's bar is that users can complete all common tasks using only VoiceOver. Th
 
 The press follows the user's own hand, so that movement is the content and isn't decoration. Everything added on top of it is cut or calmed when Reduce Motion is on:
 - **Press scene:**
-  - no slow motion (`Squish/Scene/PressScene.swift:266`);
+  - no slow motion: since 25 Oct the replay is opt-in behind a SLO-MO key, and that key is hidden under Reduce Motion;
   - no camera kick on failure (`PressScene.swift:322-327`);
   - the failure light flash drops from 30,000 to 8,000 (`Squish/Scene/SceneStyle.swift:48-49`);
   - no drop-in bounce (`PressScene.swift:638`);
@@ -204,3 +206,9 @@ The chip fix was made before 1.0 rather than in 1.0.1. A selected chip now alway
 - The outline is about 13:1 against the paper face, and the chip reports the `.isSelected` trait to VoiceOver. See the `KeycapFace` body in `Squish/UI/Theme.swift`.
 - **Labels this earns:** Differentiate Without Color Alone and Sufficient Contrast join VoiceOver and Reduced Motion.
 - **Before publishing the labels on launch day,** check the Settings frame once under the Grayscale colour filter.
+
+## Update (25 Oct 2026, launch QA)
+
+- The Sound & vibration check flagged warning rows by orange text alone (about 2:1). It now carries a warning glyph, a "Check:" prefix, an amber of at least 4.5:1 and "warning" in the VoiceOver label.
+- On a Duo, VoiceOver now hears achievements and unlocks at the reveal. The cover lobby tells VoiceOver users to open the phone.
+- Dimmed console keys mid-press are disabled for VoiceOver too, and the lesson's MORE HELP is a 44 pt, separately reachable button.

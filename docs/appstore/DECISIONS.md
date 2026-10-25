@@ -154,6 +154,6 @@ Source: the latest green "App Store screenshots" run, **39952047687** (23 Oct, h
 
 - **Photos permission:** `NSPhotoLibraryAddUsageDescription` is now in `project.yml` ("Squish saves your specimen card and press clip to Photos only when you tap Save."). Share → Save Image or Save Video can no longer crash the app.
 - **Version:** `MARKETING_VERSION` is 1.0.
-- **Settings credits:** they now say every sound is synthesised in code, with no recordings.
+- **Settings credits:** they now say every sound is synthesised in code, with no recordings. *Superseded 25 Oct 2026:* recorded CC0 samples ship; About credits say "Recorded foley and sounds synthesised", and Content Rights is Yes (row 21).
 - **Selected chips:** they carry a graphite outline and the `.isSelected` trait, so Differentiate Without Color and Sufficient Contrast are now Supported (`accessibility.md`).
 - **Privacy manifest:** added as `Squish/PrivacyInfo.xcprivacy`. CI fails if it is missing from the built app.

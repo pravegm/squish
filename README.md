@@ -45,7 +45,7 @@ Open the **Tuning Lab** (Settings → long-press the **Version** row):
   - `Fold/`: the iPhone Duo Fold Press.
   - the P-48 rig (`PressScene`).
   - the 10 objects (`Objects/`).
-- `Squish/Feedback`: Core Haptics and the real-time synth. All sound is synthesised.
+- `Squish/Feedback`: Core Haptics and the real-time synth, layered with 319 recorded CC0 samples (`Squish/Resources/Sounds/LICENSES.md`).
 - `Squish/UI`, `Squish/Collection`, `Squish/Share`: interface, specimens and achievements, and the share image and clip.
 - `SquishTests`: Swift Testing suites.
 - `ci/`, `.github/workflows/`: build and test, Duo simulator captures, and the App Store screenshot pipeline.

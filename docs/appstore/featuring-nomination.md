@@ -46,11 +46,11 @@ One price, no ads, no in-app purchases, no timers, no data collected. Free objec
 
 ### Helpful Details (415 characters)
 ```
-Optimized for iPhone Duo: tabletop and book poses, inner and outer displays (the sealed press and an object picker live on the cover). Built with Xcode 27.1 on the public hinge API. A one-person studio: every object is generated in code and every sound is synthesized live, so free drops can come every few weeks (Holiday Object Drop planned for December). Slow, steady closes are quietly rewarded; slams never are.
+Optimized for iPhone Duo: tabletop and book poses, inner and outer displays (the sealed press and an object picker live on the cover). Built with Xcode 27.1 on the public hinge API. A one-person studio: every object is generated in code and every sound is synthesized live from the hinge, layered with CC0 foley, so free drops can come every few weeks (Holiday Object Drop planned for December). Slow, steady closes are quietly rewarded; slams never are.
 ```
 
 **What changed from the draft, all checked against the code (`DECISIONS.md` §5):**
-- "synthesised or CC0" became "synthesized live". No audio files ship.
+- "synthesised or CC0" became "synthesized live", then (25 Oct) "synthesized live from the hinge, layered with CC0 foley": recorded CC0 samples now ship.
 - "photosensitivity-safe flashes" and "visual sound cues" were cut, because there's no flash-rate limiter to point to.
 - Apple's Duo guidance asks you to say in Helpful Details that the app is "optimized for iPhone Duo", so it now leads with that.
 - The pre-order line is gone.

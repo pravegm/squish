@@ -16,7 +16,7 @@ Read this first when you have the Mac and the Duo in hand. It covers what exists
   - share image and share clip (MP4 with audio);
   - Game Center achievements;
   - the cover-display card when the phone is closed.
-- **Sound and haptics:** all sound is synthesised in real time; there are no audio files. Core Haptics recipes per object. Soft style in Settings.
+- **Sound and haptics:** a real-time synth layered with 319 recorded CC0 samples (`Squish/Resources/Sounds/`, provenance in `LICENSES.md`). Core Haptics recipes per object. Soft style in Settings.
 - **About 160 unit tests** (Swift Testing). All passing on CI.
 
 ## 2. Build and run

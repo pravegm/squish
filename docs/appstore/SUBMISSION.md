@@ -265,7 +265,7 @@ One price, no ads, no in-app purchases, no timers, no data collected. Free objec
 
 **Helpful Details** (415 / 500):
 ```
-Optimized for iPhone Duo: tabletop and book poses, inner and outer displays (the sealed press and an object picker live on the cover). Built with Xcode 27.1 on the public hinge API. A one-person studio: every object is generated in code and every sound is synthesized live, so free drops can come every few weeks (Holiday Object Drop planned for December). Slow, steady closes are quietly rewarded; slams never are.
+Optimized for iPhone Duo: tabletop and book poses, inner and outer displays (the sealed press and an object picker live on the cover). Built with Xcode 27.1 on the public hinge API. A one-person studio: every object is generated in code and every sound is synthesized live from the hinge, layered with CC0 foley, so free drops can come every few weeks (Holiday Object Drop planned for December). Slow, steady closes are quietly rewarded; slams never are.
 ```
 
 Click **Submit**. You can save a draft first, but a draft isn't a nomination. Nomination 2 (Holiday, New Content) is due **Thu 19 Nov**.
