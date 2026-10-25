@@ -372,6 +372,17 @@ private struct ShelfSlot: View {
                         ObjectArt(kind: kind, cornerRadius: Theme.stickerRadius)
                     }
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    // The crushed 3D specimen beside its print (EXPERIENCE-REVIEW-1 #10).
+                    if best != nil {
+                        ObjectArt(kind: kind, crushed: true, cornerRadius: 7)
+                            .frame(width: 30, height: 30)
+                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .strokeBorder(Color.white, lineWidth: 2))
+                            .elevation(.e1)
+                            .offset(x: 6, y: 6)
+                    }
+                }
                 .scaleEffect(peeling ? 1.15 : 1)
                 .rotationEffect(.degrees(peeling ? 8 : 0))
                 // FOLD-REVIEW-9 N9: the two-line "ON THE ANVIL" sticker covered the tile's own thumbnail (the duck's, in

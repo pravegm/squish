@@ -588,19 +588,21 @@ private struct IdleCover: View {
                             onQueue(kind)
                         } label: {
                             HStack(spacing: 6) {
-                                ObjectArt(kind: kind, cornerRadius: 5)
-                                    .frame(width: 22, height: 22)
-                                // "EGG · CRACKS" (EXPERIENCE-REVIEW-1 #10); just the name when the chip is narrow.
-                                ViewThatFits(in: .horizontal) {
-                                    Text("\(kind.coverName) · \(kind.verb.uppercased())".gluingDotSeparators)
+                                ObjectArt(kind: kind, cornerRadius: 6)
+                                    .frame(width: 28, height: 28)
+                                // The name and its verb (EXPERIENCE-REVIEW-1 #10), the same two lines on every chip.
+                                VStack(alignment: .leading, spacing: 0) {
                                     Text(kind.coverName)
+                                    Text(kind.verb.uppercased())
+                                        .font(Theme.micro)
+                                        .foregroundStyle(Theme.inkSecondary)
                                 }
                                 Spacer(minLength: 0)
                             }
                             .padding(.leading, -6)
                         }
                         .buttonStyle(KeycapStyle(kind: .chip, fullWidth: true, selected: selected))
-                        .accessibilityLabel(kind.displayName)
+                        .accessibilityLabel("\(kind.displayName). \(kind.verb).")
                         .accessibilityAddTraits(selected ? [.isSelected] : [])
                         .accessibilityHint(selected ? "On the anvil." : "Puts it on the anvil for when you open.")
                     }
