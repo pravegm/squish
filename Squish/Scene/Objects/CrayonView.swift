@@ -60,6 +60,8 @@ final class CrayonView: PressObjectView {
         var kinkSide: Float = 1
         var separation: Float = 0
         var smear: ModelEntity?
+        /// The paper wrap, one per piece: it splits at the snap and tears off at the crumble, baring the wax.
+        var wrappers: [ModelEntity] = []
         init(index: Int, top: Bool, colour: UIColor, rest: SIMD3<Float>, cut: Float) {
             self.index = index
             self.top = top
@@ -251,6 +253,7 @@ final class CrayonView: PressObjectView {
                                            vRange: CrayonBox.wrapperRange).translated([0, -cut, 0])
                 }, paper, to: piece)
                 wrappers.append(wrapper)
+                crayon.wrappers.append(wrapper)
             }
         }
         // The stress ring at the bend (stress whitening), hidden until the tell.
@@ -274,11 +277,12 @@ final class CrayonView: PressObjectView {
                 async let sheen = SurfaceDetail.waxSheen()
                 async let wrap = SurfaceDetail.crayonWrap(band: band, name: name)
                 let normal = await SurfaceDetail.waxNormal()
-                var material = SceneMaterials.enamel(colour, roughness: 0.5, clearcoat: 0.4, clearcoatRoughness: 0.4)
+                // A waxier sheen (EXPERIENCE-REVIEW-1 #5): a stronger, softer clearcoat over the streaked wax.
+                var material = SceneMaterials.enamel(colour, roughness: 0.42, clearcoat: 0.7, clearcoatRoughness: 0.3)
                 if let normal { material.normal = .init(texture: SurfaceDetail.wrapped(normal)) }
                 if let sheen = await sheen {
-                    material.clearcoatRoughness = .init(scale: 0.5, texture: SurfaceDetail.wrapped(sheen))
-                    material.roughness = .init(scale: 0.6, texture: SurfaceDetail.wrapped(sheen))
+                    material.clearcoatRoughness = .init(scale: 0.4, texture: SurfaceDetail.wrapped(sheen))
+                    material.roughness = .init(scale: 0.5, texture: SurfaceDetail.wrapped(sheen))
                 }
                 for model in models { model.model?.materials = [material] }
                 if let texture = await wrap {
@@ -311,6 +315,14 @@ final class CrayonView: PressObjectView {
                          in: entity, count: 1, golden: look.golden, rng: &rng)
         }
         for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
+        // The fight (EXPERIENCE-REVIEW-1 #1): the loaded crayons bow harder and whiten at the bend as they resist.
+        let strain = state.resistanceBulge
+        if strain > 0 {
+            for crayon in crayons where !crayon.broken && crayon.top == !failedTop {
+                crayon.bowTarget = max(crayon.bowTarget, CrayonBox.bowAmount * (0.6 + 1.0 * strain))
+                if strain > 0.4 { crayon.ring?.isEnabled = true }
+            }
+        }
         let c = state.compression
         let f1 = thresholds.first ?? 0.3
         let f2 = CrayonBox.bottomRowStart(thresholds)
@@ -376,6 +388,13 @@ final class CrayonView: PressObjectView {
             crayon.kinkSide = rng.next() % 2 == 0 ? 1 : -1
             crayon.kink.kick(6 * m)
             crayon.ring?.isEnabled = false
+            // The wrap splits at the break: one half's paper peels off with a flake of it, baring the wax.
+            if let torn = crayon.wrappers.last, torn.isEnabled {
+                torn.isEnabled = false
+                let paperAt = torn.convert(position: .zero, to: fx.root)
+                fx.particles.burst(.flake, count: 2, at: paperAt, speed: 0.12 * m, colors: [UIColor(hex: 0xF4ECDD), crayon.colour],
+                                   size: 0.003...0.005, spread: 0.004, upBias: 0.5, rng: &rng)
+            }
             let at = crayon.node.convert(position: [crayon.cut * CrayonBox.length - CrayonBox.length / 2, CrayonBox.crayonRadius, 0],
                                          to: fx.root)
             fx.particles.burst(.flake, count: 3, at: at, speed: 0.25 * m,
@@ -397,7 +416,7 @@ final class CrayonView: PressObjectView {
             // Pressed wax: a lane with a smeared, streaky face and a ragged, scraped edge (planar UVs for its maps).
             let smear = Part.add(cached: "crayonbox.smear.uv.\(i % 3)", {
                 MeshKit.spreadDiscUV(seed: 0x5EA &+ UInt64(i % 3) &* 977, height: 1, segments: 96, wobble: 0.2, tear: 0.05)
-            }, material, at: [crayon.rest.x, CrayonBox.floor + 0.0002 + 0.00004 * Float(i), crayon.rest.z], to: life.node)
+            }, material, at: [crayon.rest.x, CrayonBox.smearY + 0.00004 * Float(i), crayon.rest.z], to: life.node)
             smear.scale = SIMD3(repeating: 0.0001)
             ShadowCasting.off(smear)
             crayon.smear = smear
@@ -468,6 +487,8 @@ final class CrayonView: PressObjectView {
         default:
             // The crumble: the lanes run out of the box into a rainbow smear; rainbow flakes everywhere.
             crumbled = true
+            // The rest of the paper tears away: crushed wax, not printed paper, is what's left.
+            for crayon in crayons { for wrap in crayon.wrappers { wrap.isEnabled = false } }
             crumbleC = state.compression
             startSmear(state.compression)
             smearSteps += 1
@@ -556,9 +577,14 @@ enum CrayonBox {
     static let lean: Float = 0.08
     static let folded: Float = 1.45
     /// The crushed slab: never thinner than this share of a crayon, never wider than `maxWiden`.
-    static let minTop: Float = 0.16
-    static let minBottom: Float = 0.22
-    static let maxWiden: Float = 2.4
+    /// EXPERIENCE-REVIEW-1 #5 ("the slabs read as paper cut-outs"): thicker slabs (≈ 34 % of the box at full crush,
+    /// was 22 %) and a narrower widen, so each crushed crayon keeps a waxy, rounded body with a sheen.
+    static let minTop: Float = 0.30
+    /// The smear lanes lie over the folded-flat walls (EXPERIENCE-REVIEW-1: the rainbow under the slabs was hidden by
+    /// the box), so where they run out past the tray they show.
+    static var smearY: Float { floor + wallThickness + 0.0003 }
+    static let minBottom: Float = 0.34
+    static let maxWiden: Float = 2.0
 
     /// Lane `slot` (0…6) across the tray: bottom crayons on even slots, top ones nested between them.
     static func laneZ(_ slot: Int) -> Float {

@@ -482,6 +482,12 @@ final class GlassBottleView: PressObjectView {
                          golden: look.golden, rng: &beatRng)
         }
         for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
+        // The fight (EXPERIENCE-REVIEW-1 #1): the stress glow climbs with the strain, so the glass visibly whitens as it
+        // holds against the plate before it gives.
+        if !failed && state.resistanceBulge > 0 {
+            let target = Int((state.resistanceBulge * Float(GlassStress.steps)).rounded(.up))
+            while glowLevel < min(target, GlassStress.steps) && !look.golden { glowStep() }
+        }
         if failed {
             twinkle(state)
             return
@@ -864,9 +870,11 @@ enum GlassDebris {
     /// Shards per profile band (base, low body, label low, label high, shoulder, neck). FOLD-REVIEW-7 #5: ~100 same-size
     /// 3–9 mm pieces ([1, 10, 14, 14, 8, 4]) read as mint confetti; now fewer, larger pieces (45–60° arcs on the body,
     /// most split in two, a third kept as one big piece) plus the base ring and the neck kept whole.
-    static let sectorCounts = [1, 6, 8, 8, 5, 1]
-    /// Bands whose single patch stays whole at the shatter: the base ring and the neck.
-    static let intactBands = [0, 5]
+    /// EXPERIENCE-REVIEW-1 #5: the base used to stay whole, and a flat translucent disc on the plate read as a coaster;
+    /// it now breaks into three thick heel pieces like the rest.
+    static let sectorCounts = [3, 6, 8, 8, 5, 1]
+    /// Bands whose single patch stays whole at the shatter: the neck (curved bottle glass on the heap).
+    static let intactBands = [5]
     /// One body patch in `singleShare` stays one big piece (≈ 0.9 of its patch) instead of a split pair.
     static let singleShare: UInt64 = 3
     static let singleFill: Float = 0.9

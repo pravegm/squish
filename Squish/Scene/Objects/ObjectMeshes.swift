@@ -198,7 +198,10 @@ enum ObjectMeshes {
         }
         points += [
             SIMD2(0.045, 0.126), SIMD2(0.043, 0.134), SIMD2(0.0385, 0.142), SIMD2(0.036, 0.146), SIMD2(0.0368, 0.148),
-            SIMD2(0.036, 0.150), SIMD2(0.0345, 0.149), SIMD2(0.0335, 0.1455), SIMD2(0.000, 0.1455),
+            SIMD2(0.036, 0.150), SIMD2(0.0345, 0.149), SIMD2(0.0335, 0.1455),
+            // Rings across the lid, so it can buckle into radial creases when crushed (EXPERIENCE-REVIEW-1 #5).
+            SIMD2(0.0275, 0.1455), SIMD2(0.0215, 0.1455), SIMD2(0.0155, 0.1455), SIMD2(0.0095, 0.1455), SIMD2(0.004, 0.1455),
+            SIMD2(0.000, 0.1455),
         ]
         return points.map { SIMD2($0.x * canR, $0.y * canY) }
     }

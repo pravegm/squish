@@ -68,6 +68,7 @@ final class JellyView: PressObjectView {
     private let ooze: OozeRing
     /// Skin tautness 0…`JellySpread.tautSteps` (the gloss and glow rise before it splits).
     private var taut = 0
+    private var gave = false
     /// The 3D-art round: air bubbles and suspended fruit set in the gel (they ride the squash and end up trapped, flat,
     /// in the puddle), the skin's faint ripples (specular breakup on the mirror gloss) and the core's caustics.
     private var inclusions: [(entity: Entity, rest: SIMD3<Float>, bubble: Bool)] = []
@@ -234,6 +235,15 @@ final class JellyView: PressObjectView {
             BeatFX.glint(fx, at: [-0.012, 0.074, -0.01], in: entity, golden: golden, rng: &rng)
         }
         for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
+        // The fight (EXPERIENCE-REVIEW-1 #1): jelly barely fights; its skin goes taut and it shivers. The give: the gel
+        // squeezes out of the pinch line in the burst's frame.
+        if state.resistanceBulge > 0.5 && taut < 2 { tighten() }
+        if state.collapseLead > 0 && !gave {
+            gave = true
+            ooze.shove(0.4)
+            wobbleX.kick(2)
+            wobbleZ.kick(-1.5)
+        }
         defer { ooze.update(compression: state.compression, spread: min(spread, 1.6)) }
         // Idle life: a gentle top lean at ~1.8 Hz after landing; impacts excite it.
         wobbleX.step(toward: 0, dt: dt)

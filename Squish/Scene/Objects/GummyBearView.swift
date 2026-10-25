@@ -57,6 +57,11 @@ final class GummyBearView: PressObjectView {
     private var padMaps: SurfaceMaps?
     private var mids: [ModelEntity] = []
     private var cores: [ModelEntity] = []
+    /// EXPERIENCE-REVIEW-1 #5 (the halves were flung off the plate as two tall sliced half-bears): how far (bear-local
+    /// metres, before the hero scale) the crushed bear may reach from its centre and stay on the strike plate / anvil.
+    private let reach: Float
+    private var slapT: Float = 0
+    private var gave = false
 
     var shadowSpread: Float { spread }
 
@@ -93,6 +98,10 @@ final class GummyBearView: PressObjectView {
         rainbow = variant.surprise == .rainbowCore
         gooColors = look.golden ? [Palette.goldMessColor] : [UIColor(hex: 0xFF5A4E), UIColor(hex: 0xFF8A7F)]
         rng = SplitMix64(seed: variant.seed ^ 0x6B)
+        // The Duo strike plate's half width (the long axis the chew stretches along); the P-48's smaller anvil is the
+        // fallback machine, where objects already overhang it.
+        let plate = GlassDebris.containment(restHeight: 0.107 * GummyBearView.heroScale, anvilHalf: SIMD2(repeating: 1), padding: 0)
+        reach = plate.x * 0.85 / GummyBearView.heroScale
         life = ObjectLife(seed: variant.seed, idle: .breathe, amount: 0.012, rate: 0.5, pulseHz: 2.6, pulseDamping: 0.55)
         story = StoryCursor(.gummyBear, seed: variant.seed)
         build(seed: variant.seed)
@@ -256,10 +265,11 @@ final class GummyBearView: PressObjectView {
                 let yc = (y0 + y1) / 2
                 let u = (yc - section.y) / section.halfHeight
                 let depth = 2 * section.halfDepth * max((1 - u * u), 0.05).squareRoot()
-                let material = SceneMaterials.enamel(stripes[b], roughness: 0.25, clearcoat: 0.8, clearcoatRoughness: 0.15)
-                Part.add(MeshKit.roundedBox([0.0008, (y1 - y0) * 0.98, depth], radius: min(0.003, (y1 - y0) * 0.45),
-                                            bevel: 0.0003),
-                         material, at: [x, yc, section.z], to: half)
+                // A rounded, glossy cut face (EXPERIENCE-REVIEW-1 #5: the flat boxes read as CG cut planes): a thin lens
+                // that domes out of the cut, so its edge rolls into the gel.
+                let material = SceneMaterials.enamel(stripes[b], roughness: 0.22, clearcoat: 0.9, clearcoatRoughness: 0.18)
+                let radii = SIMD3<Float>(0.0016, (y1 - y0) * 0.55, depth * 0.48)
+                Part.add(MeshKit.ellipsoid(radii: radii, segments: 24, rings: 12), material, at: [x, yc, section.z], to: half)
             }
         }
     }
@@ -276,9 +286,19 @@ final class GummyBearView: PressObjectView {
         let h = surfaceHeight(compression: state.compression)
         let s = max(h / restHeight, 0.05)
         // The chewy stretch: a continuous part plus the beat steps, eased by a heavy spring (it pulls, it doesn't wobble).
-        stretchFloor = max(stretchFloor, GummyChew.stretch(compression: state.compression, steps: stretchTarget))
+        // The fight (EXPERIENCE-REVIEW-1 #1): it chews harder against the plate as it resists, and the seam whitens.
+        let strain = state.resistanceBulge
+        stretchFloor = max(stretchFloor, GummyChew.stretch(compression: state.compression, steps: stretchTarget) + 0.12 * strain)
+        if strain > 0.35 && seamLevel < 2 { whitenSeam() }
+        if state.collapseLead > 0 && !gave {
+            // The give: the halves lurch apart in the same frame as the burst.
+            gave = true
+            gap.kick(0.12 * max(fx.motionScale, 0.3))
+        }
         stretch.step(toward: stretchFloor, dt: state.dt)
-        let scale = GummyChew.scale(heightRatio: s, stretch: max(stretch.value, 0))
+        var scale = GummyChew.scale(heightRatio: s, stretch: max(stretch.value, 0))
+        // Never wider than the plate allows (the split gap included).
+        scale.x = min(scale.x, GummyChew.maxWidthScale(reach: reach, gap: split ? max(gap.value, 0) : 0))
         bear.scale = scale
         spread = max(scale.x, scale.z)
         // Glows more where it's thin (stepped so materials change rarely).
@@ -291,7 +311,9 @@ final class GummyBearView: PressObjectView {
         if split {
             let t = clamp((state.compression - splitC) / max(1 - splitC, 0.05), 0, 1)
             gap.step(toward: GummyChew.gap(t), dt: state.dt)
-            tilt = 0.06 + 0.22 * t
+            // The halves lean out a little as they part, then lie flat again once they've slapped down into pads.
+            if slapped { slapT = max(slapT, clamp((state.compression - slapC) / 0.1, 0, 1)) }
+            tilt = GummyChew.tilt(t) * (1 - slapT)
             for (i, half) in halves.enumerated() {
                 let side: Float = i == 0 ? -1 : 1 // halves[0] is the left half (x ≤ 0)
                 half.position = SIMD3(side * gap.value, 0, 0)
@@ -310,8 +332,11 @@ final class GummyBearView: PressObjectView {
             for (i, pad) in pads.enumerated() {
                 let side: Float = i == 0 ? -1 : 1
                 let r = GummyChew.padRadius(t)
-                pad.position = SIMD3(side * (0.020 + gap.value) * scale.x, 0.0002, 0.004 * scale.z)
-                pad.scale = SIMD3(r * scale.x * 0.9, 0.003, r * scale.z)
+                // Each pad lies under its half, held on the plate.
+                let halfWidth = r * scale.x * 0.9
+                let x = min((0.020 + gap.value) * scale.x, max(reach - halfWidth, 0.004))
+                pad.position = SIMD3(side * x, 0.0002, 0.004 * scale.z)
+                pad.scale = SIMD3(halfWidth, 0.003, r * scale.z)
             }
         }
     }
@@ -343,8 +368,11 @@ final class GummyBearView: PressObjectView {
         for side: Float in [-1, 1] {
             let local = SIMD3<Float>(side * (gap.value + 0.002), strand.y, strand.z)
             let at = bear.convert(position: local, to: fx.root)
-            fx.particles.emit(.droplet, at: at, velocity: SIMD3(side * 0.05, -0.05, 0) * max(fx.motionScale, 0.3),
-                              color: gooColors.pick(&rng), size: 0.0025, rng: &rng)
+            // Beads drop onto the halves and the plate beside them, scattered (never flung to the plate's edge).
+            let v = SIMD3<Float>(side * Float.random(in: 0...0.025, using: &rng), -0.06,
+                                 Float.random(in: -0.025...0.025, using: &rng)) * max(fx.motionScale, 0.3)
+            fx.particles.emit(.droplet, at: at, velocity: v, color: gooColors.pick(&rng),
+                              size: Float.random(in: 0.002...0.003, using: &rng), rng: &rng)
         }
         life.kick(0.5)
     }
@@ -393,8 +421,8 @@ final class GummyBearView: PressObjectView {
             gap.kick(0.25 * m)
             life.kick(1.0)
             let at = entity.convert(position: [0, min(state.ramFace * 0.5, 0.04), 0.02], to: fx.root)
-            fx.particles.burst(.droplet, count: 3, at: at, speed: 0.12 * m, colors: gooColors, size: 0.0025...0.004,
-                               spread: 0.01, upBias: 0.3, rng: &rng)
+            fx.particles.burst(.droplet, count: 3, at: at, speed: 0.05 * m, colors: gooColors, size: 0.0025...0.004,
+                               spread: 0.01, upBias: 0.6, rng: &rng)
             if rainbow {
                 fx.particles.burst(.confetti, count: 10, at: at, speed: 0.35 * m,
                                    colors: [Palette.tangerine, Palette.lime, Palette.cobalt, Palette.lemon],
@@ -440,12 +468,27 @@ enum GummyChew {
     static func scale(heightRatio s: Float, stretch: Float) -> SIMD3<Float> {
         let k = min(1 / max(s, 0.05).squareRoot(), 1.5)
         let a = 1 + clamp(stretch, 0, maxStretch)
-        return SIMD3(min(k * a, 2.0), max(s, 0.05), max(k / a.squareRoot(), 1))
+        return SIMD3(min(k * a, maxWidth), max(s, 0.05), max(k / a.squareRoot(), 1))
     }
 
-    /// The halves' gap (bear-local metres) at progress `t` past the split.
+    /// The widest the chewed bear gets (EXPERIENCE-REVIEW-1 #5: at 2.0 plus the gap the halves left the plate).
+    static let maxWidth: Float = 1.6
+    /// The bear's half width at rest (its arms), bear-local metres.
+    static let halfWidth: Float = 0.046
+
+    /// The x scale at which the bear (half width + the split gap) just reaches `reach` from its centre.
+    static func maxWidthScale(reach: Float, gap: Float) -> Float {
+        max(reach / max(halfWidth + gap, 1e-3), 1)
+    }
+
+    /// The halves' gap (bear-local metres) at progress `t` past the split: they part, they don't fly.
     static func gap(_ t: Float) -> Float {
-        0.004 + 0.016 * clamp(t, 0, 1)
+        0.003 + 0.007 * clamp(t, 0, 1)
+    }
+
+    /// How far the halves lean out as they part (radians), before they slap flat.
+    static func tilt(_ t: Float) -> Float {
+        0.04 + 0.08 * clamp(t, 0, 1)
     }
 
     /// A strand's length across the gap at height `y`, the halves tilted out by `tilt`.

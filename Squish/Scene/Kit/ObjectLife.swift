@@ -209,6 +209,14 @@ final class OozeRing {
         return root.position + SIMD3(tip.x, 0.004, tip.y)
     }
 
+    /// The give (EXPERIENCE-REVIEW-1 #1): every lobe already out jumps outward by `amount` of its reach at once, in the
+    /// same frame as the burst (latched, like the rest of the squeeze-out).
+    func shove(_ amount: Float) {
+        guard shown > 0 else { return }
+        for i in 0..<shown { lobes[i].grown = min(lobes[i].grown + amount, 1) }
+        lastC = -1
+    }
+
     /// Grows the lobes with compression `c` (latched) and follows the footprint's growth `spread` (1 = rest).
     func update(compression c: Float, spread: Float = 1) {
         guard shown > 0, abs(c - lastC) > 0.002 || abs(spread - lastScale) > 0.005 else { return }

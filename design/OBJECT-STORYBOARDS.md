@@ -266,3 +266,30 @@ The gummy must read nothing like the jelly. The jelly wobbles and splats. The gu
 - Glass: per-shard edge chipping.
 - Duck: a real seam bead mesh.
 - The Fold platen print (`FoldStamps`, not Objects-owned) still draws the crayon as one cobalt crayon. It should draw a rainbow smear for the Crayon Box. The cover's "CRAYON" label (`CoverView.swift:590`) and the shelf icon art (`Theme.swift:823`) should also follow the rename.
+
+## Round 2 (EXPERIENCE-REVIEW-1 #1, #5, #10)
+
+**Fight, then give.** Every view now reads `PressVisualState.resistanceBulge` (the strain over the last ~0.12 c before its failure) and `collapseLead` (the give). The scene already bulges the object sideways and trembles it; the views add their own marks, never the height:
+
+| Object | While it fights | At the give |
+|---|---|---|
+| Duck | eyes bulge (up to 1.3×), the seam whitens | the skirt squeezes out a step, the beak pops |
+| Egg | the stress patch whitens, the third crack branch creeps | the white squeezes out from under the shell ring, the yolk wobbles |
+| Can | the next band bows out to its full pre-buckle, the lid tinks in | the fizz lobes squirt out from under the base |
+| Glass | the stress glow climbs with the strain (5 steps) | (the shatter) |
+| Jelly | the skin goes taut (2 steps) | the gel lobes jump out, a big wobble |
+| Gummy | it chews harder (+0.12 stretch), the seam whitens | the halves lurch apart |
+| Cake | crumbs trickle and the cream cracks | the filling squirts out of the pinch line |
+| Crayon Box | the loaded row bows harder, stress rings whiten | (the snap) |
+
+**Crushed looks fixed:**
+- **Gummy:** the halves part 3–10 mm (not 4–20), lean out ≤ 0.12 rad and lie flat again once they slap, the chewed width is capped at 1.6× and at the strike plate, so the pads stay on the plate; the cut faces are rounded glossy lenses, not flat boxes; strand beads drop and scatter instead of flying to the plate's edge.
+- **Cake:** the cream stays cream (shade 0.93, was 0.82) and the fold shadow that was drawn inside the *rest* outline (the dish's inner wall once the top had spread) is gone.
+- **Soda can:** the fired bands splay 2.4× further out (a crumpled label ring round the top from above), the lid has rings now and buckles into five seeded radial creases, the crushed top tilts down on its far side, and the fizz is always lime in the lime can (cherry for the surprise).
+- **Duck:** the skirt is a smooth rolled lip (no torn notches); the print carries the head, wings, tail, the orange beak and two eyes (`FoldStamps.duckFeatures`).
+- **Egg:** at the give the pieces switch to a broken-shell look: clean off-white calcium with sparse speckles and a sheen outside, a smooth white inside and edge (the 1.2 mm thickness shows).
+- **Crayon Box:** thicker slabs (≈ 35 % of the box, was 22 %), a waxier clearcoat, the wrap splits at each snap and tears away at the crumble, and the rainbow smear lies over the folded walls.
+- **Glass:** the base breaks into three heel pieces (it stayed whole and read as a coaster).
+- **The Unsquishable:** never tinted or pulsed; the "deformed at 75°" look was the Fold eye's anamorphic stretch of a tall sphere plus the old bronze warm-up tint and grit puffs sitting on it. Its dent is now a crater rim and radial cracks just outside its silhouette.
+
+**Thumbnails:** `Squish/Scene/Kit/ObjectThumbnails.swift` renders each object at rest and crushed (`ObjectCrush.press`, the same offscreen press SceneTests checks) into cached PNGs.

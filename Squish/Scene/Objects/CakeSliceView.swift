@@ -78,6 +78,9 @@ final class CakeSliceView: PressObjectView {
     private var story: StoryCursor
     private let ooze: OozeRing
     private var lastSpread: Float = 1
+    /// The fight's marks (crumbs and a cream crack once it strains hard) and the give's shove, each once.
+    private var fought = false
+    private var gave = false
 
     var shadowSpread: Float { spread }
 
@@ -343,6 +346,19 @@ final class CakeSliceView: PressObjectView {
         // spreads about its centroid, which stays on the anvil centre.
         let k = CakeSquash.uniformSpread(heightRatio: s)
         lastSpread = max(lastSpread, k * (1 + 0.15 * bulge))
+        // The fight (EXPERIENCE-REVIEW-1 #1): straining against the plate, the sponge sheds crumbs and the cream cracks;
+        // at the give the filling squirts out of the pinch line in the burst's frame.
+        if state.resistanceBulge > 0.6 && !fought {
+            fought = true
+            trickle(3)
+            addCreamCrack()
+            life.tremor(0.2, level: 0.6)
+        }
+        if state.collapseLead > 0 && !gave {
+            gave = true
+            ooze.shove(0.35)
+            life.kick(0.8)
+        }
         ooze.update(compression: state.compression, spread: lastSpread)
         cake.scale = SIMD3(k, s, k)
         cake.position = [-CakeSquash.centroidX * k, 0, 0]
@@ -938,7 +954,9 @@ enum CakeSquash {
     /// FOLD-REVIEW-9 N3: flattened and facing the key head-on, the cream top still clipped to flat white at c = 1. Its
     /// albedo steps down as the squash completes (the textured material's tint, × the mottle), so it shades and the
     /// mottle and the rim's fold shadow stay visible.
-    static let crushedShade: Float = 0.82
+    /// EXPERIENCE-REVIEW-1 #5 ("a grey concave dish"): 0.82 greyed the crushed cream; it stays cream now (the mottle
+    /// and the spatula strokes carry the shading).
+    static let crushedShade: Float = 0.93
 
     /// The cream's albedo multiplier at squeeze `progress`: 1 until 0.45, `crushedShade` at 1.
     static func creamShade(progress: Float) -> Float {
@@ -990,19 +1008,16 @@ enum CakeSquash {
                 cg.drawRadialGradient(gradient, startCenter: centre, startRadius: 0, endCenter: centre, endRadius: radius,
                                       options: [])
             }
-            // FOLD-REVIEW-9 N3: a soft fold shadow just inside the outline, where the top rolls over its edge (the cream
-            // slab's walls map onto the outline itself, so they take the darkest of it).
+            // EXPERIENCE-REVIEW-1 #5: the old fold shadow drawn just inside the *rest* outline became, once the top had
+            // spread to an oval, a dark ring inside the cream: the walls of a dish. Only a faint shade on the outline
+            // itself is left (the cream slab's walls map onto it), so the crushed top reads as heaped cream.
             let outline = uvOutline(side: side)
             cg.saveGState()
-            cg.addPath(outline)
-            cg.clip()
             cg.setLineJoin(.round)
-            cg.setStrokeColor(UIColor(hex: creamFold).withAlphaComponent(0.16).cgColor)
-            for step in 0..<5 {
-                cg.setLineWidth(side * (0.10 - 0.018 * CGFloat(step)))
-                cg.addPath(outline)
-                cg.strokePath()
-            }
+            cg.setStrokeColor(UIColor(hex: creamFold).withAlphaComponent(0.12).cgColor)
+            cg.setLineWidth(side * 0.015)
+            cg.addPath(outline)
+            cg.strokePath()
             cg.restoreGState()
         }
         return image.cgImage

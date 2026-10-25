@@ -163,9 +163,9 @@ struct SceneTests {
         #expect(clamped.x <= anvil.x && clamped.y <= anvil.y)
         // FOLD-REVIEW-7 #5: fewer, larger shards (45–72° arcs on the body), the base ring and the neck kept whole, and the
         // whole bottle (plus a message) fits the 64-piece debris cap.
-        #expect(GlassDebris.sectorCounts == [1, 6, 8, 8, 5, 1])
+        #expect(GlassDebris.sectorCounts == [3, 6, 8, 8, 5, 1])   // EXPERIENCE-REVIEW-1 #5: the base breaks too (no coaster)
         #expect(GlassDebris.sectorCounts.reduce(0, +) + 1 <= 64)
-        #expect(GlassDebris.intactBands == [0, GlassDebris.sectorCounts.count - 1])
+        #expect(GlassDebris.intactBands == [GlassDebris.sectorCounts.count - 1])
         for band in GlassDebris.intactBands { #expect(GlassDebris.sectorCounts[band] == 1) }
         #expect(GlassDebris.skidSpeed.lowerBound >= 0.04 && GlassDebris.skidSpeed.upperBound <= 0.10)
         // A piece bigger than the box is pinned to its centre rather than given an inverted box.
@@ -487,8 +487,9 @@ struct SceneTests {
         #expect(CakeSquash.creamShade(progress: 0) == Float(1))
         #expect(CakeSquash.creamShade(progress: 0.4) == Float(1))
         #expect(abs(CakeSquash.creamShade(progress: 1) - CakeSquash.crushedShade) < Float(1e-5))
-        #expect(luma(CakeSquash.creamTint) * CakeSquash.creamShade(progress: 1) < 200)
-        #expect(luma(CakeSquash.creamTint) * CakeSquash.creamShade(progress: 1) > 170)
+        // EXPERIENCE-REVIEW-1 #5: shaded a little, never greyed into a dish (was 0.82 → ~190).
+        #expect(luma(CakeSquash.creamTint) * CakeSquash.creamShade(progress: 1) < 225)
+        #expect(luma(CakeSquash.creamTint) * CakeSquash.creamShade(progress: 1) > 205)
         var lastShade: Float = 1
         for k in 0...20 {
             let shade = CakeSquash.creamShade(progress: Float(k) / 20)
@@ -1167,10 +1168,10 @@ struct SceneTests {
         #expect(abs(CrayonBox.stackTop(sb: 1, st: 1) - 0.032) < 1e-5)
         #expect(CrayonBox.colours.count == 7)
         let flat = CrayonBox.rows(compression: 1, f1: 0.3, f2: 0.52, failedTop: true, failedBottom: true)
-        #expect(CrayonBox.stackTop(sb: flat.sb, st: flat.st) < 0.032 * 0.25)
+        #expect(CrayonBox.stackTop(sb: flat.sb, st: flat.st) < 0.032 * 0.4)   // EXPERIENCE-REVIEW-1 #5: thicker, waxier slabs (≈ 35 %)
         // Founder P0: a crushed crayon must not look intact from above. It is a wide, thin slab.
         let slab = CrayonBox.slabScale(flatten: flat.st)
-        #expect(slab.y < 0.2 && slab.z > 2)
+        #expect(slab.y <= 0.31 && slab.z >= 1.8)
         let intact = CrayonBox.rows(compression: 0.29, f1: 0.3, f2: 0.52, failedTop: false, failedBottom: false)
         #expect(intact.sb == 1 && intact.st == 1)
         for cut in CrayonBox.cuts {
@@ -1195,31 +1196,16 @@ struct SceneTests {
             let variant = PressVariant(kind: kind, seed: SpecimenPrint.plainSeed(for: kind))
             let fx = SceneFX()
             let view = PressObjectFactory.make(kind, variant: variant, fx: fx)
-            let thresholds = PressObjectFactory.thresholds(kind, variant: variant)
-            let failure = kind.profile.failureIndex
-            var time: Float = 0
-            func state(_ c: Float, dt: Float, phase: PressPhase) -> PressVisualState {
-                PressVisualState(compression: c, ramCompression: c, ramFace: view.surfaceHeight(compression: c),
-                                 approach: c > 0 ? 1 : 0.5, dt: dt, time: time, closingSpeed: 40, loaded: c > 0,
-                                 reduceMotion: false, phase: phase)
-            }
-            view.update(state(0, dt: 1.0 / 60, phase: .armed))
+            ObjectCrush.rest(view)
             let rest = Self.footprint(of: view, fx: fx)
-            view.handle(.contact, state: state(0, dt: 0, phase: .pressing))
-            var fired = 0
-            let steps = 240
-            for step in 0...(steps + 90) {
-                let c = min(Float(step) / Float(steps), 1)
-                time += 1.0 / 60
-                let s = state(c, dt: 1.0 / 60, phase: .pressing)
-                while fired < thresholds.count && c >= thresholds[fired] {
-                    view.fracture(index: fired, isFailure: fired == failure, state: s)
-                    fired += 1
-                }
-                view.update(s)
-                fx.step(dt: 1.0 / 60, ceiling: view.surfaceHeight(compression: c), plateHalfExtent: SIMD2(repeating: 1))
-            }
+            // The same full press (and seal and reveal) the thumbnails render.
+            ObjectCrush.press(view, fx: fx, kind: kind, variant: variant)
             let crushed = Self.footprint(of: view, fx: fx)
+            if kind == .gummyBear {
+                // EXPERIENCE-REVIEW-1 #5: the pads stay on the plate (the halves used to be flung off it).
+                let plate = GlassDebris.containment(restHeight: view.restHeight, anvilHalf: SIMD2(repeating: 1), padding: 0)
+                #expect(crushed.reach <= plate.x * 1.05, "gummy reaches \(crushed.reach) m")
+            }
             #expect(crushed.height < rest.height * 0.45, "\(kind): crushed \(crushed.height) m vs rest \(rest.height) m")
             switch kind {
             case .bubbleWrap:
@@ -1410,16 +1396,18 @@ struct SceneTests {
 
     /// Height (top above the anvil) and top-down footprint area of an object view and its debris, visible parts only.
     @MainActor
-    private static func footprint(of view: PressObjectView, fx: SceneFX) -> (height: Float, area: Float) {
+    /// `reach`: how far it extends along x (the long axis of the plate) from the centre.
+    private static func footprint(of view: PressObjectView, fx: SceneFX) -> (height: Float, area: Float, reach: Float) {
         // Mesh bounds walked by hand: `visualBounds` is empty for entities that aren't in a scene.
         let parts = [VisibleBounds.of(view.entity), VisibleBounds.of(fx.debris.root)].compactMap { $0 }
-        guard let first = parts.first else { return (0, 0) }
+        guard let first = parts.first else { return (0, 0, 0) }
         var lo = first.min, hi = first.max
         for part in parts.dropFirst() {
             lo = simd_min(lo, part.min)
             hi = simd_max(hi, part.max)
         }
         let size = hi - lo
-        return (hi.y, max(size.x, 0) * max(size.z, 0))
+        let reach = max(abs(lo.x), abs(hi.x))
+        return (hi.y, max(size.x, 0) * max(size.z, 0), reach)
     }
 }

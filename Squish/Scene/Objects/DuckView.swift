@@ -63,6 +63,7 @@ final class DuckView: PressObjectView {
     private var creases: [ModelEntity] = []
     private var shownCreases = 0
     private var seamStrain = 0
+    private var gave = false
     private let seamMaterials: [PhysicallyBasedMaterial]
     /// The vinyl's maps (3D-art round): painted eyes, the mould seam, orange-peel and a clearcoat breakup, and the
     /// crushed duck's creased, stress-whitened version, swapped in once (never per frame) when the head is mostly flat.
@@ -147,9 +148,10 @@ final class DuckView: PressObjectView {
         }
         seam.isEnabled = false
         squash.addChild(seam)
-        // The squeezed-out vinyl skirt: a torn, ragged rim (no clean disc), orange-peel on its face.
-        skirt = ModelEntity(mesh: MeshCache.resource("duck.skirt.torn") {
-            var disc = MeshKit.spreadDiscUV(seed: 0xD5C, height: 1, segments: 128, wobble: 0.09, tear: 0.07)
+        // The squeezed-out vinyl: a smooth, rolled lip with a soft organic wobble, orange-peel on its face
+        // (EXPERIENCE-REVIEW-1 #5: the torn, notched rim read as a sawtooth pie crust; vinyl squeezes, it doesn't tear).
+        skirt = ModelEntity(mesh: MeshCache.resource("duck.skirt.lip") {
+            var disc = MeshKit.spreadDiscUV(seed: 0xD5C, height: 1, segments: 128, wobble: 0.11, tear: 0)
             disc.uvs = disc.uvs.map { $0 * 7 }
             return disc
         } ?? .generateSphere(radius: 0.01), materials: [skirtMaterial])
@@ -247,7 +249,16 @@ final class DuckView: PressObjectView {
         }
         for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
         // The face eases to its current squash step (cheap: two transforms).
-        let wanted = DuckFace.scale(level: faceLevel)
+        // The fight (EXPERIENCE-REVIEW-1 #1): straining against the plate the eyes bulge and the seam whitens; at the
+        // give the vinyl skirt squeezes out in the burst's frame.
+        let strain = state.resistanceBulge
+        if strain > 0.5 && seamStrain < 2 && !seamPopped { strainSeam() }
+        if state.collapseLead > 0 && !gave {
+            gave = true
+            skirtT = min(skirtT + 0.3, 1)
+            beakPop.kick(2)
+        }
+        let wanted = DuckFace.scale(level: faceLevel) * (1 + 0.3 * strain)
         if simd_length(wanted - faceScale) > 0.002 {
             faceScale = state.reduceMotion ? wanted : faceScale + (wanted - faceScale) * min(1, state.dt * 14)
             applyEyes()
@@ -317,7 +328,7 @@ final class DuckView: PressObjectView {
             // latched, so it never shrinks back when the phone reopens.
             skirtT = max(skirtT, clamp((state.compression - popC) / max(1 - popC, 0.05), 0, 1))
             let radius = DuckSquash.skirtRadius(spread: spread, t: skirtT)
-            skirt.scale = SIMD3(radius, 0.003, radius * 0.8)
+            skirt.scale = SIMD3(radius, 0.0042, radius * 0.8)
             // The wet ring stays just outside the skirt.
             let ring = max(DuckSquash.wetRingRadius(spread: spread, t: ringT), radius * 1.08)
             wetRing.isEnabled = true

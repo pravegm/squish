@@ -59,6 +59,7 @@ final class SodaCanView: PressObjectView {
     private let life: ObjectLife
     private var story: StoryCursor
     private let ooze: OozeRing
+    private var gave = false
 
     /// Straight body between the bottom and shoulder bevels, split into five fold bands (top-down).
     static let bodyBottom: Float = ObjectMeshes.canBodyBottom
@@ -107,11 +108,14 @@ final class SodaCanView: PressObjectView {
             (UIColor(hex: 0xE9F7D9), UIColor(hex: 0xC9EFA0)), (UIColor(hex: 0xFFE0B8), UIColor(hex: 0xFFB347)),
             (UIColor(hex: 0xEBD7FF), UIColor(hex: 0xC77DFF)),
         ]
+        // EXPERIENCE-REVIEW-1 #5: the fizz matches the can's flavour (it was a seeded lime / orange / berry in an always-
+        // lime FIZZO can). The draw stays, so every other seeded choice of this press is unchanged.
         let chosen: (drop: UIColor, puddle: UIColor)
+        _ = rng.next()
         if variant.surprise == .cherryFizz {
             chosen = (UIColor(hex: 0xFFC2D1), Palette.cherryFizz)
         } else {
-            chosen = palettes[Int(rng.next() % UInt64(palettes.count))]
+            chosen = palettes[0]
         }
         fizz = chosen
         phases = (0..<Self.folds).map { _ in Float.random(in: 0...(2 * .pi), using: &rng) }
@@ -213,10 +217,22 @@ final class SodaCanView: PressObjectView {
         let shortening = restHeight - h
         let strain = max(topStrain, CanCrush.topStrain(compression: state.compression))
         let previousPre = preBand == fired ? prePeak : -1
-        let pre = preBuckle(compression: state.compression)
+        var pre = preBuckle(compression: state.compression)
+        // The fight (EXPERIENCE-REVIEW-1 #1): straining before the puncture the next band bows out further and the lid
+        // tinks in; the give squirts the fizz puddle out from under the base in the burst's frame.
+        if state.resistanceBulge > 0 && fired < Self.folds {
+            prePeak = max(prePeak, state.resistanceBulge)
+            pre = prePeak
+            topStrain = max(topStrain, min(1, 0.5 + 0.5 * state.resistanceBulge))
+        }
+        if state.collapseLead > 0 && !gave {
+            gave = true
+            ooze.shove(0.3)
+            life.kick(0.9)
+        }
         if abs(shortening - lastShort) > 0.00005 || strain > topStrain + 0.01 || pre > previousPre + 0.01 {
             lastShort = shortening
-            topStrain = strain
+            topStrain = max(topStrain, strain)
             deform(shortening: shortening, height: h)
         }
         // Puncture spray and puddle.
@@ -319,7 +335,9 @@ final class SodaCanView: PressObjectView {
                         let depth = 0.5 * max(w * w - (w - a) * (w - a), 0).squareRoot()
                         let lobes = CanCrush.pleat(theta: theta, band: k, phase: phases[k])
                         let side = 0.8 + 0.4 * cos(theta - farSide)
-                        radial += depth * lobes * side * CanCrush.foldProfile(u) / max(r, 0.01)
+                        // EXPERIENCE-REVIEW-1 #5: the folds splay well out past the lid, so from above the crushed can is a
+                        // ring of crumpled label round the top, not a lid on a ring.
+                        radial += depth * CanCrush.foldSpread * lobes * side * CanCrush.foldProfile(u) / max(r, 0.01)
                     }
                 } else if k == nextBand, p.y > bandBottom, p.y < bandTop {
                     let u = (p.y - bandBottom) / w
@@ -333,7 +351,11 @@ final class SodaCanView: PressObjectView {
             var y = p.y
             if p.y > lidY - 0.0002 && r < lidR {
                 y -= dent * (1 - r / lidR)
+                // The lid buckles in radial creases as the can folds under it (EXPERIENCE-REVIEW-1 #5).
+                y -= CanCrush.lidCrease(theta: theta, rho: r / lidR, folded: foldedShare, phase: phases[0])
             }
+            // The crushed top tilts: its far side is driven down (only ever down, so it stays under the plate).
+            y -= blend * CanCrush.topTilt(theta: theta, rho: min(r / 0.055, 1), folded: foldedShare, toward: farSide)
             y = (y - drop) * elasticScale
             maxBulge = max(maxBulge, radial)
             return SIMD3(p.x * radial + shoveDir.x * shift, y, p.z * radial + shoveDir.y * shift)
@@ -599,6 +621,37 @@ enum CanCrush {
     /// Lid dent depth at the centre: 3 mm from the top strain, plus 2.5 mm as the bands fold.
     static func lidDent(topStrain: Float, foldedShare: Float) -> Float {
         0.0030 * clamp(topStrain, 0, 1) + 0.0025 * clamp(foldedShare, 0, 1)
+    }
+
+    // MARK: Read from above (EXPERIENCE-REVIEW-1 #5)
+
+    /// How far out a fired band's hinge folds splay, × the hinge's own depth (the folds of a crushed can stick out
+    /// well past its lid: ~1.3–1.4× the can's radius at full crush).
+    static let foldSpread: Float = 2.4
+    /// The lid's radial creases: how deep (metres at the rim, full fold) and how many.
+    static let lidCreaseDepth: Float = 0.0038
+    static let lidCreases = 5
+    /// How far the crushed top tilts down on its far side at full fold (metres).
+    static let topTiltDepth: Float = 0.004
+
+    /// How far (metres, down) a lid point at angle `theta` and radius share `rho` sinks into its creases once the bands
+    /// have folded `folded` (0…1): a shallow dish plus `lidCreases` seeded radial grooves, deepest toward the rim.
+    static func lidCrease(theta: Float, rho: Float, folded: Float, phase: Float) -> Float {
+        let f = clamp(folded, 0, 1)
+        guard f > 0 else { return 0 }
+        var groove: Float = 0
+        for k in 0..<lidCreases {
+            let a = phase + 2 * .pi * Float(k) / Float(lidCreases) + 0.35 * sin(Float(k) * 2.3 + phase)
+            var d = abs(theta - a).truncatingRemainder(dividingBy: 2 * .pi)
+            d = min(d, 2 * .pi - d)
+            groove = max(groove, exp(-(d / 0.16) * (d / 0.16)))
+        }
+        return lidCreaseDepth * f * pow(clamp(rho, 0, 1), 0.7) * (0.3 + 0.7 * groove)
+    }
+
+    /// How far (metres, down) the crushed top dips at angle `theta`, radius share `rho`, toward `toward` (its far side).
+    static func topTilt(theta: Float, rho: Float, folded: Float, toward: Float) -> Float {
+        topTiltDepth * clamp(folded, 0, 1) * clamp(rho, 0, 1) * 0.5 * (1 + cos(theta - toward))
     }
 
     // MARK: Sharp pleats and the torn puncture (3D-art round)

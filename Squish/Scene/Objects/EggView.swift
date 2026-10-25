@@ -33,6 +33,7 @@ final class EggView: PressObjectView {
     private let whiteOoze: OozeRing
     private let yolkOoze: OozeRing
     private var yolkWobble = JiggleSpring(value: 0, velocity: 0, omega: 2 * .pi * 3, zeta: 0.25)
+    private var gave = false
     private let failC: Float
     private var failed = false
     private var yolkBroken = false
@@ -198,7 +199,7 @@ final class EggView: PressObjectView {
             // 3D-art round adds a soft subsurface lift (the shell's own colour, faintly self-lit, so its shadow side
             // glows warm like lit eggshell) and the fibrous membrane on the inside.
             let pieces = shards
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 async let membraneMaps = SurfaceDetail.eggMembrane()
                 let detail = await SurfaceDetail.eggShell()
                 guard let colour = detail.colour else { return }
@@ -213,6 +214,8 @@ final class EggView: PressObjectView {
                 if let n = membrane.normal { inner.normal = .init(texture: SurfaceDetail.tiled(n)) }
                 inner.emissiveColor = .init(color: UIColor(hex: 0xFFF6E4))
                 inner.emissiveIntensity = 0.06
+                // Too late: the shell has already given, and its pieces wear the broken shell's look.
+                if self?.failed ?? true { return }
                 for shard in pieces {
                     let models = GlassBottleView.models(in: shard)
                     models.first?.model?.materials = [material]
@@ -221,6 +224,7 @@ final class EggView: PressObjectView {
             }
         }
         buildMembraneFlaps(seed: variant.seed)
+        if !look.golden { Task { _ = await SurfaceDetail.eggShard() } }
         entity.addChild(albumen)
         entity.addChild(whiteOoze.root)
         entity.addChild(yolkOoze.root)
@@ -264,6 +268,18 @@ final class EggView: PressObjectView {
             BeatFX.glint(fx, at: [0.012, 0.079, -0.006], in: entity, golden: look.golden, rng: &rng)
         }
         for beat in story.advance(to: c) { onBeat(beat, state: state) }
+        // The fight (EXPERIENCE-REVIEW-1 #1): the shell whitens round the crack and the branches creep as it holds; at the
+        // give the white is squeezed out from under the shell ring in the burst's frame.
+        if !failed && state.resistanceBulge > 0.3 && stressLevel < 2 { whiten() }
+        if !failed && state.resistanceBulge > 0.6 { crackFrom[2] = min(crackFrom[2], c) }
+        if state.collapseLead > 0 && !gave {
+            gave = true
+            if failed {
+                if whiteOoze.emitted == 0 { whiteOoze.emit(at: c) }
+                whiteOoze.shove(0.4)
+            }
+            yolkWobble.kick(2.5)
+        }
         let h = surfaceHeight(compression: c)
         if !failed {
             let s = h / restHeight
@@ -510,8 +526,39 @@ final class EggView: PressObjectView {
         }
         let at = entity.convert(position: [0, 0.02, 0], to: fx.root)
         fx.particles.burst(.flake, count: 10, at: at, speed: 0.22 * max(m, 0.3),
-                           colors: look.golden ? [Palette.gold] : [UIColor(hex: 0xEFD3A0), UIColor(hex: 0xFFF9EE)],
+                           colors: look.golden ? [Palette.gold] : [UIColor(hex: 0xF7F1E6), UIColor(hex: 0xFFF9EE)],
                            size: 0.003...0.005, spread: 0.02, upBias: 0.4, rng: &rng)
+        applyBrokenShell()
+    }
+
+    /// The broken pieces read as shell (EXPERIENCE-REVIEW-1 #5: tan, densely freckled pieces over the fibrous membrane
+    /// read as straw): clean off-white calcium with sparse speckles and a soft sheen outside (`SurfaceImages.eggShard`),
+    /// and a smooth white inside and broken edge, so every piece shows its curve and its 1.2 mm thickness.
+    private func applyBrokenShell() {
+        guard !look.golden else { return }
+        let inner = SceneMaterials.pbr(UIColor(hex: 0xFFFCF6), roughness: 0.55)
+        func outside(_ texture: TextureResource?) -> PhysicallyBasedMaterial {
+            var m = SceneMaterials.enamel(UIColor(hex: 0xF6EFE3), roughness: 0.38, clearcoat: 0.35, clearcoatRoughness: 0.3)
+            if let texture { m.baseColor = .init(tint: .white, texture: SurfaceDetail.tiled(texture)) }
+            m.emissiveColor = .init(color: UIColor(hex: 0xFFF6E8))
+            m.emissiveIntensity = EggShell.subsurface
+            return m
+        }
+        let pieces = shards
+        func apply(_ material: PhysicallyBasedMaterial) {
+            for shard in pieces {
+                let models = GlassBottleView.models(in: shard)
+                models.first?.model?.materials = [material]
+                for model in models.dropFirst() { model.model?.materials = [inner] }
+            }
+        }
+        apply(outside(SurfaceDetail.cached("detail.egg.shard")))
+        if SurfaceDetail.cached("detail.egg.shard") == nil {
+            Task { @MainActor in
+                guard let texture = await SurfaceDetail.eggShard() else { return }
+                apply(outside(texture))
+            }
+        }
     }
 
     /// The toy chick: round yellow toy body and head, orange cone beak, no face.

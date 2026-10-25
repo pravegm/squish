@@ -397,6 +397,29 @@ enum SurfaceImages {
         }
     }
 
+    /// A broken shell's outside (EXPERIENCE-REVIEW-1 #5: the tan, densely freckled shell read as straw once it was in
+    /// small flat pieces): clean off-white calcium with a faint warm mottle and sparse fine speckles (256², tileable).
+    static func eggShard(size: Int = 256, seed: UInt64 = 0xE66_54A2) -> CGImage? {
+        let s = CGFloat(size)
+        return drawn(size: size) { cg in
+            cg.setFillColor(colour(0xF7F1E6))
+            cg.fill(CGRect(x: 0, y: 0, width: s, height: s))
+            var rng = SplitMix64(seed: seed)
+            for _ in 0..<40 {
+                let r = CGFloat(Float.random(in: 10...30, using: &rng)) * s / 256
+                let x = CGFloat(Float.random(in: 0...1, using: &rng)) * s, y = CGFloat(Float.random(in: 0...1, using: &rng)) * s
+                cg.setFillColor(colour(rng.next() % 2 == 0 ? 0xFBF7EF : 0xEFE4D2, 0.35))
+                fillWrapped(cg, CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r), width: s, height: s)
+            }
+            for _ in 0..<160 {
+                let r = CGFloat(Float.random(in: 0.5...1.2, using: &rng)) * s / 256
+                let x = CGFloat(Float.random(in: 0...1, using: &rng)) * s, y = CGFloat(Float.random(in: 0...1, using: &rng)) * s
+                cg.setFillColor(colour(0xB08A5E, CGFloat(Float.random(in: 0.25...0.5, using: &rng))))
+                cg.fillEllipse(in: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r))
+            }
+        }
+    }
+
     /// Fine pores (egg shell): high-frequency bumps.
     static func pores(size: Int = 512, seed: UInt64 = 0x9025) -> SurfaceField {
         let fbm = TileFBM(period: 48, octaves: 3, seed: seed)
@@ -533,6 +556,11 @@ enum SurfaceDetail {
             SurfaceImages.normalImage(SurfaceImages.pores(), strength: 2.4)
         }
         return await (colour, normal)
+    }
+
+    /// The broken shell's outside (`SurfaceImages.eggShard`).
+    static func eggShard() async -> TextureResource? {
+        await texture("detail.egg.shard", semantic: .color) { SurfaceImages.eggShard() }
     }
 
     static func waxNormal() async -> TextureResource? {

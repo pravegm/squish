@@ -353,6 +353,7 @@ enum FoldStamps {
                 ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(stamp.kind == .glassBottle ? 0.7 : 0.55).cgColor)
                 ctx.setLineWidth(3)   // half of it falls outside the clip: 1.5 pt visible
                 ctx.strokePath()
+                if stamp.kind == .rubberDuck { duckFeatures(ctx, stamp) }
             }
             // Mottle: ±8 % alpha, so the ink takes the steel's tooth instead of reading as a vector fill.
             var mottle = SplitMix64(seed: stamp.seed ^ 0x307)
@@ -403,6 +404,48 @@ enum FoldStamps {
                 ctx.drawRadialGradient(g, startCenter: centre, startRadius: 0, endCenter: centre, endRadius: r, options: [])
             }
         }
+    }
+
+    // MARK: The duck's print (EXPERIENCE-REVIEW-1 #5: a plain yellow outline read as a lemon or a leaf)
+
+    /// The duck's features pressed into its print: the head where it sits on the body, the wings, the tail's point, the
+    /// orange beak and the two eyes with their catchlights (duck-local metres, as the outline's ellipses).
+    private static func duckFeatures(_ ctx: CGContext, _ stamp: FoldStamp) {
+        let k = CGFloat(stamp.pointsPerMetre)
+        func p(_ x: Double, _ z: Double) -> CGPoint { CGPoint(x: CGFloat(x) * k, y: CGFloat(z) * k) }
+        func oval(_ x: Double, _ z: Double, _ rx: Double, _ rz: Double) -> CGRect {
+            CGRect(x: CGFloat(x - rx) * k, y: CGFloat(z - rz) * k, width: CGFloat(2 * rx) * k, height: CGFloat(2 * rz) * k)
+        }
+        ctx.saveGState()
+        ctx.rotate(by: CGFloat(-stamp.yawRadians))
+        ctx.setLineCap(.round)
+        // The head's crease where it sits on the body, and the two wings.
+        ctx.setStrokeColor(stamp.inkEdge.withAlphaComponent(0.5).cgColor)
+        ctx.setLineWidth(2)
+        ctx.addArc(center: p(0.020, 0), radius: 0.021 * k, startAngle: .pi * 0.55, endAngle: .pi * 1.45, clockwise: false)
+        ctx.strokePath()
+        for side in [-1.0, 1.0] { ctx.strokeEllipse(in: oval(-0.006, 0.020 * side, 0.016, 0.0045)) }
+        // The tail's upturned point.
+        ctx.move(to: p(-0.036, -0.006))
+        ctx.addQuadCurve(to: p(-0.046, 0), control: p(-0.044, -0.004))
+        ctx.addQuadCurve(to: p(-0.036, 0.006), control: p(-0.044, 0.004))
+        ctx.strokePath()
+        // The beak, in orange ink, with its lip line.
+        ctx.setFillColor((stamp.golden ? Palette.gold : Palette.beakOrange).withAlphaComponent(0.88).cgColor)
+        ctx.fillEllipse(in: oval(0.046, 0, 0.011, 0.0085))
+        ctx.setStrokeColor(UIColor(hex: 0xC2560F).withAlphaComponent(0.7).cgColor)
+        ctx.setLineWidth(1.2)
+        ctx.move(to: p(0.038, 0))
+        ctx.addLine(to: p(0.055, 0))
+        ctx.strokePath()
+        // The eyes: dark dots, each with a catchlight.
+        for side in [-1.0, 1.0] {
+            ctx.setFillColor(UIColor(hex: 0x1E1B24).withAlphaComponent(0.85).cgColor)
+            ctx.fillEllipse(in: oval(0.030, 0.0115 * side, 0.0036, 0.0036))
+            ctx.setFillColor(UIColor(white: 1, alpha: 0.85).cgColor)
+            ctx.fillEllipse(in: oval(0.0312, 0.0104 * side, 0.0012, 0.0012))
+        }
+        ctx.restoreGState()
     }
 
     // MARK: The Crayon Box (3D-art round: the single cobalt crayon became a box of seven and a rainbow smear)
