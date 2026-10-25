@@ -837,8 +837,12 @@ func screenshotsFromDirectory(_ dir: URL) throws -> [ScreenshotSet] {
     }
     for m in manifests {
         let text = (try? String(contentsOf: m, encoding: .utf8)) ?? ""
-        if text.range(of: "missing: 0\\s+flagged: 0", options: .regularExpression) == nil {
-            throw ToolError("\(m.path) does not end 'missing: 0  flagged: 0'; refusing to upload a set with refused frames")
+        // The Duo manifest reports "missing: 0  flagged: 0"; the Pinch Press ones (ci/screenshots.sh) only
+        // "flagged: 0  (content 0, …)". Accept either, never a non-zero count.
+        let clean = text.range(of: "(^|\\n)\\s*(missing: 0\\s+)?flagged: 0\\b", options: .regularExpression) != nil
+        let refused = text.range(of: "(missing|flagged): [1-9]", options: .regularExpression) != nil
+        if !clean || refused {
+            throw ToolError("\(m.path) does not report 'flagged: 0' (and 'missing: 0' where counted); refusing to upload a set with refused frames")
         }
     }
     return screenshotKeys.compactMap { key in
