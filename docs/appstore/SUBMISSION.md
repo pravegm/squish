@@ -109,7 +109,7 @@ The API can't do these, so do them in the web UI after the push.
    - Get Started → "Do you or your third-party partners collect data from this app?" → **No, we do not collect data from this app** → Save → **Publish**.
    - Game Center needs nothing: it's Apple's data (`privacy-labels.md`).
 2. **App Information** (fill in whatever the push didn't set):
-   - **Content Rights:** "Does your app contain, show, or access third-party content?" → **No**.
+   - **Content Rights:** "Does your app contain, show, or access third-party content?" → **Yes**, then tick **"I have the necessary rights"**. The app bundles CC0-1.0 recorded sounds; every source is listed in `Squish/Resources/Sounds/LICENSES.md`.
    - **Age Rating:** if it isn't already set, Edit and answer:
      - Cartoon or Fantasy Violence → **Infrequent**; every other content question → **None**;
      - every capability question (web access, user-generated content, messaging, social media, advertising, parental controls, age assurance, gambling, loot boxes, health or wellness) → **No**;

@@ -150,7 +150,7 @@ The exact API values are in `asc-metadata.json` → `ageRating`. The reasoning i
 | Privacy Policy URL | `https://pravegm.github.io/squish/privacy/` |
 | App Privacy | **Data Not Collected** (`privacy-labels.md`) |
 | Accessibility Nutrition Labels | **VoiceOver** and **Reduced Motion** only, published on launch day (`accessibility.md`) |
-| Content Rights | No third-party content |
+| Content Rights | Yes, third-party content with the necessary rights: CC0-1.0 recorded sounds (`Squish/Resources/Sounds/LICENSES.md`) |
 | Export compliance | `ITSAppUsesNonExemptEncryption` = NO (in `project.yml`) |
 | Game Center | On; 10 achievements, 700 points (`achievements.md`) |
 | Localisation | English (UK) primary, plus English (US). Every other storefront shows en-GB |

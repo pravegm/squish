@@ -46,7 +46,7 @@
 | Release candidate | 6.9" App Preview (if delivered by 9 Nov) | ⚙️ Automated (tool) | `asc.swift push` (`IPHONE_67`) |
 | Release candidate | Copyright line + review contact | 👤 Founder-only | Your legal name and contact details; given to the tool locally, never committed |
 | Release candidate | App Privacy "Data Not Collected" → Publish | 👤 Founder-only | Web UI only; answers in `privacy-labels.md` |
-| Release candidate | Availability (all but China mainland), Family Sharing on, Content Rights = No | 👤 Founder-only | Web UI only (`SUBMISSION.md` §4b) |
+| Release candidate | Availability (all but China mainland), Family Sharing on, Content Rights = Yes, with rights (CC0 sounds) | 👤 Founder-only | Web UI only (`SUBMISSION.md` §4b) |
 | Release candidate | Add the 10 achievements to the 1.0 version; select the build | 👤 Founder-only | Web UI (`SUBMISSION.md` §4b.4) |
 | Release candidate | iPhone Duo inner and outer screenshots, if the slot exists | 👤 Founder-only | The API has no Duo type, so it's a web upload (`SUBMISSION.md` §4b.4) |
 | Release candidate | Look once at P5 (6.9" and 6.1") after upload | 👤 Founder-only | Its new caption hasn't been looked at yet (`DECISIONS.md` §4) |
