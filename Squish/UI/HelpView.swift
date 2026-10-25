@@ -54,7 +54,7 @@ struct HelpView: View {
                     .font(Theme.sheetTitle)
                     .foregroundStyle(Theme.ink)
                     .accessibilityAddTraits(.isHeader)
-                Text("THREE WAYS. ALL OF THEM SLOWLY.")
+                Text(hasHinge ? "THREE WAYS. ALL OF THEM SLOWLY." : "ONE FINGER. SLOWLY.")
                     .font(Theme.label)
                     .tracking(Theme.labelTracking)
                     .foregroundStyle(Theme.inkSecondary)
@@ -73,6 +73,12 @@ struct HelpView: View {
 
     @ViewBuilder
     private var cards: some View {
+        if !hasHinge {
+            // Phones that don't fold: one way to press, and no fold talk at all.
+            HelpCard(title: "Drag down",
+                     detail: "Put a finger on the press and drag down, slowly. Let go to ease off.",
+                     art: .drag)
+        } else {
             HelpCard(title: "Like a tiny laptop",
                      detail: "Stand it on a table, open it wide, then push the top half down slowly.",
                      art: .tabletop)
@@ -82,15 +88,21 @@ struct HelpView: View {
             HelpCard(title: "Or drag",
                      detail: "Settings → Press without folding. Then drag down on the press. Same squish.",
                      art: .drag)
+        }
     }
 
     @ViewBuilder
     private var reminders: some View {
             VStack(alignment: .leading, spacing: Theme.s2) {
-                bullet("arrow.up.left.and.arrow.down.right", "Open it again to see what's left.")
+                if hasHinge {
+                    bullet("arrow.up.left.and.arrow.down.right", "Open it again to see what's left.")
+                } else {
+                    bullet("hand.draw.fill", "Squish it flat, then see what's left.")
+                }
                 bullet("pause.fill", "Ease off any time. The damage stays.")
                 bullet("tortoise.fill", "Slow and steady earns a Perfect Squish.")
-                bullet("hand.raised.fill", "It's all on-screen. Never close your phone on real things.")
+                bullet("hand.raised.fill", hasHinge ? "It's all on-screen. Never close your phone on real things."
+                                                    : "It's all on-screen. Never squish real things.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let onReplayIntro {

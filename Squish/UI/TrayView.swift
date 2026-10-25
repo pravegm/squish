@@ -223,10 +223,7 @@ struct MuseumTile: View {
                                 .overlay(alignment: .bottomTrailing) {
                                     // Pressed before: its crushed specimen in the corner, the promise kept.
                                     if goals.pressed {
-                                        ObjectArt(kind: kind, crushed: true, cornerRadius: 8)
-                                            .frame(width: 34, height: 34)
-                                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                .strokeBorder(Color.white, lineWidth: 2))
+                                        CrushedBadge(kind: kind, size: 34, cornerRadius: 8)
                                             .padding(5)
                                     }
                                 }

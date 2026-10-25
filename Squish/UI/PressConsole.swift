@@ -69,6 +69,8 @@ struct PressConsole: View {
         MenuKeycap(compact: !labelledMenu, action: onMenu)
             .opacity(hidden ? 0 : (pressing ? 0.4 : 1))
             .allowsHitTesting(!hidden && !pressing)
+            // Dimmed mid-press, and out of VoiceOver's reach too (launch QA #10).
+            .disabled(pressing)
             .accessibilityHidden(hidden)
     }
 
@@ -80,6 +82,8 @@ struct PressConsole: View {
         .buttonStyle(KeycapStyle(kind: .console, round: true))
         .opacity(hidden ? 0 : (pressing ? 0.4 : 1))
         .allowsHitTesting(!hidden && !pressing)
+        // Dimmed mid-press, and out of VoiceOver's reach too (launch QA #10).
+        .disabled(pressing)
         .accessibilityHidden(hidden)
         .accessibilityLabel("Settings")
         .accessibilityHint("Sound, vibration, captions and how to press.")
@@ -89,6 +93,8 @@ struct PressConsole: View {
         TrayChip(kind: director.currentKind, golden: director.variant.isGolden, pulse: trayPulse, action: onTray)
             .opacity(hidden ? 0 : (pressing ? 0.4 : 1))
             .allowsHitTesting(!hidden && !pressing)
+            // Dimmed mid-press, and out of VoiceOver's reach too (launch QA #10).
+            .disabled(pressing)
             .accessibilityHidden(hidden)
     }
 
@@ -98,6 +104,7 @@ struct PressConsole: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onShelfFrame($0) }
             .opacity(pressing ? 0.4 : 1)
             .allowsHitTesting(!pressing)
+            .disabled(pressing)
     }
 }
 
@@ -165,6 +172,7 @@ struct TrayChip: View {
                     ViewThatFits(in: .horizontal) {
                         Text(kind.chipName)
                         Text(kind.trayName)
+                        Text(kind.trayName).lineLimit(1).minimumScaleFactor(0.7)
                     }
                     .font(Theme.label)
                     .foregroundStyle(Theme.graphite)
@@ -360,19 +368,20 @@ struct ProgressPips: View {
 }
 
 extension ObjectKind {
-    /// The tray chip's short name for narrow consoles (the Duo's book page): "DUCK", never "RUBBER…".
+    /// The tray chip's short name for narrow consoles (the Duo's book page): "DUCK", never "RUBBER…". Only ever words of the
+    /// canonical name (launch QA #13), never another name for it.
     var trayName: String {
         switch self {
-        case .bubbleWrap: "BUBBLES"
+        case .bubbleWrap: "BUBBLE WRAP"
         case .rubberDuck: "DUCK"
         case .jelly: "JELLY"
-        case .crayon: "CRAYONS"
+        case .crayon: "CRAYON BOX"
         case .egg: "EGG"
         case .cakeSlice: "CAKE"
         case .sodaCan: "SODA CAN"
         case .gummyBear: "GUMMY"
         case .glassBottle: "BOTTLE"
-        case .unsquishable: "STEEL BALL"
+        case .unsquishable: "UNSQUISHABLE"
         }
     }
 }

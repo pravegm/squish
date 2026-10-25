@@ -21,9 +21,15 @@ struct RevealBadge: Identifiable, Equatable {
     let tone: SpecimenRecord.Trait.Tone
 
     static func list(for outcome: RecordOutcome, specimen: SpecimenRecord) -> [RevealBadge] {
-        // Only what the plate doesn't already say: PERFECT is the print's stamp and GOLDEN its ribbon, an unlock has its
-        // own ribbon (`UnlockRibbon`). So: a surprise found, and achievements earned.
-        var badges = specimen.traits.filter { $0.tone == .surprise }.map {
+        // Only what the plate doesn't already say: PERFECT is the print's stamp and GOLDEN its ribbon. So: an unlock
+        // first (it used to be a ribbon on the plate, where it covered the PERFECT stamp: launch QA #7), a surprise
+        // found, and achievements earned.
+        var badges = outcome.newlyUnlocked.prefix(1).map { kind in
+            RevealBadge(id: "unlock-\(kind.rawValue)",
+                        text: "UNLOCKED · \(kind.displayName.uppercased())\(outcome.newlyUnlocked.count > 1 ? " +\(outcome.newlyUnlocked.count - 1)" : "")".gluingDotSeparators,
+                        symbol: "lock.open.fill", tone: .surprise)
+        }
+        badges += specimen.traits.filter { $0.tone == .surprise }.map {
             RevealBadge(id: "trait-\($0.text)", text: $0.text, symbol: $0.systemImage, tone: $0.tone)
         }
         badges += outcome.newAchievements.map {
@@ -52,34 +58,6 @@ struct TicketChip: View {
         .background(Capsule().fill(tone == .surprise ? Theme.rgb(0xDCEBFA) : Theme.yellowSoft))
         .overlay(Capsule().strokeBorder(tone == .surprise ? Theme.rgb(0x9CC2EA) : Theme.yellow.opacity(0.7), lineWidth: 1))
         .fixedSize()
-    }
-}
-
-/// "UNLOCKED · GLASS BOTTLE": a ribbon on the print's other top corner when this press opened something.
-struct UnlockRibbon: View {
-    let kinds: [ObjectKind]
-
-    var body: some View {
-        if let first = kinds.first {
-            HStack(spacing: 5) {
-                Image(systemName: "lock.open.fill")
-                    .font(.system(size: 10, weight: .bold))
-                Text("UNLOCKED · \(first.displayName.uppercased())\(kinds.count > 1 ? " +\(kinds.count - 1)" : "")".gluingDotSeparators)
-                    .font(Theme.micro)
-                    .tracking(Theme.microTracking * 0.6)
-            }
-            .foregroundStyle(Theme.graphite)
-            .fixedSize()
-            .padding(.horizontal, Theme.s2)
-            .padding(.vertical, 4)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.rgb(0xDCEBFA)).elevation(.e1)
-            }
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Theme.rgb(0x9CC2EA), lineWidth: 1))
-            .rotationEffect(.degrees(4))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Unlocked: \(kinds.map(\.displayName).joined(separator: ", ")).")
-        }
     }
 }
 
@@ -132,6 +110,10 @@ struct RevealTicket: View {
     let specimen: SpecimenRecord
     let badges: [RevealBadge]
     let state: CeremonyState
+    /// Book pose: the page is narrow, so the badges get their own line (whole names, never a "★ 1 BADGE" stand-in).
+    var stacked = false
+    /// Spoken after the specimen: the badges and unlocks this press earned (Duo VoiceOver hears them only here).
+    var spokenExtras = ""
 
     var body: some View {
         let measure = specimen.measurement
@@ -159,7 +141,7 @@ struct RevealTicket: View {
             .frame(minWidth: 64)
         }
         .padding(.horizontal, Theme.s4)
-        .padding(.vertical, 7)
+        .padding(.vertical, stacked ? 4 : 7)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.paper).elevation(.e2)
         }
@@ -170,11 +152,22 @@ struct RevealTicket: View {
         .rotationEffect(.degrees(-0.8))
         .dynamicTypeSize(...DynamicTypeSize.large)   // a fixed composition, like the card
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(specimen.accessibilitySentence) \(measure.spoken).")
+        .accessibilityLabel("\(specimen.accessibilitySentence) \(measure.spoken).\(spokenExtras.isEmpty ? "" : " " + spokenExtras)")
+    }
+
+    /// As many whole badges as fit, then "+N MORE": never a cut-off word.
+    @ViewBuilder
+    private func badgeLine(_ shown: [RevealBadge]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: shown.count, through: 1, by: -1)), id: \.self) { count in
+                badgeRow(Array(shown.prefix(count)), hidden: shown.count - count)
+            }
+            badgeRow([], hidden: shown.count)
+        }
     }
 
     private func details(measure: SpecimenRecord.PressedSize, after: Double, shown: [RevealBadge]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: stacked ? 2 : 3) {
             Text(specimen.kind.displayName.uppercased())
                 .font(.system(.subheadline, design: .rounded, weight: .heavy))
                 .foregroundStyle(Theme.ink)
@@ -186,17 +179,19 @@ struct RevealTicket: View {
                     .foregroundStyle(Theme.inkSecondary)
                     .fixedSize()
                 Spacer(minLength: Theme.s2)
-                if !shown.isEmpty {
-                    // As many whole badges as fit, then "+N MORE": never a cut-off word.
-                    ViewThatFits(in: .horizontal) {
-                        ForEach(Array(stride(from: shown.count, through: 1, by: -1)), id: \.self) { count in
-                            badgeRow(Array(shown.prefix(count)), hidden: shown.count - count)
-                        }
-                        badgeRow([], hidden: shown.count)
-                    }
+                if !shown.isEmpty && !stacked {
+                    badgeLine(shown)
                 }
             }
             .frame(minHeight: 18)
+            if stacked && !badges.isEmpty {
+                // Room is held from the start, so the ticket doesn't grow as the badges pop in.
+                HStack(spacing: 0) {
+                    badgeLine(shown)
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 18)
+            }
             HStack(alignment: .center, spacing: Theme.s3) {
                 BeforeAfterGlyph(kind: specimen.kind, ratio: measure.before > 0 ? after / measure.before : 1)
                     .frame(width: 66, height: 24)
@@ -270,7 +265,7 @@ struct MuseumStrip: View {
     var body: some View {
         let pressed = collection.stats.squishedKinds
         HStack(spacing: 5) {
-            Text("MUSEUM")
+            Text("SHELF")
                 .font(Theme.micro)
                 .tracking(Theme.microTracking)
                 .foregroundStyle(Theme.paper.opacity(0.85))
@@ -310,7 +305,7 @@ struct MuseumStrip: View {
         .animation(Theme.pop(reduceMotion), value: state.slotFlash)
         .animation(Theme.fade, value: foldToKeep)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Museum: \(pressed.count) of \(ObjectKind.allCases.count) objects pressed."
+        .accessibilityLabel("Shelf: \(pressed.count) of \(ObjectKind.allCases.count) objects pressed."
                             + (foldToKeep ? " Fold the phone to keep this specimen." : ""))
     }
 }
@@ -397,7 +392,7 @@ struct SloMoKey: View {
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .fixedSize()
         .accessibilityLabel("Slow-motion replay")
-        .accessibilityHint("Plays the break again at a third of the speed. Tap the replay to skip back to the specimen.")
+        .accessibilityHint("Double-tap to play the break again at a third of the speed. Double-tap the replay to skip back.")
     }
 }
 

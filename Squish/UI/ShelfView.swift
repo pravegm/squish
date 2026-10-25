@@ -374,12 +374,9 @@ private struct ShelfSlot: View {
                 }
                 .overlay(alignment: .bottomTrailing) {
                     // The crushed 3D specimen beside its print (EXPERIENCE-REVIEW-1 #10).
+                    // Only once the crushed render exists (never the intact tile in a crushed badge).
                     if best != nil {
-                        ObjectArt(kind: kind, crushed: true, cornerRadius: 7)
-                            .frame(width: 30, height: 30)
-                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .strokeBorder(Color.white, lineWidth: 2))
-                            .elevation(.e1)
+                        CrushedBadge(kind: kind, size: 30, cornerRadius: 7)
                             .offset(x: 6, y: 6)
                     }
                 }
@@ -465,11 +462,19 @@ private struct ShelfSlot: View {
 
     private var caption: some View {
         VStack(spacing: 2) {
-            Text(unlocked || !kind.isSecret ? kind.displayName : "???")
-                .font(.system(.headline, design: .rounded, weight: .heavy))
-                .foregroundStyle(unlocked ? Theme.ink : Theme.inkSecondary)
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-                .minimumScaleFactor(0.7)
+            // One size for every name (launch QA #11: shrink-to-fit set them at mixed sizes): a long name takes two
+            // lines, and every card holds room for two so the names line up.
+            ZStack(alignment: .top) {
+                Text(verbatim: "\u{00A0}\n\u{00A0}")
+                    .lineLimit(2)
+                    .hidden()
+                Text(unlocked || !kind.isSecret ? kind.displayName : "???")
+                    .foregroundStyle(unlocked ? Theme.ink : Theme.inkSecondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.system(.headline, design: .rounded, weight: .heavy))
             // Every card reserves two meta lines, so the art is the same size and the names line up whether the meta
             // takes one line or two (FOLD-REVIEW-7 N11: the Rubber Duck's name sat lower than its neighbours').
             ZStack(alignment: .top) {

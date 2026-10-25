@@ -572,7 +572,11 @@ final class FoldPressController {
             let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
             tons = kind == .unsquishable ? dialMax + 3
                 : Double(PressGauge.recordTons(kind: kind, maxCompression: maxC, seed: variant.seed))
-        case .idle, .revealing:
+        case .revealing:
+            // Launch QA #14: the needle holds the peak the nameplate reads ("36 T"), never drops to 0 under it.
+            let maxC = engine.lastResult?.maxCompression ?? engine.maxCompression
+            tons = Double(PressGauge.recordTons(kind: kind, maxCompression: maxC, seed: variant.seed))
+        case .idle:
             tons = 0
         }
         // Power-up as the phone opens: the needle wakes, sweeping up and back (the P-48's power-on beat).

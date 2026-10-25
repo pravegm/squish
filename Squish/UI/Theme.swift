@@ -22,6 +22,8 @@ enum Theme {
     static let yellowLip = rgb(0xC98A00)
     static let yellowSoft = rgb(0xFFE3A1)
     static let stamp = rgb(0xD7263D)
+    /// Diagnostic warnings: amber dark enough for text (5.8:1 on paperWarm), always with a glyph and a word too.
+    static let warning = rgb(0x8A4B00)
     static let gold = rgb(0xC8921A)
     static let goldSoft = rgb(0xF6E2A8)
     /// Every shadow, never black.
@@ -426,6 +428,7 @@ private struct KeycapFace: View {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let pressed = configuration.isPressed && isEnabled
@@ -435,9 +438,11 @@ private struct KeycapFace: View {
         configuration.label
             .font(kind == .chip ? Theme.label : Theme.button)
             .tracking(kind == .chip ? Theme.labelTracking : Theme.buttonTracking)
-            .lineLimit(1)
+            // Accessibility sizes may wrap to two lines rather than shrink a word away (launch QA #17); round keys are icons.
+            .lineLimit(typeSize.isAccessibilitySize && !round ? 2 : 1)
+            .multilineTextAlignment(.center)
             .minimumScaleFactor(0.75)
-            .foregroundStyle(isEnabled ? labelColor : Theme.inkSecondary)
+            .foregroundStyle(isEnabled ? labelColor : (kind == .console ? Theme.paper.opacity(0.45) : Theme.inkSecondary))
             .padding(.horizontal, round ? 0 : (kind == .chip ? Theme.s3 + 2 : Theme.s4 + 2))
             .frame(width: round ? height : nil)
             .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: height)
@@ -448,7 +453,7 @@ private struct KeycapFace: View {
             .background {
                 ZStack {
                     shape.fill(lipColor).offset(y: lipHeight)
-                    shape.fill(isEnabled ? face : Theme.paperShade.opacity(0.7))
+                    shape.fill(isEnabled ? face : (kind == .console ? Theme.console.opacity(0.7) : Theme.paperShade.opacity(0.7)))
                         .overlay(
                             shape.strokeBorder(LinearGradient(colors: [highlight, .clear], startPoint: .top, endPoint: .center),
                                                lineWidth: 1)

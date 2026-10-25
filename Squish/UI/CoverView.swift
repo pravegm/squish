@@ -577,7 +577,9 @@ private struct IdleCover: View {
                 }
                 .animation(Theme.fade, value: currentKind)
             }
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .ignore)
+            // The visible "Open to press" line is hidden from VoiceOver, so it is said here (launch QA #16).
+            .accessibilityLabel("On the anvil: \(currentKind.displayName). Open your iPhone to press.")
 
             if let onQueue, unlockedKinds.count > 1 {
                 // Two fixed columns that wrap: every chip is fully readable, nothing clips (Duo review).
@@ -657,21 +659,9 @@ private struct IdleCover: View {
 }
 
 extension ObjectKind {
-    /// One-word names for the cover's chip grid, so nothing ever truncates on the 466 pt outer display.
-    var coverName: String {
-        switch self {
-        case .bubbleWrap: "BUBBLES"
-        case .rubberDuck: "DUCK"
-        case .jelly: "JELLY"
-        case .crayon: "CRAYONS"
-        case .egg: "EGG"
-        case .cakeSlice: "CAKE"
-        case .sodaCan: "CAN"
-        case .gummyBear: "GUMMY"
-        case .glassBottle: "BOTTLE"
-        case .unsquishable: "BALL"
-        }
-    }
+    /// The cover's chip grid shows the canonical name (launch QA #13: one name per object, never BALL or CRAYONS):
+    /// the longest, UNSQUISHABLE and GLASS BOTTLE, fit a chip on the 466 pt outer display.
+    var coverName: String { chipName }
 }
 
 /// C2a sealing, C2c releasing and C3 paused: the machine's outside under pressure, a live gauge and one line.

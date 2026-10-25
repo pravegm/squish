@@ -52,6 +52,7 @@ struct FoldLessonCard: View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             HStack(spacing: Theme.s2) {
                 Text("HOW TO PRESS")
+                    .accessibilityHidden(true)
                     .font(Theme.micro)
                     .tracking(Theme.microTracking)
                     .foregroundStyle(Theme.inkSecondary)
@@ -62,7 +63,8 @@ struct FoldLessonCard: View {
                             .font(Theme.micro)
                             .tracking(Theme.microTracking)
                             .foregroundStyle(Theme.graphite)
-                            .frame(minHeight: 32)
+                            .padding(.horizontal, Theme.s2)
+                            .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -70,6 +72,7 @@ struct FoldLessonCard: View {
                     .accessibilityHint("Shows how to press in tabletop, book and drag modes.")
                 }
             }
+            VStack(alignment: .leading, spacing: Theme.s3) {
             HStack(alignment: .center, spacing: Theme.s4) {
                 Group {
                     if pose == .touch {
@@ -102,10 +105,16 @@ struct FoldLessonCard: View {
                     .foregroundStyle(Theme.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("It's all on-screen. Never close your phone on real things.".keepingLastWordsTogether)
+            Text((hinge ? "It's all on-screen. Never close your phone on real things."
+                        : "It's all on-screen. Never squish real things.").keepingLastWordsTogether)
                 .font(Theme.micro)
                 .foregroundStyle(Theme.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            }
+            // The card's words as one element; MORE HELP stays its own 44 pt button beside it (`.contain`).
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("How to press. \(Self.title(pose, book: book)) \(Self.detail(pose, book: book)) \(soundLine)")
+            .accessibilitySortPriority(1)
         }
         .padding(Theme.s4)
         .background { PaperBackground().clipShape(shape).elevation(.e3) }
@@ -114,8 +123,7 @@ struct FoldLessonCard: View {
             Capsule().fill(Theme.yellow).frame(width: 36, height: 4).offset(x: Theme.s4, y: -2)
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("How to press. \(Self.title(pose, book: book)) \(Self.detail(pose, book: book)) \(soundLine)")
+        .accessibilityElement(children: .contain)
     }
 
     static func title(_ pose: LessonPose, book: Bool) -> String {

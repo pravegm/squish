@@ -159,12 +159,19 @@ struct SoundCheckView: View {
                             .font(Theme.footnote)
                             .foregroundStyle(Theme.inkSecondary)
                         Spacer(minLength: Theme.s2)
-                        Text(row.value)
+                        // A warning never by colour alone: a triangle, a "Check:" prefix and amber at 5.8:1.
+                        if row.isWarning {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(.caption, weight: .bold))
+                                .foregroundStyle(Theme.warning)
+                        }
+                        Text(row.isWarning ? "Check: \(row.value)" : row.value)
                             .font(Theme.label)
                             .multilineTextAlignment(.trailing)
-                            .foregroundStyle(row.isWarning ? Color.orange : Theme.ink)
+                            .foregroundStyle(row.isWarning ? Theme.warning : Theme.ink)
                     }
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(row.isWarning ? "Warning. \(row.title): \(row.value)" : "\(row.title): \(row.value)")
                 }
             }
             .padding(Theme.s4)

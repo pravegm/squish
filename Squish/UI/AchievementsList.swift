@@ -35,7 +35,8 @@ struct WingProgress: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.sectionRadius, style: .continuous)
         VStack(alignment: .leading, spacing: Theme.s3) {
-            Text("THE MUSEUM")
+            // "Museum" is the picker (the Museum of Pressed Things); what you have pressed is your Shelf (launch QA #13).
+            Text("ON YOUR SHELF")
                 .font(Theme.label)
                 .tracking(Theme.labelTracking)
                 .foregroundStyle(Theme.inkSecondary)

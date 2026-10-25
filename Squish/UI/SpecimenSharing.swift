@@ -84,6 +84,8 @@ final class SpecimenShareModel {
 /// Presents the share sheet, clip progress and errors for a `SpecimenShareModel`.
 struct SpecimenSharingChrome: ViewModifier {
     @Bindable var model: SpecimenShareModel
+    /// Remembered once a hinge has reported: on the Duo a medium sheet would sit on the crease (launch QA #15).
+    @AppStorage("squish.hasHinge") private var hasHinge = false
 
     func body(content: Content) -> some View {
         content
@@ -100,7 +102,7 @@ struct SpecimenSharingChrome: ViewModifier {
             }
             .sheet(item: $model.item) { item in
                 ActivityView(items: [item.url])
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents(hasHinge ? [.large] : [.medium, .large])
                     .ignoresSafeArea()
             }
             .alert("Something went sideways", isPresented: $model.showingError) {

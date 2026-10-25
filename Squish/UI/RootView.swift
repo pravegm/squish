@@ -167,6 +167,8 @@ struct RootView: View {
             if phase == .active { director.sceneBecameActive() }
             // S10: the app went away mid-press. The press keeps its damage; the card says how to carry on.
             if phase == .background, director.engine.phase == .pressing { pauseNow() }
+            // A drag the system cancelled (Control Centre, a call) never ends: let the ram up as the app leaves.
+            if phase != .active, director.usesTouchPress, director.engine.angle < 179.5 { director.virtualRelease() }
         }
         .onChange(of: reduceMotion) { _, value in director.reduceMotion = value }
         .onChange(of: director.settings.hapticsLevel) { _, level in UIFeel.enabled = level != .off }
@@ -292,7 +294,8 @@ struct RootView: View {
                     tips.dismiss(.dragDown)
                 }
                 let room = min(max(height * 0.93 - value.startLocation.y, 160), height * 0.5)
-                let sealFraction = (180 - director.engine.config.endAngle) / 180 + 0.04
+                // The touch press's own end angle (PressConfig.touchEndAngle), not the fold mapping's.
+                let sealFraction = (180 - PressConfig.touchEndAngle) / 180 + 0.04
                 director.virtualPress(max(0, value.translation.height) / room * sealFraction)
             }
             .onEnded { _ in
@@ -657,7 +660,9 @@ struct RootView: View {
         pause = PauseState(tons: liveTons, angle: director.engine.angle)
         if UIAccessibility.isVoiceOverRunning {
             UIAccessibility.post(notification: .announcement,
-                                 argument: "Paused at \(liveTons) tons. Close to keep going, or open it up to ease off.")
+                                 argument: director.usesTouchPress
+                                     ? "Paused at \(liveTons) tons. Drag to keep going, or let go to ease off."
+                                     : "Paused at \(liveTons) tons. Close to keep going, or open it up to ease off.")
         }
     }
 
@@ -755,9 +760,15 @@ struct RootView: View {
             let target = CGPoint(x: shelfKeyFrame.midX, y: shelfKeyFrame.midY)
             withAnimation(reduceMotion ? Theme.fade : .spring(response: 0.38, dampingFraction: 0.72)) { flyTarget = target }
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 230 : 400))
-            uiCollected = true
             revealVisible = false
             flyTarget = nil
+            // A fold during the flight already collected it (and ran didCollect): don't collect twice, and don't leave
+            // `uiCollected` set to swallow the next fold's collect (launch QA #18).
+            guard director.revealed != nil else {
+                collecting = false
+                return
+            }
+            uiCollected = true
             action()
             collecting = false
             didCollect()
@@ -812,6 +823,7 @@ struct RootView: View {
 
     private func hingeArrived() {
         hasHinge = true
+        OrientationLock.hingeArrived()   // landscape (book pose) is allowed from now on
         tips.dismiss(.dragDown)
         // The safety line lives on the lesson card's footer now (UX-AUDIT-2 §4.2 S1), not as the app's first words.
         if lessonActive, !director.settings.hasSeenSafetyHint {

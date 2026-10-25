@@ -62,6 +62,16 @@ struct RevealCardView: View {
 
     private var badges: [RevealBadge] { RevealBadge.list(for: outcome, specimen: outcome.specimen) }
 
+    /// What this press earned, for VoiceOver on the Duo (its reveal has no toasts): unlocks and achievements.
+    private var spokenEarned: String {
+        var parts: [String] = []
+        if !outcome.newlyUnlocked.isEmpty {
+            parts.append("Unlocked: \(outcome.newlyUnlocked.map(\.displayName).joined(separator: ", ")).")
+        }
+        parts += outcome.newAchievements.map { "Achievement: \($0.title)." }
+        return parts.joined(separator: " ")
+    }
+
     /// Store passes and CI demo frames (`notoasts`): the ceremony is shown finished at once, so frames are deterministic.
     private var instantCeremony: Bool { RevealToastDemo.hidesToasts }
 
@@ -170,7 +180,7 @@ struct RevealCardView: View {
     }
 
     /// Fold Press reveal (FOLD-PRESS §6.3 + the S5 ceremony). The scene keeps the monoprint on the platen and the
-    /// flattened specimen on the anvil; the UI lays the lid shade over the print, the replay tag on the anvil plate, the
+    /// flattened specimen on the anvil; the UI lays the lid shade over the print, the SLO-MO key by the anvil plate, the
     /// ticket under the print, the museum strip above the console, and the keys in the console band.
     private func diptych(_ bands: ScreenBands, origin: CGPoint) -> some View {
         let layout = bands.foldLayout
@@ -180,7 +190,8 @@ struct RevealCardView: View {
         let field = bands.local(layout.platenField)
         // Under the print: down to the crease (tabletop) or the platen page's foot band (book).
         let floor = bands.local(layout.platenFoot ?? layout.creaseRect).minY - 8
-        let ticketTop = plate.maxY + 10
+        // Book pose: the ticket takes the whole room under the print (it has a line of badges of its own there).
+        let ticketTop = plate.maxY + (layout.isBook ? 4 : 10)
         let ticketWidth = min(field.width - 32, 520)
         // Leave the pilot lamp (far end of the console) uncovered.
         let actionsWidth = min(console.width - Theme.s3 * 2 - 36, 455)
@@ -212,13 +223,15 @@ struct RevealCardView: View {
             SloMoSettle(amount: settleAmount, cornerRadius: CGFloat(FoldMetrics.plateRadius) + 4)
                 .frame(width: anvilPlate.width + 8, height: anvilPlate.height + 8)
                 .position(x: anvilPlate.midX, y: anvilPlate.midY)
-            if slomo.showsKey(replayAvailable: replayAvailable) && ceremony.lidLifted && !collecting {
+            // Never under Reduce Motion (the store promises no slow motion there).
+            if slomo.showsKey(replayAvailable: replayAvailable) && ceremony.lidLifted && !collecting && !reduceMotion {
                 SloMoKey(action: playSloMo)
                     .position(keyCenter)
                     .transition(.opacity)
                     .accessibilitySortPriority(1)
             }
-            RevealTicket(specimen: specimen, badges: badges, state: ceremony)
+            RevealTicket(specimen: specimen, badges: badges, state: ceremony, stacked: layout.isBook,
+                         spokenExtras: spokenEarned)
                 .frame(width: ticketWidth)
                 .fixedSize(horizontal: false, vertical: true)
                 // Centred between the print and the crease (tabletop) or the foot band (book), never over either.
@@ -229,11 +242,7 @@ struct RevealCardView: View {
             ribbon
                 .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
                 .position(x: plate.maxX - 36, y: plate.minY + 4)
-            UnlockRibbon(kinds: outcome.newlyUnlocked)
-                .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
-                .scaleEffect(ceremony.ticketIn || reduceMotion ? 1 : 1.2)
-                // The plate's bottom-left corner: the top corners belong to the NEW BEST / GOLDEN ribbon.
-                .position(x: plate.minX + 104, y: plate.maxY - 12)
+            // An unlock is the ticket's first badge (RevealBadge.list): on the plate it covered the PERFECT stamp.
             MuseumStrip(collection: collection, kind: outcome.specimen.kind, firstOfKind: firstOfKind, state: ceremony,
                         foldToKeep: foldToKeep && !collecting)
                 .frame(maxWidth: actionsWidth)
@@ -519,7 +528,8 @@ struct RevealCardView: View {
         }
         if UIAccessibility.isVoiceOverRunning {
             let announcement = ([specimen.accessibilitySentence, specimen.measurement.spoken + "."]
-                                + toasts.map { "\($0.title.capitalized). \($0.detail)" })
+                                + toasts.map { "\($0.title.capitalized). \($0.detail)" }
+                                + (foldPress && !spokenEarned.isEmpty ? [spokenEarned] : []))
                 .joined(separator: " ")
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(700))

@@ -1066,4 +1066,42 @@ struct CollectionTests {
         #expect(SloMoCinema.timecode(1.5) == "00:01:12")
         #expect(SloMoCinema.timecode(61) == "01:01:00")
     }
+
+    // MARK: Launch QA
+
+    /// Phones without a hinge are portrait-only; a Duo (a hinge seen, or a Duo-shaped screen) keeps landscape.
+    @Test func onlyFoldablesRotate() {
+        #expect(!OrientationLock.allowsLandscape(hasHinge: false, screen: CGSize(width: 393, height: 852)))
+        #expect(!OrientationLock.allowsLandscape(hasHinge: false, screen: CGSize(width: 852, height: 393)))
+        #expect(!OrientationLock.allowsLandscape(hasHinge: false, screen: .zero))
+        #expect(OrientationLock.allowsLandscape(hasHinge: true, screen: CGSize(width: 393, height: 852)))
+        #expect(OrientationLock.allowsLandscape(hasHinge: false, screen: CGSize(width: 951, height: 669)))   // inner
+        #expect(OrientationLock.allowsLandscape(hasHinge: false, screen: CGSize(width: 466, height: 678)))   // outer
+    }
+
+    /// One name per object: the cover says the canonical name, and the narrow tray chip only ever drops words of it.
+    @Test func oneNamePerObject() {
+        for kind in ObjectKind.allCases {
+            #expect(kind.coverName == kind.chipName, "\(kind)")
+            let words = Set(kind.chipName.split(separator: " "))
+            #expect(Set(kind.trayName.split(separator: " ")).isSubset(of: words), "\(kind): \(kind.trayName)")
+        }
+        #expect(ObjectKind.crayon.chipName == "CRAYON BOX")
+        #expect(ObjectKind.unsquishable.chipName == "UNSQUISHABLE")
+    }
+
+    /// The unlock is the reveal ticket's first badge (no ribbon over the PERFECT stamp), and VoiceOver hears it.
+    @Test func unlockIsTheTicketsFirstBadge() throws {
+        let (store, _) = makeStore()
+        press(store, .bubbleWrap)
+        press(store, .bubbleWrap)
+        press(store, .bubbleWrap)
+        press(store, .rubberDuck)
+        let outcome = press(store, .jelly)
+        #expect(outcome.newlyUnlocked == [.sodaCan])
+        let badges = RevealBadge.list(for: outcome, specimen: outcome.specimen)
+        let first = try #require(badges.first)
+        #expect(first.id.hasPrefix("unlock-"))
+        #expect(first.text.contains("UNLOCKED"))
+    }
 }
