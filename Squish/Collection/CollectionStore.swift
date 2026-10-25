@@ -332,9 +332,8 @@ final class CollectionStore {
     /// The share-clip trace goes with its card (a best card still on the shelf keeps it).
     private func deleteTrace(of specimen: SpecimenRecord) {
         guard bests[specimen.kind]?.id != specimen.id else { return }
-        let id = specimen.id
-        let folder = traceDirectory
-        Task.detached(priority: .utility) { TraceStore.delete(id, in: folder) }
+        // One small file: removed right here, so it is gone when delete returns (a detached task could be starved).
+        TraceStore.delete(specimen.id, in: traceDirectory)
     }
 
     // MARK: - Rules

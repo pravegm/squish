@@ -537,9 +537,6 @@ struct CollectionTests {
         #expect(store.best(for: .rubberDuck)?.id == golden.specimen.id)
         let plainTrace = traces.appendingPathComponent("\(plain.specimen.id.uuidString).json")
         let goldenTrace = traces.appendingPathComponent("\(golden.specimen.id.uuidString).json")
-        for _ in 0..<40 where FileManager.default.fileExists(atPath: plainTrace.path) {
-            try await Task.sleep(for: .milliseconds(50))   // the trace delete runs off the main thread
-        }
         #expect(!FileManager.default.fileExists(atPath: plainTrace.path))
         #expect(FileManager.default.fileExists(atPath: goldenTrace.path))
         // And the cap survives a reload (the save went to the background writer).
@@ -559,9 +556,6 @@ struct CollectionTests {
         try Data("{}".utf8).write(to: trace)
         // Delete the newest jelly (the best): the best falls back to the older card, and this card's trace goes.
         store.delete(second.specimen.id)
-        for _ in 0..<40 where FileManager.default.fileExists(atPath: trace.path) {
-            try await Task.sleep(for: .milliseconds(50))
-        }
         #expect(!FileManager.default.fileExists(atPath: trace.path))
         #expect(store.totalPresses == 2)
     }
@@ -586,10 +580,10 @@ struct CollectionTests {
         let card = try #require(reloaded.specimen(withID: outcome.specimen.id))
         #expect(reloaded.rowThumbnail(for: card) == nil)   // a miss starts the decode and returns at once
         var row: UIImage?
-        for _ in 0..<40 {
+        for _ in 0..<100 {   // up to 10 s: the decode shares a busy CI machine with the whole suite
             row = reloaded.rowThumbnail(for: card)
             if row != nil { break }
-            try await Task.sleep(for: .milliseconds(50))
+            try await Task.sleep(for: .milliseconds(100))
         }
         let image = try #require(row)
         #expect(image.size.width <= CollectionStore.rowThumbnailPixels)
