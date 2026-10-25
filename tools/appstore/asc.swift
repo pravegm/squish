@@ -1483,6 +1483,11 @@ final class Engine {
         note("asset library \(libID); reference data: \(catalog.groups.count) placement groups, \(catalog.screenshotGroups.count) take APP_SCREENSHOT")
         var assetCache: [String: String] = [:]   // referenceName → image ID
 
+        // Resolve every set to its placement group first. Sets that land in the same group (the Duo inner and outer
+        // frames both go to IPHONE_DUO) must be placed as ONE ordered list: syncing them one after the other made the
+        // second set delete the first set's placements.
+        var groupOrder: [String] = []
+        var byGroup: [String: (label: String, wanted: [(name: String, file: ImageFile)])] = [:]
         for set in sets {
             let duo = set.key.hasPrefix("duo")
             if duo && (env["ASC_DUO_SCREENSHOTS"] ?? "auto").lowercased() == "skip" {
@@ -1503,9 +1508,26 @@ final class Engine {
             for f in set.files.dropFirst() where f.info.width != first.width || f.info.height != first.height {
                 throw ToolError("\(set.key): \(f.path) is \(f.info.width)x\(f.info.height), the set's first frame is \(first.width)x\(first.height)")
             }
-            let wanted: [(name: String, file: ImageFile)] = set.files.enumerated().map { (i, f) in
+            let names: [(name: String, file: ImageFile)] = set.files.enumerated().map { (i, f) in
                 (String(format: "squish %@ %02d %@", set.key, i + 1, f.sha12), f)
             }
+            if var existing = byGroup[group] {
+                existing.label += "+\(set.key)"
+                existing.wanted += names
+                byGroup[group] = existing
+            } else {
+                groupOrder.append(group)
+                byGroup[group] = (set.key, names)
+            }
+        }
+
+        for group in groupOrder {
+            guard let entry = byGroup[group] else { continue }
+            if entry.wanted.count > 10 {
+                throw ToolError("\(entry.label): \(entry.wanted.count) screenshots share placement group \(group); App Store Connect allows 10")
+            }
+            let set = (key: entry.label, files: entry.wanted.map { $0.file })
+            let wanted = entry.wanted
 
             for locale in locales {
                 guard let locID = versionLocIDs[locale] else { continue }
