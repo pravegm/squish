@@ -165,41 +165,10 @@ struct HingeFeel {
     }
 }
 
-/// EXPERIENCE-REVIEW-1 #7: the seal stroke. After bottom-out (~55°) the last ~45° to the real shut (≤ 10°) must *build to*
-/// the ka-chunk, not coast: a rising hydraulic whine (the motor hum, pitched and swelled with progress), a latch
-/// click and 0.4 tap every 9°, and a haptic ramp 0.3 → 0.6 into the 1.0 ka-chunk. Pure; driven by the display-rate angle.
-struct SealStroke {
-    static let latchSpacing = 9.0
-
-    private(set) var from: Double?
-    private var nextLatch = 0.0
-
-    var isActive: Bool { from != nil }
-
-    mutating func begin(at angle: Double) {
-        from = angle
-        nextLatch = angle - Self.latchSpacing
-    }
-
-    mutating func end() {
-        from = nil
-    }
-
-    /// Progress 0…1 from bottom-out to the shut, and the latches crossed this frame (as their progress).
-    mutating func update(angle: Double, shutAngle: Double) -> (progress: Float, latches: [Float]) {
-        guard let from, from > shutAngle + 1 else { return (0, []) }
-        let span = from - shutAngle
-        let progress = Float(min(max((from - angle) / span, 0), 1))
-        var latches: [Float] = []
-        if angle <= nextLatch && nextLatch > shutAngle {
-            latches.append(Float(min(max((from - nextLatch) / span, 0), 1)))
-            // At most one per frame: a slam skips latches rather than machine-gunning them.
-            while nextLatch >= angle { nextLatch -= Self.latchSpacing }
-        }
-        return (progress, latches)
-    }
-
-    /// The haptic ramp during the stroke (before the user's level).
+/// EXPERIENCE-REVIEW-1 #7: the seal stroke (the engine's `sealProgress`, fully crushed → shut) builds to the ka-chunk: a
+/// rising hydraulic whine (AudioController), the two heavy latches (`PressBeat.latch`, BeatCues.latch) and this haptic
+/// ramp 0.3 → 0.6 into the 1.0 ka-chunk.
+enum SealStroke {
     static func hapticRamp(_ progress: Float) -> Float { 0.3 + 0.3 * min(max(progress, 0), 1) }
 }
 
@@ -326,18 +295,19 @@ enum BeatCues {
 }
 
 extension BeatCues {
-    /// One latch of the seal stroke: a steel ratchet click that climbs in pitch towards the shut, and a 0.4 tap.
+    /// One of the seal stroke's two latches (`PressBeat.latch`): a heavy steel click-clunk that climbs in pitch towards
+    /// the shut, a firm tap and a short low body.
     static func latch(progress: Float, dice: FeedbackDice) -> FeedbackCue {
         let p = min(max(progress, 0), 1)
         let slot = { (layer: String) in SoundSlot.press("seal", layer) }
         return FeedbackCue(sounds: [
             .noise(slot("click"), .bandPass, (2200 + 1200 * p) * dice.grainPitch(), q: 3, attack: 0.0002, decay: 0.003,
-                   gain: 0.16 + 0.08 * p),
+                   gain: 0.22 + 0.08 * p),
             .ring(slot("pawl"), .steel, 900 + 500 * p, partials: 5, decay: 0.05, brightness: 0.45, gain: 0.07,
                   delay: 0.002, seed: dice.seed32()),
-            .tone(slot("thock"), 150, to: 110, glide: 0.02, duration: 0.05, attack: 0.001, decay: 0.012, gain: 0.08,
+            .tone(slot("thock"), 150, to: 100, glide: 0.03, duration: 0.08, attack: 0.001, decay: 0.02, gain: 0.16,
                   harmonics: 3),
-        ], haptics: [.tap(0.4, 0.55)])
+        ], haptics: [.tap(0.45, 0.6), .tap(0.4, 0.3, at: 0.012), .buzz(0.35, 0.2, at: 0.014, duration: 0.05, decay: 0.04)])
     }
 }
 
@@ -353,7 +323,83 @@ enum TouchCues {
         ], haptics: [.buzz(0.12 + 0.12 * v, 0.6, duration: 0.18, attack: 0.03)])
     }
 
-    static func poke(_ kind: ObjectKind, dice: FeedbackDice) -> FeedbackCue {
+    /// A poke: the intact object (before the press) or, on the reveal, the crushed specimen as what it is now.
+    static func poke(_ kind: ObjectKind, crushed: Bool = false, dice: FeedbackDice) -> FeedbackCue {
+        if crushed { return pokeCrushed(kind, dice: dice) }
+        return pokeIntact(kind, dice: dice)
+    }
+
+    /// The crushed specimen poked on the reveal (EXPERIENCE-REVIEW-1 #8): slot `<object>.pokecrushed.*`, voiced by the
+    /// matching recordings (SampleMap); the touch matches the material: crunchy scatters, soft slow presses.
+    static func pokeCrushed(_ kind: ObjectKind, dice: FeedbackDice) -> FeedbackCue {
+        let slot = { (layer: String) in SoundSlot.object(kind, "pokecrushed", layer) }
+        let p = dice.bodyPitch()
+        switch kind {
+        case .bubbleWrap:
+            // Flat, popped wrap: a dry plastic crinkle.
+            return FeedbackCue(sounds: [
+                .crunch(slot("crinkle"), 3500...9000, duration: 0.14, rate: 220, rateEnd: 40, q: 1, grain: 0.0015, gain: 0.06),
+            ], haptics: dice.scatter(5, from: 0, over: 0.12, intensity: (0.28, 0.1), sharpness: 0.8...0.9))
+        case .rubberDuck:
+            // The popped duck: a tired wheeze, no squeak left.
+            return FeedbackCue(sounds: [
+                .noise(slot("wheeze"), .bandPass, 1300 * p, q: 1.2, attack: 0.02, decay: 0.08, gain: 0.06, sweepTo: 700,
+                       sweepTime: 0.25),
+            ], haptics: [.buzz(0.25, 0.3, duration: 0.2, attack: 0.04)])
+        case .jelly:
+            // A flattened jelly: a wet squelch and a slow wobble.
+            return FeedbackCue(sounds: [
+                .noise(slot("squelch"), .lowPass, 700 * p, attack: 0.004, decay: 0.05, gain: 0.08, wet: true),
+                .tone(slot("wobble"), 130 * p, to: 110 * p, glide: 0.3, duration: 0.32, attack: 0.01, decay: 0.1, gain: 0.05,
+                      harmonics: 3, vibrato: 6, depth: 0.1, wet: true),
+            ], haptics: [.buzz(0.35, 0.1, duration: 0.18, attack: 0.03), .tap(0.2, 0.1, at: 0.16)])
+        case .crayon:
+            // Crumbled wax: a dry little crumble.
+            return FeedbackCue(sounds: [
+                .crunch(slot("crumble"), 900...3500, duration: 0.12, rate: 120, rateEnd: 30, q: 1.4, grain: 0.004, gain: 0.07),
+            ], haptics: dice.scatter(4, from: 0, over: 0.1, intensity: (0.3, 0.12), sharpness: 0.6...0.7))
+        case .egg:
+            // Shell bits in goo: a crunch and a soft squish.
+            return FeedbackCue(sounds: [
+                .crunch(slot("crunch"), 1800...6000, duration: 0.1, rate: 150, rateEnd: 30, q: 1.6, grain: 0.003, gain: 0.06),
+                .noise(slot("goo"), .lowPass, 600, attack: 0.006, decay: 0.04, gain: 0.05, delay: 0.02, wet: true),
+            ], haptics: dice.scatter(3, from: 0, over: 0.06, intensity: (0.3, 0.15), sharpness: 0.85...0.95)
+                + [.buzz(0.2, 0.05, at: 0.03, duration: 0.1)])
+        case .cakeSlice:
+            // Squashed sponge and cream: a soft squish.
+            return FeedbackCue(sounds: [
+                .noise(slot("squish"), .lowPass, 800, attack: 0.012, decay: 0.06, gain: 0.08),
+                .crunch(slot("crumb"), 1500...4000, duration: 0.08, rate: 70, rateEnd: 15, q: 1.2, grain: 0.003, gain: 0.025),
+            ], haptics: [.buzz(0.3, 0.08, duration: 0.14, attack: 0.04)])
+        case .sodaCan:
+            // A flattened can: a metallic crinkle with a little ping.
+            return FeedbackCue(sounds: [
+                .crunch(slot("crinkle"), 2500...8000, duration: 0.12, rate: 180, rateEnd: 30, q: 1.4, grain: 0.002, gain: 0.07),
+                .ring(slot("ping"), .metal, 2300 * p, partials: 6, decay: 0.05, brightness: 0.5, gain: 0.03, seed: dice.seed32()),
+            ], haptics: dice.scatter(4, from: 0, over: 0.1, intensity: (0.35, 0.12), sharpness: 0.8...0.9))
+        case .gummyBear:
+            // The split, flattened gummy: a sticky squidge.
+            return FeedbackCue(sounds: [
+                .tone(slot("squidge"), 280 * p, to: 200 * p, glide: 0.1, duration: 0.14, attack: 0.008, decay: 0.05, gain: 0.06,
+                      harmonics: 2, vibrato: 10, depth: 0.05),
+                .noise(slot("stick"), .bandPass, 800, q: 1, attack: 0.006, decay: 0.04, gain: 0.03),
+            ], haptics: [.buzz(0.3, 0.2, duration: 0.13, attack: 0.02)])
+        case .glassBottle:
+            // The shard pile: a bright tinkle of shards settling.
+            var sounds: [SoundLayer] = []
+            for index in 0..<4 {
+                sounds.append(.ring(slot("tinkle"), .glass, (2400 + 700 * Float(index)) * dice.grainPitch(), partials: 6,
+                                    decay: 0.06, brightness: 0.6, gain: 0.035, delay: Float(index) * 0.035, seed: dice.seed32()))
+            }
+            return FeedbackCue(sounds: sounds,
+                               haptics: dice.scatter(4, from: 0, over: 0.14, intensity: (0.25, 0.1), sharpness: 0.95...1.0))
+        case .unsquishable:
+            // Still unsquished: the same steel clank.
+            return pokeIntact(kind, dice: dice)
+        }
+    }
+
+    static func pokeIntact(_ kind: ObjectKind, dice: FeedbackDice) -> FeedbackCue {
         let slot = { (layer: String) in SoundSlot.object(kind, "poke", layer) }
         let p = dice.bodyPitch()
         switch kind {

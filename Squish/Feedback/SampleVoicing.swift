@@ -39,6 +39,16 @@ enum SampleMap {
             return Rule(picks: [Pick(group: group, gain: beat == .hiss ? 0.3 : 0.5)])
         }
         switch key {
+        // Poking the crushed specimen on the reveal (EXPERIENCE-REVIEW-1 #8): what it is now.
+        case "bubblewrap.pokecrushed": return rule("bubblewrap_crinkle")
+        case "duck.pokecrushed": return rule("duck_wheeze")
+        case "jelly.pokecrushed": return rule("jelly_squelch")
+        case "crayon.pokecrushed": return rule("crayon_crumb")
+        case "egg.pokecrushed": return rule("egg_crunch")
+        case "cake.pokecrushed": return rule("cake_crumb")
+        case "can.pokecrushed": return rule("can_crumple")
+        case "gummy.pokecrushed": return rule("gummy_squish")
+        case "glass.pokecrushed": return rule("glass_grit")
         // The press and the brand: recordings layered under the synth.
         case "press.kachunk":
             return Rule(picks: [Pick(group: "press_kachunk_latch"), Pick(group: "press_kachunk_metal", delay: 0.028)],

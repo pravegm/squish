@@ -49,8 +49,6 @@ final class PressDirector {
     @ObservationIgnored private var lastDetent: Double = 0
     /// The reveal replay's sound and touch (Feedback/ReplayFeel).
     @ObservationIgnored private let replayFeel = ReplayFeel()
-    /// Bottom-out → shut: the stroke that builds to the ka-chunk.
-    @ObservationIgnored private var sealStroke = SealStroke()
     @ObservationIgnored private var lastSpecimenID: UUID?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var renderedFrames = 0
@@ -245,8 +243,10 @@ final class PressDirector {
             playBoth(HingeCues.cue(for: .powerDown, speed: engine.closingSpeed, dice: feelDice))
         case .spin(let speed):
             playBoth(TouchCues.spin(kind, turnsPerSecond: speed, dice: feelDice), light: true)
-        case .poke, .settle, .settled, .latch:
-            // `.latch` (the seal stroke's two latch clicks, ~40° and ~25°) is the press-feel round's: bind its sound.
+        case .latch(let index, _):
+            // The seal stroke's two heavy latches (~40° and ~25°), on the engine's own beats: one coherent stroke.
+            playBoth(BeatCues.latch(progress: index == 0 ? 0.33 : 0.67, dice: feelDice))
+        case .poke, .settle, .settled:
             // Pokes come through `poke()` from the views (after the scene accepts the tap).
             break
         }
@@ -267,16 +267,12 @@ final class PressDirector {
         }
     }
 
-    /// The seal stroke, every frame on the display-rate angle: the whine and the haptic ramp follow its progress, and
-    /// each latch (every 9°) clicks and taps.
+    /// The seal stroke, every frame: the whine and the haptic ramp follow the engine's `sealProgress` (the same
+    /// stroke the screen draws); its two latches are `PressBeat.latch` (`handleBeat`).
     private func updateSealStroke() {
-        if engine.phase != .pressing { sealStroke.end() }
-        let stroke = sealStroke.update(angle: engine.displayAngle, shutAngle: engine.config.shutAngle)
-        audio.sealProgress = stroke.progress
-        haptics.sealProgress = stroke.progress
-        for latch in stroke.latches {
-            playBoth(BeatCues.latch(progress: latch, dice: feelDice))
-        }
+        let progress = engine.phase == .pressing ? Float(engine.sealProgress) : 0
+        audio.sealProgress = progress
+        haptics.sealProgress = progress
     }
 
     /// The reveal's slow-mo break replay in sound and touch (EXPERIENCE-REVIEW-1 #3), mark by mark as the scene
@@ -311,9 +307,11 @@ final class PressDirector {
         let resting = revealed == nil && !engine.isLoaded && (engine.phase == .idle || engine.phase == .armed)
         guard now - lastPoke > 0.08, resting || engine.phase == .revealing else { return }
         lastPoke = now
-        // The material's recorded answer where the library has one (duck squeak, can tink, glass clink…).
-        let cue = SampleVoicing.voice(TouchCues.poke(currentKind, dice: feelDice), style: settings.soundStyle, speed: 0,
-                                      library: SampleLibrary.loaded, dice: feelDice)
+        // The material's recorded answer where the library has one (duck squeak, can tink, glass clink…); on the
+        // reveal, the crushed specimen answers as what it is now (a squelch, a crinkle, a tinkle).
+        let crushed = engine.phase == .revealing
+        let cue = SampleVoicing.voice(TouchCues.poke(currentKind, crushed: crushed, dice: feelDice),
+                                      style: settings.soundStyle, speed: 0, library: SampleLibrary.loaded, dice: feelDice)
         haptics.playShared(cue)
         audio.playShared(cue)
     }
@@ -612,12 +610,6 @@ final class PressDirector {
             storeShotFrozen = (seed: variant.seed, angle: engine.failureAngle ?? storeShotReadoutAngle)
         }
         #endif
-        // The seal stroke runs from the bottom-out to the seal (EXPERIENCE-REVIEW-1 #7).
-        switch event {
-        case .bottomOut: if engine.phase == .pressing { sealStroke.begin(at: engine.displayAngle) }
-        case .sealed, .kaChunk, .released, .reveal: sealStroke.end()
-        default: break
-        }
         haptics.handle(event, context: context)
         audio.handle(event, context: context)
 

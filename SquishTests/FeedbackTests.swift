@@ -934,30 +934,28 @@ struct FeedbackTests {
 
     // MARK: - EXPERIENCE-REVIEW-1
 
-    /// #7: the seal stroke builds from bottom-out to the shut, with a latch every 9° and never a burst of them.
-    @Test func sealStrokeBuildsToTheShut() {
-        var stroke = SealStroke()
-        let idle = stroke.update(angle: 40, shutAngle: 10)
-        #expect(idle.progress == 0) // not begun
-        stroke.begin(at: 55)
-        var last: Float = -1
-        var latches = 0
-        for angle in stride(from: 55.0, through: 10, by: -1) {
-            let step = stroke.update(angle: angle, shutAngle: 10)
-            #expect(step.progress >= last)
-            last = step.progress
-            latches += step.latches.count
-        }
-        #expect(last == 1)
-        #expect(latches == 4) // 46°, 37°, 28°, 19°
+    /// #7: the seal stroke ramps into the ka-chunk on the engine's progress; its two latches are heavy.
+    @Test func sealStrokeRampsAndLatchesAreHeavy() {
         #expect(SealStroke.hapticRamp(0) == 0.3 && SealStroke.hapticRamp(1) == 0.6)
-        // A slam straight to the shut fires one latch, not four.
-        var slam = SealStroke()
-        slam.begin(at: 55)
-        let slammed = slam.update(angle: 8, shutAngle: 10)
-        #expect(slammed.latches.count == 1)
-        let click = BeatCues.latch(progress: 0.5, dice: FeedbackDice(seed: 2))
-        #expect(!click.sounds.isEmpty && click.haptics.contains { $0.intensity == 0.4 })
+        #expect(SealStroke.hapticRamp(0.5) > SealStroke.hapticRamp(0.2))
+        let latch = BeatCues.latch(progress: 0.67, dice: FeedbackDice(seed: 2))
+        #expect(!latch.sounds.isEmpty)
+        #expect(latch.haptics.contains { $0.kind == .continuous })
+        #expect(latch.haptics.filter { $0.kind == .transient }.count >= 2)
+        #expect(latch.haptics.allSatisfy { $0.intensity < 1 }) // the ka-chunk stays the peak
+    }
+
+    /// #8: poking the crushed specimen answers as what it is now, in its own slot, with matching touch.
+    @Test(arguments: ObjectKind.allCases)
+    func crushedSpecimensAnswerAsCrushed(_ kind: ObjectKind) {
+        let crushed = TouchCues.poke(kind, crushed: true, dice: FeedbackDice(seed: 5))
+        #expect(!crushed.sounds.isEmpty && !crushed.haptics.isEmpty)
+        #expect(crushed.haptics.allSatisfy { $0.intensity <= 0.5 })
+        #expect(crushed.sounds.allSatisfy { $0.command.gain > 0 && $0.command.gain <= 0.2 })
+        if kind != .unsquishable {
+            #expect(crushed.sounds.allSatisfy { $0.slot.id.hasPrefix(kind.slotPrefix + ".pokecrushed.") })
+            #expect(SampleMap.rule(for: kind.slotPrefix + ".pokecrushed", isClimax: false) != nil)
+        }
     }
 
     /// #3: the replay plays the press's own moments, slowed like tape, with a softened echo of the break.
