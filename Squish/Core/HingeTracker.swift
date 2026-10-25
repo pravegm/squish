@@ -30,6 +30,8 @@ struct HingeTracker: Equatable {
     private(set) var interval = 1.0 / 30
     private var offset = 0.0
     private var offsetTime = 0.0
+    /// The latest raw reading: once the reports stop (the hand has stopped), the picture settles exactly on it.
+    private var lastReading = 180.0
 
     mutating func reset() {
         estimate = nil
@@ -38,6 +40,7 @@ struct HingeTracker: Equatable {
     }
 
     mutating func sample(_ angle: Double, at time: Double) {
+        lastReading = angle
         guard estimate != nil else {
             estimate = angle
             velocity = 0
@@ -88,12 +91,29 @@ struct HingeTracker: Equatable {
     func angle(at time: Double) -> Double {
         guard estimate != nil else { return 180 }
         let blend = exp(-max(time - offsetTime, 0) / max(0.04, 0.35 * interval))
-        return clamp(raw(at: time) + offset * blend, 0, 180)
+        let moving = clamp(raw(at: time) + offset * blend, 0, 180)
+        // A held hinge sends nothing: once the coast and ease are over, glide onto the last reading itself (the
+        // alpha-beta estimate keeps a quarter of the last surprise, and the coast a little overshoot), so a hand that
+        // has stopped is drawn exactly where the hinge says.
+        let rest = Self.restAfter(horizon: horizon, interval: interval)
+        let age = max(time - lastSampleTime, 0)
+        guard age > rest else { return moving }
+        let k = 1 - exp(-(age - rest) / Self.restGlide)
+        return moving + (lastReading - moving) * k
     }
+
+    /// Seconds after the last report when the picture starts settling onto it (the coast and its ease are over).
+    static func restAfter(horizon: Double, interval: Double) -> Double {
+        horizon + 3 * max(0.03, ease * interval)
+    }
+
+    /// The settle's time constant.
+    static let restGlide = 0.05
 
     /// °/s at `time`, positive while closing (the drawn angle's own speed: it eases to 0 once reports stop).
     func closingSpeed(at time: Double) -> Double {
         let age = max(time - lastSampleTime, 0)
+        if age > Self.restAfter(horizon: horizon, interval: interval) { return 0 }
         guard age > horizon else { return -velocity }
         let tau = max(0.03, Self.ease * interval)
         return -velocity * exp(-(age - horizon) / tau)

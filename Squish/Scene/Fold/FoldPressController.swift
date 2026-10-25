@@ -180,6 +180,20 @@ final class FoldPressController {
     /// The burst's camera kick: the vertical FOV narrows by this fraction at its peak (decays in ~50 ms).
     static let burstKickFOV = 0.015
 
+    /// The reveal's anvil shows the final specimen: the reveal's beats have started (the inner display is lit), any
+    /// break replay has played and handed back, and its debris has had a moment to settle. Screenshots of the reveal
+    /// (CI's duo-screenshots.sh waits for the `SQUISH-F specimen settled` line) and anything else that wants the
+    /// final look should wait for this, never shoot mid-replay.
+    private(set) var isSpecimenSettled = false
+    /// A replay was started for this object's reveal.
+    private var replayStarted = false
+    private var settledLogged = false
+    /// Seconds after the reveal lights before a reveal that had no replay counts as settled (the ceremony starts its
+    /// replay ~0.32 s after the light, RevealCardView).
+    static let settleWithoutReplay = 1.2
+    /// Seconds after a replay hands back before the specimen counts as settled.
+    static let settleAfterReplay = 0.5
+
     /// A replay can be played now: this press was recorded on the Duo stage (the last ~2 s, centred on the break).
     var hasBreakReplay: Bool { host != nil && (scene?.hasBreakReplay ?? false) }
     /// True while a break replay is playing.
@@ -195,6 +209,8 @@ final class FoldPressController {
     func playBreakReplay(speed: Double = 0.35) -> TimeInterval? {
         guard host != nil, !renderPaused, !revealPending, let scene else { return nil }
         guard let duration = scene.playBreakReplay(speed: speed) else { return nil }
+        replayStarted = true
+        isSpecimenSettled = false
         log(String(format: "break replay %.2fs at %.2fx", duration, speed))
         return duration
     }
@@ -292,6 +308,9 @@ final class FoldPressController {
         revealPending = false
         revealBeganDark = false
         vignette = 0
+        isSpecimenSettled = false
+        replayStarted = false
+        settledLogged = false
         closeStyleApplied = false
         platen.setCloseStyle(.pressed)
         anvil.setSprayVisible(true)
@@ -352,6 +371,7 @@ final class FoldPressController {
         }
         reduceMotion = context.reduceMotion
         trackHingeMotion(engine: engine)
+        updateSpecimenSettled(engine: engine)
 
         // N10: nothing to draw while the inner display can't be seen. The first frame back settles every transient
         // in one step, so the relit display shows the finished state, never a ripple or a wipe caught mid-way.
@@ -619,6 +639,27 @@ final class FoldPressController {
         }
         return FoldInstruments(needle: shown, ready: ready, load: load, power: engine.hingePower,
                                stripeOffset: stripeShown, hero: hero, readoutTons: readout)
+    }
+
+    private func updateSpecimenSettled(engine: PressEngine) {
+        guard engine.phase == .revealing, let age = revealAge, let scene else {
+            if engine.phase != .revealing { isSpecimenSettled = false }
+            return
+        }
+        let settled: Bool
+        if scene.isReplaying {
+            settled = false
+        } else if replayStarted, let ended = scene.replayEndedAt {
+            settled = Double(scene.sceneClock - ended) >= Self.settleAfterReplay
+        } else {
+            // No replay (yet): settled once the ceremony would have started one, or when there is nothing to replay.
+            settled = !scene.hasBreakReplay || age >= Self.settleWithoutReplay
+        }
+        isSpecimenSettled = settled
+        if settled && !settledLogged {
+            settledLogged = true
+            log(String(format: "specimen settled (replay=%d) %.2fs after the reveal lit", replayStarted ? 1 : 0, age))
+        }
     }
 
     /// The hinge as a living control (founder, real Duo): every detent ticks the stripes and the needle; each creak of a

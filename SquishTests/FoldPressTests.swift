@@ -855,7 +855,77 @@ struct FoldPressTests {
         for style in [CloseStyle.perfect, .slammed, .pressed] {
             let image = try #require(FoldTextures.pressedStamp(width: FoldPlaten.pressedSize.width, text: style.stampText,
                                                                gentle: style.isGentle))
-            #expect(image.width == base.width && image.height == base.height, "(style)")
+            #expect(image.width == base.width && image.height == base.height, "\(style)")
+        }
+    }
+
+    /// P0 (CI run 40153721315): soft objects looked frozen before the break. End to end through the real scene: the CI
+    /// capture's hinge (sparse reports, ~10 s holds) into a `PressEngine`, its events into a real `PressScene`, frames at
+    /// 30 Hz. At every held moment the object view is updated each frame with the hand's compression, and every fracture
+    /// the engine fires reaches the view (the bubbles keep popping, the failure lands by the 75° hold).
+    @Test func sceneDeliversTheHandToTheObjectThroughTheCIHolds() async throws {
+        for kind in [ObjectKind.gummyBear, .jelly, .cakeSlice, .bubbleWrap] {
+            let scene = PressScene()
+            let variant = PressVariant(kind: kind, seed: 42)
+            scene.setObject(kind, variant: variant)
+            var waited = 0
+            while scene.foldObject == nil && waited < 600 {   // heavy meshes build off the main actor
+                try await Task.sleep(nanoseconds: 50_000_000)
+                waited += 1
+            }
+            try #require(scene.foldObject != nil, "\(kind) never built")
+            let engine = PressEngine()
+            var fired = 0
+            var failureAt: Double?
+            var now = 0.0
+            engine.onEvent = { event in
+                if case let .fracture(_, isFailure) = event {
+                    fired += 1
+                    if isFailure && failureAt == nil { failureAt = now }
+                }
+                let context = FeedbackContext(kind: kind, variant: variant, compression: Float(engine.measuredCompression),
+                                              closingSpeed: Float(engine.closingSpeed), soundStyle: .workshop,
+                                              reduceMotion: false)
+                scene.handle(event, context: context)
+            }
+            let log = PressEngineTests.ciLog
+            let t0 = log[0].time - 2
+            engine.ingest(angle: 180, closed: false, at: t0)
+            engine.load(kind, seed: 42, at: t0)
+            var next = 0
+            var lastReport = t0
+            var heldChecks = 0
+            var worst: Float = 0
+            var notUpdated = 0
+            var frame = 0
+            while true {
+                now = t0 + Double(frame) / 30
+                if now > 76.5 { break }
+                while next < log.count, log[next].time <= now {
+                    engine.ingest(angle: log[next].angle, closed: false, at: log[next].time)
+                    lastReport = log[next].time
+                    next += 1
+                }
+                engine.step(now: now, dt: 1.0 / 30)
+                let context = FeedbackContext(kind: kind, variant: variant, compression: Float(engine.measuredCompression),
+                                              closingSpeed: Float(engine.closingSpeed), soundStyle: .workshop,
+                                              reduceMotion: false)
+                scene.update(engine: engine, context: context, dt: 1.0 / 30)
+                if engine.phase == .pressing, now - lastReport >= 1, let state = scene.lastObjectState {
+                    heldChecks += 1
+                    worst = max(worst, abs(state.compression - Float(engine.measuredCompression)))
+                    if !scene.objectUpdatedLastFrame { notUpdated += 1 }
+                }
+                frame += 1
+            }
+            #expect(heldChecks > 300, "\(kind): \(heldChecks) held frames")
+            #expect(worst <= 0.04, "\(kind): the view was given \(worst) off the hand at a hold")
+            #expect(notUpdated == 0, "\(kind): \(notUpdated) held frames skipped the view update")
+            #expect(scene.deliveredFractures == fired, "\(kind): \(scene.deliveredFractures) of \(fired) fractures reached the view")
+            if engine.failureThreshold != nil {
+                let at = try #require(failureAt, "\(kind) never broke")
+                #expect(at < 76.81, "\(kind) broke at \(at) s: only at the shut, not while lit")
+            }
         }
     }
 }

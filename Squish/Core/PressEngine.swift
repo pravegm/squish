@@ -139,8 +139,14 @@ final class PressEngine {
             if e < breakScore.slowDebris + breakScore.settle { return .settle }
             return .none
         }
-        return clockNow - crossedAt < breakScore.hush ? .hush : .hitStop
+        // Never past the score: if the burst is overdue (it fires on the next step), nothing stays frozen behind it.
+        let e = clockNow - crossedAt
+        if e < breakScore.hush { return .hush }
+        return e < breakScore.burst + Self.burstGrace ? .hitStop : .none
     }
+
+    /// How long past its scheduled time the hold may wait for the burst before it lets go regardless.
+    static let burstGrace = 0.05
 
     /// Seconds since the burst (`.fracture(isFailure: true)`), nil before it.
     var sinceBurst: Double? { burstAt.map { clockNow - $0 } }
@@ -637,7 +643,7 @@ final class PressEngine {
             guard since < resistance.give else { return 0 }
             return 1 - since / resistance.give
         }
-        if crossedAt != nil { return 1 }
+        if let crossedAt { return clockNow - crossedAt < breakScore.burst + Self.burstGrace ? 1 : 0 }
         guard phase == .pressing else { return 0 }
         return resistance.strain(measuredCompression, failure: failure)
     }
@@ -654,7 +660,11 @@ final class PressEngine {
     var objectCompression: Double {
         let c = visualCompression
         guard resistance.fights, failureThreshold != nil, let held = heldEyeCompression else { return c }
-        if crossedAt != nil, sinceBurst == nil { return min(held, c) }
+        if let crossedAt, sinceBurst == nil {
+            // Only inside the hush and hit stop themselves (~120–220 ms after the crossing), never longer: a hinge held
+            // still is just held, and nothing stays frozen behind it.
+            return clockNow - crossedAt < breakScore.burst + Self.burstGrace ? min(held, c) : c
+        }
         if let since = sinceBurst, since < resistance.give {
             return min(1, resistance.released(from: min(held, c), to: c, after: since) + resistance.lead(after: since))
         }

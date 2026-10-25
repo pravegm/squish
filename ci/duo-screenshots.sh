@@ -325,6 +325,21 @@ wait_first_render() {
   log "WARN no 'frame 120' line after ${max}s; continuing"; return 1
 }
 
+# Wait for the reveal's final specimen: the app logs "SQUISH-F specimen settled" once the slow-mo break replay has
+# played and handed back and the debris has settled (FoldPressController.isSpecimenSettled), at most $2 seconds. A
+# reveal frame shot before it shows the replay mid-flight, not the specimen.
+wait_specimen() {
+  local logf="$1" max="$2" t=0
+  while (( t < max )); do
+    if grep -q "SQUISH-F specimen settled" "$logf" 2>/dev/null; then
+      log "specimen settled after ~${t}s: $(grep -E 'SQUISH-F specimen settled' "$logf" | tail -1)"; return 0
+    fi
+    sleep 1; t=$((t + 1))
+  done
+  log "WARN no 'SQUISH-F specimen settled' line after ${max}s; shooting the reveal anyway"; return 1
+}
+SPECIMEN_WAIT="${SPECIMEN_WAIT:-15}"
+
 # Wait for the app's "SQUISH-T storeshot <label> ok|failed" line, at most $3 seconds (label: an angle, hero or pair).
 wait_storeshot() {
   local logf="$1" a="$2" max="$3" t=0
@@ -462,7 +477,8 @@ tabletop_pass() {
     # engine reveals on the first open sample after a close, and the app shoots once the card is up and the hinge
     # has settled.
     hinge_to 0; fsleep "$SETTLE"; fsleep 1; shoot "$obj-tabletop-closed" cover
-    hinge_to "$REVEAL_ANGLE"; fsleep "$SETTLE"; fsleep 1.5; shoot "$obj-tabletop-reveal" inner
+    hinge_to "$REVEAL_ANGLE"; fsleep "$SETTLE"; wait_specimen "$applog" "$SPECIMEN_WAIT"; fsleep 0.5
+    shoot "$obj-tabletop-reveal" inner
     check_reveal "$obj" "$applog"
     # Store run 39971788282: the simulator kept the cover display lit at 155°, so the app's reveal shot never came.
     # Re-closing would collect the reveal, so nudge the hinge further open and back to wake the inner display instead.
@@ -728,7 +744,8 @@ for obj in $OBJECTS; do
     (( n > 0 )) || FAILURES=$((FAILURES+1))
   fi
   hinge_to 0;   fsleep "$SETTLE"; fsleep 1; shoot "$obj-closed" cover
-  hinge_to 170; fsleep "$SETTLE"; fsleep 1.5; shoot "$obj-reveal" inner   # reopening past ~150° wakes the inner panel
+  hinge_to 170; fsleep "$SETTLE"   # reopening past ~150° wakes the inner panel
+  wait_specimen "$applog" "$SPECIMEN_WAIT"; fsleep 0.5; shoot "$obj-reveal" inner
   grep -c "SQUISH-H" "$applog" >/dev/null 2>&1 \
     && log "$obj: $(grep -c SQUISH-H "$applog") hinge lines in app log" \
     || log "NOTE $obj: no SQUISH-H lines in app log (app does not print hinge samples, or onHingeChange never fired)"

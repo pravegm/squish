@@ -81,6 +81,15 @@ final class PressScene {
     /// A drag or pinch is turning the object (the UI can hold off its touch press while true).
     var isInspecting: Bool { inspection.dragging }
 
+    /// What the object view was last given (tests, diagnostics): its state and how many fractures reached it.
+    var lastObjectState: PressVisualState? { lastState }
+    private(set) var deliveredFractures = 0
+    /// True when the object view was updated this frame (false only in a hit stop).
+    private(set) var objectUpdatedLastFrame = false
+    /// When the last replay handed back to the specimen (the scene clock), nil if none has this object.
+    private(set) var replayEndedAt: Float?
+    var sceneClock: Float { clock }
+
     // Placement, rest beat and power-on
     /// Holds the previous object while it slides off the anvil (the mess moves with `fx.root`).
     private let outgoing = Entity()
@@ -204,6 +213,8 @@ final class PressScene {
         frozenTremor = .zero
         tell = false
         replay = nil
+        replayEndedAt = nil
+        deliveredFractures = 0
         recorder.reset()
         inspection = ObjectInspection()
         peakTons = 0
@@ -298,9 +309,11 @@ final class PressScene {
         state.collapseLead = Float(engine.collapseLead)
         state.sealing = Float(engine.sealProgress)
         lastState = state
-        if objectDt > 0 || state.compression == 0 {
+        objectUpdatedLastFrame = objectDt > 0 || state.compression == 0
+        if objectUpdatedLastFrame {
             view.update(state)
         }
+        traceObject(view: view, engine: engine, state: state)
         if framing == .foldAnvil, view.entity.isEnabled,
            engine.phase == .armed || engine.phase == .pressing || engine.phase == .sealed {
             recorder.record(PressTape.Frame(time: Double(clock), compression: visualC, ramCompression: renderC,
@@ -331,6 +344,21 @@ final class PressScene {
         updateFlash(dt: dt)
         updateInstruments(engine: engine, context: context, dt: dt, renderC: renderC, approach: approach)
     }
+
+    /// Demo runs only (CI's Duo captures): once a second while pressing, what the object view was given and whether it
+    /// is the one on the anvil, so a frame that looks frozen can be told apart from a press that is held.
+    private func traceObject(view: any PressObjectView, engine: PressEngine, state: PressVisualState) {
+        guard DemoScenario.current != nil, engine.phase == .pressing || engine.phase == .sealed else { return }
+        guard clock - lastObjectTrace >= 1 else { return }
+        lastObjectTrace = clock
+        let onAnvil = view.entity.parent === objectSlot
+        print(String(format: "SQUISH-O t=%.2f phase=%@ hand=%.3f object=%.3f updated=%d enabled=%d onAnvil=%d break=%@ fractures=%ld replay=%d outgoing=%d drop=%.3f id=%lx",
+                     CACurrentMediaTime() - SceneTrace.origin, engine.phase.rawValue, engine.measuredCompression,
+                     Double(state.compression), objectUpdatedLastFrame ? 1 : 0, view.entity.isEnabled ? 1 : 0,
+                     onAnvil ? 1 : 0, "\(engine.breakPhase)", deliveredFractures, replay != nil ? 1 : 0,
+                     outgoingActive ? 1 : 0, Double(dropHeight), UInt(bitPattern: ObjectIdentifier(view.entity).hashValue)))
+    }
+    private var lastObjectTrace: Float = -10
 
     func handle(_ event: PressEvent, context: FeedbackContext) {
         guard let view = objectView else { return }
@@ -378,6 +406,7 @@ final class PressScene {
             }
             view.handle(event, state: state)
         case let .fracture(index, isFailure):
+            deliveredFractures += 1
             view.fracture(index: index, isFailure: isFailure, state: state)
             // New spreads / lines may be translucent: keep them out of the shadow pass.
             ShadowCasting.offForTranslucent(in: view.entity)
@@ -1449,6 +1478,7 @@ final class PressScene {
         updateDecals(view: view, approach: frame.approach)
         updateFlash(dt: dt)
         replay = done ? nil : run
+        if done { replayEndedAt = clock }
     }
 
     // MARK: - FOLD PRESS (design/FOLD-PRESS.md §2, §9.1): anvil-only framing for the iPhone Duo

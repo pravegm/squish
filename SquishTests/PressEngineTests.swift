@@ -954,4 +954,154 @@ struct PressEngineTests {
         tracker.sample(10, at: t + 0.03)
         #expect(abs(tracker.angle(at: t + 0.03) - 10) < 1e-9)
     }
+
+    // MARK: - P0: a held hinge is just held (CI run 40153721315: soft objects looked frozen before the break)
+
+    /// The CI Duo capture's hinge (run 40153721315, gummyBear, book pass): sparse reports and ~10 s holds, as the
+    /// simulator (or a Duo held still) sends them.
+    static let ciLog: [(time: Double, angle: Double)] = [
+        (34.21, 174.7), (36.38, 160.2), (36.67, 142.3), (37.81, 127.5), (38.94, 125.3), (39.26, 109.2), (40.20, 99.4),
+        (41.32, 99.4), (52.22, 99.1), (52.49, 97.2), (53.63, 82.4), (54.63, 75.8), (65.12, 63.2), (66.27, 61.7),
+        (74.44, 59.5), (75.68, 57.3), (76.81, 31.4), (77.10, 27.0), (77.45, 24.2), (77.77, 21.4), (78.05, 18.2),
+        (78.30, 15.4), (78.62, 12.2), (78.87, 9.4),
+    ]
+
+    /// The founder's real-Duo close (`realLog`, down to the ~48° report), each report followed by 1.6 s of the hinge
+    /// held still (no reports at all, as a still Duo sends none).
+    static var founderHolds: [(time: Double, angle: Double)] {
+        var t = 41.7843
+        var log: [(time: Double, angle: Double)] = []
+        for sample in realLog where sample.angle >= 47 && sample.time < 44 {
+            log.append((t, sample.angle))
+            t += 1.6
+        }
+        return log
+    }
+
+    /// Compression units to degrees of lid travel (the tests' 2° budget).
+    private var degreesPerCompression: Double { PressConfig.standard.contactCeiling - PressConfig.standard.endAngle }
+
+    /// A held-still press at the logs' angles (the CI capture's and the founder's): once the hinge has been still for a
+    /// second, every object's own compression is the hand's (≤ 2°), and no hush or hit stop is holding it.
+    @Test func heldStillHingeKeepsEveryObjectOnTheHand() {
+        let span = degreesPerCompression
+        for (name, log) in [("CI", Self.ciLog), ("founder", Self.founderHolds)] {
+            let t0 = log[0].time - 1
+            let end = log.last!.time + 1.5
+            for kind in ObjectKind.allCases {
+                let engine = PressEngine()
+                engine.ingest(angle: 180, closed: false, at: t0)
+                engine.load(kind, seed: 42, at: t0)
+                var next = 0
+                var lastReport = t0
+                var worst = 0.0
+                var heldFrames = 0
+                var frozenFrames = 0
+                var frame = 0
+                while true {
+                    let now = t0 + Double(frame) / 60
+                    if now > end { break }
+                    while next < log.count, log[next].time <= now {
+                        engine.ingest(angle: log[next].angle, closed: false, at: log[next].time)
+                        lastReport = log[next].time
+                        next += 1
+                    }
+                    engine.step(now: now, dt: 1.0 / 60)
+                    if engine.phase == .pressing, now - lastReport >= 1 {
+                        heldFrames += 1
+                        worst = max(worst, abs(engine.objectCompression - engine.measuredCompression) * span)
+                        if engine.breakPhase == .hush || engine.breakPhase == .hitStop { frozenFrames += 1 }
+                    }
+                    frame += 1
+                }
+                #expect(heldFrames > 120, "\(name) \(kind): the press was held \(heldFrames) frames")
+                #expect(worst <= 2, "\(name) \(kind): a held hinge shows the object \(worst)° off the hand")
+                #expect(frozenFrames == 0, "\(name) \(kind): \(frozenFrames) held frames still in the hush / hit stop")
+            }
+        }
+    }
+
+    /// A sweep at 30 Hz with 1.5 s pauses (no reports) before the fight window, inside it, just past the failure (the
+    /// break lands during the pause) and fully crushed: the object leaves the hand only in the hush and hit stop
+    /// (≤ ~270 ms after the crossing) and the give's 60–80 ms; everywhere else, moving or held, it is on the hand.
+    @Test func sweepWithPausesLeavesTheHandOnlyInTheBreak() throws {
+        let span = degreesPerCompression
+        for kind in ObjectKind.allCases {
+            let timeline = Timeline()
+            let engine = timedEngine(kind, timeline)
+            let failure = engine.failureThreshold
+            let window = engine.resistance.window
+            let targets: [Double]
+            if let failure {
+                targets = [max(failure - window - 0.1, 0.03), max(failure - window / 2, 0.04), min(failure + 0.06, 0.99), 1]
+            } else {
+                targets = [0.3, 0.6, 1]
+            }
+            var now = 0.0
+            var angleNow = 180.0
+            var worstOutside = 0.0
+            var holdFrames = 0
+            var sampleDue = 0.0
+            func frame(sampleAt angle: Double?) {
+                now += 1.0 / 60
+                timeline.now = now
+                if let angle, now >= sampleDue - 1e-9 {
+                    engine.ingest(angle: angle, closed: false, at: now)
+                    sampleDue = now + 1.0 / 30
+                }
+                engine.step(now: now, dt: 1.0 / 60)
+                let held = engine.breakPhase == .hush || engine.breakPhase == .hitStop
+                let giving = engine.sinceBurst.map { $0 < engine.resistance.give + 1e-9 } ?? false
+                if held { holdFrames += 1 }
+                if !held && !giving && engine.phase == .pressing {
+                    // The hand: the latest raw reading (the event filter's lag is not the hand).
+                    let m = engine.mapping
+                    let hand = PressMapping.compression(depth: PressMapping.depth(angle: engine.rawAngle,
+                                                                                  start: engine.startAngle, config: m),
+                                                        config: m)
+                    worstOutside = max(worstOutside, abs(engine.objectCompression - hand) * span)
+                }
+            }
+            for target in targets {
+                let goal = target >= 1 ? PressConfig.standard.endAngle - 2 : angle(engine, compression: target)
+                // 25°/s, reported at 30 Hz.
+                let frames = max(Int(abs(angleNow - goal) / 25 * 60), 1)
+                let from = angleNow
+                for i in 1...frames { frame(sampleAt: from + (goal - from) * Double(i) / Double(frames)) }
+                angleNow = goal
+                for _ in 0..<90 { frame(sampleAt: nil) }   // held: the hinge sends nothing
+            }
+            #expect(worstOutside <= 2.5, "\(kind): off the hand by \(worstOutside)° outside the break")
+            if failure != nil {
+                #expect(timeline.time(of: .hush) != nil, "\(kind) broke")
+                let score = BreakScore.of(kind, hush: PressConfig.standard.failureHushDelay)
+                let budget = Int(((score.burst + PressEngine.burstGrace) * 60).rounded(.up)) + 2
+                #expect(holdFrames <= budget, "\(kind): held \(holdFrames) frames (budget \(budget))")
+            }
+            #expect(engine.phase == .pressing)
+            #expect(abs(engine.objectCompression - engine.measuredCompression) * span <= 2)
+        }
+    }
+
+    /// Once the reports stop, the drawn hinge settles exactly on the last reading (no residue of the tracker's
+    /// estimate or its coast), and its speed is 0.
+    @Test func heldHingeSettlesOnTheLastReading() {
+        for hz in [5.0, 30.0, 120.0] {
+            var tracker = HingeTracker()
+            var t = 0.0
+            var last = 180.0
+            while t <= 1 {
+                // A close with a wobble on top, then the hand stops.
+                last = 180 - 70 * t + 3 * sin(t * 40)
+                tracker.sample(last, at: t)
+                t += 1 / hz
+            }
+            let stopped = t - 1 / hz
+            let settled = stopped + HingeTracker.restAfter(horizon: tracker.horizon, interval: tracker.interval) + 0.4
+            #expect(abs(tracker.angle(at: settled) - last) < 0.01, "\(hz) Hz: \(tracker.angle(at: settled)) vs \(last)")
+            #expect(tracker.closingSpeed(at: settled) == 0)
+            // And it stays there.
+            #expect(abs(tracker.angle(at: settled + 10) - last) < 1e-6)
+        }
+    }
 }
