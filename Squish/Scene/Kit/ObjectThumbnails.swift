@@ -37,6 +37,11 @@ enum ObjectThumbnails {
     private static var memory: [String: UIImage] = [:]
     private static var queue: Task<Void, Never>?
     private static var host: ARView?
+    /// The renderer's own window, under the app's (never the app's window: a second ARView inside it, even behind
+    /// everything, shared its frames with the live anvil; the first object of a Duo book pass looked frozen).
+    private static var hostWindowForRender: UIWindow?
+    /// While a prewarm runs: true when it must stop (a press is under way), checked between a render's steps.
+    private static var mustYield: (@MainActor () -> Bool)?
     private static var light: Entity?
 
     // MARK: Public
@@ -74,16 +79,24 @@ enum ObjectThumbnails {
     /// `canRender` is asked before each render; while it says no, the prewarm waits. A render runs a second ARView and
     /// a full offscreen press on the main actor, so it must never share frames with a live press (soft objects looked
     /// frozen in the Duo book pass while the prewarm ran under the press).
-    static func prewarm(size: CGSize, canRender: @MainActor () -> Bool = { true }) async {
+    /// A render also stops between its steps the moment `canRender` says no (and is retried once it says yes again).
+    static func prewarm(size: CGSize, canRender: @escaping @MainActor () -> Bool = { true }) async {
         for look in Look.allCases {
             for kind in ObjectKind.allCases {
-                if cached(kind, look: look, size: size) != nil { continue }
-                park()
-                while !canRender() {
-                    try? await Task.sleep(for: .milliseconds(500))
-                    if Task.isCancelled { return }
+                var attempts = 0
+                while cached(kind, look: look, size: size) == nil && attempts < 4 {
+                    park()
+                    while !canRender() {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        if Task.isCancelled { return }
+                    }
+                    attempts += 1
+                    mustYield = { !canRender() }
+                    let rendered = await Self.image(kind, look: look, size: size)
+                    mustYield = nil
+                    // Dropped because a press started: wait for it, then try again; any other failure, move on.
+                    if rendered == nil && canRender() { break }
                 }
-                _ = await image(kind, look: look, size: size)
             }
         }
         park()
@@ -116,9 +129,22 @@ enum ObjectThumbnails {
         return windows.first { $0.isKeyWindow } ?? windows.first
     }
 
-    /// The renderer: in the window (it must be, to draw), behind everything else, the size of the requested image.
+    /// The renderer: in a window of its own (it must be in a visible window to draw), one level under the app's, so
+    /// it draws behind the opaque app and never inside its view tree; the size of the requested image.
     private static func renderer(size: CGSize) -> ARView? {
-        guard let window = hostWindow() else { return nil }
+        guard let scene = hostWindow()?.windowScene else { return nil }
+        let window: UIWindow
+        if let existing = hostWindowForRender {
+            window = existing
+        } else {
+            window = UIWindow(windowScene: scene)
+            window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue - 1)
+            window.isUserInteractionEnabled = false
+            window.backgroundColor = .clear
+            hostWindowForRender = window
+        }
+        window.frame = CGRect(origin: .zero, size: size)
+        window.isHidden = false
         let view: ARView
         if let host {
             view = host
@@ -144,6 +170,7 @@ enum ObjectThumbnails {
     /// Takes the renderer out of the window between renders (it costs nothing while parked).
     private static func park() {
         host?.removeFromSuperview()
+        hostWindowForRender?.isHidden = true
     }
 
     private static func render(_ kind: ObjectKind, look: Look, size: CGSize) async -> UIImage? {
@@ -152,6 +179,7 @@ enum ObjectThumbnails {
         if light == nil {
             light = await StudioEnvironment.makeLight(exponent: SceneStyle.standard.iblExponent)
         }
+        if mustYield?() == true { park(); return nil }
         let variant = PressVariant(kind: kind, seed: SpecimenPrint.plainSeed(for: kind))
         let fx = SceneFX()
         let object = PressObjectFactory.make(kind, variant: variant, fx: fx)
@@ -197,6 +225,8 @@ enum ObjectThumbnails {
         camera.camera.far = 5
         camera.look(at: framing.target, from: framing.eye, upVector: [0, 1, 0], relativeTo: nil)
         anchor.addChild(camera)
+        // A press started meanwhile: drop this render (the prewarm comes back to it when the press is over).
+        if mustYield?() == true { park(); return nil }
         view.scene.addAnchor(anchor)
 
         // A few frames so the IBL, the textures and the mesh uploads are in, then the shot.

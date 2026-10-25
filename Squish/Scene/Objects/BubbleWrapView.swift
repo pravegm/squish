@@ -357,6 +357,17 @@ final class BubbleWrapView: PressObjectView {
         }
     }
 
+    // MARK: State, for SquishTests (a bubble bursts on the frame its fracture fires and stays burst)
+
+    /// Whether cell `index`'s dome is still drawn (false once it has burst).
+    func domeVisible(_ index: Int) -> Bool { index < cells.count && cells[index].root.isEnabled }
+    /// Whether cell `index` has burst.
+    func isBurst(_ index: Int) -> Bool { index < cells.count && cells[index].popped }
+    /// Cell `index`'s dome height scale (it flattens under the plate until it bursts).
+    func domeHeightScale(_ index: Int) -> Float { index < cells.count ? cells[index].root.scale.y : 0 }
+    /// Burst craters on the sheet.
+    var craterCount: Int { craters.count }
+
     private func pop(_ cell: Cell, big: Bool) {
         cell.popped = true
         cell.root.isEnabled = false

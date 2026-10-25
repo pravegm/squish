@@ -1394,6 +1394,40 @@ struct SceneTests {
         }
     }
 
+    /// Coordinator, Duo run 40174301077: every pop fired (sound and haptics) while the domes still looked whole. A bubble
+    /// must burst on the very frame its fracture fires (dome gone, crinkled crater down), stay burst, and the bubbles not
+    /// yet popped must keep flattening under the plate.
+    @MainActor
+    @Test func aBubbleBurstsOnTheFrameItsFractureFiresAndStaysBurst() {
+        let variant = PressVariant(kind: .bubbleWrap, seed: SpecimenPrint.plainSeed(for: .bubbleWrap))
+        let view = BubbleWrapView(variant: variant, fx: SceneFX())
+        ObjectCrush.rest(view)
+        let order = BubbleWrapGrid.popOrder(seed: variant.seed)
+        let first = order[0], last = order[order.count - 1]
+        var s = ObjectCrush.state(view, c: 0.1, dt: 1.0 / 60, time: 1, phase: .pressing)
+        view.update(s)
+        #expect(view.domeVisible(first) && !view.isBurst(first) && view.craterCount == 0)
+        let lastAtStart = view.domeHeightScale(last)
+        // The fracture alone bursts it: no further update is needed for the dome to go and the crater to land.
+        view.fracture(index: 0, isFailure: false, state: s)
+        #expect(view.isBurst(first) && !view.domeVisible(first))
+        #expect(view.craterCount == 1)
+        // It stays burst while the press goes on (and through a hit stop, dt 0), and the others flatten progressively.
+        for k in 1...40 {
+            let c = 0.1 + Float(k) * 0.015
+            s = ObjectCrush.state(view, c: c, dt: k % 5 == 0 ? 0 : 1.0 / 60, time: 1 + Float(k) / 60, phase: .pressing)
+            view.update(s)
+            #expect(!view.domeVisible(first), "the burst dome came back at c \(c)")
+            // The ripple only ever squashes a dome further, never up through the plate.
+            #expect(view.domeHeightScale(last) <= lastAtStart + 1e-6, "an unpopped dome rose at c \(c)")
+        }
+        #expect(view.domeHeightScale(last) < lastAtStart * 0.8, "the unpopped domes didn't flatten")
+        // Every fracture bursts exactly one more bubble.
+        for index in 1..<order.count { view.fracture(index: index, isFailure: false, state: s) }
+        #expect(view.craterCount == order.count)
+        #expect(order.allSatisfy { view.isBurst($0) && !view.domeVisible($0) })
+    }
+
     /// Height (top above the anvil) and top-down footprint area of an object view and its debris, visible parts only.
     @MainActor
     /// `reach`: how far it extends along x (the long axis of the plate) from the centre.
