@@ -50,7 +50,7 @@ struct ObjectArt: View {
     /// Renders every object (at rest, then crushed) in the background once the press room is up, so the Tray and the
     /// cover open on real pictures. Skips what is already on disk. `canRender` holds it off while a press is under way.
     @MainActor
-    static func prewarm(canRender: @MainActor () -> Bool) async {
+    static func prewarm(canRender: @escaping @MainActor () -> Bool) async {
         await ObjectThumbnails.prewarm(size: renderSize, canRender: canRender)
     }
 }
