@@ -6,7 +6,7 @@
 
 ## The pitch (one paragraph)
 
-**Squish turns your £2,000 phone into a hydraulic press.** Pick a virtual object (bubble wrap, a rubber duck, an egg, a glass bottle) and it sits on the lower half of the iPhone Duo's screen. Push the top half down slowly and the press follows your hand, degree by degree. You see, hear and *feel* the object strain, crack and give way, with every sound and haptic landing in the same frame. Snap the phone shut for a heavy *ka-chunk*, then open it again to find your object flattened, stamped and filed as a pressed specimen in your collection. It also works on every other iPhone: just drag the ram down. Squish costs £2.99 / $2.99, with no ads, no in-app purchases, no timers and no data collected. It's a calm, ridiculous and deeply satisfying toy from a tiny studio, with free object drops planned through the winter.
+**Squish turns your £2,000 phone into a hydraulic press.** Pick a virtual object (bubble wrap, a rubber duck, an egg, a glass bottle) and it sits on the lower half of the iPhone Duo's screen. Push the top half down slowly and the press follows your hand, degree by degree. You see, hear and *feel* the object strain, crack and give way, with every sound and haptic landing in the same frame. Snap the phone shut for a heavy *ka-chunk*, then open it again to find your object flattened, stamped and filed as a pressed specimen in your collection. It also works on every other iPhone: just drag the ram down. Squish costs £2.49 / $2.49, with no ads, no in-app purchases, no timers and no data collected. It's a calm, ridiculous and deeply satisfying toy from a tiny studio, with free object drops planned through the winter.
 
 **One-liner:** *Your £2,000 phone is now a hydraulic press. Pick something on screen, close it slowly, and feel it give.*
 
@@ -21,7 +21,7 @@
 | **Founder** | [Founder name] (deliberately not on the live page) |
 | **Release date** | Tue 24 Nov 2026, worldwide. Pre-order from [~7 Nov 2026] |
 | **Platform** | iPhone, designed for iPhone Duo's hinge; drag-to-press (the P-48) on every other iPhone. Requires iOS 18.0 or later (`project.yml` deployment target; the hinge press uses iOS 27.1 APIs, which the Duo ships with) |
-| **Price** | £2.99 / $2.99 / €2.99 one-off. No ads, no in-app purchases. Family Sharing on |
+| **Price** | £2.49 / $2.49 / €2.49 one-off. No ads, no in-app purchases. Family Sharing on |
 | **Age rating** | 9+ |
 | **Launch content** | 10 objects: Bubble Wrap, Rubber Duck, Jelly, Crayon, Egg, Cake Slice, Soda Can, Gummy Bear, Glass Bottle, and one secret |
 | **Features** | Hinge-driven analogue press · real-time haptics and sound · pressed-specimen collection · Perfect Squish and Golden variants · cover-display "sealed" card · share clip and image · Game Center achievements |
@@ -138,7 +138,7 @@ General rules:
 > I'm building Squish, an iPhone Duo toy where the hinge works as a hydraulic press. Pick a virtual object, close the top half slowly, and it strains, cracks and gives way in step with your hand, with matching haptics and sound. Close it for a "ka-chunk", reopen to find a pressed specimen card.
 >
 > - Works on every iPhone (drag to press); the Duo is the hero.
-> - £2.99/$2.99, no ads, no IAP, no data collected.
+> - £2.49/$2.49, no ads, no IAP, no data collected.
 > - Pre-order from early November, launch planned for Tue 24 Nov.
 >
 > Happy to send TestFlight, more clips or a quote. No embargo.
@@ -156,7 +156,7 @@ General rules:
 > Could you add Squish to FoldHunt? It's an iPhone Duo toy where the hinge is a hydraulic press: close the phone slowly over a virtual object and it squishes in real time, then reopen it to find a pressed specimen card.
 >
 > - Uses the hinge angle continuously (tabletop and book pose), plus the cover display for the "press sealed" card.
-> - £2.99/$2.99, no ads, no IAP. Launch planned for Tue 24 Nov, pre-order from early November.
+> - £2.49/$2.49, no ads, no IAP. Launch planned for Tue 24 Nov, pre-order from early November.
 > - Clip: https://github.com/pravegm/squish/releases/download/press-kit/squish-duo-duck.mp4
 > - Icon and screenshots: https://pravegm.github.io/squish/press/
 >
@@ -183,7 +183,7 @@ General rules:
 
 > Hi,
 >
-> Crush games on iOS are mostly ad farms, untouched for years. Squish is the opposite: a £2.99/$2.99 toy with no ads, no IAP, no energy and no timers, where each object breaks its own way and you feel it through the haptics.
+> Crush games on iOS are mostly ad farms, untouched for years. Squish is the opposite: a £2.49/$2.49 toy with no ads, no IAP, no energy and no timers, where each object breaks its own way and you feel it through the haptics.
 >
 > On iPhone Duo, closing the phone *is* the press: the crush follows the hinge in real time, then a "ka-chunk" seals it and you reopen to a pressed specimen card. On other iPhones you drag the ram down.
 >
@@ -212,7 +212,7 @@ General rules:
 > 19-second App Preview (iPhone Duo): https://github.com/pravegm/squish/releases/download/press-kit/squish-preview-duo.mp4
 > TestFlight: [TestFlight link]
 >
-> £2.99/$2.99, no ads, no IAP, out Tue 24 Nov. It also runs on non-Duo iPhones. Happy to talk about how the hinge angle maps to "pressure" and haptics.
+> £2.49/$2.49, no ads, no IAP, out Tue 24 Nov. It also runs on non-Duo iPhones. Happy to talk about how the hinge angle maps to "pressure" and haptics.
 >
 > [your name], Squish
 
@@ -244,7 +244,7 @@ General rules:
 
 > Squish is out today: [App Store link]
 >
-> The iPhone Duo's hinge becomes a hydraulic press; on other iPhones you drag the ram. £2.99/$2.99, no ads, no IAP, no data collected. No embargo, and everything on the press page is free to use: https://pravegm.github.io/squish/press/
+> The iPhone Duo's hinge becomes a hydraulic press; on other iPhones you drag the ram. £2.49/$2.49, no ads, no IAP, no data collected. No embargo, and everything on the press page is free to use: https://pravegm.github.io/squish/press/
 >
 > App Preview: https://github.com/pravegm/squish/releases/download/press-kit/squish-preview-duo.mp4 · promo code on request.
 >

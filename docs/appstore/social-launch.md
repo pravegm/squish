@@ -108,7 +108,7 @@ If you filmed the real-hands teaser (`preview-video.md` §B), post that instead 
 > 2. What object should I add first after launch? (shortlist: ice cube, fortune cookie, water balloon, marshmallow)
 >
 > Everything is on screen. Please never close your phone on real things; that inner screen is soft.
-> Planned: £2.99/$2.99, no ads, no IAP. I'm looking for ~30 TestFlight testers with Duos in early November. Reply here and I'll DM.
+> Planned: £2.49/$2.49, no ads, no IAP. I'm looking for ~30 TestFlight testers with Duos in early November. Reply here and I'll DM.
 
 ---
 
@@ -146,7 +146,7 @@ If pre-order isn't live by 9 Nov, drop the "Pre-order:" part and keep "coming in
 >
 > Your phone becomes a hydraulic press: close it slowly, feel it give, snap it shut, open it to a pressed specimen. 10 objects, one secret. No ads, no in-app purchases.
 >
-> £2.99 / $2.99 · out 24 Nov
+> £2.49 / $2.49 · out 24 Nov
 > [App Store link]
 
 ### Bluesky  ·  attach `squish-duo-duck.mp4`
@@ -154,7 +154,7 @@ If pre-order isn't live by 9 Nov, drop the "Pre-order:" part and keep "coming in
 >
 > Your phone becomes a hydraulic press: close it slowly, feel it give, snap it shut, open it to a pressed specimen. 10 objects, one secret. No ads, no in-app purchases.
 >
-> £2.99 / $2.99 · out 24 Nov
+> £2.49 / $2.49 · out 24 Nov
 > [App Store link]
 
 ### Mastodon
@@ -176,7 +176,7 @@ Post the launch posts first, then object of the day #1 (Phase 4) later the same 
 > Close your phone slowly and feel a rubber duck give, one squeak at a time.
 > Ka-chunk.
 >
-> £2.99 / $2.99 · no ads · no IAP · works on every iPhone, made for the fold
+> £2.49 / $2.49 · no ads · no IAP · works on every iPhone, made for the fold
 > [App Store link]
 
 ### Bluesky  ·  attach `squish-duo-duck.mp4`
@@ -191,7 +191,7 @@ Post the launch posts first, then object of the day #1 (Phase 4) later the same 
 >
 > On iPhone Duo, the hinge drives a hydraulic press in real time: every degree you close squishes a little more, with haptics and sound in the same frame. On other iPhones, you drag the ram. Ten objects at launch, each breaking its own way, plus a secret one that has opinions about being squished.
 >
-> £2.99 / $2.99, no ads, no IAP, no tracking. Free object drops all winter.
+> £2.49 / $2.49, no ads, no IAP, no tracking. Free object drops all winter.
 >
 > [App Store link]
 > #iPhoneDuo #iOSDev #IndieDev
@@ -206,7 +206,7 @@ Post the launch posts first, then object of the day #1 (Phase 4) later the same 
 > - [real change 1, e.g. "tabletop coaching" because most of you press flat]
 > - [real change 2]
 >
-> It's £2.99/$2.99, no ads, no IAP, no data collected. Next free drop is the holiday one in December, and the top-voted object from the teaser thread ([name]) is in it.
+> It's £2.49/$2.49, no ads, no IAP, no data collected. Next free drop is the holiday one in December, and the top-voted object from the teaser thread ([name]) is in it.
 >
 > Happy to answer anything about how the hinge mapping works. Link in the comments, per the rules.
 
@@ -234,7 +234,7 @@ Every second day from launch: **24, 26 and 28 Nov, 30 Nov, 2 Dec, 4 Dec**. Each 
 ## Phase 5: After launch
 
 - **Thu 10 Dec, Holiday Object Drop (1.1 live):** "Squish 1.1 is out: the Holiday Object Drop. [the new objects, by name]. Free for everyone who has Squish. [App Store link]" plus a share clip of one new object. Write the object line once 1.1 is final; never announce an object that isn't in the build.
-- **Mon 18 Jan, the £1.99 sale (one week, to Mon 25 Jan):** "Squish is £1.99 / $1.99 this week, then back to £2.99. A hydraulic press for your iPhone. No ads, no in-app purchases. [App Store link]". Social posts and promo text only, never In-App Event metadata.
+- **Mon 18 Jan, the £1.99 sale (one week, to Mon 25 Jan):** "Squish is £1.99 / $1.99 this week, then back to £2.49. A hydraulic press for your iPhone. No ads, no in-app purchases. [App Store link]". Social posts and promo text only, never In-App Event metadata.
 
 ---
 

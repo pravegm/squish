@@ -4,7 +4,7 @@ Read this first. It is everything the previous Claude account knew that the code
 
 ## What this is
 
-**Squish: Fold-to-Crush Press** is a paid (£2.99, no ads, no in-app purchases) iPhone toy, built **iPhone Duo first**. The iPhone Duo is Apple's foldable (iOS 27.1). The phone itself is the hydraulic press: an object lies on the inner screen, you close the phone slowly, it crushes in real time (driven by the hinge angle), and you reopen to collect the pressed specimen. Regular iPhones get a drag-to-press fallback machine called the **P-48**.
+**Squish: Fold-to-Crush Press** is a paid (£2.49, no ads, no in-app purchases) iPhone toy, built **iPhone Duo first**. The iPhone Duo is Apple's foldable (iOS 27.1). The phone itself is the hydraulic press: an object lies on the inner screen, you close the phone slowly, it crushes in real time (driven by the hinge angle), and you reopen to collect the pressed specimen. Regular iPhones get a drag-to-press fallback machine called the **P-48**.
 
 The founder (GitHub `pravegm`) is the product owner. There are no other humans. Claude acts as founder, designer and developer, and works as a "firm": parallel subagents for each role, plus a design-critic loop.
 

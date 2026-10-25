@@ -6,7 +6,7 @@ This is how Squish got here, kept so a new owner (human or Claude) inherits the 
 
 - **The idea.** A paid iPhone Duo toy in the spirit of *Toastie* (close the phone and it toasts). The phone is a hydraulic press, and folding it crushes the object. It was chosen because the fold-angle mechanic was unclaimed and the "hydraulic press" genre is already viral.
 - **Name:** "Squish: Fold-to-Crush Press" (fallback "Hingepress").
-- **Price:** £2.99, no ads, no in-app purchases.
+- **Price:** £2.49, no ads, no in-app purchases.
 - **Rating:** 9+. The 12+ teen tone lives only in the copy; there's no gore.
 - **Devices:** universal iPhone app. The Duo is the hero; other iPhones get the P-48 drag-to-press machine.
 - **Sound:** free and synthesised first, with a path to paid libraries later. Today every sound is synthesised.

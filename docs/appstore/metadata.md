@@ -138,7 +138,7 @@ The exact API values are in `asc-metadata.json` → `ageRating`. The reasoning i
 
 | Field | Value |
 |---|---|
-| Price | Base **United Kingdom £2.99**, auto-equalised for other storefronts. No launch discount |
+| Price | Base **United Kingdom £2.49**, auto-equalised for other storefronts. No launch discount |
 | Availability | Every territory **except China mainland** (`DECISIONS.md` #7) |
 | Pre-order | **No** (`DECISIONS.md` #5) |
 | Release | **Scheduled: Tue 24 Nov 2026, 08:00 UTC** |

@@ -83,7 +83,7 @@ What each command does:
 | `review` | App Review notes, "no demo account", and the contact name, phone and email |
 | `gamecenter` | Enables Game Center for the app and for version 1.0. Creates the 10 achievements, their text in en-GB and en-US, and a badge for each locale |
 | `screenshots` | 6.9" and 6.1" sets in order, plus the iPhone Duo inner and outer sets once Apple's API offers them for your app (`check` tells you) |
-| `price` | £2.99 with the UK as base territory. Apple equalises the other countries. If the API refuses, the tool prints the exact clicks instead |
+| `price` | £2.49 with the UK as base territory. Apple equalises the other countries. If the API refuses, the tool prints the exact clicks instead |
 | `accessibility` | Accessibility Nutrition Labels, only if the metadata has an `accessibility` block (see below) |
 
 **Fields only you can fill.** Set these in `asc-metadata.json` and run `push` again:

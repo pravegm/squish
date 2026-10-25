@@ -375,7 +375,7 @@ All state lives in one `@Observable` model **above** any size-class-dependent vi
 | Subtitle | **"The £2,000 hydraulic press"** (localised) |
 | Backup names | Hingepress, Ka-chunk |
 | Avoid | "Pocket Press", Hydraulic Press Channel references, Squishmallows-like mascots |
-| **Price** | **£2.99 / $2.99**, no IAP, no ads, Family Sharing on, Small Business Program (≈ £2.12 net per UK sale). No launch discount |
+| **Price** | **£2.49 / $2.49**, no IAP, no ads, Family Sharing on, Small Business Program (≈ £2.12 net per UK sale). No launch discount |
 | First sale | £1.99 at the January drop |
 | Price rise | £3.99–4.99 at 30+ objects |
 | **Age rating** | Target **9+** in Apple's tiers (cartoon object crushing), with a teen/adult *tone* in the copy |

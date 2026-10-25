@@ -32,7 +32,7 @@
     "contact": {"firstName": null, "lastName": null, "phone": null, "email": null}
   },
   "release": {"type": "SCHEDULED", "earliestReleaseDate": "2026-11-24T08:00:00Z"},
-  "price": {"baseTerritory": "GBR", "customerPrice": "2.99"},
+  "price": {"baseTerritory": "GBR", "customerPrice": "2.49"},
   "achievements": [
     {"vendorIdentifier": "com.pravegm.squish.ach.first_squish", "referenceName": "First Squish", "points": 25, "showBeforeEarned": true, "repeatable": false,
      "localizations": {"en-GB": {"name": "First Squish", "beforeEarnedDescription": "Press your first object.", "afterEarnedDescription": "Pressed. Filed. Ka-chunk."}},

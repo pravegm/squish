@@ -68,7 +68,7 @@ Everything else is decided, written or automated.
 
 ## 2. Agreements, tax, banking, Small Business Program, DSA (founder, web)
 
-1. **Business → Agreements:** accept the **Paid Apps** agreement. Without it, a £2.99 app can't be priced.
+1. **Business → Agreements:** accept the **Paid Apps** agreement. Without it, a £2.49 app can't be priced.
 2. **Business → Tax:** complete the US tax form (W-8BEN for an individual outside the US, W-8BEN-E for a company), plus any local tax forms App Store Connect asks for.
 3. **Business → Banking:** add the payout account. The agreement shows "Active" once tax and banking are both done.
 4. **Small Business Program:** enrol at https://developer.apple.com/app-store/small-business-program/enroll/ as the Account Holder. There are no associated accounts.
@@ -117,7 +117,7 @@ The API can't do these, so do them in the web UI after the push.
      - Expect **9+**.
    - **Categories:** Games (Casual, Simulation); secondary Entertainment.
 3. **Pricing and Availability:**
-   - **Price:** base country **United Kingdom, £2.99**, leaving the other countries on Apple's automatic prices. Check the US shows $2.99.
+   - **Price:** base country **United Kingdom, £2.49**, leaving the other countries on Apple's automatic prices. Check the US shows $2.49.
    - **Availability:** **all countries or regions except China mainland**. Untick the EU too only if you skipped DSA trader status.
    - **Pre-order:** **off**.
    - **Family Sharing:** **on**.

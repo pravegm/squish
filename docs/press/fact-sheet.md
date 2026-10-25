@@ -10,7 +10,7 @@ No embargo. Everything here is free to use now.
 | **Developer** | Squish, an independent developer (GitHub [pravegm](https://github.com/pravegm)) |
 | **Release** | Tuesday 24 November 2026, worldwide. Pre-order from about 7 November |
 | **Platform** | iPhone. Designed for iPhone Duo, where the hinge drives the press; drag-to-press on every other iPhone. iOS 18.0 or later |
-| **Price** | £2.99 / $2.99 / €2.99, paid up front. No ads, no in-app purchases. Family Sharing on |
+| **Price** | £2.49 / $2.49 / €2.49, paid up front. No ads, no in-app purchases. Family Sharing on |
 | **Age rating** | 9+ |
 | **Objects at launch** | 10: Bubble Wrap, Rubber Duck, Jelly, Crayon, Egg, Cake Slice, Soda Can, Gummy Bear, Glass Bottle, and one secret |
 | **Features** | Hinge-driven press, continuous rather than open/shut · real-time haptics and sound · a shelf of pressed specimens · Perfect Squish for slow, steady presses · rare Golden presses · a "press sealed" card on the cover display · share clip and image · Game Center achievements |
