@@ -963,6 +963,10 @@ struct RootView: View {
         try? await Task.sleep(for: .milliseconds(reduceMotion ? 260 : 360))
         launchPhase = .done
         UIAccessibility.post(notification: .screenChanged, argument: nil)
+        // Real 3D object pictures for the Tray, the console chip, the cover and the Shelf (EXPERIENCE-REVIEW-1 #10),
+        // rendered in the background a moment after the press room is up; cached on disk after the first launch.
+        try? await Task.sleep(for: .seconds(3))
+        await ObjectArt.prewarm()
     }
 
     /// UI demo keys for CI screenshots (see ci/scenarios.txt): `shelf[=squished|achievements]`, `detail`, `settings`,

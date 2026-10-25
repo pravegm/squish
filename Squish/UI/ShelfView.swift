@@ -369,7 +369,7 @@ private struct ShelfSlot: View {
                     if let best {
                         SpecimenImage(specimen: best, thumbnail: thumbnail, cornerRadius: Theme.stickerRadius)
                     } else {
-                        ObjectTile(kind: kind, cornerRadius: Theme.stickerRadius)
+                        ObjectArt(kind: kind, cornerRadius: Theme.stickerRadius)
                     }
                 }
                 .scaleEffect(peeling ? 1.15 : 1)

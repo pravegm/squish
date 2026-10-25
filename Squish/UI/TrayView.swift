@@ -113,7 +113,7 @@ struct TrayView: View {
         let kind = director.currentKind
         let shape = RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
         return HStack(alignment: .center, spacing: Theme.s4) {
-            ObjectTile(kind: kind, cornerRadius: Theme.stickerRadius, golden: director.variant.isGolden)
+            ObjectArt(kind: kind, cornerRadius: Theme.stickerRadius, golden: director.variant.isGolden)
                 .frame(width: 84, height: 84)
             VStack(alignment: .leading, spacing: Theme.s1) {
                 Text("ON THE ANVIL")
@@ -219,7 +219,17 @@ struct MuseumTile: View {
                 ZStack(alignment: .topLeading) {
                     Group {
                         if unlocked {
-                            ObjectTile(kind: kind, cornerRadius: Theme.stickerRadius)
+                            ObjectArt(kind: kind, cornerRadius: Theme.stickerRadius)
+                                .overlay(alignment: .bottomTrailing) {
+                                    // Pressed before: its crushed specimen in the corner, the promise kept.
+                                    if goals.pressed {
+                                        ObjectArt(kind: kind, crushed: true, cornerRadius: 8)
+                                            .frame(width: 34, height: 34)
+                                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                .strokeBorder(Color.white, lineWidth: 2))
+                                            .padding(5)
+                                    }
+                                }
                         } else {
                             ZStack {
                                 RoundedRectangle(cornerRadius: Theme.stickerRadius, style: .continuous)

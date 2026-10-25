@@ -56,7 +56,7 @@ struct WingProgress: View {
                             let pressed = collection.stats.squishedKinds.contains(kind)
                             Group {
                                 if pressed {
-                                    ObjectTile(kind: kind, cornerRadius: 9)
+                                    ObjectArt(kind: kind, crushed: true, cornerRadius: 9)
                                 } else {
                                     ZStack {
                                         RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.paperShade.opacity(0.55))

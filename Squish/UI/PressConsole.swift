@@ -158,7 +158,7 @@ struct TrayChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Theme.s2) {
-                ObjectTile(kind: kind, cornerRadius: 7, golden: golden)
+                ObjectArt(kind: kind, cornerRadius: 7, golden: golden)
                     .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
                     // The short name ("DUCK"), so the Duo's narrow book-page console never cuts it off.
