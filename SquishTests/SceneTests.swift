@@ -1404,10 +1404,11 @@ struct SceneTests {
         ObjectCrush.rest(view)
         let order = BubbleWrapGrid.popOrder(seed: variant.seed)
         let first = order[0], last = order[order.count - 1]
+        // The dome at rest, before any ripple jiggles it.
+        let lastAtRest = view.domeHeightScale(last)
         var s = ObjectCrush.state(view, c: 0.1, dt: 1.0 / 60, time: 1, phase: .pressing)
         view.update(s)
         #expect(view.domeVisible(first) && !view.isBurst(first) && view.craterCount == 0)
-        let lastAtStart = view.domeHeightScale(last)
         // The fracture alone bursts it: no further update is needed for the dome to go and the crater to land.
         view.fracture(index: 0, isFailure: false, state: s)
         #expect(view.isBurst(first) && !view.domeVisible(first))
@@ -1419,9 +1420,9 @@ struct SceneTests {
             view.update(s)
             #expect(!view.domeVisible(first), "the burst dome came back at c \(c)")
             // The ripple only ever squashes a dome further, never up through the plate.
-            #expect(view.domeHeightScale(last) <= lastAtStart + 1e-6, "an unpopped dome rose at c \(c)")
+            #expect(view.domeHeightScale(last) <= lastAtRest + 1e-6, "an unpopped dome rose at c \(c)")
         }
-        #expect(view.domeHeightScale(last) < lastAtStart * 0.8, "the unpopped domes didn't flatten")
+        #expect(view.domeHeightScale(last) < lastAtRest * 0.8, "the unpopped domes didn't flatten")
         // Every fracture bursts exactly one more bubble.
         for index in 1..<order.count { view.fracture(index: index, isFailure: false, state: s) }
         #expect(view.craterCount == order.count)
