@@ -22,6 +22,10 @@ targets:
       path: Squish/Info.plist
       properties:
         CFBundleDisplayName: Squish
+        # Without these XcodeGen writes literal "1.0" / "1", so the build settings (and testflight.yml's run-number
+        # override) never reached the app: every upload was build 1 until Apple renumbered it.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -31,7 +35,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIStatusBarHidden: true
         UIRequiresFullScreen: true   # a press toy is full-screen only; also lets the demo request portrait on the Duo
-        NSPhotoLibraryAddUsageDescription: "Squish saves your specimen card and press clip to Photos only when you tap Save."
+        NSPhotoLibraryAddUsageDescription: "Squish adds your specimen card or press clip to Photos only when you choose Save in the share sheet. It never reads your library."
         UIUserInterfaceStyle: Light   # VISUAL-TARGET §6.13: the studio stays bright in Dark Mode
         UIViewControllerBasedStatusBarAppearance: false
         CADisableMinimumFrameDurationOnPhone: true

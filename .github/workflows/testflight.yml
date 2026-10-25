@@ -86,6 +86,11 @@ jobs:
           APP="$RUNNER_TEMP/Squish.xcarchive/Products/Applications/Squish.app"
           test -f "$APP/PrivacyInfo.xcprivacy" && plutil -lint "$APP/PrivacyInfo.xcprivacy"
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" -c "Print :CFBundleVersion" "$APP/Info.plist"
+          BUILT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist")
+          if [ "$BUILT" != "${{ github.run_number }}" ]; then
+            echo "::error::The app's CFBundleVersion is '$BUILT', not the run number ${{ github.run_number }}: App Store Connect would reject or renumber the upload. Check project.yml info.properties."
+            exit 1
+          fi
 
       - name: Upload to App Store Connect
         run: |
