@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import RealityKit
 import simd
 import Testing
 import UIKit
@@ -857,6 +858,81 @@ struct FoldPressTests {
                                                                gentle: style.isGentle))
             #expect(image.width == base.width && image.height == base.height, "\(style)")
         }
+    }
+
+    /// Launch QA P1 (book-pose anvil drawn rotated and keystoned since run "after1"): nothing the press, the touch
+    /// inspection or the reveal does may move the stage or the anvil. The scene root stays identity, and the anvil and
+    /// every entity under it (the plate, its face, the field, the bushings) keep the transforms they had at arm; the
+    /// inspection only ever turns the object.
+    @Test func pressInspectAndRevealNeverMoveTheStageOrTheAnvil() async throws {
+        let scene = PressScene()
+        let variant = PressVariant(kind: .rubberDuck, seed: 42)
+        scene.setObject(.rubberDuck, variant: variant)
+        var waited = 0
+        while scene.foldObject == nil && waited < 600 {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            waited += 1
+        }
+        try #require(scene.foldObject != nil)
+        let anvil = FoldAnvil()
+        anvil.setScale(0.004427)
+        scene.setFraming(.foldAnvil, anvil: anvil.root)
+        func snapshot(_ entity: Entity) -> [simd_float4x4] {
+            [entity.transform.matrix] + entity.children.flatMap { snapshot($0) }
+        }
+        func same(_ a: [simd_float4x4], _ b: [simd_float4x4]) -> Bool {
+            a.count == b.count && zip(a, b).allSatisfy { pair in
+                (0..<4).allSatisfy { c in simd_length(pair.0[c] - pair.1[c]) < 1e-5 }
+            }
+        }
+        let identity = matrix_identity_float4x4
+        let engine = PressEngine()
+        let context = FeedbackContext(kind: .rubberDuck, variant: variant, compression: 0, closingSpeed: 0,
+                                      soundStyle: .workshop, reduceMotion: false)
+        engine.onEvent = { scene.handle($0, context: context) }
+        engine.ingest(angle: 180, closed: false, at: 0)
+        engine.load(.rubberDuck, seed: 42, at: 0)
+        var now = 0.0
+        func frames(_ seconds: Double, angle: ((Double) -> Double)? = nil) {
+            for _ in 0..<Int(seconds * 60) {
+                now += 1.0 / 60
+                if let angle { engine.ingest(angle: angle(now), closed: false, at: now) }
+                engine.step(now: now, dt: 1.0 / 60)
+                scene.update(engine: engine, context: context, dt: 1.0 / 60)
+            }
+        }
+        frames(0.5)
+        #expect(engine.phase == .armed)
+        let atArm = snapshot(anvil.root)
+        #expect(same([scene.root.transform.matrix], [identity]))
+        #expect(same([anvil.root.transform.matrix],
+                     [Transform(scale: SIMD3(repeating: 0.004427), rotation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
+                                translation: .zero).matrix]))
+        // A drag, a flick and a pinch on the object (whether or not the object has landed yet, nothing else moves).
+        scene.inspectBegan()
+        scene.inspectMoved(dx: 220, dy: 90)
+        scene.inspectPinch(scale: 1.6, began: true)
+        scene.inspectPinchEnded()
+        _ = scene.inspectEnded(vx: 1400)
+        frames(1)
+        #expect(same(snapshot(anvil.root), atArm), "the inspection moved the anvil")
+        #expect(same([scene.root.transform.matrix], [identity]), "the inspection moved the stage")
+        // A whole press: close to shut, then the reveal on the reopen.
+        let start = now
+        frames(3) { t in max(180 - 60 * (t - start), 3) }
+        #expect(engine.phase == .sealed)
+        let reopen = now
+        frames(2) { t in min(3 + 120 * (t - reopen), 170) }
+        #expect(engine.phase == .revealing)
+        #expect(same(snapshot(anvil.root), atArm), "the press or the reveal moved the anvil")
+        #expect(same([scene.root.transform.matrix], [identity]), "the press or the reveal moved the stage")
+        // And after an inspection of the crushed specimen on the reveal.
+        scene.inspectBegan()
+        scene.inspectMoved(dx: -300, dy: 40)
+        _ = scene.inspectEnded(vx: -900)
+        frames(1.5)
+        #expect(same(snapshot(anvil.root), atArm))
+        #expect(same([scene.root.transform.matrix], [identity]))
     }
 
     /// P0 (CI run 40153721315): soft objects looked frozen before the break. End to end through the real scene: the CI
