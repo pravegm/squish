@@ -686,6 +686,7 @@ struct RootView: View {
                 hinge: bands.hinge,
                 foldPress: director.usesFoldPress,
                 revealLit: { await director.fold.revealLit() },
+                hasReplay: { director.fold.hasBreakReplay },
                 playReplay: { director.fold.playBreakReplay(speed: RevealCeremony.replaySpeed) },
                 stopReplay: { director.fold.stopBreakReplay() },
                 foldToKeep: director.foldToKeepReady,

@@ -406,10 +406,12 @@ struct KeycapStyle: ButtonStyle {
     var selected = false
     /// 44 pt keys for the Fold Press console band (62 pt), whatever the kind (FOLD-REVIEW-1 #5).
     var compact = false
+    /// Primary size (52 pt) whatever the kind: a dark console key with the primary key's presence (the reveal's SLO-MO).
+    var tall = false
 
     func makeBody(configuration: Configuration) -> some View {
         KeycapFace(configuration: configuration, kind: kind, fullWidth: fullWidth, round: round, selected: selected,
-                   compact: compact)
+                   compact: compact, tall: tall)
     }
 }
 
@@ -420,6 +422,7 @@ private struct KeycapFace: View {
     let round: Bool
     let selected: Bool
     let compact: Bool
+    let tall: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
@@ -481,6 +484,7 @@ private struct KeycapFace: View {
     private var height: CGFloat {
         if round { return Theme.hit }
         if compact && kind != .chip { return Theme.hit }
+        if tall { return 52 }
         switch kind {
         case .primary: return 52
         case .secondary, .destructive: return 48
@@ -491,6 +495,7 @@ private struct KeycapFace: View {
     private var radius: CGFloat {
         if round { return Theme.hit / 2 }
         if compact && kind != .chip { return 14 }
+        if tall { return 16 }
         switch kind {
         case .primary, .secondary, .destructive: return 16
         case .console: return 14

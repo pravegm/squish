@@ -835,4 +835,84 @@ struct CollectionTests {
                 == SpecimenPrint.plainSeed(for: .rubberDuck, from: 1_000 + 7_919))
     }
     #endif
+
+    // MARK: SLO-MO on request (founder, real Duo: the automatic replay read as "why is the object back?")
+
+    /// No film starts without a tap: a reveal starts on the specimen with no takes, the finished ceremony has no
+    /// replay step left, and the key is the only thing that shows before a film.
+    @Test func sloMoNeverStartsWithoutATap() {
+        let fresh = SloMoState()
+        #expect(fresh.phase == .specimen)
+        #expect(fresh.takes == 0)
+        #expect(!fresh.isPlaying)
+        #expect(fresh.take == nil)
+        #expect(fresh.showsKey(replayAvailable: true))
+        #expect(!fresh.showsKey(replayAvailable: false))
+        // Nothing to play (no tape, cover display dark): a tap changes nothing.
+        var empty = SloMoState()
+        let none = empty.begin(duration: nil)
+        #expect(none == nil)
+        let zero = empty.begin(duration: 0)
+        #expect(zero == nil)
+        #expect(empty == SloMoState())
+        // The reveal's settled flag is up as soon as the reveal lights when nobody asked for a replay.
+        #expect(FoldPressController.specimenSettled(replaying: false, replayStarted: false, sinceReplayEnded: nil))
+    }
+
+    /// A tap starts a take; a tap on the film (or its end) hands back with a settle; the key comes back; and it plays
+    /// again, any number of times. Late timers of a skipped take do nothing.
+    @Test func sloMoTapPlaysSkipsAndReplays() {
+        var slomo = SloMoState()
+        let first = slomo.begin(duration: 9)
+        #expect(first == Int(1))
+        #expect(slomo.isPlaying)
+        #expect(!slomo.showsKey(replayAvailable: true))
+        // Capped, so a film never runs on.
+        #expect(slomo.phase == .playing(take: 1, duration: RevealCeremony.replayCap))
+        // A second tap on the (hidden) key during the film starts nothing.
+        let duringFilm = slomo.begin(duration: 6)
+        #expect(duringFilm == nil)
+        #expect(slomo.takes == 1)
+        // A tap on the film skips back: settling, then the specimen with the key.
+        let skipped = slomo.endFilm(take: 1)
+        #expect(skipped)
+        #expect(slomo.phase == .settling(take: 1))
+        #expect(!slomo.canPlay)
+        // The film's own end timer, firing after the skip, does nothing.
+        let lateTimer = slomo.endFilm(take: 1)
+        #expect(!lateTimer)
+        slomo.settled(take: 1)
+        #expect(slomo.phase == .specimen)
+        #expect(slomo.showsKey(replayAvailable: true))
+        // Again, and again.
+        for take in 2...4 {
+            let started = slomo.begin(duration: 2)
+            #expect(started == take)
+            #expect(slomo.phase == .playing(take: take, duration: 2))
+            let stale = slomo.endFilm(take: take - 1)
+            #expect(!stale)
+            let ended = slomo.endFilm(take: take)
+            #expect(ended)
+            slomo.settled(take: take - 1)   // a stale settle is ignored
+            #expect(slomo.phase == .settling(take: take))
+            slomo.settled(take: take)
+            #expect(slomo.canPlay)
+        }
+        #expect(slomo.takes == 4)
+    }
+
+    /// The specimen afterwards: not settled while a replay plays, nor just after it hands back; settled
+    /// `settleAfterReplay` seconds later (CI's reveal frames wait for this).
+    @Test func specimenSettlesAfterARequestedReplay() {
+        #expect(!FoldPressController.specimenSettled(replaying: true, replayStarted: true, sinceReplayEnded: nil))
+        #expect(!FoldPressController.specimenSettled(replaying: true, replayStarted: false, sinceReplayEnded: nil))
+        #expect(!FoldPressController.specimenSettled(replaying: false, replayStarted: true, sinceReplayEnded: 0.1))
+        #expect(FoldPressController.specimenSettled(replaying: false, replayStarted: true,
+                                                    sinceReplayEnded: FoldPressController.settleAfterReplay))
+        #expect(FoldPressController.specimenSettled(replaying: false, replayStarted: true, sinceReplayEnded: 3))
+        // The film's timecode creeps at the replay's speed (24 fps film time).
+        #expect(SloMoCinema.timecode(0) == "00:00:00")
+        #expect(SloMoCinema.timecode(1.5) == "00:01:12")
+        #expect(SloMoCinema.timecode(61) == "01:01:00")
+    }
 }

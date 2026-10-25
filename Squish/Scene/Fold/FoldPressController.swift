@@ -180,31 +180,37 @@ final class FoldPressController {
     /// The burst's camera kick: the vertical FOV narrows by this fraction at its peak (decays in ~50 ms).
     static let burstKickFOV = 0.015
 
-    /// The reveal's anvil shows the final specimen: the reveal's beats have started (the inner display is lit), any
-    /// break replay has played and handed back, and its debris has had a moment to settle. Screenshots of the reveal
-    /// (CI's duo-screenshots.sh waits for the `SQUISH-F specimen settled` line) and anything else that wants the
-    /// final look should wait for this, never shoot mid-replay.
+    /// The reveal's anvil shows the final specimen: true as soon as the reveal's beats have started (the inner display
+    /// is lit), since the slow-mo replay only plays when the player taps SLO-MO (RevealCardView); false while such a
+    /// replay plays and for a moment after it hands back. Screenshots of the reveal (CI's duo-screenshots.sh waits for
+    /// the `SQUISH-F specimen settled` line) and anything else that wants the final look should wait for this.
     private(set) var isSpecimenSettled = false
     /// A replay was started for this object's reveal.
     private var replayStarted = false
     private var settledLogged = false
-    /// Seconds after the reveal lights before a reveal that had no replay counts as settled (the ceremony starts its
-    /// replay ~0.32 s after the light, RevealCardView).
-    static let settleWithoutReplay = 1.2
     /// Seconds after a replay hands back before the specimen counts as settled.
     static let settleAfterReplay = 0.5
+
+    /// Pure rule for `isSpecimenSettled` once the reveal is lit (tested in CollectionTests): never mid-replay; with no
+    /// replay played, at once; after one, `settleAfterReplay` seconds after it handed back.
+    static func specimenSettled(replaying: Bool, replayStarted: Bool, sinceReplayEnded: Double?) -> Bool {
+        if replaying { return false }
+        guard replayStarted, let sinceReplayEnded else { return true }
+        return sinceReplayEnded >= settleAfterReplay
+    }
 
     /// A replay can be played now: this press was recorded on the Duo stage (the last ~2 s, centred on the break).
     var hasBreakReplay: Bool { host != nil && (scene?.hasBreakReplay ?? false) }
     /// True while a break replay is playing.
     var isPlayingBreakReplay: Bool { scene?.isReplaying ?? false }
 
-    /// For the reveal ceremony (UI): replays the press's break in slow motion on the anvil, pushing in on it, then hands
-    /// back to the specimen. A fresh copy of the object (same seed: the same cracks and pieces) re-runs the recorded
-    /// frames and events; the platen's print is left as it is, and no sound or haptic plays (cue them from the
-    /// returned duration if wanted). `speed` 0.3 = 0.3×. Returns the wall-clock duration in seconds, or nil when there
+    /// For the reveal (UI), only on the player's tap on its SLO-MO key (nothing calls it by itself: founder, real Duo):
+    /// replays the press's break in slow motion on the anvil, pushing in on it, then hands back to the specimen. A
+    /// fresh copy of the object (same seed: the same cracks and pieces) re-runs the recorded frames and events; the
+    /// platen's print is left as it is; the scene's `onReplay` drives the press's own sound and touch
+    /// (PressDirector.handleReplay). `speed` 0.3 = 0.3×. Returns the wall-clock duration in seconds, or nil when there
     /// is nothing to replay (no recorded press, not on the Duo stage, the inner display dark: call it after
-    /// `revealLit()`). Reduce Motion: plays without the push-in. The card's specimen photo waits for it to finish.
+    /// `revealLit()`). Reduce Motion: plays without the push-in.
     @discardableResult
     func playBreakReplay(speed: Double = 0.35) -> TimeInterval? {
         guard host != nil, !renderPaused, !revealPending, let scene else { return nil }
@@ -646,15 +652,8 @@ final class FoldPressController {
             if engine.phase != .revealing { isSpecimenSettled = false }
             return
         }
-        let settled: Bool
-        if scene.isReplaying {
-            settled = false
-        } else if replayStarted, let ended = scene.replayEndedAt {
-            settled = Double(scene.sceneClock - ended) >= Self.settleAfterReplay
-        } else {
-            // No replay (yet): settled once the ceremony would have started one, or when there is nothing to replay.
-            settled = !scene.hasBreakReplay || age >= Self.settleWithoutReplay
-        }
+        let settled = Self.specimenSettled(replaying: scene.isReplaying, replayStarted: replayStarted,
+                                           sinceReplayEnded: scene.replayEndedAt.map { Double(scene.sceneClock - $0) })
         isSpecimenSettled = settled
         if settled && !settledLogged {
             settledLogged = true

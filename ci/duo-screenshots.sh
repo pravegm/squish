@@ -105,7 +105,10 @@
 #    "SQUISH-F reveal lit" line (the inner display lighting on the reveal), then shoots VERIFY_TOAST_DELAY (2.5) s after
 #    it: verify/duo-reveal-toasts.png (the first toast is due 1.5 s after the light and stays up 3 s). Then
 #    verify/duo-reveal-toasts-settled.png once the hinge has stopped. Runs after pass 4: the reinstall wipes Documents
-#    (the grid's saved heroes).
+#    (the grid's saved heroes). The scenario also carries `slomo`: the reveal never replays by itself, so the app shoots
+#    its finished reveal with the ▶ SLO-MO key (verify/duo-reveal-slomo-button.png), then stands in for a tap on it and
+#    shoots the film (verify/duo-reveal-slomo-playing.png: letterbox, REC, timecode, SLO-MO REPLAY) and the specimen
+#    after the hand-back (verify/duo-reveal-slomo-after.png).
 #  - egg: the egg's tabletop press (seed STORESHOT_SEED, `notoasts`) at every TABLETOP_ANGLES hold, then closed and
 #    reopened: verify/egg-tabletop-<angle>.png, -closed.png and -reveal.png (the R7 yolk change, never seen in a run),
 #    with the reveal's phase check in VERIFY.txt.
@@ -617,7 +620,7 @@ verify_toasts() {
   to 60 xcrun simctl uninstall "$UDID" "$BUNDLE" >>"$RUNLOG" 2>&1 || log "WARN uninstall failed (toasts may not fire)"
   to 180 xcrun simctl install "$UDID" "$APP" >>"$RUNLOG" 2>&1 \
     || { vnote "   FAILED: reinstall failed"; return 1; }
-  scen="object=rubberDuck;duo;orient=$ORIENT"
+  scen="object=rubberDuck;duo;orient=$ORIENT;slomo"
   [[ -n "$STORESHOT_SEED" ]] && scen="$scen;seed=$STORESHOT_SEED"
   verify_launch "$applog" "$scen" || { vnote "   FAILED: launch failed"; return 1; }
   verify_sweep rubberDuck -
@@ -666,6 +669,24 @@ verify_toasts() {
   else
     vnote "   WARN no Documents/toast-shot.png ($(grep "SQUISH-T capture toast-shot" "$applog" | tail -1))"
   fi
+  # The opt-in slow-mo (`slomo`): the app shoots the key, the film after a stand-in tap, and the specimen after it.
+  t=0
+  while (( t < 20 )); do
+    grep -q "SQUISH-T slomo done" "$applog" 2>/dev/null && break
+    sleep 1; t=$((t + 1))
+  done
+  vnote "   slomo: $(grep -E "SQUISH-T slomo (key|playing|done)" "$applog" | tr '\n' ' ' | cut -c1-300)"
+  (( $(grep -c "SQUISH-F break replay" "$applog" 2>/dev/null) > 1 )) \
+    && vnote "   WARN more than one 'SQUISH-F break replay' line: something played a replay without the stand-in tap"
+  data=$(app_data)
+  for f in slomo-button slomo-playing slomo-after; do
+    if [[ -n "$data" && -f "$data/Documents/$f.png" ]]; then
+      cp "$data/Documents/$f.png" "$OUT/verify/duo-reveal-$f.png"
+      vnote "   verify/duo-reveal-$f.png: $(grep "SQUISH-T capture $f" "$applog" | tail -1)"
+    else
+      vnote "   WARN no Documents/$f.png ($(grep "SQUISH-T capture $f" "$applog" | tail -1))"
+    fi
+  done
   CUR="$REVEAL_ANGLE"
   fsleep "$SETTLE"
   shoot verify/duo-reveal-toasts-settled inner

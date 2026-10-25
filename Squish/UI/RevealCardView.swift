@@ -3,8 +3,9 @@ import UIKit
 
 /// The reveal (VISUAL-TARGET §6.8, bible §3.1 beats 11–12, EXPERIENCE-PLAN "Reveal ceremony").
 /// - iPhone Duo (Fold Press): the diptych stays on the plates (print on the lid, specimen on the anvil) and the S5
-///   ceremony plays over it: the lid lifts, the break replays in slow motion, then before → after, the stamp, the
-///   stats and the museum slot (`RevealCeremony.swift`). Keep / Again / Share (and ⚙) sit in the console band.
+///   ceremony plays over it: the lid lifts off the final crushed specimen, then before → after, the stamp, the stats
+///   and the museum slot (`RevealCeremony.swift`). Keep / Again / Share (and ⚙) sit in the console band. The slow-mo
+///   replay of the break plays only when the ▶ SLO-MO key on the anvil half is tapped, framed as a film.
 /// - Other iPhones (P-48): the 3:4 specimen card drops into the 6–44% band, one toast at a time in 80–86%, and the keys
 ///   on the console. Landscape: card in the left 30% column, console in the right 22% column.
 /// On collect, the card flies into the Shelf key (which RootView mounts).
@@ -23,9 +24,12 @@ struct RevealCardView: View {
     var foldPress = false
     /// Fold Press: returns once the inner display is lit for this reveal (`FoldPressController.revealLit`).
     var revealLit: @MainActor () async -> Void = {}
-    /// Fold Press: starts the slow-mo replay of the break; its duration, or nil when there's nothing to replay.
+    /// Fold Press: this press has a slow-mo replay to offer (asked once the inner display is lit).
+    var hasReplay: @MainActor () -> Bool = { false }
+    /// Fold Press: starts the slow-mo replay of the break; its duration, or nil when there's nothing to replay. Only
+    /// ever called from a tap on the SLO-MO key (never by the ceremony, the cover display or VoiceOver flows).
     var playReplay: @MainActor () -> TimeInterval? = { nil }
-    /// Ends a running replay early (Keep or Again tapped mid-replay).
+    /// Ends a running replay early (a tap on the film, Keep or Again).
     var stopReplay: @MainActor () -> Void = {}
     /// Fold-to-keep counts now (the director, 2.5 s into the lit ceremony): show the hint.
     var foldToKeep = false
@@ -45,6 +49,12 @@ struct RevealCardView: View {
     @State private var ceremony = CeremonyState()
     /// Captured at the reveal: was this the first card of its kind (its museum slot fills now)?
     @State private var firstOfKind = false
+    /// The opt-in slow-mo (`SloMoState`): the key, the film, the settle.
+    @State private var slomo = SloMoState()
+    @State private var replayAvailable = false
+    @State private var filmStarted = Date()
+    @State private var settleAmount = 0.0
+    @State private var filmTimer: Task<Void, Never>?
     @AccessibilityFocusState private var focusKeep: Bool
 
     /// The live record (it gains its thumbnail ~1 s after the reveal).
@@ -104,8 +114,13 @@ struct RevealCardView: View {
                 await runCardReveal()
             } else if !instantCeremony {
                 await runCeremony()
+            } else {
+                await Self.waitForLight(revealLit, timeout: Self.lightTimeout)
+                guard !Task.isCancelled else { return }
+                replayAvailable = hasReplay()
             }
         }
+        .onDisappear { filmTimer?.cancel() }
     }
 
     // MARK: Layouts
@@ -172,6 +187,20 @@ struct RevealCardView: View {
         let cardWidth = min(plate.width, 250)
         let cardHeight = min(plate.height + 60, cardWidth * 1.2)
         let cardCenter = CGPoint(x: plate.midX, y: plate.midY)
+        let crease = bands.local(layout.creaseRect)
+        let anvilHalf = bands.local(layout.anvilHalf)
+        // The SLO-MO key, next to the specimen and clear of it: tabletop, in the gap between the crease and the anvil
+        // plate; book, under the plate and above the museum strip (which sits 16 pt above the console band).
+        let museumTop = console.minY - 32
+        let keyCenter: CGPoint = {
+            if layout.isBook { return CGPoint(x: anvilPlate.midX, y: (anvilPlate.maxY + museumTop) / 2) }
+            let gap = anvilPlate.midY > crease.midY ? (crease.maxY + anvilPlate.minY) / 2
+                                                    : (anvilPlate.maxY + crease.minY) / 2
+            return CGPoint(x: anvilPlate.midX, y: gap)
+        }()
+        // The film's frame: the anvil half above the console band (the keys stay live under it).
+        let film = CGRect(x: anvilHalf.minX, y: anvilHalf.minY, width: anvilHalf.width,
+                          height: max(min(anvilHalf.maxY, console.minY) - anvilHalf.minY, 0))
         return ZStack {
             LidShade(lifted: ceremony.lidLifted, book: layout.isBook)
                 .frame(width: field.width, height: field.height)
@@ -180,10 +209,14 @@ struct RevealCardView: View {
             // The diptych folded into one card, shown only while it flies into the Shelf key.
             card(width: cardWidth, height: cardHeight, center: cardCenter, origin: origin, onlyWhileCollecting: true)
                 .position(cardCenter)
-            if ceremony.replaying {
-                ReplayTag()
-                    .position(x: anvilPlate.minX + 92, y: anvilPlate.minY + 16)
+            SloMoSettle(amount: settleAmount, cornerRadius: CGFloat(FoldMetrics.plateRadius) + 4)
+                .frame(width: anvilPlate.width + 8, height: anvilPlate.height + 8)
+                .position(x: anvilPlate.midX, y: anvilPlate.midY)
+            if slomo.showsKey(replayAvailable: replayAvailable) && ceremony.lidLifted && !collecting {
+                SloMoKey(action: playSloMo)
+                    .position(keyCenter)
                     .transition(.opacity)
+                    .accessibilitySortPriority(1)
             }
             RevealTicket(specimen: specimen, badges: badges, state: ceremony)
                 .frame(width: ticketWidth)
@@ -205,7 +238,14 @@ struct RevealCardView: View {
                         foldToKeep: foldToKeep && !collecting)
                 .frame(maxWidth: actionsWidth)
                 .position(x: console.minX + Theme.s3 + actionsWidth / 2, y: console.minY - 16)
-                .opacity(collecting ? 0 : 1)
+                .opacity(collecting || slomo.isPlaying ? 0 : 1)
+            if slomo.isPlaying && !collecting {
+                SloMoCinema(plate: anvilPlate.offsetBy(dx: -film.minX, dy: -film.minY), started: filmStarted,
+                            speed: RevealCeremony.replaySpeed, onSkip: skipSloMo)
+                    .frame(width: film.width, height: film.height)
+                    .position(x: film.midX, y: film.midY)
+                    .transition(.opacity)
+            }
             foldActions
                 .frame(width: actionsWidth)
                 .position(x: console.minX + Theme.s3 + actionsWidth / 2, y: console.midY)
@@ -256,13 +296,62 @@ struct RevealCardView: View {
     }
 
     private func keep() {
+        filmTimer?.cancel()
         stopReplay()
         onKeep()
     }
 
     private func again() {
+        filmTimer?.cancel()
         stopReplay()
         onAgain()
+    }
+
+    // MARK: SLO-MO (on request only)
+
+    /// The SLO-MO key: the scene re-runs the break at 0.35× (with its own sound and touch, PressDirector.handleReplay)
+    /// and the film's frame goes up over the anvil half until it ends or is tapped.
+    private func playSloMo() {
+        guard slomo.canPlay, !collecting else { return }
+        let duration = playReplay()
+        guard let take = withAnimation(Theme.fade, { slomo.begin(duration: duration) }) else { return }
+        filmStarted = Date()
+        let length = duration.map { min($0, RevealCeremony.replayCap) } ?? 0
+        filmTimer?.cancel()
+        filmTimer = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(Int(length * 1000)))
+            guard !Task.isCancelled else { return }
+            endSloMo(take: take)
+        }
+    }
+
+    /// A tap on the film: skip straight back to the specimen.
+    private func skipSloMo() {
+        guard let take = slomo.take else { return }
+        filmTimer?.cancel()
+        endSloMo(take: take)
+    }
+
+    /// The film is over (or skipped): the bars go, the scene blends back to the specimen, the plate settles with a rim
+    /// and a tick, then the key is back for another take.
+    private func endSloMo(take: Int) {
+        guard withAnimation(reduceMotion ? Theme.fade : .easeIn(duration: 0.22), { slomo.endFilm(take: take) }) else {
+            return
+        }
+        stopReplay()   // a skip, or the cap: the scene lands the rest at once and hands back
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(Int(PressScene.replayOutro * 1000)))
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { settleAmount = 1 }
+            withAnimation(.easeOut(duration: Double(RevealCeremony.settleMilliseconds) / 1000)) { settleAmount = 0 }
+            UIFeel.tick()
+            try? await Task.sleep(for: .milliseconds(RevealCeremony.settleMilliseconds / 2))
+            withAnimation(Theme.fade) { slomo.settled(take: take) }
+            #if DEBUG
+            if DemoScenario.current != nil { print("SQUISH-T slomo settled take \(take)") }
+            #endif
+        }
     }
 
     // MARK: Card
@@ -446,17 +535,12 @@ struct RevealCardView: View {
     private func runCeremony() async {
         await Self.waitForLight(revealLit, timeout: Self.lightTimeout)
         guard !Task.isCancelled, !collecting else { return }
-        // 1. The lid lifts off the print.
+        // 1. The lid lifts off the print; the anvil already shows the final crushed specimen (no replay plays by
+        // itself: the SLO-MO key offers it).
+        replayAvailable = hasReplay()
         withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .easeIn(duration: 0.3)) { ceremony.lidLifted = true }
         guard await pause(320) else { return }
-        // 2. The slow-mo replay of the break, pushing in on the anvil.
-        if let duration = playReplay() {
-            withAnimation(Theme.fade) { ceremony.replaying = true }
-            guard await pause(Int(min(duration, RevealCeremony.replayCap) * 1000)) else { return }
-            withAnimation(Theme.fade) { ceremony.replaying = false }
-            guard !collecting else { return }
-        }
-        // 3. Before → after, then the stamp.
+        // 2. Before → after, then the stamp.
         withAnimation(Theme.cardDrop(reduceMotion)) { ceremony.ticketIn = true }
         guard await pause(220) else { return }
         if reduceMotion {
@@ -470,7 +554,7 @@ struct RevealCardView: View {
         guard await pause(160) else { return }
         withAnimation(Theme.stampFall(reduceMotion)) { ceremony.stamped = true }
         UIFeel.press()
-        // 4. The stats count up: tons, then the badges one by one.
+        // 3. The stats count up: tons, then the badges one by one.
         let tons = outcome.specimen.tons
         if reduceMotion {
             ceremony.tons = tons
@@ -485,7 +569,7 @@ struct RevealCardView: View {
             withAnimation(Theme.pop(reduceMotion)) { ceremony.badges = index + 1 }
             UIFeel.tick()
         }
-        // 5. The museum slot fills, with a flash and a chime.
+        // 4. The museum slot fills, with a flash and a chime.
         guard await pause(240) else { return }
         withAnimation(Theme.pop(reduceMotion)) {
             ceremony.slotFilled = true
@@ -499,11 +583,40 @@ struct RevealCardView: View {
                 try? await Task.sleep(for: .milliseconds(450))
                 DemoCapture.window("toast-shot")
             }
+            if DemoScenario.current?.has("slomo") == true { Task { @MainActor in await demoSloMo() } }
         }
         #endif
         guard await pause(420) else { return }
         withAnimation(Theme.fade) { ceremony.slotFlash = false }
     }
+
+    #if DEBUG
+    /// CI verify pass only (`-squishDemo …;slomo`, ci/duo-screenshots.sh): shoots the finished reveal with its SLO-MO
+    /// key (Documents/slomo-button.png), then stands in for a player's tap on it and shoots the film
+    /// (slomo-playing.png) and the specimen after the hand-back (slomo-after.png). Without the key nothing ever plays.
+    private func demoSloMo() async {
+        try? await Task.sleep(for: .milliseconds(1_000))
+        guard !collecting else { return }
+        print("SQUISH-T slomo key \(slomo.showsKey(replayAvailable: replayAvailable) ? "shown" : "missing") "
+              + "(replay available=\(replayAvailable ? 1 : 0), takes=\(slomo.takes))")
+        DemoCapture.window("slomo-button")
+        try? await Task.sleep(for: .milliseconds(400))
+        playSloMo()
+        guard let take = slomo.take else {
+            print("SQUISH-T slomo done (no film: nothing to replay)")
+            return
+        }
+        print("SQUISH-T slomo playing take \(take)")
+        try? await Task.sleep(for: .milliseconds(1_400))
+        DemoCapture.window("slomo-playing")
+        for _ in 0..<100 where !slomo.canPlay {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        try? await Task.sleep(for: .milliseconds(700))
+        DemoCapture.window("slomo-after")
+        print("SQUISH-T slomo done (takes=\(slomo.takes), key \(slomo.canPlay ? "back" : "missing"))")
+    }
+    #endif
 
     /// The P-48 card: drop, keys, then toasts one at a time (none on the first reveal).
     private func runCardReveal() async {
