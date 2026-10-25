@@ -83,20 +83,17 @@ extension SpecimenRecord {
     /// True when the object gave during the press (it has a failure point), whatever drove it.
     var gaveWay: Bool { kind != .unsquishable && failureAngle != nil }
 
-    /// Short "where it gave" tag for one-line labels: `AT 64°` on a hinge, `AT 48 TONS` on the touch press, nil if
-    /// it never gave.
+    /// Short "where it gave" tag for one-line labels: `AT 48 TONS`, nil if it never gave. Never a hinge angle: people
+    /// care how hard they pressed, not the degrees (EXPERIENCE-REVIEW-1 #4, UX-AUDIT-2 #8).
     var gaveAtTag: String? {
-        if let angle = hingeFailureAngle { return "AT \(angle)°" }
-        return gaveWay ? "AT \(tons) TONS" : nil
+        gaveWay ? "AT \(tons) TONS" : nil
     }
 
-    /// Two SF Mono data lines (VISUAL-TARGET §6.8): `CRUSHED AT 92° · 48 TONS` / `24 POPS · 8.4 S` on a hinge;
-    /// `CRUSHED AT 48 TONS` on the touch press; `PEAK 48 TONS` when nothing gave.
+    /// Two SF Mono data lines (VISUAL-TARGET §6.8): `CRUSHED AT 48 TONS` / `24 POPS · 8.4 S`; `PEAK 48 TONS` when
+    /// nothing gave. Tonnage only, whatever drove the press (`hingeFailureAngle` stays for diagnostics).
     var labelLines: [String] {
         let first: String
-        if let angle = hingeFailureAngle {
-            first = "CRUSHED AT \(angle)° · \(tons) TONS"
-        } else if gaveWay {
+        if gaveWay {
             first = "CRUSHED AT \(tons) TONS"
         } else {
             first = "PEAK \(tons) TONS"
@@ -134,9 +131,6 @@ extension SpecimenRecord {
         var parts: [String] = ["Specimen number \(number), \(kind.displayName)"]
         if kind == .unsquishable {
             parts.append("press nil, ball one")
-            parts.append("peak \(tons) tons")
-        } else if let angle = hingeFailureAngle {
-            parts.append("crushed at \(angle) degrees")
             parts.append("peak \(tons) tons")
         } else if gaveWay {
             parts.append("crushed at \(tons) tons")

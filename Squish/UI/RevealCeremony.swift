@@ -135,29 +135,48 @@ struct RevealTicket: View {
         let measure = specimen.measurement
         let after = measure.before + (measure.after - measure.before) * state.squash
         let shown = Array(badges.prefix(state.badges))
-        // Three calm lines, one stamp (the print's own, on the plate above), nothing overlapping:
-        //   CRAYON BOX                     55 TONS
-        //   №0001 · 8 SNAPS
-        //   ▱→▬  11 mm → 1.1 mm     [★ FIRST SQUISH]
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
-                Text(specimen.kind.displayName.uppercased())
-                    .font(.system(.subheadline, design: .rounded, weight: .heavy))
+        // Three calm lines and the tons as the hero, one stamp (the print's own, on the plate above), no hinge angle:
+        //   CRAYON BOX                          │  55
+        //   №0001 · 8 SNAPS    [★ FIRST SQUISH] │ TONS
+        //   ▱→▬  11 mm → 1.1 mm                 │
+        HStack(alignment: .center, spacing: Theme.s3) {
+            details(measure: measure, after: after, shown: shown)
+            Rectangle().fill(Theme.paperEdge).frame(width: 1).padding(.vertical, 4)
+            VStack(alignment: .center, spacing: 0) {
+                Text("\(state.tons)")
+                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(Theme.ink)
-                    .fixedSize()
-                Spacer(minLength: Theme.s3)
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(state.tons)")
-                        .font(.system(.headline, design: .monospaced, weight: .bold))
-                        .monospacedDigit()
-                        .contentTransition(.numericText(value: Double(state.tons)))
-                    Text("TONS")
-                        .font(Theme.micro)
-                        .foregroundStyle(Theme.inkSecondary)
-                }
+                    .contentTransition(.numericText(value: Double(state.tons)))
+                Text("TONS")
+                    .font(Theme.micro)
+                    .tracking(Theme.microTracking)
+                    .foregroundStyle(Theme.inkSecondary)
+            }
+            .fixedSize()
+            .frame(minWidth: 64)
+        }
+        .padding(.horizontal, Theme.s4)
+        .padding(.vertical, 7)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.paper).elevation(.e2)
+        }
+        .overlay(alignment: .leading) {
+            // The ticket's spine: a thin yellow rail, like the toasts.
+            Capsule().fill(Theme.yellow).frame(width: 4).padding(.vertical, 10).offset(x: 6)
+        }
+        .rotationEffect(.degrees(-0.8))
+        .dynamicTypeSize(...DynamicTypeSize.large)   // a fixed composition, like the card
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(specimen.accessibilitySentence) \(measure.spoken).")
+    }
+
+    private func details(measure: SpecimenRecord.PressedSize, after: Double, shown: [RevealBadge]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(specimen.kind.displayName.uppercased())
+                .font(.system(.subheadline, design: .rounded, weight: .heavy))
                 .foregroundStyle(Theme.ink)
                 .fixedSize()
-            }
             HStack(alignment: .center, spacing: Theme.s2) {
                 Text("\(specimen.numberLabel) · \(specimen.kind.breaksLine(fractureCount: specimen.fractureCount))".gluingDotSeparators)
                     .font(Theme.micro)
@@ -187,19 +206,6 @@ struct RevealTicket: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(.horizontal, Theme.s4)
-        .padding(.vertical, 7)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.paper).elevation(.e2)
-        }
-        .overlay(alignment: .leading) {
-            // The ticket's spine: a thin yellow rail, like the toasts.
-            Capsule().fill(Theme.yellow).frame(width: 4).padding(.vertical, 10).offset(x: 6)
-        }
-        .rotationEffect(.degrees(-0.8))
-        .dynamicTypeSize(...DynamicTypeSize.large)   // a fixed composition, like the card
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(specimen.accessibilitySentence) \(measure.spoken).")
     }
 
     private func badgeRow(_ list: [RevealBadge], hidden: Int) -> some View {

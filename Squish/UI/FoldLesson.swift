@@ -239,10 +239,19 @@ struct CoachLine: Equatable {
 
     static let presses = 5
 
-    /// - `pressIndex`: completed presses before this one (0 = the lesson's practice press).
-    static func line(phase: PressPhase, compression: Double, depth: Double, contactDepth: Double, fired: Int,
-                     failed: Bool, closingSpeed: Double, slamSpeed: Double, touch: Bool, pressIndex: Int,
-                     kind: ObjectKind) -> CoachLine? {
+    /// How long the hand must rest past the break before "Shut it all the way" (EXPERIENCE-REVIEW-1 #6).
+    static let stallAfterBreak: Double = 1.5
+
+    /// Coaching never talks over the press (EXPERIENCE-REVIEW-1 #6): it speaks before contact, then stays silent from
+    /// contact through the tell, the break and its settle, and speaks again only once the user has stalled after the
+    /// break, or at the seal.
+    /// - `pressIndex`: completed presses before this one (0 = the lesson's practice press, which also gets
+    ///   "Close it slowly"; presses 2–5 only react: EASY… on a fast approach, EASED OFF on a reopen under load).
+    /// - `broken`: the object has given (its failure, or every fracture for things that never fail).
+    /// - `stalledAfterBreak`: broken, and the hand has rested at least `stallAfterBreak` seconds since.
+    static func line(phase: PressPhase, compression: Double, depth: Double, contactDepth: Double, broken: Bool,
+                     stalledAfterBreak: Bool, closingSpeed: Double, slamSpeed: Double, touch: Bool,
+                     pressIndex: Int) -> CoachLine? {
         guard pressIndex < presses else { return nil }
         switch phase {
         case .sealed:
@@ -254,29 +263,26 @@ struct CoachLine: Equatable {
             break
         }
         guard depth > 0.01 else { return nil }
-        if closingSpeed < -25 && compression > 0 {
+        let touching = compression > 0 || depth >= contactDepth
+        if !touching {
+            if closingSpeed > slamSpeed * 0.6 {
+                return CoachLine(title: "EASY…", detail: "Slower is better. Much better.", symbol: "tortoise.fill")
+            }
+            guard pressIndex == 0 else { return nil }
+            return CoachLine(title: "CLOSE IT SLOWLY", detail: touch ? "Keep dragging down… slowly." : "Keep closing… slowly.",
+                             symbol: "tortoise.fill")
+        }
+        if broken {
+            guard stalledAfterBreak else { return nil }
+            return CoachLine(title: "ALL THE WAY", detail: touch ? "Drag right to the bottom to seal it." : "Shut it all the way to seal it.",
+                             symbol: "arrow.down.to.line")
+        }
+        // Loaded and not broken: the press moment. Only a reopen is worth a word.
+        if closingSpeed < -25 {
             return CoachLine(title: "EASED OFF", detail: touch ? "Drag again to keep going." : "Close again to keep going.",
                              symbol: "pause.fill")
         }
-        if failed {
-            return CoachLine(title: "ALL THE WAY", detail: touch ? "Drag right to the bottom to seal it." : "Shut it all the way to seal the press.",
-                             symbol: "arrow.down.to.line")
-        }
-        if fired >= 1 {
-            if pressIndex == 0 && fired <= 3 {
-                return CoachLine(title: kind == .bubbleWrap ? "FIRST POP!" : "IT'S GIVING!",
-                                 detail: "That's it. Keep going… slowly.", symbol: "sparkles", celebrate: true)
-            }
-            return CoachLine(title: "KEEP GOING", detail: "Hold still to tease it. It creaks.", symbol: "waveform.path")
-        }
-        if closingSpeed > slamSpeed * 0.6 {
-            return CoachLine(title: "EASY…", detail: "Slower is better. Much better.", symbol: "tortoise.fill")
-        }
-        if compression > 0 || depth >= contactDepth {
-            return CoachLine(title: "FEEL IT PUSH BACK", detail: "It's touching. Keep going.", symbol: "hand.raised.fill")
-        }
-        return CoachLine(title: "CLOSE IT SLOWLY", detail: touch ? "Keep dragging down… slowly." : "Keep closing… slowly.",
-                         symbol: "tortoise.fill")
+        return nil
     }
 }
 

@@ -454,9 +454,9 @@ struct CollectionTests {
         #expect(texts.first == "GOLDEN")
         #expect(texts.contains("PERFECT SQUISH"))
         #expect(outcome.specimen.accessibilitySentence.contains("Egg"))
-        #expect(outcome.specimen.labelLines.first?.hasPrefix("CRUSHED AT 101° · ") == true)
+        #expect(outcome.specimen.labelLines.first == "CRUSHED AT \(outcome.specimen.tons) TONS")
         #expect(outcome.specimen.labelLines.count == 2)
-        #expect(outcome.specimen.gaveAtTag == "AT 101°")
+        #expect(outcome.specimen.gaveAtTag == "AT \(outcome.specimen.tons) TONS")
         for achievement in Achievement.allCases {
             #expect(!achievement.title.isEmpty && !achievement.detail.isEmpty)
         }
@@ -477,12 +477,34 @@ struct CollectionTests {
         #expect(specimen.accessibilitySentence.contains("crushed at \(specimen.tons) tons"))
     }
 
-    @Test func hingeTraceCardsShowDegrees() {
+    /// EXPERIENCE-REVIEW-1 #4: no user-facing hinge angle anywhere, even when a real hinge made the press.
+    @Test func hingeTraceCardsShowTonsNotDegrees() {
         let (store, _) = makeStore()
         let outcome = press(store, .rubberDuck, samples: sweep(from: 168, to: 40, over: 6, at: 0), virtualHinge: false)
         #expect(outcome.specimen.madeOnHinge)
-        #expect(outcome.specimen.labelLines.first == "CRUSHED AT 101° · \(outcome.specimen.tons) TONS")
-        #expect(outcome.specimen.accessibilitySentence.contains("crushed at 101 degrees"))
+        #expect(outcome.specimen.hingeFailureAngle == Int(101))
+        #expect(outcome.specimen.labelLines.first == "CRUSHED AT \(outcome.specimen.tons) TONS")
+        #expect(!outcome.specimen.labelLines.joined().contains("°"))
+        #expect(!outcome.specimen.accessibilitySentence.contains("degrees"))
+    }
+
+    /// EXPERIENCE-REVIEW-1 #6: the coach speaks before contact and after the break settles, never over the press.
+    @Test func coachNeverTalksOverThePress() {
+        func line(_ c: Double, depth: Double, broken: Bool = false, stalled: Bool = false, speed: Double = 20,
+                  index: Int = 0, phase: PressPhase = .pressing) -> String? {
+            CoachLine.line(phase: phase, compression: c, depth: depth, contactDepth: 0.3, broken: broken,
+                           stalledAfterBreak: stalled, closingSpeed: speed, slamSpeed: 250, touch: false,
+                           pressIndex: index)?.title
+        }
+        #expect(line(0, depth: 0.1) == "CLOSE IT SLOWLY")
+        #expect(line(0, depth: 0.1, index: 2) == nil)            // presses 2–5 only react
+        #expect(line(0, depth: 0.1, speed: 200, index: 3) == "EASY…")
+        #expect(line(0.2, depth: 0.45) == nil)                    // contact and strain: silence
+        #expect(line(0.6, depth: 0.7, broken: true) == nil)       // the break and its settle: silence
+        #expect(line(0.6, depth: 0.7, broken: true, stalled: true) == "ALL THE WAY")
+        #expect(line(0.2, depth: 0.45, speed: -40) == "EASED OFF")
+        #expect(line(1, depth: 1, phase: .sealed) == "KA-CHUNK!")
+        #expect(line(0, depth: 0.1, index: 5) == nil)            // after the first five, nothing
     }
 
     @Test func pressWithoutTraceOrFlagIsNotClaimedAsHinge() {

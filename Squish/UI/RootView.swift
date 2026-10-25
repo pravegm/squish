@@ -1035,15 +1035,37 @@ private struct PressCoachSlot: View {
     /// Idle, presses 2–3: one gentle "Close it slowly to press" line.
     var showsIdleLine = true
     var compact = true
+    /// When the hand came to rest after the break (nil while it hasn't).
+    @State private var restingSince: Date?
+
+    /// The object has given: its failure, or every fracture for things that never fail (bubble wrap).
+    private var broken: Bool {
+        let engine = director.engine
+        if let threshold = engine.failureThreshold { return engine.measuredCompression >= threshold }
+        return !engine.thresholds.isEmpty && engine.firedCount >= engine.thresholds.count
+    }
+
+    private var restingAfterBreak: Bool { broken && director.engine.isHolding }
 
     var body: some View {
+        // Ticks only so "Shut it all the way" can appear once the hand has rested 1.5 s past the break.
+        TimelineView(.periodic(from: .now, by: 0.25)) { context in
+            slot(now: context.date)
+        }
+        .onChange(of: restingAfterBreak, initial: true) { _, resting in
+            restingSince = resting ? Date() : nil
+        }
+    }
+
+    @ViewBuilder
+    private func slot(now: Date) -> some View {
         let engine = director.engine
+        let stalled = restingSince.map { now.timeIntervalSince($0) >= CoachLine.stallAfterBreak } ?? false
         let line = CoachLine.line(phase: engine.phase, compression: engine.measuredCompression,
                                   depth: engine.measuredDepth, contactDepth: engine.mapping.contactT,
-                                  fired: engine.firedCount,
-                                  failed: engine.failureThreshold.map { engine.measuredCompression >= $0 } ?? false,
+                                  broken: broken, stalledAfterBreak: stalled,
                                   closingSpeed: engine.closingSpeed, slamSpeed: engine.config.slamSpeed,
-                                  touch: director.usesTouchPress, pressIndex: pressIndex, kind: director.currentKind)
+                                  touch: director.usesTouchPress, pressIndex: pressIndex)
         ZStack {
             if let line {
                 CoachLineView(line: line, compact: compact)
