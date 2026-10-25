@@ -165,6 +165,44 @@ struct HingeFeel {
     }
 }
 
+/// EXPERIENCE-REVIEW-1 #7: the seal stroke. After bottom-out (~55°) the last ~45° to the real shut (≤ 10°) must *build to*
+/// the ka-chunk, not coast: a rising hydraulic whine (the motor hum, pitched and swelled with progress), a latch
+/// click and 0.4 tap every 9°, and a haptic ramp 0.3 → 0.6 into the 1.0 ka-chunk. Pure; driven by the display-rate angle.
+struct SealStroke {
+    static let latchSpacing = 9.0
+
+    private(set) var from: Double?
+    private var nextLatch = 0.0
+
+    var isActive: Bool { from != nil }
+
+    mutating func begin(at angle: Double) {
+        from = angle
+        nextLatch = angle - Self.latchSpacing
+    }
+
+    mutating func end() {
+        from = nil
+    }
+
+    /// Progress 0…1 from bottom-out to the shut, and the latches crossed this frame (as their progress).
+    mutating func update(angle: Double, shutAngle: Double) -> (progress: Float, latches: [Float]) {
+        guard let from, from > shutAngle + 1 else { return (0, []) }
+        let span = from - shutAngle
+        let progress = Float(min(max((from - angle) / span, 0), 1))
+        var latches: [Float] = []
+        if angle <= nextLatch && nextLatch > shutAngle {
+            latches.append(Float(min(max((from - nextLatch) / span, 0), 1)))
+            // At most one per frame: a slam skips latches rather than machine-gunning them.
+            while nextLatch >= angle { nextLatch -= Self.latchSpacing }
+        }
+        return (progress, latches)
+    }
+
+    /// The haptic ramp during the stroke (before the user's level).
+    static func hapticRamp(_ progress: Float) -> Float { 0.3 + 0.3 * min(max(progress, 0), 1) }
+}
+
 /// Sound and touch for each hinge moment, designed together (one cue for both controllers).
 enum HingeCues {
     static func cue(for moment: HingeMoment, speed: Double, dice: FeedbackDice) -> FeedbackCue {
@@ -284,6 +322,22 @@ enum BeatCues {
             .noise(.object(kind, "settle", "tick"), .bandPass, max(band.low, 300) * dice.grainPitch(), q: 2,
                    attack: 0.0004, decay: 0.006, gain: 0.05 * level),
         ], haptics: [.tap(0.1 + 0.15 * level, 0.6)])
+    }
+}
+
+extension BeatCues {
+    /// One latch of the seal stroke: a steel ratchet click that climbs in pitch towards the shut, and a 0.4 tap.
+    static func latch(progress: Float, dice: FeedbackDice) -> FeedbackCue {
+        let p = min(max(progress, 0), 1)
+        let slot = { (layer: String) in SoundSlot.press("seal", layer) }
+        return FeedbackCue(sounds: [
+            .noise(slot("click"), .bandPass, (2200 + 1200 * p) * dice.grainPitch(), q: 3, attack: 0.0002, decay: 0.003,
+                   gain: 0.16 + 0.08 * p),
+            .ring(slot("pawl"), .steel, 900 + 500 * p, partials: 5, decay: 0.05, brightness: 0.45, gain: 0.07,
+                  delay: 0.002, seed: dice.seed32()),
+            .tone(slot("thock"), 150, to: 110, glide: 0.02, duration: 0.05, attack: 0.001, decay: 0.012, gain: 0.08,
+                  harmonics: 3),
+        ], haptics: [.tap(0.4, 0.55)])
     }
 }
 

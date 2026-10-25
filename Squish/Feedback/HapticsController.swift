@@ -50,6 +50,8 @@ final class HapticsController {
     private var scheduledTransients: [TimeInterval] = []
     /// The hinge outside the press (texture), set by the director every frame before `update` (`HingeFeel`).
     var hinge = HingeBed.still
+    /// The seal stroke (bottom-out → shut, 0…1; 0 outside it), set by the director every frame (`SealStroke`).
+    var sealProgress: Float = 0
     /// The audio path's delay to the ear (`AudioController.outputDelay`), set by the director: every pattern starts
     /// this much later (less the haptic engine's own latency) so touch lands with sound.
     var audioDelay: Double = 0
@@ -248,6 +250,14 @@ final class HapticsController {
             if press.isHolding { ramp = 0.3 }
         }
 
+        // The seal stroke replaces whatever the strain bed was doing (bubble wrap no longer sits pinned at max after its
+        // last pop): a ramp 0.3 → 0.6 that hands over to the 1.0 ka-chunk (EXPERIENCE-REVIEW-1 #7).
+        let sealing = sealProgress > 0 && press.isLoaded && now >= hushUntil
+        if sealing {
+            target = SealStroke.hapticRamp(sealProgress)
+            sharpness = -0.3
+            ramp = 0.05
+        }
         if profile.fatigue {
             if target > 0.01 && press.isLoaded { fatigue.record(dt, at: now) }
             target *= fatigue.factor(at: now)
@@ -260,7 +270,7 @@ final class HapticsController {
         // Rumble (Strong / Max): the loaded bed alternates between full and (1 − depth) every half-cycle at
         // 26–30 Hz, each step a ramp, so the strain feels like grinding resistance rather than a smooth hum.
         var rumbling = false
-        if profile.rumbleDepth > 0, press.isLoaded, now >= hushUntil, target > 0.05, press.displaySpeed >= -2 {
+        if profile.rumbleDepth > 0, !sealing, press.isLoaded, now >= hushUntil, target > 0.05, press.displaySpeed >= -2 {
             rumblePhase += dt * 2 * profile.rumbleHz
             if Int(rumblePhase) % 2 == 1 { target *= 1 - profile.rumbleDepth }
             ramp = 1 / (2 * profile.rumbleHz)
@@ -356,9 +366,11 @@ final class HapticsController {
         var cue = recipeCue ?? FeedbackCue()
         switch event {
         case .grain:
-            // Thermal guard: halve the grain rate (bible §7).
+            // Thermal guard: halve the grain rate (bible §7). Inside the hush and the hit stop the touch is silent, so the
+            // break punches out of nothing (EXPERIENCE-REVIEW-1 #2).
             grainCount += 1
             if isThermallyLimited && grainCount % 2 == 0 { return }
+            if CACurrentMediaTime() < hushUntil { return }
             play(cue, timing: .grain)
             return
         case .fracture(_, true):

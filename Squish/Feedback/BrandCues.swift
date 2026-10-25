@@ -57,9 +57,12 @@ enum BrandCues {
     /// Played in the same pattern as the recipe's failure, so the 12 ms gap rule interleaves them instead of queueing.
     static let failureBody = FeedbackCue(
         haptics: [
-            .tap(1.0, 0.35),
-            .buzz(1.0, 0.12, at: 0.004, duration: 0.22, decay: 0.18),
-            .tap(0.7, 0.45, at: 0.1),
+            // EXPERIENCE-REVIEW-1 #2: contrast from a bigger peak. A full, low hit; a stacked second hit 25 ms later; a
+            // long heavy body (110 ms at full, decaying over ~0.3 s); and the aftershock.
+            .tap(1.0, 0.3),
+            .tap(0.85, 0.22, at: 0.025),
+            .buzz(1.0, 0.15, at: 0.004, duration: 0.3, decay: 0.19),
+            .tap(0.7, 0.45, at: 0.12),
         ],
         isClimax: true
     )
@@ -81,7 +84,8 @@ enum BrandCues {
             // "Ka": the latch, crisp. "Chunk": the full-weight thock with a solid low body (Duo test 1: make it solid).
             .tap(0.6, 0.85, at: 0),
             .tap(1.0, 0.2, at: 0.028),
-            .buzz(1.0, 0.05, at: 0.033, duration: 0.16, decay: 0.13),
+            .tap(0.85, 0.2, at: 0.053),
+            .buzz(1.0, 0.05, at: 0.033, duration: 0.22, decay: 0.17),
             .tap(0.35, 0.4, at: 1.5),
             .tap(0.35, 0.4, at: 1.62),
         ],

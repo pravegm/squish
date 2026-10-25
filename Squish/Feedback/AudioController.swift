@@ -30,6 +30,8 @@ final class AudioController {
     }
     /// The hinge outside the press (creak), set by the director every frame before `update` (`HingeFeel`).
     var hinge = HingeBed.still
+    /// The seal stroke (bottom-out → shut, 0…1; 0 outside it), set by the director every frame (`SealStroke`).
+    var sealProgress: Float = 0
 
     private var engine = AVAudioEngine()
     private var synth: Synth?
@@ -314,6 +316,11 @@ final class AudioController {
             if !memory.hasFailed { params.strainGain = 0 }
         }
         params.speakerEQ = onSpeaker ? 1 : 0
+        // The seal stroke: the motor becomes a rising hydraulic whine, swelling into the ka-chunk (EXPERIENCE-REVIEW-1 #7).
+        if sealProgress > 0 && press.phase == .pressing {
+            params.humGain = 0.03 + 0.07 * sealProgress
+            params.humPitch = 1.15 + 0.85 * sealProgress
+        }
         // The hinge creak when the press isn't loaded (under load the press creak owns the resonators).
         if !press.isLoaded && hinge.creakGain > 0 {
             params.creakRate = hinge.creakRate

@@ -920,6 +920,76 @@ struct FeedbackTests {
         #expect(second.sounds != third.sounds)
     }
 
+    // MARK: - EXPERIENCE-REVIEW-1
+
+    /// #7: the seal stroke builds from bottom-out to the shut, with a latch every 9° and never a burst of them.
+    @Test func sealStrokeBuildsToTheShut() {
+        var stroke = SealStroke()
+        let idle = stroke.update(angle: 40, shutAngle: 10)
+        #expect(idle.progress == 0) // not begun
+        stroke.begin(at: 55)
+        var last: Float = -1
+        var latches = 0
+        for angle in stride(from: 55.0, through: 10, by: -1) {
+            let step = stroke.update(angle: angle, shutAngle: 10)
+            #expect(step.progress >= last)
+            last = step.progress
+            latches += step.latches.count
+        }
+        #expect(last == 1)
+        #expect(latches == 4) // 46°, 37°, 28°, 19°
+        #expect(SealStroke.hapticRamp(0) == 0.3 && SealStroke.hapticRamp(1) == 0.6)
+        // A slam straight to the shut fires one latch, not four.
+        var slam = SealStroke()
+        slam.begin(at: 55)
+        let slammed = slam.update(angle: 8, shutAngle: 10)
+        #expect(slammed.latches.count == 1)
+        let click = BeatCues.latch(progress: 0.5, dice: FeedbackDice(seed: 2))
+        #expect(!click.sounds.isEmpty && click.haptics.contains { $0.intensity == 0.4 })
+    }
+
+    /// #3: the replay plays the press's own moments, slowed like tape, with a softened echo of the break.
+    @Test func replayPlaysThePressSlowed() {
+        let p = ReplayFeel.pitch(for: 0.35)
+        #expect(p > 0.55 && p < 0.7) // about 8 semitones down
+        #expect(ReplayFeel.pitch(for: 1) == 1)
+        let feel = ReplayFeel()
+        let whoosh = feel.start(kind: .glassBottle, variant: PressVariant(kind: .glassBottle, seed: 9), style: .workshop,
+                                speed: 0.35, duration: 2.5)
+        #expect(!whoosh.sounds.isEmpty)
+        let failure = PressEvent.fracture(index: kindFailure(.glassBottle), isFailure: true)
+        let cues = feel.cues(for: failure)
+        #expect(cues?.sound.sounds.isEmpty == false)
+        if let cues {
+            #expect(!cues.sound.sounds.isEmpty)
+            #expect(cues.sound.haptics.isEmpty)
+            #expect(cues.touch?.haptics.isEmpty == false)
+            #expect(cues.touch?.haptics.allSatisfy { $0.intensity <= 0.45 } == true)
+        }
+        // Slowed tape: half the level, lower and longer.
+        let tone = SoundLayer.tone(.press("t", "t"), 1000, duration: 0.2, gain: 0.4)
+        let slowed = ReplayFeel.slowed(FeedbackCue(sounds: [tone]), speed: 0.35)
+        if case let .tone(spec) = slowed.sounds.first?.command {
+            #expect(spec.start < 1000)
+            #expect(spec.duration > 0.2)
+            #expect(abs(spec.gain - 0.2) < 0.001)
+        } else {
+            Issue.record("slowed tone missing")
+        }
+        feel.stop()
+        let after = feel.cues(for: failure)
+        #expect(after?.sound == nil)
+    }
+
+    /// #2: the break and the ka-chunk are double hits with long heavy bodies.
+    @Test func breakAndKaChunkAreDoubleHits() {
+        let body = BrandCues.failureBody.haptics
+        #expect(body.filter { $0.kind == .transient && $0.time < 0.05 && $0.intensity >= 0.8 }.count >= 2)
+        #expect(body.contains { $0.kind == .continuous && $0.duration >= 0.09 && $0.sharpness <= 0.2 })
+        let chunk = BrandCues.kaChunk.haptics.filter { $0.time < 1 }
+        #expect(chunk.filter { $0.kind == .transient && $0.intensity >= 0.8 }.count >= 2)
+    }
+
     @Test func signatureCaptions() {
         #expect(Captions.failure(.glassBottle) == "SMASH!")
         #expect(Captions.failure(.sodaCan) == "FSSSHT!")

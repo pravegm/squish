@@ -1271,6 +1271,9 @@ final class PressScene {
 
     /// True while a break replay owns the object.
     var isReplaying: Bool { replay != nil }
+    /// Feedback hook (EXPERIENCE-REVIEW-1 #3): the replay starting and each recorded mark as it is reached, so the
+    /// director can play the press's own sound and a softened touch in sync with the slow-mo (Feedback/ReplayFeel).
+    var onReplay: ((ReplayCue) -> Void)?
     /// A replay can be played: the Duo stage recorded this press.
     var hasBreakReplay: Bool { framing == .foldAnvil && recorder.tape != nil }
     /// 0…1: how far the anvil camera should push in on the break right now (0 when not replaying).
@@ -1316,7 +1319,9 @@ final class PressScene {
             run.nextMark += 1
         }
         replay = run
-        return tape.duration / speed + Self.replayOutro
+        let duration = tape.duration / speed + Self.replayOutro
+        onReplay?(.started(duration: duration, speed: speed))
+        return duration
     }
 
     /// Skips to the end of a running replay (its remaining events land at once, then it hands back).
@@ -1391,6 +1396,7 @@ final class PressScene {
             if frame.frozen { objectDt = 0 }
             let marked = lastState ?? replayState(frame, dt: 0, reduceMotion: reduceMotion)
             while run.nextMark < tape.marks.count, tape.marks[run.nextMark].time <= run.t {
+                onReplay?(.mark(tape.marks[run.nextMark].event))
                 applyReplayMark(tape.marks[run.nextMark].event, view: view, state: marked, reduceMotion: reduceMotion,
                                 run: &run)
                 run.nextMark += 1
