@@ -299,9 +299,9 @@ enum FoldStamps {
     static func canFizz(_ variant: PressVariant) -> UIColor {
         if variant.isGolden { return Palette.gold }
         if variant.surprise == .cherryFizz { return Palette.cherryFizz }
-        var rng = SplitMix64(seed: variant.seed ^ 0x50DA)
-        let puddles = [UIColor(hex: 0xC9EFA0), UIColor(hex: 0xFFB347), UIColor(hex: 0xC77DFF)]
-        return puddles[Int(rng.next() % UInt64(puddles.count))]
+        // EXPERIENCE-REVIEW-1 #5: the fizz is the can's flavour, lime in the lime FIZZO can (it was a seeded lime /
+        // orange / berry), exactly as SodaCanView now picks it.
+        return UIColor(hex: 0xC9EFA0)
     }
 
     static func darken(_ color: UIColor, _ amount: CGFloat) -> UIColor {

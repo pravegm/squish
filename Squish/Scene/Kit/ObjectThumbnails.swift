@@ -150,7 +150,7 @@ enum ObjectThumbnails {
         // Its own textures (labels, prints) arrive on tasks of their own.
         try? await Task.sleep(for: .milliseconds(350))
         if look == .crushed {
-            ObjectCrush.press(object, fx: fx, kind: kind, variant: variant)
+            await ObjectCrush.pressYielding(object, fx: fx, kind: kind, variant: variant)
             ShadowCasting.offForTranslucent(in: object.entity)
             ShadowCasting.offForTranslucent(in: fx.root)
         } else {
@@ -192,13 +192,38 @@ enum ObjectThumbnails {
 
         // A few frames so the IBL, the textures and the mesh uploads are in, then the shot.
         try? await Task.sleep(for: .milliseconds(220))
-        let image: UIImage? = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
-            view.snapshot(saveToHDR: false) { image in continuation.resume(returning: image) }
-        }
+        let image = await snapshot(view, timeout: 2)
         view.scene.removeAnchor(anchor)
         view.isHidden = true
         if let image, FoldSnapshot.isBlank(image) { return nil }
         return image
+    }
+}
+
+/// Resumes a snapshot's continuation once (touched only on the main queue).
+private final class SnapshotOnce: @unchecked Sendable {
+    var done = false
+}
+
+@MainActor
+extension ObjectThumbnails {
+    /// `ARView.snapshot`, or nil after `timeout` seconds (a view that never draws must not stall the queue).
+    fileprivate static func snapshot(_ view: ARView, timeout: Double) async -> UIImage? {
+        let once = SnapshotOnce()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+            view.snapshot(saveToHDR: false) { image in
+                DispatchQueue.main.async {
+                    guard !once.done else { return }
+                    once.done = true
+                    continuation.resume(returning: image)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+                guard !once.done else { return }
+                once.done = true
+                continuation.resume(returning: nil)
+            }
+        }
     }
 }
 
@@ -261,6 +286,38 @@ enum ObjectCrush {
             time += 1.0 / 60
             view.update(state(view, c: 1, dt: 1.0 / 60, time: time, phase: .revealing))
             fx.step(dt: 1.0 / 60, ceiling: 10, plateHalfExtent: SIMD2(repeating: 1))
+        }
+    }
+
+    /// As `press`, in fewer steps and yielding the main actor every few frames, so a thumbnail never holds the UI.
+    static func pressYielding(_ view: PressObjectView, fx: SceneFX, kind: ObjectKind, variant: PressVariant) async {
+        let thresholds = PressObjectFactory.thresholds(kind, variant: variant)
+        let failure = kind.profile.failureIndex
+        let steps = 120
+        var time: Float = 0
+        view.update(state(view, c: 0, dt: 1.0 / 30, time: time, phase: .armed))
+        view.handle(.contact, state: state(view, c: 0, dt: 0, time: time, phase: .pressing))
+        var fired = 0
+        for step in 0...(steps + 40) {
+            let c = min(Float(step) / Float(steps), 1)
+            time += 1.0 / 30
+            let s = state(view, c: c, dt: 1.0 / 30, time: time, phase: .pressing)
+            while fired < thresholds.count && c >= thresholds[fired] {
+                view.fracture(index: fired, isFailure: fired == failure, state: s)
+                fired += 1
+            }
+            view.update(s)
+            fx.step(dt: 1.0 / 30, ceiling: view.surfaceHeight(compression: c), plateHalfExtent: SIMD2(repeating: 1))
+            if step % 6 == 0 { await Task.yield() }
+        }
+        let sealed = state(view, c: 1, dt: 0, time: time, phase: .sealed)
+        view.handle(.sealed(blind: false), state: sealed)
+        view.handle(.reveal, state: sealed)
+        for k in 0..<24 {
+            time += 1.0 / 30
+            view.update(state(view, c: 1, dt: 1.0 / 30, time: time, phase: .revealing))
+            fx.step(dt: 1.0 / 30, ceiling: 10, plateHalfExtent: SIMD2(repeating: 1))
+            if k % 6 == 0 { await Task.yield() }
         }
     }
 

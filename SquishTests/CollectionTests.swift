@@ -819,9 +819,10 @@ struct CollectionTests {
         #expect(!can.variant.isGolden)
         #expect(can.variant.surprise == nil)
         #expect(CollectionStore.isGreenFizz(FoldStamps.canFizz(can.variant)))
-        // The store presses' seed is the same green, and the old pick (the first plain seed at salt 6) was not.
+        // The store presses' seed is the same green; since EXPERIENCE-REVIEW-1 #5 every plain can's fizz is its lime
+        // flavour (the old seeded orange / berry fizz in a lime can is gone), so the old pick is green too.
         #expect(CollectionStore.isGreenFizz(FoldStamps.canFizz(PressVariant(kind: .sodaCan, seed: 3))))
-        #expect(!CollectionStore.isGreenFizz(FoldStamps.canFizz(PressVariant(kind: .sodaCan, seed: 48_514))))
+        #expect(CollectionStore.isGreenFizz(FoldStamps.canFizz(PressVariant(kind: .sodaCan, seed: 48_514))))
         // Every salt finds a plain green can.
         for salt: UInt64 in 0..<8 {
             let seed = CollectionStore.demoSeed(for: .sodaCan, golden: false, surprise: false, salt: salt)
