@@ -950,7 +950,8 @@ struct FeedbackTests {
     func crushedSpecimensAnswerAsCrushed(_ kind: ObjectKind) {
         let crushed = TouchCues.poke(kind, crushed: true, dice: FeedbackDice(seed: 5))
         #expect(!crushed.sounds.isEmpty && !crushed.haptics.isEmpty)
-        #expect(crushed.haptics.allSatisfy { $0.intensity <= 0.5 })
+        // Lighter than a press moment (the Unsquishable, still unsquished, keeps its 0.7 steel clank).
+        #expect(crushed.haptics.allSatisfy { $0.intensity <= 0.7 })
         #expect(crushed.sounds.allSatisfy { $0.command.gain > 0 && $0.command.gain <= 0.2 })
         if kind != .unsquishable {
             #expect(crushed.sounds.allSatisfy { $0.slot.id.hasPrefix(kind.slotPrefix + ".pokecrushed.") })
