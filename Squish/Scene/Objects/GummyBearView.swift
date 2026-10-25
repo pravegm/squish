@@ -61,6 +61,7 @@ final class GummyBearView: PressObjectView {
     /// metres, before the hero scale) the crushed bear may reach from its centre and stay on the strike plate / anvil.
     private let reach: Float
     private var slapT: Float = 0
+    private var lowestS: Float = 1
     private var gave = false
 
     var shadowSpread: Float { spread }
@@ -284,7 +285,13 @@ final class GummyBearView: PressObjectView {
         }
         for beat in story.advance(to: state.compression) { onBeat(beat, state: state) }
         let h = surfaceHeight(compression: state.compression)
-        let s = max(h / restHeight, 0.05)
+        // Once split it never re-inflates (EXPERIENCE-REVIEW-1 #5: at the reveal the plastic ratchet stood the halves
+        // back up into two tall sliced half-bears): the pads stay as flat as the press left them.
+        var s = max(h / restHeight, 0.05)
+        if split {
+            lowestS = min(lowestS, s)
+            s = lowestS
+        }
         // The chewy stretch: a continuous part plus the beat steps, eased by a heavy spring (it pulls, it doesn't wobble).
         // The fight (EXPERIENCE-REVIEW-1 #1): it chews harder against the plate as it resists, and the seam whitens.
         let strain = state.resistanceBulge

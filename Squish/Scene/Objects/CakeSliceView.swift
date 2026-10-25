@@ -597,6 +597,8 @@ enum CakeSquash {
     static let alongSide: Float = 30
     /// How far the squeezed-out filling sinks toward the plate (share of its height) at its full reach.
     static let fillingDroop: Float = 0.6
+    /// How far the back frosting's upper part slumps (share of its height) at the full squeeze.
+    static let frostingSlump: Float = 0.45
     /// The bulge pushes away from this stretch of the wedge's centre line, so the long sides bow sideways rather than
     /// toward the apex. The tip moves `apexMin` (was 0.3) and mostly sideways (`apexSideways`), so it blunts.
     static let axisStart: Float = 0.03
@@ -863,6 +865,9 @@ enum CakeSquash {
             let base = profile(u)
             let cover = (spongeRimPush - frostingRimInset) * (1 - smooth(0.85, 1, u))
             push = (base + rim * max(cover - base, 0)) * (1 + lumpiness * noise(phase + 1.7 * u))
+            // EXPERIENCE-REVIEW-1 #5 ("a concave dish"): the squeezed frosting slumps outward and down instead of
+            // standing as a wall round the cream, so the cream reads heaped, not sunk in a dish.
+            y *= 1 - frostingSlump * rim * smooth(0.5, 1, u)
         default:
             let base = spongeBarrel * sin(.pi * u)
             // The ring is what shows from above: the upper sponge's top edge. Below it the sponge keeps its plain barrel,

@@ -615,12 +615,21 @@ enum EggShell {
 
     /// How far (radians) cut `cut` of a band zigzags off its straight line at profile ring `ring`: seeded per cut and
     /// ring (so the two pieces either side agree), alternating in sign, up to `jagShare` of the sector.
-    static let jagShare: Float = 0.16
+    static let jagShare: Float = 0.13
+    /// EXPERIENCE-REVIEW-1 #5 (the broken pieces read as straw, then as torn paper): the zigzag turns only every
+    /// `jagStep` profile rings and runs straight between its kinks, so a piece has a few clean angular edges, like
+    /// broken shell, instead of a sawtooth on every ring.
+    static let jagStep = 3
     static func jag(seed: UInt64, cut: Int, ring: Int, sector: Float) -> Float {
-        var rng = SplitMix64(seed: seed &+ UInt64(cut) &* 0x9E37_79B9 &+ UInt64(ring) &* 0x51ED_2701)
-        let size = Float(rng.next() >> 40) / Float(1 << 24)
-        let sign: Float = (ring / 2) % 2 == 0 ? 1 : -1
-        return sign * (0.35 + 0.65 * size) * jagShare * sector
+        func kink(_ n: Int) -> Float {
+            var rng = SplitMix64(seed: seed &+ UInt64(cut) &* 0x9E37_79B9 &+ UInt64(n) &* 0x51ED_2701)
+            let size = Float(rng.next() >> 40) / Float(1 << 24)
+            let sign: Float = n % 2 == 0 ? 1 : -1
+            return sign * (0.45 + 0.55 * size) * jagShare * sector
+        }
+        let n = ring / jagStep
+        let t = Float(ring % jagStep) / Float(jagStep)
+        return kink(n) + (kink(n + 1) - kink(n)) * t
     }
 
     /// The shell's faint self-lit lift (fake subsurface scattering) once its maps are up.
