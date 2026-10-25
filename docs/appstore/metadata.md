@@ -49,7 +49,7 @@ TEN OBJECTS, TEN WAYS TO GIVE
 • Bubble Wrap: twenty-four bubbles, popped one at a time
 • Rubber Duck: a squeak that climbs with the pressure (he'll be fine, probably)
 • Jelly: wobbles, spreads and splats
-• Crayon: a clean snap, then a waxy smear
+• Crayon Box: crayons snap one by one, then crumble into wax
 • Egg: a hairline crack, then the yolk
 • Cake Slice: the frosting escapes and the candle goes down
 • Soda Can: buckles ring by ring, then fizzes
@@ -63,10 +63,10 @@ THE PERFECT SQUISH
 Close slowly and steadily, without easing off, and your card earns a Perfect Squish mark. Slamming still works. It just isn't the point.
 
 A SHELF OF PRESSED SPECIMENS
-Every result is stamped onto a specimen card, like a herbarium for flattened things: where it gave, the tonnage, what broke and a serial number. The shelf keeps the best card for each object and your last 200 presses. Share a short replay clip with sound, or a before-and-after picture, through the share sheet.
+Every result is stamped onto a specimen card, like a herbarium for flattened things: the tonnage it took, what broke and a serial number. Tap SLO-MO to watch the break again in slow motion. The shelf keeps the best card for each object and your last 200 presses. Share a short replay clip with sound, or a before-and-after picture, through the share sheet.
 
 SOUND AND FEEL
-Every crack has a sound and a haptic that land together. Workshop sound for the full crunch, or Soft for a gentler mix. Haptics Off, Soft or Full.
+Recorded foley, layered with sound synthesised live from the hinge: every crack has a sound and a vibration that land together. Workshop sound for the full crunch, or Soft for a gentler mix. Haptics Off, Soft or Full, at Normal, Strong or Max strength.
 
 GAME CENTER
 Ten achievements, all earned through normal play and none for speed. Game Center is optional.

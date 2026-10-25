@@ -5,7 +5,7 @@
 **The short version: Squish doesn't collect any data about you.** There are no accounts, no ads, no analytics and no tracking, and the app makes no network requests of its own. Your collection stays on your phone.
 
 ## What Squish collects
-Nothing. Squish has no sign-up and no login. It doesn't include advertising, analytics, crash-reporting or tracking code from anyone, and it doesn't ask for access to your camera, microphone, photos, contacts or location.
+Nothing. Squish has no sign-up and no login. It doesn't include advertising, analytics, crash-reporting or tracking code from anyone, and it doesn't ask for access to your camera, microphone, contacts or location. It never reads your photo library: it only asks to add a picture or clip to Photos when you choose Save in the share sheet.
 
 ## What stays on your device
 Your pressed specimens, shelf, unlocks, achievements in progress and settings are saved **only on your iPhone**. We can't see them. If you delete the app, they're deleted too. *(If a later version adds iCloud sync, it'll use your own iCloud account, and we'll update this policy first.)*

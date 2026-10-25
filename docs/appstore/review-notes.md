@@ -11,7 +11,7 @@ App Store Connect → the version → **App Review Information**:
 
 <!-- REVIEW-NOTES:BEGIN -->
 ```
-Thanks for reviewing Squish: a paid toy with no ads, no in-app purchases, no accounts, no login and no network requests of its own.
+Thanks for reviewing Squish: a paid toy with no ads, no in-app purchases, no accounts and no network requests of its own.
 
 1. TESTING WITHOUT AN iPHONE DUO (start here)
 You don't need a Duo. Every object, unlock and achievement works without folding.
@@ -20,14 +20,14 @@ You don't need a Duo. Every object, unlock and achievement works without folding
 - With VoiceOver: focus the press and swipe up to press one step, swipe down to ease off.
 
 2. WHAT IT DOES
-Squish is a virtual hydraulic press. A virtual object (bubble wrap, rubber duck, egg and so on) sits on the anvil. Pressing crushes it in real time with synthesized sound and haptics. Opening the press reveals a "pressed specimen" card, saved to an on-device shelf.
+Squish is a virtual hydraulic press. A virtual object (bubble wrap, rubber duck, egg and so on) sits on the anvil. Pressing crushes it in real time with recorded and synthesized sound and haptics. Opening the press reveals a "pressed specimen" card, saved to an on-device shelf.
 
 3. HOW THE HINGE IS USED (iPhone Duo)
 Squish reads the hinge only through the public iOS 27.1 API (SwiftUI onHingeChange), behind an availability check. No private API is used.
 a) Open the phone in tabletop or book pose. The two halves of the inner screen are the press plates.
-b) Close slowly. The press arms where you start closing (between 168 and 130 degrees) and maps the hinge angle continuously to press depth. It seals at 48 degrees (PressConfig.endAngle).
+b) Close slowly. The press arms where you start closing (between 168 and 130 degrees) and maps the hinge angle continuously to press depth. It is flat by about 55 degrees and seals when the phone is shut.
 c) Close fully. The normal magnetic close gives a "ka-chunk" and a "Press sealed" card on the outer display.
-d) Reopen (past about 120 degrees) to see the specimen card. After a short ceremony, fold again or tap Keep to collect it.
+d) Reopen (past about 25 degrees) to see the specimen card. A SLO-MO key replays the break on request. Fold again or tap Keep to collect it.
 No extra force is needed or encouraged: the user closes the phone exactly as they normally would.
 
 4. UNLOCKS (no hidden features, nothing to buy)
@@ -35,7 +35,7 @@ No extra force is needed or encouraged: the user closes the phone exactly as the
 - Soda Can: press 3 different objects.
 - Gummy Bear: press 6 times in total.
 - Glass Bottle: earn one "Perfect Squish" (close or drag steadily for 2 seconds or more, without easing off or slamming).
-- The 10th object is a secret: it unlocks after pressing the other 9, and it is a steel ball that cracks the press instead. Reaching it takes roughly 10 presses (about 5 minutes).
+- The 10th object is a secret: it unlocks after pressing the other 9, and it is a steel ball that cracks the press instead. It takes about 10 presses.
 
 5. SAFETY (Guidelines 1.4.5 and 2.4.2)
 - All objects are virtual and on screen only. Nothing in the app or the store copy suggests placing anything real between the halves.
@@ -67,7 +67,7 @@ Squish collects no data. No third-party SDKs, analytics, ads, accounts or tracki
 | Shelf key → gear → Settings | `Squish/UI/PressOverlays.swift:572-574` (Shelf key, "Opens your collection and settings"); `Squish/UI/ShelfView.swift:135-139` (gear, label "Settings") |
 | VoiceOver swipe-to-press | `Squish/UI/RootView.swift:216-229`, `:265-283` (adjustable action, 9 steps, step 9 seals) |
 | Public hinge API only | `Squish/App/HingeReader.swift` (wraps `onHingeChange`); hinge code behind `#available(iOS 27.1, *)` (CLAUDE.md, Build) |
-| Arms 168°-130°, seals at 48°, reveal at 120° | `Squish/Core/PressConfig.swift:8-11` (`armAngleMax` 168, `armAngleMin` 130, `endAngle` 48), `:24` (`revealAngle` 120) |
+| Arms 168°-130°, flat by 55°, seals when shut (≤ 10°, released at 15°), reveal from 25° | `Squish/Core/PressConfig.swift` (`armAngleMax` 168, `armAngleMin` 130, `endAngle` 55, `shutAngle` 10, `revealOpenAngle` 25); updated 25 Oct 2026 |
 | "Press sealed" on the cover; first-run safety line | `Squish/UI/CoverView.swift:270`, `:98` |
 | Unlock rules | `Squish/Core/ObjectCatalog.swift:64-71` |
 | Perfect Squish = no slam, no easing off, ≤ 100°/s, ≥ 2 s | `Squish/Core/PressEngine.swift:532`; `Squish/Core/PressConfig.swift:39-40` |
@@ -77,7 +77,7 @@ Squish collects no data. No third-party SDKs, analytics, ads, accounts or tracki
 | 10 achievements, 700 points, one hidden | `Squish/Shared/Contracts.swift:168-183`; `achievements.md` |
 | Achievements earned signed-out are kept | `Squish/Collection/GameCenter.swift:8` |
 | Rating prompt after ≥ 10 presses, after a reveal | `Squish/UI/RootView.swift:422-429` |
-| Ambient audio session | `Squish/Feedback/AudioController.swift:38-40` |
+| Playback audio session, mixing with others; "Play when phone is on Silent" turns it off | `Squish/Feedback/AudioController.swift` (`AudioSessionChoice`), `AppSettings.playSoundInSilentMode` |
 | Demo modes compiled out of Release | `Squish/App/DemoMode.swift:125-138` (`DemoScenario.current` is `nil` without `DEBUG`); `Squish/UI/SettingsView.swift:343-354` |
 
 **What changed from the draft, and why:**
@@ -89,7 +89,7 @@ Squish collects no data. No third-party SDKs, analytics, ads, accounts or tracki
 - **The haptics-only-while-visible claim was cut**, because I couldn't find it in the code.
 - **The contact line was dropped from the notes**: contact details go in the form's own fields.
 
-**If the founder's real-Duo measurement moves `endAngle`:** change "48 degrees" in block §3b to match, then re-run the push. The tool re-mirrors the block.
+**If the founder's real-Duo measurement moves `endAngle` or the shut or reveal angles:** change "55 degrees" or "25 degrees" in block §3 to match, then re-run the push. The tool re-mirrors the block.
 
 ## If rejected under 2.4.2 or 1.4.5
 
