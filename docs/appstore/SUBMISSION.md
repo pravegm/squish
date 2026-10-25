@@ -4,9 +4,43 @@
 
 ---
 
-## 0. The only things the founder must personally supply
+## 0. Status and the founder's click list (updated 26 Oct 2026)
 
-Everything else is decided, written or automated.
+**Done:**
+- The app record and API key exist, with the GitHub secrets set.
+- Release candidate **1.0 (9)** is in TestFlight, built from `f81e1c4`. The ASC build number now equals the TestFlight run number.
+- The App Store screenshots come from `store.yml` run 40222956174, with every frame checked by eye. The previews come from `preview.yml` run 40222962649.
+- The metadata, price (£2.49), subtitle, review notes, content rights, privacy and accessibility answers are final in `asc-metadata.json` and `DECISIONS.md`.
+
+**Your click list, in order.** Each step needs your Apple login or legal identity.
+1. **Business** (App Store Connect → Business):
+   - Paid Apps agreement **Active**, with tax and banking done.
+   - Digital Services Act: "I am a trader". Enter your address, phone and email, then the verification codes. Or untick the 27 EU countries in step 5.
+   - The Small Business Program enrolment is approved (developer.apple.com).
+2. **Push the listing.** Actions → App Store Connect tool → `push=true`, `store_run=40222956174`. First add your copyright line and review contact locally (`tools/appstore/README.md`); they never go in the repo.
+3. **App Privacy:** Get Started → **No, we do not collect data** → Publish.
+4. **App Information:**
+   - Content Rights → **Yes** → tick **I have the necessary rights**.
+   - Check the age rating is **9+**.
+5. **Pricing and Availability:**
+   - **United Kingdom £2.49** as the base country, with automatic prices elsewhere. Note the US price.
+   - All countries except China mainland.
+   - Pre-order off. Family Sharing on.
+   - **Untick** "iPhone and iPad Apps on Apple Silicon Macs" and **Apple Vision Pro**.
+6. **The 1.0 version page:**
+   - Select build **1.0 (9)**.
+   - Game Center on → add all 10 achievements.
+   - Check the 6.9" and 6.1" screenshots are P1–P5 in order, plus the 6.9" preview.
+   - Open the **iPhone Duo** slot. Upload `duo-inner-01…07` and `duo-outer-O1, O2` from the `press-kit` release, plus `appstore-preview-duo-886x1920.mp4`.
+   - Version Release: scheduled for **24 Nov 2026, 08:00 UTC** (`DECISIONS.md` #4), or "automatically after approval" if you'd rather launch sooner.
+7. **Export compliance:** nothing to do (`ITSAppUsesNonExemptEncryption` = NO). If asked anyway, answer **No**.
+8. **Add for Review**, then **Submit to App Review**.
+9. **By Tue 3 Nov:** Featuring → Create Nomination (App Launch). The text is in §9.
+10. **Launch day:** App Accessibility → iPhone → publish **VoiceOver, Reduced Motion, Differentiate Without Color Alone, Sufficient Contrast** (`accessibility.md`). Then generate promo codes.
+
+**Support contact:** GitHub issues only, for 1.0 (`DECISIONS.md` #25).
+
+### What only the founder can supply (reference)
 
 | # | What | Where it goes | Why it can't be done for you |
 |---|---|---|---|
@@ -22,7 +56,7 @@ Everything else is decided, written or automated.
 | | f. Press **Submit** for the featuring nomination (§9) and for review (§7) | | |
 | | g. On launch day, publish the Accessibility labels (§8) | | |
 
-**Optional:** a support email for the support page. The page currently routes support through GitHub issue forms.
+**Support email:** not used for 1.0 by the founder's choice; support runs through GitHub issue forms (`DECISIONS.md` #25).
 
 **Keep these out of the repo.** The repo is public, so names, phone numbers, emails and the `.p8` key never go into it. Give them to the tool the way `tools/appstore/README.md` describes (local, untracked).
 
