@@ -230,6 +230,38 @@ struct LaunchQATests {
         #expect(events.count { $0 == .reveal } == 1)
     }
 
+    // MARK: The cover never shows over a wide-open hinge (combined Duo run 40195860241)
+
+    /// A sealed press reopened with the `.closed` status stuck at 1 the whole way (the Duo simulator with the duo-hinge
+    /// driver; the real Duo's posture is stale between ~85° and ~21° too): the angle decides. Past 15° the hinge is
+    /// open, the press reveals at 25°, and with the window on the inner canvas the cover never shows, at 150° included.
+    @Test func stuckClosedStatusNeverShowsTheCoverOnAnOpenHinge() {
+        let events = EventLog()
+        let engine = hingeEngine(events: events)
+        var now = feed(engine, ramp(180, 3, seconds: 3, hz: 30), hz: 30, from: 0)
+        #expect(engine.phase == .sealed)
+        let config = PressConfig.standard
+        var hingeClosed = true
+        // The run's reopen: 0 → 151.4° in 9.45° steps, every report with closed = 1.
+        for angle in stride(from: 0.0, through: 151.4, by: 9.4625) {
+            now += 0.6
+            engine.ingest(angle: angle, closed: true, at: now)
+            engine.step(now: now, dt: 1.0 / 60)
+            hingeClosed = config.isShut(angle, wasShut: hingeClosed)
+            let cover = PressDirector.showsCover(hingeAvailable: true, onOuterDisplay: false, hingeClosed: hingeClosed)
+            if angle >= config.shutReleaseAngle {
+                #expect(!cover, "cover at \(angle)° with the status stuck closed")
+                #expect(!engine.isClosed)
+            }
+        }
+        #expect(engine.phase == .revealing)
+        #expect(!PressDirector.showsCover(hingeAvailable: true, onOuterDisplay: false,
+                                          hingeClosed: config.isShut(150, wasShut: false)))
+        // Only the window on the outer display (or a real shut) shows the cover.
+        #expect(PressDirector.showsCover(hingeAvailable: true, onOuterDisplay: true, hingeClosed: false))
+        #expect(PressDirector.showsCover(hingeAvailable: true, onOuterDisplay: false, hingeClosed: true))
+    }
+
     // MARK: 6. The share-clip trace: a pre-roll window before the press, decimation past the cap
 
     @Test func tracePreRollKeepsTheArmAndRebases() {

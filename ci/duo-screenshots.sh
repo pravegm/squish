@@ -227,13 +227,35 @@ hinge_to() {   # hinge_to <deg>: continuous move from CUR to deg, then confirm t
   # Sweep doesn't confirm its last value; a confirmed set does (hinge -t 3 / foldctl waits).
   # The hinge tool occasionally fails a whole move (store run 39902695582: the duck's reopen from 0° never happened).
   # Retry the confirmed set a few times before counting it as a failure.
+  # A tool that didn't confirm is not retried when the app already reads the target (its latest SQUISH-H line, within
+  # HINGE_TOLERANCE degrees): each retry costs ~25 s and the 95-minute capture step ran out (run 40195860241).
   local attempt
   for attempt in 1 2 3; do
     drv_set "$DRIVER" "$target" >>"$RUNLOG" 2>&1 && break
+    if app_reads_angle "$target"; then
+      log "hinge $target not confirmed by $DRIVER, but the app reads $(app_angle)°: accepted"; break
+    fi
     log "WARN hinge did not confirm $target (attempt $attempt)"
     if (( attempt == 3 )); then FAILURES=$((FAILURES+1)); else sleep 2; fi
   done
   CUR="$target"
+}
+
+HINGE_TOLERANCE="${HINGE_TOLERANCE:-3}"
+# app_angle: the hinge angle on the running app's latest SQUISH-H line (the caller's `applog`), empty if none.
+app_angle() {
+  [[ -n "${applog:-}" && -f "${applog:-}" ]] || return 0
+  grep "^SQUISH-H " "$applog" 2>/dev/null | tail -1 | awk '{print $3}'
+}
+# app_reads_angle <deg>: the app's latest reading is within HINGE_TOLERANCE of deg (give it a moment to arrive).
+app_reads_angle() {
+  local want="$1" got t
+  for t in 1 2 3; do
+    got=$(app_angle)
+    if [[ -n "$got" ]] && awk -v a="$got" -v b="$want" -v tol="$HINGE_TOLERANCE"          'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= tol) }'; then return 0; fi
+    sleep 1
+  done
+  return 1
 }
 
 record_posture() {
@@ -729,6 +751,12 @@ elif ! drv_probe "$DRIVER"; then
   DRIVER=none
 fi
 log "hinge driver: $DRIVER"
+if [[ "$DRIVER" != hinge && "$DRIVER" != none ]]; then
+  # Run 40195860241: `brew install hinge` timed out, duo-hinge took over, and the simulator then kept its closed
+  # posture (and the app on the outer display) through every tabletop reopen to 155°, so no tabletop reveal could be
+  # shot. The app is right to follow the window; the posture is the tool's.
+  log "WARN driver $DRIVER, not hinge: the simulator may keep its closed posture on a reopen (tabletop reveals on the cover)"
+fi
 probe_displays
 
 # ---- pass 1: book pose ------------------------------------------------------------------------------

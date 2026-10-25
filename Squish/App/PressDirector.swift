@@ -105,7 +105,16 @@ final class PressDirector {
     /// The cover UI (and the inner stage's render-gate parking): only when the app is on the outer display, or the
     /// hinge is really shut (≤ `config.shutAngle`). Never on the `.closed` status alone: on a real Duo it sets at ~85°
     /// while closing (founder's hinge log, 25 Oct 2026; FOLD-PRESS §9.8).
-    var isShowingCover: Bool { hingeAvailable && (onOuterDisplay || hingeClosed) }
+    var isShowingCover: Bool {
+        Self.showsCover(hingeAvailable: hingeAvailable, onOuterDisplay: onOuterDisplay, hingeClosed: hingeClosed)
+    }
+
+    /// The cover rule (pure, tested): the outer display by window size, or really shut by angle. The hinge's `.closed`
+    /// status never enters it (it sets at ~85° closing and clears at ~21° opening on a real Duo, and the simulator can
+    /// keep it set to 150°+ on a reopen), so a wide-open hinge in an inner-sized window always shows the inner stage.
+    nonisolated static func showsCover(hingeAvailable: Bool, onOuterDisplay: Bool, hingeClosed: Bool) -> Bool {
+        hingeAvailable && (onOuterDisplay || hingeClosed)
+    }
 
     /// RootView's window size: the outer display is detected by size (APPLE-DUO-GUIDE item 3), not by status.
     /// `isShowingCover` keeps its meaning ("the app is on the outer display"); a real shut (≤ `shutAngle`) also counts,
