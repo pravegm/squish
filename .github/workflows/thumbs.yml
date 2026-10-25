@@ -1,0 +1,55 @@
+name: Object pictures
+
+# Renders the 20 object pictures the app ships (10 objects × rest and crushed) with SquishTests/ThumbnailGenerator.swift
+# and uploads them (artifact object-art). Commit them to Squish/Resources/ObjectArt/ and bump
+# ObjectThumbnails.artVersion. Manual only: re-run it whenever an object's look changes.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: thumbs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      DEVICE: "iPhone 18 Pro"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          xcodebuild -version
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Render the pictures
+        run: |
+          set -o pipefail
+          mkdir -p object-art
+          TEST_RUNNER_SQUISH_THUMBS_OUT="$PWD/object-art" xcodebuild test \
+            -project Squish.xcodeproj -scheme Squish \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -derivedDataPath build \
+            -only-testing:SquishTests/ThumbnailGenerator \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|SQUISH-THUMBS|Test Suite|Test case|passed|failed|\*\* " || true
+          ls -la object-art
+          du -ch object-art/*.jpg | tail -1
+          test "$(ls object-art/*.jpg | wc -l)" -eq 20
+
+      - name: Upload the pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: object-art
+          path: |
+            object-art/
+            build.log
+          if-no-files-found: ignore

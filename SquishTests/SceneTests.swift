@@ -1447,6 +1447,63 @@ struct SceneTests {
         }
     }
 
+    /// LAUNCH-QA (duo-reveal-slomo-after): after a requested slow-mo replay the duck came back in the replay tape's
+    /// puffier, rebounded shape. The replay must play on a copy and hand back the very specimen the reveal showed: the
+    /// same entity, drawn exactly as before.
+    @MainActor
+    @Test func aReplayHandsBackTheRevealedSpecimenUnchanged() async throws {
+        let scene = PressScene()
+        let variant = PressVariant(kind: .rubberDuck, seed: 42)
+        scene.setObject(.rubberDuck, variant: variant)
+        var waited = 0
+        while scene.foldObject == nil && waited < 600 {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            waited += 1
+        }
+        try #require(scene.foldObject != nil)
+        let anvil = FoldAnvil()
+        anvil.setScale(0.004427)
+        scene.setFraming(.foldAnvil, anvil: anvil.root)
+        let engine = PressEngine()
+        let context = FeedbackContext(kind: .rubberDuck, variant: variant, compression: 0, closingSpeed: 0,
+                                      soundStyle: .workshop, reduceMotion: false)
+        engine.onEvent = { scene.handle($0, context: context) }
+        engine.ingest(angle: 180, closed: false, at: 0)
+        engine.load(.rubberDuck, seed: 42, at: 0)
+        var now = 0.0
+        func frames(_ seconds: Double, angle: ((Double) -> Double)? = nil) {
+            for _ in 0..<Int(seconds * 60) {
+                now += 1.0 / 60
+                if let angle { engine.ingest(angle: angle(now), closed: false, at: now) }
+                engine.step(now: now, dt: 1.0 / 60)
+                scene.update(engine: engine, context: context, dt: 1.0 / 60)
+            }
+        }
+        frames(2)
+        let start = now
+        frames(3) { t in max(180 - 60 * (t - start), 3) }
+        let reopen = now
+        frames(2) { t in min(3 + 120 * (t - reopen), 170) }
+        #expect(engine.phase == .revealing)
+        frames(2)
+        let id = try #require(scene.objectEntityID)
+        let before = scene.specimenCorners
+        #expect(!before.isEmpty)
+        let duration = try #require(scene.playBreakReplay(speed: 1), "no replay recorded")
+        frames(0.3)
+        #expect(scene.isReplaying)
+        #expect(scene.objectEntityID != id, "the replay plays on a copy")
+        frames(duration + 0.5)
+        #expect(!scene.isReplaying)
+        #expect(scene.objectEntityID == id, "the hand-back kept the replay's copy")
+        let after = scene.specimenCorners
+        #expect(after.count == before.count, "models \(before.count / 2) → \(after.count / 2)")
+        if after.count == before.count {
+            let worst = zip(before, after).map { simd_length($0 - $1) }.max() ?? 0
+            #expect(worst < 0.001, "the specimen moved \(worst) m across the replay")
+        }
+    }
+
     /// LAUNCH-QA #1: drops, beads and print splats lay on the page background past the strike plate. On the Duo the
     /// mess's walls close in to this object's plate; every print splat (and its droplets) stays on the platen's plate at
     /// the splat's widest spread.

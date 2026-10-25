@@ -22,7 +22,8 @@ final class PressScene {
 
     private let rig = PressRig()
     private let objectSlot = Entity()
-    private let fx = SceneFX()
+    /// The live mess (swapped for a fresh one while a break replay runs; `heldForReplay`).
+    private var fx = SceneFX()
     private let camera = PerspectiveCamera()
     private let flash = PointLight()
     private let sweep = ModelEntity()
@@ -176,6 +177,8 @@ final class PressScene {
     }
 
     private func buildObject(_ kind: ObjectKind, variant: PressVariant) {
+        // A replay still running hands the real specimen back first, so that is what slides off.
+        restoreFromReplay()
         self.kind = kind
         self.variant = variant
         finishOutgoing()
@@ -356,7 +359,65 @@ final class PressScene {
                      CACurrentMediaTime() - SceneTrace.origin, engine.phase.rawValue, engine.measuredCompression,
                      Double(state.compression), objectUpdatedLastFrame ? 1 : 0, view.entity.isEnabled ? 1 : 0,
                      onAnvil ? 1 : 0, "\(engine.breakPhase)", deliveredFractures, replay != nil ? 1 : 0,
-                     outgoingActive ? 1 : 0, Double(dropHeight), UInt(bitPattern: ObjectIdentifier(view.entity).hashValue)))
+                     outgoingActive ? 1 : 0, Double(dropHeight), UInt(bitPattern: ObjectIdentifier(view.entity).hashValue))
+              + " " + drawnTrace(view))
+        traceDrawnPicture()
+    }
+
+    /// What the object view has drawn right now (LAUNCH-QA bubble wrap): its enabled models, and for bubble wrap the
+    /// domes still up and the craters down.
+    private func drawnTrace(_ view: any PressObjectView) -> String {
+        let models = VisibleBounds.corners(of: view.entity).count / 2
+        var line = "models=\(models) parent=\(view.entity.parent === objectSlot ? "slot" : "other")"
+            + " scene=\(view.entity.scene != nil ? 1 : 0)"
+        if let sheet = view as? BubbleWrapView {
+            let domes = (0..<128).filter { sheet.domeVisible($0) }.count
+            line += " domes=\(domes) craters=\(sheet.craterCount)"
+        }
+        return line
+    }
+
+    /// Demo runs only, every 2 s while pressing: a hash of the picture the anvil's ARView actually renders, and how long
+    /// the snapshot took (LAUNCH-QA: a picture that stops changing while `fractures` climbs is a stale render, not a
+    /// stale object).
+    private func traceDrawnPicture() {
+        guard let arView, clock - lastPictureTrace >= 2, !pictureTracePending else { return }
+        lastPictureTrace = clock
+        pictureTracePending = true
+        let asked = CACurrentMediaTime()
+        let fractures = deliveredFractures
+        arView.snapshot(saveToHDR: false) { [weak self] image in
+            let hash = image.map(Self.pictureHash) ?? "none"
+            DispatchQueue.main.async {
+                self?.pictureTracePending = false
+                print(String(format: "SQUISH-O drawn t=%.2f picture=%@ after=%.0fms fractures=%ld",
+                             CACurrentMediaTime() - SceneTrace.origin, hash,
+                             (CACurrentMediaTime() - asked) * 1000, fractures))
+            }
+        }
+    }
+    private var lastPictureTrace: Float = -10
+    private var pictureTracePending = false
+
+    /// A coarse hash of a picture: 12 × 12 grey levels (top 4 bits), so render noise doesn't change it but a pop does.
+    nonisolated private static func pictureHash(_ image: UIImage) -> String {
+        guard let cg = image.cgImage else { return "nocg" }
+        let side = 12
+        var pixels = [UInt8](repeating: 0, count: side * side)
+        let ok = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let ctx = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                                      bytesPerRow: side, space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            ctx.interpolationQuality = .medium
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard ok else { return "noctx" }
+        var h: UInt64 = 0xcbf29ce484222325
+        for p in pixels {
+            h = (h ^ UInt64(p >> 4)) &* 0x100000001b3
+        }
+        return String(format: "%016llx", h)
     }
     private var lastObjectTrace: Float = -10
 
@@ -1346,8 +1407,19 @@ final class PressScene {
         guard framing == .foldAnvil, replay == nil, !outgoingActive, objectView != nil, let tape = recorder.tape,
               let first = tape.frames.first else { return nil }
         let speed = clamp(speed, 0.1, 1)
-        if let old = objectView?.entity { old.removeFromParent() }
-        fx.clear()
+        // The specimen the reveal showed, and its mess, are set aside untouched (LAUNCH-QA: the hand-back used to keep
+        // the replay's copy, so the duck came back in the replay tape's puffier, rebounded shape); the replay runs on a
+        // fresh copy with a mess of its own, and `restoreFromReplay` puts the very same specimen back.
+        if let old = objectView {
+            old.entity.removeFromParent()
+            heldForReplay = (view: old, fx: fx, lastState: lastState)
+        }
+        let replayFX = SceneFX()
+        replayFX.reduceMotion = fx.reduceMotion
+        fx.root.isEnabled = false
+        root.addChild(replayFX.root)
+        fx = replayFX
+        replayTraceAt = -10
         let view = PressObjectFactory.make(kind, variant: variant, fx: fx)
         objectSlot.addChild(view.entity)
         ShadowCasting.offForTranslucent(in: view.entity)
@@ -1478,8 +1550,60 @@ final class PressScene {
         updateDecals(view: view, approach: frame.approach)
         updateFlash(dt: dt)
         replay = done ? nil : run
-        if done { replayEndedAt = clock }
+        traceReplay(run, frame: frame, view: view, done: done)
+        if done {
+            replayEndedAt = clock
+            restoreFromReplay()
+        }
     }
+
+    /// The specimen and mess the reveal showed, set aside while a break replay plays on a copy.
+    private var heldForReplay: (view: PressObjectView, fx: SceneFX, lastState: PressVisualState?)?
+    private var replayTraceAt: Float = -10
+
+    /// Ends a replay's borrow: the replay's copy and its mess go, and the specimen and mess the reveal showed come back
+    /// exactly as they were (same entities, never re-run).
+    private func restoreFromReplay() {
+        guard let held = heldForReplay else { return }
+        heldForReplay = nil
+        replay = nil
+        objectView?.entity.removeFromParent()
+        fx.clear()
+        fx.root.removeFromParent()
+        fx = held.fx
+        fx.root.isEnabled = true
+        objectSlot.addChild(held.view.entity)
+        objectSlot.position = .zero
+        objectSlot.scale = SIMD3<Float>(repeating: 1)
+        objectView = held.view
+        lastState = held.lastState
+        if DemoScenario.current != nil {
+            print(String(format: "SQUISH-R handed back t=%.2f id=%lx", CACurrentMediaTime() - SceneTrace.origin,
+                         UInt(bitPattern: ObjectIdentifier(held.view.entity).hashValue)))
+        }
+    }
+
+    /// Demo runs only: the replay's progress twice a second (tape time, the frame's compression, marks played), the
+    /// copy on the anvil, and the picture the anvil renders (so a replay that never shows can be told from one that
+    /// plays).
+    private func traceReplay(_ run: ReplayRun, frame: PressTape.Frame, view: PressObjectView, done: Bool) {
+        guard DemoScenario.current != nil, done || clock - replayTraceAt >= 0.5 else { return }
+        replayTraceAt = clock
+        print(String(format: "SQUISH-R t=%.2f tape=%.2f/%.2f c=%.3f marks=%ld/%ld outro=%d done=%d id=%lx ",
+                     CACurrentMediaTime() - SceneTrace.origin, run.t - run.tape.start, run.tape.duration,
+                     Double(frame.compression), run.nextMark, run.tape.marks.count, run.outro != nil ? 1 : 0,
+                     done ? 1 : 0, UInt(bitPattern: ObjectIdentifier(view.entity).hashValue)) + drawnTrace(view))
+        traceDrawnPicture()
+    }
+
+    /// The object on the anvil and its mess, as drawn (world-space box corners of every enabled model; tests).
+    var specimenCorners: [SIMD3<Float>] {
+        guard let view = objectView else { return [] }
+        return VisibleBounds.corners(of: view.entity) + VisibleBounds.corners(of: fx.root)
+    }
+
+    /// The object view's entity identity (tests: the replay hands back the very same specimen).
+    var objectEntityID: ObjectIdentifier? { objectView.map { ObjectIdentifier($0.entity) } }
 
     // MARK: - FOLD PRESS (design/FOLD-PRESS.md §2, §9.1): anvil-only framing for the iPhone Duo
 
