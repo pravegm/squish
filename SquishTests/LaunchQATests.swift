@@ -56,7 +56,7 @@ struct LaunchQATests {
                       frame: ((Double) -> Void)? = nil) -> Double {
         var now = start
         var next = 0
-        var due = start
+        var due = start + 1 / hz   // the first report one interval after the last one, as a real stream
         while next < angles.count {
             now += 1.0 / 60
             while next < angles.count, due <= now + 1e-9 {
@@ -168,6 +168,11 @@ struct LaunchQATests {
             #expect(slam.lastResult?.wasSlammed == true, "\(hz) Hz slam not read as a slam")
             #expect(slam.lastResult?.isPerfect == false)
         }
+        // Slammed shut between two reports (flat, then shut): the shutting report's speed is the slam.
+        let jumpEvents = EventLog()
+        let jump = hingeEngine(.egg, events: jumpEvents)
+        hold(jump, seconds: 0.3, from: feed(jump, [2], hz: 5, from: 0))
+        #expect(jump.phase == .sealed && jump.lastResult?.wasSlammed == true)
         // A brisk but honest close (~110°/s) is neither Perfect nor a slam, at 30 and 120 Hz alike.
         for hz in [30.0, 120.0] {
             let events = EventLog()

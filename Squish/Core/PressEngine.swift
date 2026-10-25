@@ -927,6 +927,8 @@ final class PressEngine {
             // it got somewhere, or an arm resting on an observed open sample was slammed shut between two samples.
             // A provisional arm (no reading yet, e.g. launched with the phone shut) never seals (FOLD-REVIEW-6 N3).
             guard maxDepthReached > 0.05 || (armObserved && rawAngle <= config.endAngle) else { return }
+            // The shutting report's own speed counts toward a slam (a slam between two reports has no other).
+            peakClosingSpeed = max(peakClosingSpeed, filteredSpeed)
             fastForward(at: time)
             seal(blind: true, at: time)
             emitKaChunk()
