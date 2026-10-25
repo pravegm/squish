@@ -178,7 +178,7 @@ struct RevealTicket: View {
             .frame(minHeight: 18)
             HStack(alignment: .center, spacing: Theme.s3) {
                 BeforeAfterGlyph(kind: specimen.kind, ratio: measure.before > 0 ? after / measure.before : 1)
-                    .frame(width: 44, height: 22)
+                    .frame(width: 66, height: 24)
                 Text("\(SpecimenRecord.PressedSize.mm(measure.before)) → \(SpecimenRecord.PressedSize.mm(after))")
                     .font(.system(.headline, design: .monospaced, weight: .bold))
                     .foregroundStyle(Theme.ink)
@@ -226,18 +226,24 @@ struct BeforeAfterGlyph: View {
     let ratio: Double
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 4) {
+        // On a little ground line, so even a 1 mm specimen reads as a flat bar rather than nothing.
+        HStack(alignment: .bottom, spacing: 3) {
             ObjectSilhouette(kind: kind)
-                .fill(Theme.tint(for: kind).opacity(0.45))
-                .frame(width: 18, height: 22)
+                .fill(Theme.tint(for: kind).opacity(0.5))
+                .overlay(ObjectSilhouette(kind: kind).stroke(Theme.graphite.opacity(0.3), lineWidth: 0.8))
+                .frame(width: 20, height: 22)
             Image(systemName: "arrow.right")
                 .font(.system(size: 8, weight: .heavy))
                 .foregroundStyle(Theme.inkSecondary)
-                .padding(.bottom, 6)
-            ObjectSilhouette(kind: kind)
+                .padding(.bottom, 7)
+            Capsule()
                 .fill(Theme.tint(for: kind))
-                .frame(width: 18 * min(1.8, 1 + (1 - ratio) * 0.8), height: 22)
-                .scaleEffect(x: 1, y: max(0.08, ratio), anchor: .bottom)
+                .overlay(Capsule().stroke(Theme.graphite.opacity(0.3), lineWidth: 0.8))
+                .frame(width: 20 * min(1.6, 1 + (1 - ratio) * 0.6), height: max(3, 22 * ratio))
+        }
+        .padding(.bottom, 1)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.graphite.opacity(0.25)).frame(height: 1)
         }
         .accessibilityHidden(true)
     }

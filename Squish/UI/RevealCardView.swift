@@ -200,7 +200,7 @@ struct RevealCardView: View {
                 .opacity(ceremony.ticketIn && !collecting ? 1 : 0)
                 .scaleEffect(ceremony.ticketIn || reduceMotion ? 1 : 1.2)
                 // The plate's bottom-left corner: the top corners belong to the NEW BEST / GOLDEN ribbon.
-                .position(x: plate.minX + 104, y: plate.maxY - 6)
+                .position(x: plate.minX + 104, y: plate.maxY - 12)
             MuseumStrip(collection: collection, kind: outcome.specimen.kind, firstOfKind: firstOfKind, state: ceremony,
                         foldToKeep: foldToKeep && !collecting)
                 .frame(maxWidth: actionsWidth)
