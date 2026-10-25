@@ -368,8 +368,34 @@ final class SceneFX {
     /// 1 m half-size ceiling), so spreads may use the full Duo strike plate instead of the P-48's smaller anvil.
     var isFoldPress: Bool { ceilingHalfExtent.x >= 0.5 }
 
+    /// The Duo strike plate's half extents (fx metres, no padding) for the object on the anvil, set by
+    /// `PressObjectFactory`. On the Fold Press the debris and particle walls close in to it (LAUNCH-QA #1: drops and
+    /// beads came to rest on the page background past the plate); on the P-48 they stay at the anvil's edges.
+    var foldPlateHalf: SIMD2<Float>? {
+        didSet { applyWalls() }
+    }
+    /// Share of `foldPlateHalf` a piece's or particle's centre may reach: its edge may spill onto the plate's rim.
+    static let foldWallShare: Float = 0.94
+    private var appliedWalls: SIMD2<Float>?
+
+    /// The walls (half extents about the slot origin) the mess is held inside right now.
+    var wallHalf: SIMD2<Float> {
+        if isFoldPress, let foldPlateHalf { return foldPlateHalf * Self.foldWallShare }
+        return PressRig.anvilHalf
+    }
+
+    private func applyWalls() {
+        let half = wallHalf
+        guard appliedWalls != half else { return }
+        appliedWalls = half
+        debris.setBounds(min: -half, max: half)
+        particles.minXZ = -half
+        particles.maxXZ = half
+    }
+
     func step(dt: Float, ceiling: Float, plateHalfExtent: SIMD2<Float>) {
         ceilingHalfExtent = plateHalfExtent
+        applyWalls()
         debris.step(dt: dt, ceiling: ceiling, plateHalfExtent: plateHalfExtent)
         particles.ceiling = ceiling
         particles.plateHalfExtent = plateHalfExtent

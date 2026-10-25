@@ -153,6 +153,13 @@ enum Part {
 @MainActor
 enum PressObjectFactory {
     static func make(_ kind: ObjectKind, variant: PressVariant, fx: SceneFX) -> PressObjectView {
+        let view = build(kind, variant: variant, fx: fx)
+        // The mess's walls on the Duo: this object's strike plate (LAUNCH-QA #1).
+        fx.foldPlateHalf = GlassDebris.containment(restHeight: view.restHeight, anvilHalf: SIMD2(repeating: 1), padding: 0)
+        return view
+    }
+
+    private static func build(_ kind: ObjectKind, variant: PressVariant, fx: SceneFX) -> PressObjectView {
         switch kind {
         case .bubbleWrap: BubbleWrapView(variant: variant, fx: fx)
         case .rubberDuck: DuckView(variant: variant, fx: fx)

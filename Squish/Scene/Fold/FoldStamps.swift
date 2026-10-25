@@ -760,12 +760,25 @@ enum FoldStamps {
             } else if index == 1, let candle = stamp.features.first {
                 // The candle bends and lies flat: a striped stroke.
                 let dir = CGPoint(x: cos(CGFloat(-stamp.yawRadians) + 0.9), y: sin(CGFloat(-stamp.yawRadians) + 0.9))
+                // LAUNCH-QA #2: in the 3D candle's own pink and white bands (CakeSliceView: bubblegum / #F8F8F8, 10
+                // bands), not a blue stick.
+                let length = 0.036 * k
+                let tip = CGPoint(x: candle.x + dir.x * length, y: candle.y + dir.y * length)
+                ctx.saveGState()
                 ctx.setLineCap(.round)
-                ctx.setStrokeColor(Palette.candle.withAlphaComponent(0.85).cgColor)
+                ctx.setStrokeColor(Palette.bubblegum.withAlphaComponent(0.9).cgColor)
                 ctx.setLineWidth(0.007 * k)
                 ctx.move(to: candle)
-                ctx.addLine(to: CGPoint(x: candle.x + dir.x * 0.036 * k, y: candle.y + dir.y * 0.036 * k))
+                ctx.addLine(to: tip)
                 ctx.strokePath()
+                ctx.setLineCap(.butt)
+                ctx.setLineDash(phase: length / 10, lengths: [length / 10, length / 10])
+                ctx.setStrokeColor(UIColor(hex: 0xF8F8F8).withAlphaComponent(0.92).cgColor)
+                ctx.setLineWidth(0.006 * k)
+                ctx.move(to: candle)
+                ctx.addLine(to: tip)
+                ctx.strokePath()
+                ctx.restoreGState()
             }
             return .none
         case .sodaCan:
@@ -816,6 +829,10 @@ enum FoldStamps {
         let r = stamp.fullRadius
         var drops: [FoldDroplet] = []
         let gold = stamp.golden
+        // LAUNCH-QA #1: no ink on the page past the strike plate, as the splat stands at its widest spread (its blobs
+        // and crumbs are a backstop; the droplets are already pulled onto the steel).
+        ctx.saveGState()
+        clipToPlate(ctx, spread: splatMaxSpread)
         switch stamp.kind {
         case .bubbleWrap, .unsquishable:
             break
@@ -946,6 +963,7 @@ enum FoldStamps {
                 crumbs(ctx, around: stamp.apex, spread: r, count: 18, colors: Palette.rainbow, size: 2...3.5, rng: &rng)
             }
         }
+        ctx.restoreGState()
         return drops
     }
 
@@ -1197,12 +1215,24 @@ enum FoldStamps {
         for _ in 0..<count {
             let a = CGFloat.random(in: 0...(2 * .pi), using: &rng)
             let d = CGFloat.random(in: r0...max(r0 + 1, r1), using: &rng)
-            let drop = FoldDroplet(centre: CGPoint(x: c.x + cos(a) * d, y: c.y + sin(a) * d),
+            var drop = FoldDroplet(centre: CGPoint(x: c.x + cos(a) * d, y: c.y + sin(a) * d),
                                    radius: CGFloat.random(in: 1.5...4.5, using: &rng))
+            // LAUNCH-QA #1: a droplet flicked past the plate (as the splat stands at its widest) is pulled in toward the
+            // footprint centre until it lands on the steel, instead of floating on the page's enamel or being clipped.
+            for _ in 0..<60 where !dropletOnPlate(drop) {
+                drop.centre = CGPoint(x: drop.centre.x * 0.95, y: drop.centre.y * 0.95)
+            }
             if let ctx { fillDisc(ctx, drop.centre, drop.radius, color) }
             drops.append(drop)
         }
         return drops
+    }
+
+    /// Whether a splat droplet stays on the strike plate (its 3 pt inset, less a 1 pt gap) once the splat layer has
+    /// spread to `splatMaxSpread` about the footprint centre.
+    static func dropletOnPlate(_ d: FoldDroplet) -> Bool {
+        let s = splatMaxSpread
+        return sprayContained(FoldDroplet(centre: d.centre, radius: d.radius * s), scale: s, margin: -4)
     }
 
     static func crumbs(_ ctx: CGContext, around c: CGPoint, spread: CGFloat, count: Int, colors: [UIColor],

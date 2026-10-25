@@ -1394,6 +1394,122 @@ struct SceneTests {
         }
     }
 
+    /// LAUNCH-QA #5 (the anvil seemed to lag the print and the coach): every object's failure visual lands on the very
+    /// frame the engine's failure event reaches it (`PressScene.handle(.fracture(…, isFailure: true))` calls
+    /// `fracture`, then that frame's `update`), not frames later. Held at the failure compression, the frame with the
+    /// failure must change what is drawn far more than a quiet frame just before it does.
+    @MainActor
+    @Test func everyFailureVisualLandsOnTheFailureFrame() {
+        for kind in ObjectKind.allCases {
+            guard let failure = kind.profile.failureIndex else { continue }
+            let variant = PressVariant(kind: kind, seed: SpecimenPrint.plainSeed(for: kind))
+            let thresholds = PressObjectFactory.thresholds(kind, variant: variant)
+            guard failure < thresholds.count else { continue }
+            let fx = SceneFX()
+            let view = PressObjectFactory.make(kind, variant: variant, fx: fx)
+            ObjectCrush.rest(view)
+            view.handle(.contact, state: ObjectCrush.state(view, c: 0, dt: 0, time: 0, phase: .pressing))
+            // Up to the failure compression, the earlier fractures firing as they are crossed.
+            let cf = thresholds[failure]
+            var time: Float = 0
+            var fired = 0
+            let steps = 90
+            for step in 0...steps {
+                let c = cf * Float(step) / Float(steps)
+                time += 1.0 / 60
+                let s = ObjectCrush.state(view, c: c, dt: 1.0 / 60, time: time, phase: .pressing)
+                while fired < failure && c >= thresholds[fired] {
+                    view.fracture(index: fired, isFailure: false, state: s)
+                    fired += 1
+                }
+                view.update(s)
+                fx.step(dt: 1.0 / 60, ceiling: view.surfaceHeight(compression: c), plateHalfExtent: SIMD2(repeating: 1))
+            }
+            func frame(failing: Bool) {
+                time += 1.0 / 60
+                let s = ObjectCrush.state(view, c: cf, dt: 1.0 / 60, time: time, phase: .pressing)
+                if failing { view.fracture(index: failure, isFailure: true, state: s) }
+                view.update(s)
+                fx.step(dt: 1.0 / 60, ceiling: view.surfaceHeight(compression: cf), plateHalfExtent: SIMD2(repeating: 1))
+            }
+            // A quiet frame at the failure compression (only idle life and tremor move), then the failure frame.
+            frame(failing: false)
+            let before = Self.drawn(view, fx: fx)
+            frame(failing: false)
+            let quiet = Self.drawn(view, fx: fx)
+            frame(failing: true)
+            let failed = Self.drawn(view, fx: fx)
+            let quietChange = Self.change(before, quiet)
+            let failChange = Self.change(quiet, failed)
+            let landed = failed.models != quiet.models || failed.debris > quiet.debris || failed.particles > quiet.particles
+                || failChange > max(4 * quietChange, 0.0008)
+            #expect(landed, "\(kind): the failure frame changed \(failChange) m (quiet \(quietChange) m), models \(quiet.models) → \(failed.models), debris \(quiet.debris) → \(failed.debris), particles \(quiet.particles) → \(failed.particles)")
+        }
+    }
+
+    /// LAUNCH-QA #1: drops, beads and print splats lay on the page background past the strike plate. On the Duo the
+    /// mess's walls close in to this object's plate; every print splat (and its droplets) stays on the platen's plate at
+    /// the splat's widest spread.
+    @MainActor
+    @Test func theMessStaysOnTheStrikePlate() throws {
+        let fx = SceneFX()
+        let plate = GlassDebris.containment(restHeight: 0.0765, anvilHalf: SIMD2(repeating: 1), padding: 0)
+        fx.foldPlateHalf = plate
+        fx.step(dt: 0, ceiling: 10, plateHalfExtent: SIMD2(repeating: 1))   // the Duo's whole-anvil ceiling
+        let wall = plate * SceneFX.foldWallShare
+        #expect(fx.particles.maxXZ == wall && fx.particles.minXZ == -wall)
+        #expect(fx.debris.world.maxXZ == wall && fx.debris.world.minXZ == -wall)
+        fx.step(dt: 0, ceiling: 10, plateHalfExtent: SIMD2(0.08, 0.057))   // the P-48's ram plate: its anvil edges
+        #expect(fx.particles.maxXZ == PressRig.anvilHalf && fx.debris.world.maxXZ == PressRig.anvilHalf)
+
+        let canvas = FoldPrintCanvas.rect
+        let spread = FoldStamps.splatMaxSpread
+        let hx = CGFloat(FoldMetrics.plateLateral / 2 - 3) / spread + 1
+        let hy = CGFloat(FoldMetrics.plateDepth / 2 - 3) / spread + 1
+        for kind in [ObjectKind.rubberDuck, .jelly, .sodaCan, .cakeSlice, .gummyBear, .egg] {
+            for seed in UInt64(1)...4 {
+                let variant = PressVariant(kind: kind, seed: seed)
+                let stamp = FoldStamps.stamp(for: kind, variant: variant, foldScale: SpecimenPrint.foldScale(kind, variant: variant),
+                                             extraYaw: 0)
+                for d in FoldStamps.platenSplatDroplets(stamp, variant: variant) {
+                    #expect(FoldStamps.dropletOnPlate(d), "\(kind) seed \(seed): droplet at \(d.centre) r \(d.radius) off the plate")
+                }
+                let scale: CGFloat = 1
+                let image = try #require(FoldStamps.splatImage(stamp, variant: variant, scale: scale))
+                let data = try #require(image.dataProvider?.data)
+                guard let bytes = CFDataGetBytePtr(data) else { continue }
+                var stray = 0
+                for py in 0..<image.height {
+                    for px in 0..<image.width {
+                        let x = canvas.minX + (CGFloat(px) + 0.5) / scale
+                        let y = canvas.minY + (CGFloat(py) + 0.5) / scale
+                        guard abs(x) > hx || abs(y) > hy else { continue }
+                        if bytes[py * image.bytesPerRow + px * 4 + 3] > 0 { stray += 1 }
+                    }
+                }
+                #expect(stray == 0, "\(kind) seed \(seed): \(stray) px of splat off the plate at full spread")
+            }
+        }
+    }
+
+    /// What is drawn: every enabled model's (or deformed mesh's) world placement and bounds, the model count, and the
+    /// mess's piece and particle counts.
+    @MainActor
+    private static func drawn(_ view: PressObjectView, fx: SceneFX) -> (values: [Float], models: Int, debris: Int, particles: Int) {
+        let corners = VisibleBounds.corners(of: view.entity) + VisibleBounds.corners(of: fx.root)
+        let values = corners.flatMap { [$0.x, $0.y, $0.z] }
+        return (values, corners.count / 2, fx.debris.count, fx.particles.activeCount)
+    }
+
+    /// The largest move (metres) of any drawn corner between two `drawn` samples (infinite if the models changed).
+    private static func change(_ a: (values: [Float], models: Int, debris: Int, particles: Int),
+                               _ b: (values: [Float], models: Int, debris: Int, particles: Int)) -> Float {
+        guard a.values.count == b.values.count else { return .infinity }
+        var worst: Float = 0
+        for i in a.values.indices { worst = max(worst, abs(a.values[i] - b.values[i])) }
+        return worst
+    }
+
     /// Coordinator, Duo run 40174301077: every pop fired (sound and haptics) while the domes still looked whole. A bubble
     /// must burst on the very frame its fracture fires (dome gone, crinkled crater down), stay burst, and the bubbles not
     /// yet popped must keep flattening under the plate.

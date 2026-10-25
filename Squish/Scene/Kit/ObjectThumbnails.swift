@@ -29,8 +29,16 @@ enum ObjectThumbnails {
         case crushed
     }
 
-    /// Bump when an object's look changes, so cached renders are re-made.
-    nonisolated static let artVersion = 1
+    /// Bump when an object's look changes, so cached renders are re-made. 2: the Launch QA looks (the cake's smooth
+    /// frosting, the mess held on the plate).
+    nonisolated static let artVersion = 2
+    /// The build (CFBundleVersion) is part of every cache name too (LAUNCH-QA #4), so a new build never shows an older
+    /// build's renders even when nobody bumped `artVersion`.
+    nonisolated static var buildVersion: String {
+        guard let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, !build.isEmpty
+        else { return "0" }
+        return build
+    }
     /// The default backdrop (the studio's warm white).
     static let backdrop = Palette.backdrop
 
@@ -102,10 +110,12 @@ enum ObjectThumbnails {
         park()
     }
 
-    /// The cache file name (pure, for tests): object, look, pixel size, art version.
-    nonisolated static func cacheKey(_ kind: ObjectKind, look: Look, size: CGSize, scale: CGFloat) -> String {
+    /// The cache file name (pure, for tests): object, look, pixel size, art version, build.
+    nonisolated static func cacheKey(_ kind: ObjectKind, look: Look, size: CGSize, scale: CGFloat,
+                                     build: String = buildVersion) -> String {
         let w = Int((size.width * scale).rounded()), h = Int((size.height * scale).rounded())
-        return "\(kind.rawValue)-\(look.rawValue)-\(w)x\(h)-v\(artVersion)"
+        let safeBuild = String(build.map { $0.isLetter || $0.isNumber || $0 == "." ? $0 : "_" })
+        return "\(kind.rawValue)-\(look.rawValue)-\(w)x\(h)-v\(artVersion)-b\(safeBuild)"
     }
 
     // MARK: Rendering

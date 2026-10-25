@@ -99,8 +99,12 @@ final class FoldAnvil {
         for child in Array(fieldGroup.children) { child.removeFromParent() }
         let corners = layout.anvilCorners.glass
         let xs = corners.map { Float($0.x) }, zs = corners.map { Float($0.z) }
-        let minX = (xs.min() ?? -60) - 12, maxX = (xs.max() ?? 60) + 12
-        let minZ = (zs.min() ?? -40) - 12, maxZ = (zs.max() ?? 40) + 12
+        // LAUNCH-QA #3: 12 mm of overscan let the field's edges show as faint diagonal hairlines across the book-pose
+        // page whenever the render and the keystone warp disagreed by a few degrees; the field now runs well past the
+        // glass on every side (it is one unlit quad, so the size costs nothing).
+        let o = Self.fieldOverscanMM
+        let minX = (xs.min() ?? -60) - o, maxX = (xs.max() ?? 60) + o
+        let minZ = (zs.min() ?? -40) - o, maxZ = (zs.max() ?? 40) + o
         field.model = ModelComponent(mesh: .generatePlane(width: maxX - minX, depth: maxZ - minZ),
                                      materials: [Self.fieldMaterial(enamel)])
         field.position = [(minX + maxX) / 2, -Float(FoldMetrics.plateProudMM), (minZ + maxZ) / 2]
@@ -121,6 +125,9 @@ final class FoldAnvil {
             fieldGroup.addChild(inner)
         }
     }
+
+    /// How far (mm) the enamel field runs past the anvil glass's corners.
+    static let fieldOverscanMM: Float = 90
 
     /// The gel-tinted enamel (§2.1, "the gel becomes the appliance's colour"): pass the platen field's colour, so the
     /// two pages are one material.
@@ -195,6 +202,9 @@ final class FoldAnvil {
     /// scene ≈ 0.07–0.17 mm here), so the shade that darkens the plate as the lid closes doesn't grey the escaped
     /// ink out; still far too thin to show any parallax.
     static let dropletLift: Float = 0.18
+    /// An escaped droplet's centre stays this many of its diameters inside the strike plate's edge (LAUNCH-QA #1):
+    /// its edge may lap the rim, its body is on the steel.
+    static let sprayRimShare: Float = 0.35
 
     /// The flattened specimen's top-down extent in this frame (millimetres; from `PressScene.foldSpecimenExtent`), or
     /// nil if unknown. The escaped droplets keep clear of it.
@@ -226,8 +236,13 @@ final class FoldAnvil {
                     target = SIMD2<Float>(Float(landed.x), Float(landed.y)) / ppm
                 }
             }
+            // LAUNCH-QA #1: it lands on the strike plate (its edge may lap the rim), never out on the page's enamel;
+            // the specimen-clearing push (`sprayLanding`, up to plate + 40 pt) is held to it here.
+            let room = simd_max(plateHalf - SIMD2(repeating: drop.diameter * Self.sprayRimShare), .zero)
+            target = simd_clamp(target, -room, room)
             var p = drop.position.map { $0 + (target - $0) * ease } ?? target
             if !p.x.isFinite || !p.y.isFinite { p = target }
+            p = simd_clamp(p, -room, room)
             sprayDrops[i].position = p
             let onPlate = abs(p.x) <= plateHalf.x && abs(p.y) <= plateHalf.y
             drop.entity.position = [p.x, (onPlate ? 0 : -proud) + Self.dropletLift, p.y]

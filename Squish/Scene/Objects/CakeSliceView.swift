@@ -552,7 +552,12 @@ enum CakeSquash {
     static let radius: Float = 0.110
     static let halfAngle: Float = 20 * .pi / 180
     /// Extra outline points on each straight side, so the sides can bow (a prism's straight edge has none).
-    static let sideSteps = 5
+    static let sideSteps = 7
+    /// Segments along the body slabs' arc (LAUNCH-QA #2: at 8 the squashed outline read as a faceted octagon), the
+    /// slabs' rounded-corner steps, and the cream top's cap rings (its one fan shaded in terraces once it spread).
+    static let arcSteps = 16
+    static let slabCornerSteps = 2
+    static let creamCapRings = 4
     /// Material slots of `bodyMesh()`: sponge, filling, cream top, back frosting.
     static let spongeSlot: UInt8 = 0
     static let fillingSlot: UInt8 = 1
@@ -617,7 +622,7 @@ enum CakeSquash {
 
     /// The 40° sector outline (apex at the origin, counter-clockwise from the apex), with `sideSteps` extra points on
     /// each straight side.
-    static func wedge(inset: Float = 0, sideSteps: Int = 0) -> [SIMD2<Float>] {
+    static func wedge(inset: Float = 0, sideSteps: Int = 0, arcSteps: Int = 8) -> [SIMD2<Float>] {
         let apex = SIMD2<Float>(inset * 2.5, 0)
         let r = radius - inset
         let start = SIMD2<Float>(cos(-halfAngle), sin(-halfAngle)) * r
@@ -627,8 +632,9 @@ enum CakeSquash {
         for k in 0..<steps {
             points.append(apex + (start - apex) * (Float(k + 1) / Float(steps + 1)))
         }
-        for k in 0...8 {
-            let a = -halfAngle + 2 * halfAngle * Float(k) / 8
+        let arc = max(arcSteps, 1)
+        for k in 0...arc {
+            let a = -halfAngle + 2 * halfAngle * Float(k) / Float(arc)
             points.append(SIMD2(cos(a), sin(a)) * r)
         }
         for k in stride(from: steps, to: 0, by: -1) {
@@ -643,17 +649,20 @@ enum CakeSquash {
         var parts: [(mesh: MeshData, slot: UInt8, layer: UInt8)] = []
         var y: Float = 0
         for (index, layer) in layers.enumerated() {
-            let slab = MeshKit.roundedPrism(polygon: wedge(inset: layer.inset, sideSteps: sideSteps), height: layer.height,
-                                            cornerRadius: 0.003, bevel: min(0.002, layer.height * 0.3), cornerSteps: 3)
+            let slab = MeshKit.roundedPrism(polygon: wedge(inset: layer.inset, sideSteps: sideSteps, arcSteps: arcSteps),
+                                            height: layer.height, cornerRadius: 0.003, bevel: min(0.002, layer.height * 0.3),
+                                            cornerSteps: slabCornerSteps, bevelSteps: 3,
+                                            capRings: layer.slot == creamSlot ? creamCapRings : 0)
             parts.append((slab.translated(SIMD3(0, y, 0)), layer.slot, UInt8(index)))
             y += layer.height
         }
-        let rings = 6
+        // LAUNCH-QA #2: 10 rings × 28 steps (was 6 × 16), so the slumped frosting bends smoothly instead of in facets.
+        let rings = 10
         let profile: [SIMD2<Float>] = (0...rings).map { k in
             SIMD2(radius + 0.004, 0.0008 + (cakeHeight - 0.0013) * Float(k) / Float(rings))
         }
         let back = MeshKit.lathePatch(profile: profile, rings: 0...rings, angles: (-halfAngle + 0.01)...(halfAngle - 0.01),
-                                      angularSteps: 16, thickness: 0.0055)
+                                      angularSteps: 28, thickness: 0.0055)
         var frosting = back.mesh.translated(back.centre)
         frosting.triangleMaterials = []
         parts.append((frosting, frostingSlot, UInt8(frostingLayer)))

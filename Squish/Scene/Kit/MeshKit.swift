@@ -602,7 +602,8 @@ enum MeshKit {
     /// - Parameter bandMaterial: optional material slot by height fraction (0 bottom … 1 top) for the side wall.
     static func roundedPrism(polygon: [SIMD2<Float>], height: Float, cornerRadius: Float, bevel: Float,
                              cornerSteps: Int = 6, bevelSteps: Int = 4,
-                             bandMaterial: ((Float) -> UInt8)? = nil, capMaterial: UInt8 = 0) -> MeshData {
+                             bandMaterial: ((Float) -> UInt8)? = nil, capMaterial: UInt8 = 0,
+                             capRings: Int = 0) -> MeshData {
         // Normalise to counter-clockwise in (x, z) seen from +Y.
         var poly = polygon
         var area: Float = 0
@@ -694,7 +695,26 @@ enum MeshKit {
         let centre2 = poly.reduce(SIMD2<Float>.zero, +) / Float(count)
         let bottom = mesh.addVertex(SIMD3(centre2.x, 0, centre2.y), SIMD3(0, -1, 0))
         let top = mesh.addVertex(SIMD3(centre2.x, height, centre2.y), SIMD3(0, 1, 0))
-        let first = rings[0], last = rings[rings.count - 1]
+        let first = rings[0]
+        var last = rings[rings.count - 1]
+        // `capRings` > 0: the top cap gets that many concentric rings toward its centre (LAUNCH-QA #2: a CPU-deformed
+        // cap that was one fan of long thin triangles shaded in facets and terraces once its outline spread and lumped).
+        if capRings > 0 {
+            let rim = last.map { mesh.positions[$0] }
+            for c in stride(from: capRings, through: 1, by: -1) {
+                let f = Float(c) / Float(capRings + 1)
+                let ring = rim.map { q in
+                    mesh.addVertex(SIMD3(centre2.x + (q.x - centre2.x) * f, height, centre2.y + (q.z - centre2.y) * f),
+                                   SIMD3(0, 1, 0))
+                }
+                for j in 0..<m {
+                    let j1 = (j + 1) % m
+                    mesh.addTriangle(ring[j], last[j], last[j1], material: capMaterial)
+                    mesh.addTriangle(ring[j], last[j1], ring[j1], material: capMaterial)
+                }
+                last = ring
+            }
+        }
         for j in 0..<m {
             let j1 = (j + 1) % m
             mesh.addTriangle(bottom, first[j1], first[j], material: capMaterial)

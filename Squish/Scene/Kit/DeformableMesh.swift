@@ -239,6 +239,34 @@ enum VisibleBounds {
         visit(root)
         return lo.x.isFinite ? (lo, hi) : nil
     }
+
+    /// Two world-space corners (min, max) of every enabled model's box (a deformed mesh's true box) under `root`, in
+    /// tree order: what is drawn, so tests can tell whether a frame changed it (SceneTests, LAUNCH-QA #5).
+    static func corners(of root: Entity) -> [SIMD3<Float>] {
+        var out: [SIMD3<Float>] = []
+        func visit(_ entity: Entity) {
+            guard entity.isEnabled else { return }
+            var box: (SIMD3<Float>, SIMD3<Float>)?
+            let deformed = entity.components[DeformedBoundsComponent.self]
+            if let deformed {
+                box = (deformed.min, deformed.max)
+            } else if let model = entity as? ModelEntity, let mesh = model.model?.mesh {
+                let b = mesh.bounds
+                if b.min.x <= b.max.x { box = (b.min, b.max) }
+            }
+            if let box {
+                let m = entity.transformMatrix(relativeTo: nil)
+                for corner in [box.0, box.1] {
+                    let w = m * SIMD4<Float>(corner, 1)
+                    out.append(SIMD3(w.x, w.y, w.z))
+                }
+            }
+            guard deformed == nil else { return }
+            for child in entity.children { visit(child) }
+        }
+        visit(root)
+        return out
+    }
 }
 
 /// Interleaved vertex for `LowLevelMesh`: position at 0, normal at 16, uv0 at 32 (SIMD3<Float> stride 16), stride 48.
