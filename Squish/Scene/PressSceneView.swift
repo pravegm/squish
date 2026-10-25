@@ -225,13 +225,22 @@ final class PressSceneHostView: UIView {
         CATransaction.setDisableActions(true)
         if parked {
             arView.removeFromSuperview()
-        } else if arView.superview !== self {
-            arView.frame = bounds
-            addSubview(arView)
+            // Launch QA P1: an ARView out of the window still ticked its scene while shut; empty, it has nothing to do.
+            parkedAnchors = Array(arView.scene.anchors)
+            for anchor in parkedAnchors { arView.scene.removeAnchor(anchor) }
+        } else {
+            for anchor in parkedAnchors where anchor.scene == nil { arView.scene.addAnchor(anchor) }
+            parkedAnchors = []
+            if arView.superview !== self {
+                arView.frame = bounds
+                addSubview(arView)
+            }
         }
         CATransaction.commit()
         scene?.setRenderPaused(parked)
     }
+    /// The scene's anchors, taken out while parked.
+    private var parkedAnchors: [HasAnchoring] = []
 
     /// A window change (a nil hinge around it is expected: `HingePresence`).
     var onWindowChange: (() -> Void)?

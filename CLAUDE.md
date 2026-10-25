@@ -137,14 +137,14 @@ Scores so far:
   - `#require` can't nest inside `#require` (recursive macro expansion).
   - Compare optionals against typed literals, e.g. `CGFloat(909 - 455)`; an untyped literal picked a non-numeric `==`.
   - Hoist throwing calls out of `#expect`.
-- **`PressConfig` decodes leniently** (`decodeLeniently`), so a missing key no longer resets the whole tuning. The storage key is versioned (v4): bump it when defaults change meaningfully. The contact and failure angles are **provisional** until they're tuned from the founder's real-Duo hinge log.
+- **`PressConfig` decodes leniently** (`decodeLeniently`), so a missing key no longer resets the whole tuning. The storage key is versioned (`squish.pressConfig.v5`): bump it when defaults change meaningfully. The contact and failure angles are **provisional** until they're tuned from the founder's real-Duo hinge log.
 - **The founder's Mac is Intel and can't run Xcode 27.** Every device build goes through `.github/workflows/testflight.yml` (`docs/appstore/SUBMISSION.md` §5a). The founder installs from TestFlight.
 - **Duo simulator hinge quirks:**
-  - `closed` can stay set while the phone reopens to ~150°, so the engine and the reveal gate trust the angle above 90°.
+  - `closed` is a posture (set at ~85° closing, cleared at ~21° opening on the real Duo; it can stay set to ~150° on the simulator), so nothing reads it: shut is the angle, ≤ `shutAngle` (10°) with a release at ≥ 15° (`PressConfig.isShut`). The reveal gate also ignores `closed` above 90°.
   - The first open sample after a closed launch is a state, not a transition (`PressEngine.ingestSample`).
   - Programmatic rotation needs `UIRequiresFullScreen: true` (it is set in `project.yml`).
   - The `hinge` CLI occasionally fails a move; `hinge_to` retries.
-- **Rendering:** the inner ARViews are taken out of the window while the inner display can't be seen (`FoldRenderGate`). A blind clock keeps the engine, haptics and audio running. `stray=0` in the `SQUISH-F resumed` line proves RealityKit stopped rendering.
+- **Rendering:** the inner ARViews are taken out of the window while the inner display can't be seen (`FoldRenderGate`). A blind clock keeps the engine, haptics and audio running. `stray=0` in the `SQUISH-F resumed` line proves RealityKit stopped rendering; parking also takes the anchors out of the ARView's scene, and `ci/duo-screenshots.sh` exits 4 on any `stray` > 0.
 - **Isolation:** `@MainActor` everywhere in views and controllers. Pure maths lives in nonisolated enums so tests can call it.
 - **This Windows host** (if you run on it): Bash ignores `cd`, so use absolute paths and `git -C`. Expect LF→CRLF warnings (harmless). There is no Python; use Node for quick maths models.
 

@@ -40,6 +40,7 @@ final class PressDirector {
     var reduceMotion = false
 
     @ObservationIgnored private let traceStore = TraceStore()
+    @ObservationIgnored private let pendingPresses = PendingPressStore()
     @ObservationIgnored private var hingeFeel = HingeFeel()
     /// The object's storyboard beats for this press (the object views keep an identical cursor).
     @ObservationIgnored private var storyCursor = StoryCursor([])
@@ -57,7 +58,10 @@ final class PressDirector {
     @ObservationIgnored private var foldSimulated = false
     /// Whether this launch has a hinge, held through transient nil contexts (Core/HingePresence.swift).
     @ObservationIgnored private var hingePresence = HingePresence()
-    @ObservationIgnored private var hingeLossCheck: Task<Void, Never>?
+    /// When the last hinge reading arrived (CACurrentMediaTime).
+    @ObservationIgnored private var lastHingeReading = -Double.infinity
+    /// A shut reading older than this, on reactivation with the window on the inner canvas, is stale.
+    static let staleShutReading = 1.0
     /// Seed of the object last handed to Fold Press (nil = not loaded there yet).
     @ObservationIgnored private var foldVariantSeed: UInt64?
     @ObservationIgnored private var captionCounter = 0
@@ -119,8 +123,20 @@ final class PressDirector {
         guard let windowSize else { return }
         let outer = hingeAvailable && !InnerDisplayPolicy.isInnerCanvas(windowSize)
         guard outer != onOuterDisplay else { return }
+        let reopened = onOuterDisplay && !outer
         onOuterDisplay = outer
         hingeContextChanged()
+        // The window moved from the cover to the inner canvas: the phone was opened.
+        if reopened { innerCanvasIsUp() }
+    }
+
+    /// The window is the inner canvas, so the phone is open (launch QA P1): a stale "shut" (no hinge report since the
+    /// app came back with the phone already open and still) must not keep the cover over the inner screen or the
+    /// sealed specimen waiting. The engine treats it as a reopen (`PressEngine.innerDisplayOpened`).
+    private func innerCanvasIsUp() {
+        if hingeClosed { hingeClosed = false }
+        guard usesFoldPress else { return }
+        engine.innerDisplayOpened(at: CACurrentMediaTime())
     }
 
     /// True when the touch press drives the engine (no hinge, or the user chose to press without folding).
@@ -164,14 +180,39 @@ final class PressDirector {
         // Until a hinge reports in, assume the touch press (so the teaching cue can show on any iPhone).
         engine.usesVirtualHinge = true
         load(firstObject())
+        if DemoScenario.current == nil { recordPendingPress() }
         if let demo = DemoScenario.current {
             runDemo(demo)
         }
     }
 
+    /// Launch QA P1: a press sealed (shut, ka-chunk) and then ended by iOS before the reopen used to be lost: `reveal()`
+    /// was the only `collection.record`. The sealed press is saved at `.sealed` (`PendingPressStore`); on the next
+    /// launch it is recorded with its trace, so it is on the Shelf with its stats, unlocks and achievements, and a toast
+    /// says so. (Re-staging the live reveal would need the crushed specimen rebuilt on the anvil without replaying
+    /// its sounds, which can not be verified without a device; the record is exact.)
+    private func recordPendingPress() {
+        guard let pending = pendingPresses.load() else { return }
+        pendingPresses.clear()
+        let outcome = collection.record(pending.result, variant: pending.variant, trace: pending.trace)
+        traceStore.save(pending.trace, for: outcome.specimen.id)
+        GameCenter.shared.report(outcome.newAchievements)
+        captionCounter += 1
+        coachHint = CaptionEvent(id: captionCounter, text: "Your last squish is on the Shelf.", announce: true)
+    }
+
     func sceneBecameActive() {
         guard started else { return }
         hingeContextChanged()
+        // Back with the phone already open and still, iOS may send no hinge change: HingeReader re-subscribes on
+        // activation (a fresh reading), and the inner canvas itself means "open" (`innerCanvasIsUp`).
+        updateOuterDisplay()
+        // On the inner canvas with a "shut" that is only an old reading (none since before the app went away): open.
+        // A fresh shut reading wins (folding can toggle scene activity before the window moves to the cover).
+        if let windowSize, hingeAvailable, InnerDisplayPolicy.isInnerCanvas(windowSize),
+           CACurrentMediaTime() - lastHingeReading > Self.staleShutReading {
+            innerCanvasIsUp()
+        }
         // Don't restart the input-ignore window here: on Duo, folding can toggle scene activity,
         // and ignoring the reopen would swallow the reveal. It only guards stale events at launch.
         haptics.resume()
@@ -200,7 +241,8 @@ final class PressDirector {
             moving: abs(engine.displaySpeed) >= 3,
             shut: hingeClosed,
             phase: engine.phase,
-            loaded: engine.isLoaded
+            loaded: engine.isLoaded,
+            shutAngle: engine.config.shutAngle
         )
         let result = hingeFeel.update(input, at: now)
         audio.hinge = result.bed
@@ -399,15 +441,16 @@ final class PressDirector {
     // MARK: - Input
 
     func hingeUpdate(angle: Double, closed: Bool) {
+        guard angle.isFinite else { return }   // one bad reading must not poison the filters (launch QA)
         hingePresence.reading(at: CACurrentMediaTime())
-        hingeLossCheck?.cancel()
-        hingeLossCheck = nil
+        lastHingeReading = CACurrentMediaTime()
         if !hingeAvailable {
             hingeAvailable = true
             updateOuterDisplay()
         }
         // Shut is the angle, not the `.closed` posture (it sets at ~85° on a real Duo). `closed` stays in the log.
-        hingeClosed = angle <= engine.config.shutAngle
+        // With hysteresis (≤ 10° shuts, ≥ 15° reopens), so a shut Duo's 0–6.5° noise never toggles the cover.
+        hingeClosed = engine.config.isShut(angle, wasShut: hingeClosed)
         // CI (ci/duo-screenshots.sh) counts these to prove onHingeChange fired on the Duo simulator, and reads the
         // phase from them, so log after the engine has taken this sample (deferred), not before.
         defer {
@@ -441,43 +484,21 @@ final class PressDirector {
         engine.ingest(angle: angle, closed: closed, at: now)
     }
 
-    /// A nil hinge context. Never tears the Fold stage down on a transient nil (APPLE-DUO-GUIDE: nil also means "left a
-    /// hierarchy that provides hinge updates"): once a hinge has been seen this launch the last state holds, and only
-    /// a hinge missing for `HingePresence.grace` with no scene change falls back to the P-48. `force`: fall back now
-    /// (the CI demo's touch-press scenarios).
+    /// A nil hinge context. Never tears the Fold stage down once a hinge has been seen this launch (APPLE-DUO-GUIDE: nil
+    /// also means "left a hierarchy that provides hinge updates"; launch QA P1: after the old 4 s grace a shut phone's
+    /// cover could flip to the P-48). The last state holds; only "Press without folding" switches to the P-48. Before
+    /// any reading, nil means a regular iPhone: the touch press at once. `force`: fall back now (the CI demo's
+    /// touch-press scenarios).
     func hingeUnavailable(force: Bool = false) {
         guard !foldSimulated else { return }
-        let now = CACurrentMediaTime()
-        if force || hingePresence.lost(at: now) {
+        if force || hingePresence.lost(at: CACurrentMediaTime()) {
             fallBackToTouchPress()
-            return
-        }
-        guard hingeLossCheck == nil, let deadline = hingePresence.deadline else { return }
-        hingeLossCheck = Task { @MainActor [weak self] in
-            var due = deadline
-            while true {
-                try? await Task.sleep(for: .seconds(max(due - CACurrentMediaTime(), 0) + 0.05))
-                guard !Task.isCancelled, let self else { return }
-                if self.hingePresence.shouldFallBack(at: CACurrentMediaTime()) {
-                    self.hingeLossCheck = nil
-                    self.fallBackToTouchPress()
-                    return
-                }
-                // A scene change restarted the grace, or a reading ended the gap.
-                guard let next = self.hingePresence.deadline else {
-                    self.hingeLossCheck = nil
-                    return
-                }
-                due = next
-            }
         }
     }
 
-    /// A window or scene change (the stage views and `sceneBecameActive` call it): a nil hinge around it is expected,
-    /// so a running hinge-loss grace starts again.
-    func hingeContextChanged() {
-        hingePresence.sceneChanged(at: CACurrentMediaTime())
-    }
+    /// A window or scene change (the stage views and `sceneBecameActive` call it). A nil hinge around it is expected
+    /// and never ends the Duo stage (`HingePresence`); kept as the views' hook.
+    func hingeContextChanged() {}
 
     private func fallBackToTouchPress() {
         hingeAvailable = false
@@ -594,9 +615,18 @@ final class PressDirector {
         }
     }
 
+    /// Launch QA P2: the trace used to start at `load` and stop at 20,000 samples, so an object left armed for a few
+    /// minutes (30–120 Hz of hinge noise) lost the press itself. Before the press only the last `PressTrace.preRoll`
+    /// seconds are kept (rebased, so the clip starts just before the press); a press longer than the cap is decimated.
     private func recordTrace(angle: Double, closed: Bool, at time: Double) {
-        guard engine.phase != .revealing, traceSamples.count < 20_000 else { return }
+        guard engine.phase != .revealing else { return }
         traceSamples.append(PressTrace.Sample(time: time - traceStart, angle: angle, closed: closed))
+        if engine.phase == .idle || engine.phase == .armed {
+            let anchor = engine.phase == .armed && !engine.usesVirtualHinge ? engine.startAngle : nil
+            traceStart += PressTrace.trimPreRoll(&traceSamples, anchor: anchor)
+        } else if traceSamples.count >= PressTrace.cap {
+            traceSamples = PressTrace.decimated(traceSamples)
+        }
     }
 
     private func handle(_ event: PressEvent) {
@@ -624,6 +654,8 @@ final class PressDirector {
         switch event {
         case .fracture(_, true):
             failureFlashCount += 1
+        case .sealed:
+            savePendingPress()
         case .reveal:
             reveal()
         default:
@@ -631,11 +663,20 @@ final class PressDirector {
         }
     }
 
+    /// The sealed press, saved until its reveal records it (launch QA P1: iOS may end the app while it is shut).
+    private func savePendingPress() {
+        guard DemoScenario.current == nil, let result = engine.lastResult else { return }
+        let trace = PressTrace(kind: currentKind, variant: variant, samples: traceSamples,
+                               usesVirtualHinge: engine.usesVirtualHinge, config: engine.config)
+        pendingPresses.save(PendingPress(result: result, variant: variant, trace: trace, sealedAt: Date()))
+    }
+
     private func reveal() {
         guard let result = engine.lastResult else { return }
         lastTrace = PressTrace(kind: currentKind, variant: variant, samples: traceSamples,
                                usesVirtualHinge: engine.usesVirtualHinge, config: engine.config)
         let outcome = collection.record(result, variant: variant, trace: lastTrace)
+        pendingPresses.clear()
         revealed = outcome
         // Fold-to-collect starts from the hinge as the card comes up (the sample that revealed it, or the last one), but
         // only counts once the ceremony has played (`armFoldToKeep`): settling back into tabletop mid-ceremony no
@@ -1909,6 +1950,85 @@ struct PressTrace: Codable, Sendable {
     var samples: [Sample]
     var usesVirtualHinge: Bool
     var config: PressConfig
+
+    /// Seconds of input kept before the press starts (the arm reading and the approach).
+    static let preRoll = 1.5
+    /// Where the first kept sample lands after a trim (s after the object is placed, so the clip opens on the drop).
+    static let lead = 0.3
+    /// Samples kept per press before decimation (~166 s at 120 Hz).
+    static let cap = 20_000
+
+    /// Drops samples older than `preRoll` before the newest one and rebases the rest so the first sits at `lead`.
+    /// What was dropped is summed up by one sample just before the window: `anchor` (the engine's arm angle, so a
+    /// replay arms with the same mapping), or else the last dropped reading. Returns the shift applied (seconds), which
+    /// the caller adds to its trace start.
+    static func trimPreRoll(_ samples: inout [Sample], anchor: Double? = nil) -> Double {
+        guard let last = samples.last else { return 0 }
+        if let first = samples.firstIndex(where: { $0.time >= last.time - preRoll }), first > 0 {
+            var held = samples[first - 1]
+            samples.removeFirst(first)
+            if let anchor { held = Sample(time: held.time, angle: anchor, closed: false) }
+            held.time = max(samples[0].time - 0.05, 0)
+            samples.insert(held, at: 0)
+        }
+        let shift = max(samples[0].time - lead, 0)
+        guard shift > 0 else { return 0 }
+        for index in samples.indices { samples[index].time -= shift }
+        return shift
+    }
+
+    /// Every other sample, keeping the first, the last and every change of `closed` (the shut, the finger lifting).
+    static func decimated(_ samples: [Sample]) -> [Sample] {
+        var out: [Sample] = []
+        out.reserveCapacity(samples.count / 2 + 2)
+        for (index, sample) in samples.enumerated() {
+            let edge = index > 0 && sample.closed != samples[index - 1].closed
+            if index % 2 == 0 || index == samples.count - 1 || edge { out.append(sample) }
+        }
+        return out
+    }
+}
+
+/// A sealed press not yet revealed (and so not yet in the collection).
+struct PendingPress: Codable, Sendable {
+    var result: PressResult
+    var variant: PressVariant
+    var trace: PressTrace
+    var sealedAt: Date
+}
+
+/// One JSON file, Application Support/Squish/pending-press.json: the sealed press until its reveal records it
+/// (launch QA P1). Written at `.sealed`, cleared at the reveal, read once at launch.
+@MainActor
+final class PendingPressStore {
+    let url: URL?
+
+    nonisolated static func defaultURL() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Squish/pending-press.json")
+    }
+
+    init(url: URL? = PendingPressStore.defaultURL()) {
+        self.url = url
+        if let directory = url?.deletingLastPathComponent() {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+    }
+
+    func save(_ pending: PendingPress) {
+        guard let url, let data = try? JSONEncoder().encode(pending) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    func load() -> PendingPress? {
+        guard let url, let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(PendingPress.self, from: data)
+    }
+
+    func clear() {
+        guard let url else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
 }
 
 /// One small JSON file per specimen in Application Support/Squish/traces (a few KB each).

@@ -28,7 +28,7 @@ enum PressEvent: Equatable, Sendable {
     case reveal
 }
 
-struct PressResult: Equatable, Sendable {
+struct PressResult: Equatable, Sendable, Codable {
     var kind: ObjectKind
     var seed: UInt64
     var failureAngle: Double?
@@ -265,6 +265,7 @@ final class PressEngine {
     @ObservationIgnored private var contactFired = false
     @ObservationIgnored private var tellFired = false
     @ObservationIgnored private var bottomFired = false
+    @ObservationIgnored private var kaChunkFired = false
     @ObservationIgnored private var releaseFired = false
     @ObservationIgnored private var maxDepthReached = 0.0
     @ObservationIgnored private var pressStartTime: Double?
@@ -324,6 +325,7 @@ final class PressEngine {
         contactFired = false
         tellFired = false
         bottomFired = false
+        kaChunkFired = false
         releaseFired = false
         maxDepthReached = 0
         pressStartTime = nil
@@ -368,11 +370,14 @@ final class PressEngine {
         // outer display by window size, not by status).
         // The touch press is never shut (it seals at depth).
         _ = reportedClosed
-        let closed = !virtual && raw <= config.shutAngle
+        // One NaN or infinite reading would poison the One-Euro filter and the tracker for the rest of the launch.
+        guard raw.isFinite, time.isFinite else { return }
         // The first sample from an input (at launch, or after switching between touch and hinge) is a state, not a
         // transition: launching with the phone shut is not "closing" it, and an earlier arm was taken on another
         // input's angle, so it must be re-anchored on this one (FOLD-REVIEW-6 N3).
         let newInput = lastSampleVirtual != virtual
+        // Shut with hysteresis (≤ 10° shuts, ≥ 15° reopens): a shut Duo's 0–6.5° noise never chatters.
+        let closed = !virtual && config.isShut(raw, wasShut: !newInput && isClosed)
         lastSampleVirtual = virtual
         if newInput {
             filter.reset()
@@ -386,7 +391,7 @@ final class PressEngine {
         filter.dCutoff = config.oneEuroDCutoff
         let filtered = filter.filter(raw, at: time)
         tracker.sample(raw, at: time)
-        let readShut = raw <= config.shutAngle
+        let readShut = !virtual && closed
         if lastReadShut && !readShut { openedAt = time }
         lastReadShut = readShut
         // The tell's ETA needs the filtered angle's own speed: the One-Euro derivative is taken against the filtered
@@ -538,7 +543,9 @@ final class PressEngine {
         }
 
         let age = now - lastSampleTime
-        isHolding = age > 0.25 || abs(closingSpeed) < 3
+        // Held: no report for well over the hinge's own report interval (a real Duo gaps 0.2–0.48 s during a slow
+        // close, so a fixed 0.25 s pumped the strain bed and the creak rate at report rate), or barely moving.
+        isHolding = age > Self.holdAfter(sampleInterval: sampleInterval) || abs(closingSpeed) < 3
         settleIfStale(now: now)
         // The drawn hinge (sync fix): the tracker read one display frame ahead of now, continuous between reports.
         if dt > 0 { frameInterval += (min(dt, 0.1) - frameInterval) * 0.2 }
@@ -593,13 +600,18 @@ final class PressEngine {
         updatePipeline(now: now, dt: dt)
     }
 
+    /// Seconds without a report before the hinge counts as held: 0.25 s, or 2.5 report intervals at a slow rate.
+    static func holdAfter(sampleInterval: Double) -> Double { min(max(0.25, 2.5 * sampleInterval), 1) }
+
     /// A render-depth change bigger than this in one frame is a jump (springs); smaller ones are the hand (snaps).
     static let followJump = 0.04
 
     /// The hinge stopped reporting (a still Duo sends nothing): the event filter would rest short of the real lid by
     /// its lag, so feed it the last raw reading at frame rate until it lands (no sample bookkeeping changes).
     private func settleIfStale(now: Double) {
-        guard lastSampleVirtual == false, phase == .armed || phase == .pressing, !isClosed,
+        // Idle too (launch QA P2): a quick reopen that stops at ~130–135° left the filter resting short of
+        // `armAngleMin`, and the press never armed.
+        guard lastSampleVirtual == false, phase == .idle || phase == .armed || phase == .pressing, !isClosed,
               now - lastSampleTime > max(0.06, 1.5 * sampleInterval), abs(rawAngle - angle) > 0.02,
               now - activationTime >= config.ignoreInputAfterActivation else { return }
         let settled = filter.filter(rawAngle, at: now)
@@ -801,7 +813,10 @@ final class PressEngine {
         plasticDepth = max(plasticDepth, eyeDepth(depth) * material.plasticity)
 
         if c > 0 {
-            peakClosingSpeed = max(peakClosingSpeed, closingSpeed)
+            // Slam and Perfect read the filtered angle's own speed, which is the same at every report rate. The One-Euro
+            // derivative (`closingSpeed`) is taken against the filtered value and reads ~2.4× high at the P-48's 120 Hz,
+            // so slams fired at ~100°/s there and a Perfect was twice as hard as on the Duo (launch QA P2).
+            peakClosingSpeed = max(peakClosingSpeed, filteredSpeed)
             if closingSpeed < -8 {
                 reversedWhileLoaded = true
                 if !isReversing {
@@ -914,12 +929,27 @@ final class PressEngine {
             guard maxDepthReached > 0.05 || (armObserved && rawAngle <= config.endAngle) else { return }
             fastForward(at: time)
             seal(blind: true, at: time)
-            emit(.kaChunk)
+            emitKaChunk()
         case .sealed:
-            emit(.kaChunk)
+            // One ka-chunk per seal: a shut phone's noise (or a reopen to 15–25° and back) never repeats it.
+            emitKaChunk()
         case .idle, .revealing:
             break
         }
+    }
+
+    /// The app is on the inner canvas again (the director saw the window move from the cover to the inner display, or
+    /// came back on it with only a stale shut reading): the phone is open, whatever the last hinge report said (launch
+    /// QA P1: back with the phone already open and still, iOS may send no hinge change). Clears the stale shut, and a
+    /// press sealed by a real shut reveals now (the display is lit, so there is no reason to wait for a report).
+    func innerDisplayOpened(at time: Double) {
+        guard lastSampleVirtual == false else { return }
+        if isClosed {
+            isClosed = false
+            if lastReadShut { openedAt = time }
+            lastReadShut = false
+        }
+        if phase == .sealed && shutSinceSeal { beginReveal() }
     }
 
     /// Drop an arm that nothing was pressed on; `tryArm` re-arms from the next open reading.
@@ -972,9 +1002,16 @@ final class PressEngine {
         )
         emit(.sealed(blind: blind))
         if usesVirtualHinge {
-            emit(.kaChunk)
+            emitKaChunk()
             autoRevealTime = time + 0.7
         }
+    }
+
+    /// The seal's ka-chunk, at most once per seal.
+    private func emitKaChunk() {
+        guard !kaChunkFired else { return }
+        kaChunkFired = true
+        emit(.kaChunk)
     }
 
     private func beginReveal() {

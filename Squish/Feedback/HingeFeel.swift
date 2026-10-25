@@ -34,6 +34,9 @@ struct HingeMotionInput: Equatable {
     var phase: PressPhase
     /// The plates are on the object: the press feedback owns the moment.
     var loaded: Bool
+    /// The press's shut angle (`PressConfig.shutAngle`, a Tuning Lab slider); the drawn angle reopens past it plus
+    /// `PressConfig.shutHysteresis`.
+    var shutAngle: Double = PressConfig.standard.shutAngle
 }
 
 /// Continuous hinge layers for this frame.
@@ -100,9 +103,10 @@ struct DetentTracker {
 struct HingeFeel {
     /// Opening past this from shut counts as "the phone opened" (the inner display is lit by ~55°).
     static let openedAngle = 55.0
-    /// At or below this the phone counts as shut. Never the raw `.closed` status: on a real Duo it reads closed at
-    /// ~85° while closing and clears at ~21° on reopen (founder's hinge log), so it would clack at 85°.
-    static let shutAngle = 10.0
+    /// The default shut angle (the live one is `HingeMotionInput.shutAngle`, from `PressConfig.shutAngle`). Never the
+    /// raw `.closed` status: on a real Duo it reads closed at ~85° while closing and clears at ~21° on reopen
+    /// (founder's hinge log), so it would clack at 85°.
+    static let shutAngle = PressConfig.standard.shutAngle
     /// Angular speed (°/s) that counts as a brisk swing for the creak and texture.
     static let briskSpeed = 90.0
 
@@ -128,7 +132,10 @@ struct HingeFeel {
             return (.still, [])
         }
         var moments: [HingeMoment] = []
-        let shut = input.shut || input.angle < Self.shutAngle
+        // With hysteresis (launch QA P1): shut at the shut angle, open again only past it + 5°, so a shut Duo's
+        // 0–6.5° noise never clacks twice.
+        let release = input.shutAngle + PressConfig.shutHysteresis
+        let shut = input.shut || input.angle < (wasShut == true ? release : input.shutAngle)
         if let wasShut {
             if shut && !wasShut {
                 // A press's seal has its ka-chunk; any other shut gets the soft clack.

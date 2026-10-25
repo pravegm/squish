@@ -855,4 +855,12 @@ to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
 ls -1 "$OUT_ABS" | tee -a "$RUNLOG"
 if [[ "$DRIVER" == none ]]; then log "FAIL: no hinge driver worked; only 180° captured"; exit 3; fi
 (( FAILURES > 0 )) && log "finished with $FAILURES warnings"
+# Launch QA P1: a paused (shut) stage must not render. InnerRenderGate logs "resumed <stage> ... stray=N", N being the
+# RealityKit ticks it saw while paused; any N > 0 means the ARView kept running in the pocket (battery, heat).
+STRAY_LINES=$(grep -h -E "SQUISH-F resumed .* stray=[1-9][0-9]*" "$OUT_ABS"/logs/*.txt 2>/dev/null || true)
+if [[ -n "$STRAY_LINES" ]]; then
+  log "FAIL: RealityKit kept ticking while the stage was paused:"
+  while IFS= read -r line; do log "  $line"; done <<<"$STRAY_LINES"
+  exit 4
+fi
 exit 0

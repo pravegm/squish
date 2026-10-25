@@ -348,7 +348,7 @@ final class PressScene {
     /// Demo runs only (CI's Duo captures): once a second while pressing, what the object view was given and whether it
     /// is the one on the anvil, so a frame that looks frozen can be told apart from a press that is held.
     private func traceObject(view: any PressObjectView, engine: PressEngine, state: PressVisualState) {
-        guard DemoScenario.current != nil, engine.phase == .pressing || engine.phase == .sealed else { return }
+        guard DemoScenario.current != nil, engine.phase == .pressing else { return }
         guard clock - lastObjectTrace >= 1 else { return }
         lastObjectTrace = clock
         let onAnvil = view.entity.parent === objectSlot

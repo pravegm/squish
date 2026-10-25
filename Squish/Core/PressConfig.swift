@@ -33,6 +33,15 @@ struct PressConfig: Codable, Equatable, Sendable {
     // big hysteresis (set at ~85° closing, cleared at ~21° opening), not "shut": these angles decide instead.
     /// Shut: at or below this angle the phone is really closed (the blind seal, the ka-chunk, the cover).
     var shutAngle: Double = 10
+    /// Shut releases only at `shutAngle` + this (15° by default): real logs show 0–6.5° of noise on a shut Duo, so a
+    /// single threshold chattered (repeated ka-chunks, the cover toggling and closing sheets).
+    static let shutHysteresis = 5.0
+    /// The angle a shut phone must reopen past to count as open again.
+    var shutReleaseAngle: Double { shutAngle + Self.shutHysteresis }
+    /// Shut with hysteresis: shut at ≤ `shutAngle`; once shut, open again only at ≥ `shutReleaseAngle`.
+    func isShut(_ angle: Double, wasShut: Bool) -> Bool {
+        wasShut ? angle < shutReleaseAngle : angle <= shutAngle
+    }
     /// A sealed press reveals once a reopen passes this angle (or the inner display is back).
     var revealOpenAngle: Double = 25
     /// The inner display goes dark below about this angle (the reveal beats wait for it). UNMEASURED on hardware.

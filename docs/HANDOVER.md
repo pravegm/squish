@@ -77,7 +77,11 @@ Once it feels right, tap *Copy config JSON* and send it to Claude. Those values 
   - They are good for layout and captions. A real hand-held Duo video from you will sell the fold better than any render.
 - **Patience achievement** needs 30 s of engaged pressing. It is suppressed in CI demo runs.
 - **The design-critic score** after round 9 is 8.7 for the app and 8.6 for the store set, and the launch call is yes. The reviews are in `design/FOLD-REVIEW-*.md`.
-- **Hinge status vs angle.** The Duo simulator sometimes keeps reporting `.closed` while the phone reopens to about 150°. Two places now trust the angle instead when it reads above 90°: the engine (`PressEngine.staleClosedAngle`) and the reveal gate (`RevealCollectGate`). Check what the real Duo reports in the Tuning Lab hinge log.
+- **Hinge status vs angle.** The `.closed` status is a coarse posture, not "shut": on the real Duo it sets at about 85° while closing and clears at about 21° on reopen (FOLD-PRESS §9.8). So nothing reads it any more:
+  - Shut is the angle, with hysteresis: at or below `PressConfig.shutAngle` (10°) the phone is shut, and it counts as open again only at 15° or more (`shutReleaseAngle`, `PressConfig.isShut`). The engine (`PressEngine.isClosed`), the director (`hingeClosed`), the cover and `HingeFeel` all use it.
+  - The reveal gate (`RevealCollectGate`) gets that angle-based shut, and still ignores a `closed` reading above 90°.
+  - Coming back with the phone already open and still, the app re-subscribes to the hinge, and the inner canvas itself counts as open (`PressEngine.innerDisplayOpened`).
+  - Once a hinge has been seen, a nil hinge never switches to the P-48 (`HingePresence`); only "Press without folding" does.
 - **Two press bugs fixed in round 7, with tests:**
   - Opening the app with the phone shut no longer seals a press you never made.
   - A stray `closed` sample no longer dismisses the reveal before you see it.

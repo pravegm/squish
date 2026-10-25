@@ -257,13 +257,21 @@ final class FoldStageHostView: UIView {
         CATransaction.setDisableActions(true)
         if parked {
             arView.removeFromSuperview()
-        } else if arView.superview !== anvilClip {
-            anvilClip.addSubview(arView)
+            // Launch QA P1: out of the window RealityKit still ticked the scene at ~45 Hz while shut (`stray=` in the
+            // resume log; battery and heat in a pocket). With nothing in its scene there is nothing to simulate or draw.
+            parkedAnchors = Array(arView.scene.anchors)
+            for anchor in parkedAnchors { arView.scene.removeAnchor(anchor) }
+        } else {
+            for anchor in parkedAnchors where anchor.scene == nil { arView.scene.addAnchor(anchor) }
+            parkedAnchors = []
+            if arView.superview !== anvilClip { anvilClip.addSubview(arView) }
         }
         CATransaction.commit()
         controller?.setRenderPaused(parked)
         scene?.setRenderPaused(parked)
     }
+    /// The scene's anchors, taken out while parked.
+    private var parkedAnchors: [HasAnchoring] = []
 
     /// A window change (a nil hinge around it is expected: `HingePresence`).
     var onWindowChange: (() -> Void)?

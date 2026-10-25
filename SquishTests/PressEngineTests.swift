@@ -787,45 +787,21 @@ struct PressEngineTests {
         var presence = HingePresence()
         let fallBack = presence.lost(at: 1)
         #expect(fallBack)
-        #expect(!presence.available && !presence.seen && presence.deadline == nil)
+        #expect(!presence.available && !presence.seen && presence.missingSince == nil)
     }
 
-    /// Once a hinge has been seen, a transient nil holds the Duo stage; a reading ends the gap.
-    @Test func transientNilHoldsTheFoldStage() {
-        var presence = HingePresence()
-        presence.reading(at: 0)
-        let fallBack = presence.lost(at: 10)
-        #expect(!fallBack && presence.available)
-        let early = presence.shouldFallBack(at: 10 + HingePresence.grace / 2)
-        #expect(!early && presence.available)
-        presence.reading(at: 11)
-        #expect(presence.available && presence.deadline == nil)
-        let later = presence.shouldFallBack(at: 100)
-        #expect(!later && presence.available)
-    }
-
-    /// A hinge missing for the whole grace, with no window or scene change, falls back; a scene change restarts it.
-    @Test func sustainedLossFallsBackUnlessTheSceneChanged() {
+    /// Once a hinge has been seen this launch, a nil never falls back, however long (launch QA P1: the cover flipped to
+    /// the P-48 after the old 4 s grace); a reading ends the gap.
+    @Test func seenHingeNeverFallsBack() {
         var presence = HingePresence()
         presence.reading(at: 0)
         let first = presence.lost(at: 10)
-        let second = presence.lost(at: 11)   // a second nil doesn't restart the gap
-        #expect(!first && !second && presence.deadline == 10 + HingePresence.grace)
-        presence.sceneChanged(at: 13)
-        #expect(presence.deadline == 13 + HingePresence.grace)
-        let beforeRestartedGrace = presence.shouldFallBack(at: 10 + HingePresence.grace)
-        #expect(!beforeRestartedGrace && presence.available)
-        let afterGrace = presence.shouldFallBack(at: 13 + HingePresence.grace)
-        #expect(afterGrace && !presence.available && presence.seen)
-        // A hinge comes back: available again, and the next nil waits again.
-        presence.reading(at: 30)
-        let again = presence.lost(at: 31)
-        #expect(presence.available && !again)
-        // A scene change with no gap running does nothing.
-        var steady = HingePresence()
-        steady.reading(at: 0)
-        steady.sceneChanged(at: 5)
-        #expect(steady.deadline == nil && steady.available)
+        let second = presence.lost(at: 11)
+        let muchLater = presence.lost(at: 10_000)
+        #expect(!first && !second && !muchLater && presence.available && presence.seen)
+        #expect(presence.missingSince == 10)
+        presence.reading(at: 10_001)
+        #expect(presence.available && presence.missingSince == nil)
     }
     // MARK: - Sync fix (founder, real Duo 1.0 (3)): the screen moves with the hand
 
