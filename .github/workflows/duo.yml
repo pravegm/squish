@@ -148,10 +148,18 @@ jobs:
           xcrun simctl boot "$udid"
 
       - name: Install hinge tools
-        timeout-minutes: 10
+        timeout-minutes: 25
         continue-on-error: true
         run: |
-          gtimeout 300 brew install artemnovichkov/tap/hinge || echo "::warning::hinge install failed"
+          # `hinge` is the only driver that moves the simulator out of its closed posture on a tabletop reopen;
+          # run 40195860241 lost it to a 300 s install timeout and every tabletop reveal landed on the cover.
+          for attempt in 1 2 3; do
+            if gtimeout 420 brew install artemnovichkov/tap/hinge; then break; fi
+            echo "::warning::hinge install attempt $attempt failed"
+            brew untap artemnovichkov/tap >/dev/null 2>&1 || true
+            sleep 10
+          done
+          command -v hinge >/dev/null || echo "::warning::hinge install failed after 3 attempts"
           # Fallback A: duo-fold-control's host CLI (CoreSimulator XPC).
           if gtimeout 60 git clone --depth 1 https://github.com/tosbaha/duo-fold-control "$HOME/duo-fold-control"; then
             (cd "$HOME/duo-fold-control/tools" && clang -fobjc-arc -framework Foundation -o duo-hinge duo-hinge.m) \
