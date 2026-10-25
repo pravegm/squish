@@ -100,6 +100,14 @@ crayon/crayon_snap_03.caf	fs215382	0.0	0.34	1,60	m-14L8	100	10000	0	-	wax snap
 crayon/crayon_snap_04.caf	fs322416	0.0	0.55	1,80	m-14L8	100	9000	0	-	wax snap (twig, dulled)
 crayon/crayon_snap_05.caf	fs251464	0.0	0.38	1,60	m-14L8	100	9000	0	-	wax snap (twig, dulled)
 crayon/crayon_snap_06.caf	fs452570	0.0	0.52	1,60	m-14L8	100	9000	0	-	wax snap (twig, dulled)
+crayon/crayon_snap_07.caf	fs460247	2.949	3.086	1,60	m-14L8	100	6500	0	ls400:3;pk3300:-5:1.4	wax snap (small stick, dulled and thickened)
+crayon/crayon_snap_08.caf	fs460247	3.542	3.713	1,60	m-14L8	100	6500	0	ls400:3;pk3300:-5:1.4	wax snap (small stick, dulled and thickened)
+crayon/crayon_snap_09.caf	fs460247	3.944	4.15	1,60	m-14L8	100	6500	0	ls400:3;pk3300:-5:1.4	wax snap (small stick, dulled and thickened)
+crayon/crayon_snap_10.caf	fs460246	0.262	0.459	1,60	m-14L8	100	6500	0	ls400:3;pk3300:-5:1.4	wax snap (small stick, dulled and thickened)
+crayon/crayon_snap_11.caf	fs460246	1.741	1.856	1,60	m-14L8	100	6500	0	ls400:3;pk3300:-5:1.4	wax snap (small stick, dulled and thickened)
+crayon/crayon_snap_12.caf	fs460246	3.542	3.75	1,60	m-14L8	100	6500	0	ls400:3;pk3300:-5:1.4	wax snap (small stick, dulled and thickened)
+crayon/crayon_snap_13.caf	fs460246	4.653	4.761	1,60	m-14L8	100	6500	0	ls400:3;pk3300:-5:1.4	wax snap (small stick, dulled and thickened)
+crayon/crayon_chalk_01.caf	fs258092	0.0	0.094	0,20	m-18L6	300	0	0	-	dry chalk tap: the crumbly top of a wax snap
 crayon/crayon_crumb_01.caf	fs486374	1.421	1.541	1,25	p-6	80	9000	0	-	waxy crumble grain; pk -18.7 dB, centroid 11873 Hz
 crayon/crayon_crumb_02.caf	fs486374	1.681	1.728	1,25	p-6	80	9000	0	-	waxy crumble grain; pk -25.1 dB, centroid 12278 Hz
 crayon/crayon_crumb_03.caf	fs486374	1.742	1.862	1,25	p-6	80	9000	0	-	waxy crumble grain; pk -27.8 dB, centroid 11158 Hz
@@ -158,6 +166,12 @@ cake/cake_collapse_03.caf	fs234872	7.392	7.992	1,100	m-16	100	0	0	-	layer collap
 cake/cake_collapse_04.caf	fs594753	6.069	6.669	1,100	m-16	100	0	0	-	layer collapse (sponge press)
 cake/cake_squirt_01.caf	fs593990	14.197	14.413	1,25	m-16	100	0	0	-	frosting/jam squirt at c 0.65 (wet); pk -7.4 dB, centroid 7578 Hz
 cake/cake_squirt_02.caf	fs593990	25.625	25.792	1,25	m-16	100	0	0	-	frosting/jam squirt at c 0.65 (wet); pk -6.9 dB, centroid 8876 Hz
+cake/cake_creamsquelch_01.caf	fs389517	0.281	0.781	2,80	m-16	100	0	0	-	cream squelch as the slice gives
+cake/cake_creamsquelch_02.caf	fs389517	1.222	1.722	2,80	m-16	100	0	0	-	cream squelch as the slice gives
+cake/cake_creamsquelch_03.caf	fs389517	5.114	5.317	2,80	m-16	100	0	0	-	cream squelch as the slice gives
+cake/cake_creamsquelch_04.caf	fs389517	10.546	10.952	2,80	m-16	100	0	0	-	cream squelch as the slice gives
+cake/cake_creamsquelch_05.caf	fs459552	3.966	4.16	2,80	m-16	100	0	0	-	cream squelch as the slice gives
+cake/cake_creamsquelch_06.caf	fs459552	52.338	52.552	2,80	m-16	100	0	0	-	cream squelch as the slice gives
 cake/cake_icing_01.caf	fs406336	0.0	0.6	1,100	m-18L6	100	0	0	-	icing crack (fracture at c 0.3)
 cake/cake_icing_02.caf	fs406336	0.9	1.5	5,100	m-18L6	100	0	0	-	icing crack (fracture at c 0.3)
 can/can_buckle_01.caf	fs131323	0.0	0.55	1,100	m-14L8	80	0	0	-	buckle (fracture events)

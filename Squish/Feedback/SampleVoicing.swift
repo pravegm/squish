@@ -69,7 +69,9 @@ enum SampleMap {
         case "jelly.place", "jelly.reveal", "jelly.release", "jelly.poke": return rule("jelly_wobble")
         // Crayon.
         // Short breaks: lifted so they stand over the bed like the others (CI: crayon 4.1 LU, egg 5.4 LU).
-        case "crayon.snap": return Rule(picks: [Pick(group: "crayon_snap", gain: 1.4)])
+        // A wax crayon snap, layered from recordings (no CC0 wax snaps exist): a dulled small-stick snap body under
+        // a dry chalk transient.
+        case "crayon.snap": return Rule(picks: [Pick(group: "crayon_snap", gain: 1.4), Pick(group: "crayon_chalk", gain: 0.7)])
         case "crayon.crumble", "crayon.reveal", "crayon.crush": return rule("crayon_crumb")
         case "crayon.place", "crayon.contact", "crayon.poke": return rule("crayon_tap")
         // Egg.
@@ -80,7 +82,9 @@ enum SampleMap {
         case "egg.spread": return rule("egg_yolk")
         // Cake.
         case "cake.failure":
-            return Rule(picks: [Pick(group: "cake_collapse"), Pick(group: "cake_squirt", delay: 0.06, gain: 0.8)])
+            // A pressed slice, layered: the sponge collapse, the cream squelching out under it, then the jam squirt.
+            return Rule(picks: [Pick(group: "cake_collapse"), Pick(group: "cake_creamsquelch", delay: 0.02, gain: 0.8),
+                                Pick(group: "cake_squirt", delay: 0.06, gain: 0.8)])
         case "cake.icing": return rule("cake_icing")
         case "cake.reveal", "cake.grain": return rule("cake_crumb")
         // Soda can.

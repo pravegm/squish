@@ -100,6 +100,14 @@ crayon/crayon_snap_03.caf	fs215382	0.283	-21.5	-21.5	-1.3	3.3	4539	0.33	-
 crayon/crayon_snap_04.caf	fs322416	0.242	-25.4	-25.4	-1.2	16.5	6402	0.20	-
 crayon/crayon_snap_05.caf	fs251464	0.154	-25.9	-25.9	-1.3	13.8	5174	0.22	-
 crayon/crayon_snap_06.caf	fs452570	0.390	-19.7	-19.7	-1.0	16.3	6333	0.13	-
+crayon/crayon_snap_07.caf	fs460247	0.137	-22.6	-22.6	-1.5	9.6	5115	0.31	ls400:3;pk3300:-5:1.4
+crayon/crayon_snap_08.caf	fs460247	0.171	-24.0	-24.0	-1.0	18.5	5074	0.14	ls400:3;pk3300:-5:1.4
+crayon/crayon_snap_09.caf	fs460247	0.206	-23.9	-23.9	-1.0	35.8	6311	0.01	ls400:3;pk3300:-5:1.4
+crayon/crayon_snap_10.caf	fs460246	0.197	-23.3	-23.3	-1.0	8.8	3307	0.21	ls400:3;pk3300:-5:1.4
+crayon/crayon_snap_11.caf	fs460246	0.115	-27.3	-27.3	-1.1	9.7	5329	0.16	ls400:3;pk3300:-5:1.4
+crayon/crayon_snap_12.caf	fs460246	0.188	-22.6	-22.6	-1.2	8.5	5453	0.12	ls400:3;pk3300:-5:1.4
+crayon/crayon_snap_13.caf	fs460246	0.108	-25.0	-25.0	-1.1	24.2	6580	0.06	ls400:3;pk3300:-5:1.4
+crayon/crayon_chalk_01.caf	fs258092	0.092	-26.2	-26.2	-1.5	20.6	777	0.03	-
 crayon/crayon_crumb_01.caf	fs486374	0.120	-34.9	-34.9	-5.3	20.1	6431	0.15	-
 crayon/crayon_crumb_02.caf	fs486374	0.047	-33.9	-33.9	-6.0	29.9	4526	0.13	-
 crayon/crayon_crumb_03.caf	fs486374	0.120	-35.6	-35.6	-5.5	30.0	1279	0.08	-
@@ -158,6 +166,12 @@ cake/cake_collapse_03.caf	fs234872	0.600	-23.3	-22.4	-1.0	28.5	8136	0.09	-
 cake/cake_collapse_04.caf	fs594753	0.600	-31.9	-29.8	-1.0	12.3	3584	0.20	-
 cake/cake_squirt_01.caf	fs593990	0.216	-18.6	-18.6	-1.0	6.5	7518	0.07	-
 cake/cake_squirt_02.caf	fs593990	0.167	-23.8	-23.8	-1.0	5.6	10810	0.06	-
+cake/cake_creamsquelch_01.caf	fs389517	0.500	-32.9	-30.4	-1.0	17.6	3357	0.15	-
+cake/cake_creamsquelch_02.caf	fs389517	0.500	-32.3	-31.2	-1.0	17.4	5476	0.32	-
+cake/cake_creamsquelch_03.caf	fs389517	0.203	-27.2	-27.2	-1.0	15.2	4861	0.06	-
+cake/cake_creamsquelch_04.caf	fs389517	0.406	-22.8	-22.8	-1.0	20.8	7683	0.15	-
+cake/cake_creamsquelch_05.caf	fs459552	0.194	-31.7	-31.7	-1.0	3.6	2522	0.18	-
+cake/cake_creamsquelch_06.caf	fs459552	0.214	-31.0	-31.0	-1.0	4.6	3073	0.38	-
 cake/cake_icing_01.caf	fs406336	0.553	-26.5	-25.7	-1.0	12.1	5140	0.40	-
 cake/cake_icing_02.caf	fs406336	0.600	-21.4	-21.1	-1.0	16.7	7132	0.23	-
 can/can_buckle_01.caf	fs131323	0.520	-24.2	-23.3	-1.3	7.3	2879	0.12	-

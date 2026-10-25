@@ -78,6 +78,17 @@ r crayon/crayon_snap.caf fs215382 0.0 0.34 1,60 m-14L8 100 10000 0 - "wax snap"
 r crayon/crayon_snap.caf fs322416 0.0 0.55 1,80 m-14L8 100 9000 0 - "wax snap (twig, dulled)"
 r crayon/crayon_snap.caf fs251464 0.0 0.38 1,60 m-14L8 100 9000 0 - "wax snap (twig, dulled)"
 r crayon/crayon_snap.caf fs452570 0.0 0.52 1,60 m-14L8 100 9000 0 - "wax snap (twig, dulled)"
+# EXPERIENCE-REVIEW-1 #9: no CC0 wax-crayon snap exists, so the snap is layered: small popsicle-stick breaks,
+# low-passed and given low-mid weight so they read dense and waxy, not woody (the body), under a dry chalk tap
+# (crayon_chalk, layered at runtime by SampleMap).
+r crayon/crayon_snap.caf fs460247 2.949 3.086 1,60 m-14L8 100 6500 0 "ls400:3;pk3300:-5:1.4" "wax snap (small stick, dulled and thickened)"
+r crayon/crayon_snap.caf fs460247 3.542 3.713 1,60 m-14L8 100 6500 0 "ls400:3;pk3300:-5:1.4" "wax snap (small stick, dulled and thickened)"
+r crayon/crayon_snap.caf fs460247 3.944 4.15 1,60 m-14L8 100 6500 0 "ls400:3;pk3300:-5:1.4" "wax snap (small stick, dulled and thickened)"
+r crayon/crayon_snap.caf fs460246 0.262 0.459 1,60 m-14L8 100 6500 0 "ls400:3;pk3300:-5:1.4" "wax snap (small stick, dulled and thickened)"
+r crayon/crayon_snap.caf fs460246 1.741 1.856 1,60 m-14L8 100 6500 0 "ls400:3;pk3300:-5:1.4" "wax snap (small stick, dulled and thickened)"
+r crayon/crayon_snap.caf fs460246 3.542 3.75 1,60 m-14L8 100 6500 0 "ls400:3;pk3300:-5:1.4" "wax snap (small stick, dulled and thickened)"
+r crayon/crayon_snap.caf fs460246 4.653 4.761 1,60 m-14L8 100 6500 0 "ls400:3;pk3300:-5:1.4" "wax snap (small stick, dulled and thickened)"
+r crayon/crayon_chalk.caf fs258092 0.0 0.094 0,20 m-18L6 300 0 0 - "dry chalk tap: the crumbly top of a wax snap"
 p fs486374 crayon/crayon_crumb --n 10 --max 0.12 --range 30 --gap 0.05 --lp 9000 --norm p-6 --note "waxy crumble grain"
 p fs116595 crayon/crayon_crumb --n 6 --max 0.12 --range 18 --gap 0.5 --lp 8000 --norm p-6 --note "dry crumble grain (celery, dulled)"
 r crayon/crayon_tap.caf  fs232900 0.0 0.65 1,120 m-20L6 100 0 0 - "crayon tap and roll (place, contact)"
@@ -103,6 +114,13 @@ p fs414310 cake/cake_collapse --n 2 --max 0.6 --gap 3.0 --norm m-16 --whole 1 --
 r cake/cake_collapse.caf fs234872 7.392 7.992 1,100 m-16 100 0 0 - "layer collapse (sponge squeeze)"
 r cake/cake_collapse.caf fs594753 6.069 6.669 1,100 m-16 100 0 0 - "layer collapse (sponge press)"
 p fs593990 cake/cake_squirt --from 10 --n 2 --max 0.5 --range 6 --gap 3.0 --norm m-16 --hp 100 --whole 1 --note "frosting/jam squirt at c 0.65 (wet)"
+# A pressed slice, layered: the cream squelching out of the sponge (wet: Soft drops it).
+r cake/cake_creamsquelch.caf fs389517 0.281 0.781 2,80 m-16 100 0 0 - "cream squelch as the slice gives"
+r cake/cake_creamsquelch.caf fs389517 1.222 1.722 2,80 m-16 100 0 0 - "cream squelch as the slice gives"
+r cake/cake_creamsquelch.caf fs389517 5.114 5.317 2,80 m-16 100 0 0 - "cream squelch as the slice gives"
+r cake/cake_creamsquelch.caf fs389517 10.546 10.952 2,80 m-16 100 0 0 - "cream squelch as the slice gives"
+r cake/cake_creamsquelch.caf fs459552 3.966 4.16 2,80 m-16 100 0 0 - "cream squelch as the slice gives"
+r cake/cake_creamsquelch.caf fs459552 52.338 52.552 2,80 m-16 100 0 0 - "cream squelch as the slice gives"
 r cake/cake_icing.caf fs406336 0.0 0.6 1,100 m-18L6 100 0 0 - "icing crack (fracture at c 0.3)"
 r cake/cake_icing.caf fs406336 0.9 1.5 5,100 m-18L6 100 0 0 - "icing crack (fracture at c 0.3)"
 

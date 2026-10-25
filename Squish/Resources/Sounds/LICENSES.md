@@ -5,7 +5,7 @@ This file is **generated** by `ci/sounds/cut.mjs` from `ci/sounds/sources.tsv` a
 
 ## Licences in use
 
-- **CC0-1.0**: 305 files. Creative Commons Zero 1.0 (public-domain dedication): commercial use, modification and redistribution allowed; no attribution required. https://creativecommons.org/publicdomain/zero/1.0/
+- **CC0-1.0**: 319 files. Creative Commons Zero 1.0 (public-domain dedication): commercial use, modification and redistribution allowed; no attribution required. https://creativecommons.org/publicdomain/zero/1.0/
 
 Only CC0 material is committed, because this repository is public. Sonniss GDC, Pixabay, ZapSplat and paid-library material may be bundled in the app but must never be committed here (see design/SOUND-2.md §2).
 
@@ -54,6 +54,9 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | fs322416 | Freesound (HQ preview) | Glitchedtones | Twig Snap 05.wav | CC0-1.0 | https://freesound.org/people/Glitchedtones/sounds/322416/ | https://cdn.freesound.org/previews/322/322416_3294528-hq.ogg (`1c4c167f91319078…`) |
 | fs251464 | Freesound (HQ preview) | martian | twig snap classic.wav | CC0-1.0 | https://freesound.org/people/martian/sounds/251464/ | https://cdn.freesound.org/previews/251/251464_84709-hq.ogg (`b3d1a00d519e785a…`) |
 | fs452570 | Freesound (HQ preview) | kyles | branch breaking forest twig snap crunch.wav | CC0-1.0 | https://freesound.org/people/kyles/sounds/452570/ | https://cdn.freesound.org/previews/452/452570_612689-hq.ogg (`baf6eda6dad76f9e…`) |
+| fs460247 | Freesound (HQ preview) | TheHiraHira | wood break small 1.mp3 | CC0-1.0 | https://freesound.org/people/TheHiraHira/sounds/460247/ | https://cdn.freesound.org/previews/460/460247_9117851-hq.ogg (`b3d82dafc4c39b49…`) |
+| fs460246 | Freesound (HQ preview) | TheHiraHira | wood break small 2.mp3 | CC0-1.0 | https://freesound.org/people/TheHiraHira/sounds/460246/ | https://cdn.freesound.org/previews/460/460246_9117851-hq.ogg (`dd28594a4631d254…`) |
+| fs258092 | Freesound (HQ preview) | joedeshon | tap_on_chalkboard.wav | CC0-1.0 | https://freesound.org/people/joedeshon/sounds/258092/ | https://cdn.freesound.org/previews/258/258092_1218676-hq.ogg (`8ee285c229fec985…`) |
 | fs116595 | Freesound (HQ preview) | mrmccormack | MrM_CeleryBreaking.wav | CC0-1.0 | https://freesound.org/people/mrmccormack/sounds/116595/ | https://cdn.freesound.org/previews/116/116595_2073257-hq.ogg (`f9cc9a5bb6851009…`) |
 | fs232900 | Freesound (HQ preview) | Ottomaani138 | crayon_falling.wav | CC0-1.0 | https://freesound.org/people/Ottomaani138/sounds/232900/ | https://cdn.freesound.org/previews/232/232900_3756058-hq.ogg (`78464f5f4223e652…`) |
 | fs336613 | Freesound (HQ preview) | Anthousai | egg - crack 01.wav | CC0-1.0 | https://freesound.org/people/Anthousai/sounds/336613/ | https://cdn.freesound.org/previews/336/336613_5923045-hq.ogg (`f018a104ded6be1e…`) |
@@ -68,6 +71,8 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | fs414310 | Freesound (HQ preview) | newagesoup | Graham Cracker Steps | CC0-1.0 | https://freesound.org/people/newagesoup/sounds/414310/ | https://cdn.freesound.org/previews/414/414310_4067257-hq.ogg (`cfaa9ab9ddd4623f…`) |
 | fs234872 | Freesound (HQ preview) | mlsulli | Sponge Being Squeezed.wav | CC0-1.0 | https://freesound.org/people/mlsulli/sounds/234872/ | https://cdn.freesound.org/previews/234/234872_3883507-hq.ogg (`63887b253f181686…`) |
 | fs594753 | Freesound (HQ preview) | emilyneiswonger | Pressing down on sponge | CC0-1.0 | https://freesound.org/people/emilyneiswonger/sounds/594753/ | https://cdn.freesound.org/previews/594/594753_13373365-hq.ogg (`52cf330b4254b579…`) |
+| fs389517 | Freesound (HQ preview) | APallot | Squelch.wav | CC0-1.0 | https://freesound.org/people/APallot/sounds/389517/ | https://cdn.freesound.org/previews/389/389517_6088041-hq.ogg (`fbf4daee4697c7ad…`) |
+| fs459552 | Freesound (HQ preview) | wmaresco | Mac&cheese.wav | CC0-1.0 | https://freesound.org/people/wmaresco/sounds/459552/ | https://cdn.freesound.org/previews/459/459552_7353057-hq.ogg (`2dbc0bfac6e5210a…`) |
 | fs406336 | Freesound (HQ preview) | Slowmote | crunch crispy breadbun | CC0-1.0 | https://freesound.org/people/Slowmote/sounds/406336/ | https://cdn.freesound.org/previews/406/406336_3848616-hq.ogg (`387ba764455a1738…`) |
 | fs131323 | Freesound (HQ preview) | nahmandub | Crushing aluminum can 2.wav | CC0-1.0 | https://freesound.org/people/nahmandub/sounds/131323/ | https://cdn.freesound.org/previews/131/131323_1513948-hq.ogg (`38d2e8163c6d0f8e…`) |
 | fs445240 | Freesound (HQ preview) | DMDoom | Beer can crush.wav | CC0-1.0 | https://freesound.org/people/DMDoom/sounds/445240/ | https://cdn.freesound.org/previews/445/445240_2824308-hq.ogg (`ca7f5642a4e9a627…`) |
@@ -217,6 +222,14 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | crayon/crayon_snap_04.caf | fs322416 | 0.000–0.550 | - |
 | crayon/crayon_snap_05.caf | fs251464 | 0.000–0.380 | - |
 | crayon/crayon_snap_06.caf | fs452570 | 0.000–0.520 | - |
+| crayon/crayon_snap_07.caf | fs460247 | 2.949–3.086 | ls400:3;pk3300:-5:1.4 |
+| crayon/crayon_snap_08.caf | fs460247 | 3.542–3.713 | ls400:3;pk3300:-5:1.4 |
+| crayon/crayon_snap_09.caf | fs460247 | 3.944–4.150 | ls400:3;pk3300:-5:1.4 |
+| crayon/crayon_snap_10.caf | fs460246 | 0.262–0.459 | ls400:3;pk3300:-5:1.4 |
+| crayon/crayon_snap_11.caf | fs460246 | 1.741–1.856 | ls400:3;pk3300:-5:1.4 |
+| crayon/crayon_snap_12.caf | fs460246 | 3.542–3.750 | ls400:3;pk3300:-5:1.4 |
+| crayon/crayon_snap_13.caf | fs460246 | 4.653–4.761 | ls400:3;pk3300:-5:1.4 |
+| crayon/crayon_chalk_01.caf | fs258092 | 0.000–0.094 | - |
 | crayon/crayon_crumb_01.caf | fs486374 | 1.421–1.541 | - |
 | crayon/crayon_crumb_02.caf | fs486374 | 1.681–1.728 | - |
 | crayon/crayon_crumb_03.caf | fs486374 | 1.742–1.862 | - |
@@ -275,6 +288,12 @@ Courtesy credits (not required by CC0): Freesound contributors listed below, Big
 | cake/cake_collapse_04.caf | fs594753 | 6.069–6.669 | - |
 | cake/cake_squirt_01.caf | fs593990 | 14.197–14.413 | - |
 | cake/cake_squirt_02.caf | fs593990 | 25.625–25.792 | - |
+| cake/cake_creamsquelch_01.caf | fs389517 | 0.281–0.781 | - |
+| cake/cake_creamsquelch_02.caf | fs389517 | 1.222–1.722 | - |
+| cake/cake_creamsquelch_03.caf | fs389517 | 5.114–5.317 | - |
+| cake/cake_creamsquelch_04.caf | fs389517 | 10.546–10.952 | - |
+| cake/cake_creamsquelch_05.caf | fs459552 | 3.966–4.160 | - |
+| cake/cake_creamsquelch_06.caf | fs459552 | 52.338–52.552 | - |
 | cake/cake_icing_01.caf | fs406336 | 0.000–0.600 | - |
 | cake/cake_icing_02.caf | fs406336 | 0.900–1.500 | - |
 | can/can_buckle_01.caf | fs131323 | 0.000–0.550 | - |
