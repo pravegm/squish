@@ -96,9 +96,17 @@ struct PressConfig: Codable, Equatable, Sendable {
     /// explicitly, which would have hidden the fix, so it is dropped once.
     private static let storageKey = "squish.pressConfig.v5"
 
+    /// Debug builds: the Tuning Lab's saved tuning. Release builds: always the shipped defaults, and any tuning an
+    /// earlier TestFlight build's lab saved is dropped, so it can never override a later build's defaults (the lab is
+    /// Debug-only now, App Review 2.5.19).
     static func loadSaved() -> PressConfig {
+        #if DEBUG
         guard let data = UserDefaults.standard.data(forKey: storageKey) else { return .standard }
         return decodeLeniently(data) ?? .standard
+        #else
+        UserDefaults.standard.removeObject(forKey: storageKey)
+        return .standard
+        #endif
     }
 
     /// Decodes a saved tuning; keys it lacks (a field added after it was saved) take their defaults instead of the
@@ -108,8 +116,10 @@ struct PressConfig: Codable, Equatable, Sendable {
     }
 
     func save() {
+        #if DEBUG
         guard let data = try? JSONEncoder().encode(self) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
+        #endif
     }
 
     func prettyJSON() -> String {

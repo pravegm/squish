@@ -1,12 +1,20 @@
 import SwiftUI
 import UIKit
 
+// The Tuning Lab is a development tool: Debug builds only. Release builds (TestFlight and the App Store) contain no
+// route to it and no code for it (App Review 2.5.19: no hidden or dormant features; the review notes promise no debug
+// modes). The user-facing diagnostics live in Settings → About → "Sound & vibration check".
+
+#if DEBUG
 /// On-device tuning for every constant in bible §6–8, plus the raw hinge log that replaces a separate Hinge Lab.
 struct TuningLabView: View {
     let director: PressDirector
     @Environment(\.dismiss) private var dismiss
     @State private var copiedMessage: String?
     @State private var diagnosticsMessage: String?
+    /// The tuning as the lab opened: it is saved on the way out only if something was changed here, so opening the lab
+    /// (to read the diagnostics) never pins provisional values over a later build's defaults.
+    @State private var openingConfig: PressConfig?
 
     var body: some View {
         @Bindable var engine = director.engine
@@ -125,8 +133,11 @@ struct TuningLabView: View {
                 }
             }
         }
+        .onAppear {
+            if openingConfig == nil { openingConfig = director.engine.config }
+        }
         .onDisappear {
-            director.engine.config.save()
+            if director.engine.config != openingConfig { director.engine.config.save() }
         }
     }
 
@@ -263,5 +274,50 @@ private struct TuneSlider: View {
             }
             Slider(value: $value, in: range)
         }
+    }
+}
+#endif
+
+// MARK: - Routes in (Debug only)
+
+extension View {
+    /// Debug builds: a 0.8 s long-press and a VoiceOver action open the Tuning Lab. Release builds: nothing at all.
+    func tuningLabEntry(_ show: Binding<Bool>) -> some View {
+        modifier(TuningLabEntry(show: show))
+    }
+
+    /// Debug builds: presents the Tuning Lab. Release builds: nothing at all.
+    func tuningLabSheet(_ isPresented: Binding<Bool>, director: PressDirector) -> some View {
+        modifier(TuningLabSheet(isPresented: isPresented, director: director))
+    }
+}
+
+struct TuningLabEntry: ViewModifier {
+    @Binding var show: Bool
+
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content
+            .onLongPressGesture(minimumDuration: 0.8) {
+                UIFeel.press()
+                show = true
+            }
+            .accessibilityAction(named: "Open Tuning Lab") { show = true }
+        #else
+        content
+        #endif
+    }
+}
+
+struct TuningLabSheet: ViewModifier {
+    @Binding var isPresented: Bool
+    let director: PressDirector
+
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content.sheet(isPresented: $isPresented) { TuningLabView(director: director) }
+        #else
+        content
+        #endif
     }
 }

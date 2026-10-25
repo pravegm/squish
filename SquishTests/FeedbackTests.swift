@@ -1001,6 +1001,15 @@ struct FeedbackTests {
         #expect(chunk.filter { $0.kind == .transient && $0.intensity >= 0.8 }.count >= 2)
     }
 
+    /// Launch QA: a start that keeps failing after a route change (a 44.1 kHz car link) escalates instead of retrying
+    /// the same graph forever: retry, then reconnect the output to renegotiate its format, then rebuild the graph.
+    @Test func engineStartFailuresEscalate() {
+        #expect(AudioController.recovery(afterFailures: 1) == .retry)
+        #expect(AudioController.recovery(afterFailures: 2) == .reconnectOutput)
+        #expect(AudioController.recovery(afterFailures: 3) == .rebuild)
+        #expect(AudioController.recovery(afterFailures: 9) == .rebuild)
+    }
+
     @Test func signatureCaptions() {
         #expect(Captions.failure(.glassBottle) == "SMASH!")
         #expect(Captions.failure(.sodaCan) == "FSSSHT!")

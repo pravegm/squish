@@ -49,6 +49,10 @@ final class AudioController {
     private(set) var lastError: String?
     private(set) var lastEvent = "Not started"
     private(set) var engineStarts = 0
+    /// Consecutive failed starts; drives the escalation (`EngineRecovery`).
+    private(set) var startFailures = 0
+    private var lastRebuild: CFTimeInterval = -.infinity
+    private var rebuilding = false
     private var lastTickAngle: Double?
     private var lastUpdate: CFTimeInterval = 0
     private var lastPhase: PressPhase = .idle
@@ -163,9 +167,55 @@ final class AudioController {
         do {
             try engine.start()
             engineStarts += 1
+            startFailures = 0
             lastEvent = "Engine started (\(reason))"
         } catch {
-            record("Couldn't start the audio engine (\(reason))", error)
+            startFailures += 1
+            record("Couldn't start the audio engine (\(reason), try \(startFailures))", error)
+            recover(after: reason)
+        }
+    }
+
+    /// What to do after the n-th failed start in a row. Retrying forever does nothing when the output format changed
+    /// under the graph (a 44.1 kHz car Bluetooth link): reconnect the output so it renegotiates, then rebuild.
+    enum EngineRecovery: Equatable {
+        case retry, reconnectOutput, rebuild
+    }
+
+    nonisolated static func recovery(afterFailures failures: Int) -> EngineRecovery {
+        switch failures {
+        case ..<2: .retry
+        case 2: .reconnectOutput
+        default: .rebuild
+        }
+    }
+
+    private func recover(after reason: String) {
+        switch Self.recovery(afterFailures: startFailures) {
+        case .retry:
+            break // the next route change, activation or the 1 s self-heal tries again
+        case .reconnectOutput:
+            // Let the mixer → output connection pick up the hardware's current format.
+            engine.disconnectNodeOutput(engine.mainMixerNode)
+            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
+            do {
+                try engine.start()
+                engineStarts += 1
+                startFailures = 0
+                lastEvent = "Engine started after reconnecting the output (\(reason))"
+            } catch {
+                startFailures += 1
+                record("Couldn't start the audio engine after reconnecting the output", error)
+            }
+        case .rebuild:
+            let now = CACurrentMediaTime()
+            guard !rebuilding, now - lastRebuild >= 3 else { return }
+            rebuilding = true
+            lastRebuild = now
+            startFailures = 0
+            lastEvent = "Engine kept failing: rebuilding the graph"
+            rebuildAfterMediaReset()
+            rebuilding = false
         }
     }
 
@@ -458,7 +508,8 @@ final class AudioController {
                           isWarning: session.outputVolume < 0.05),
             DiagnosticRow(title: "Other app playing audio", value: DiagnosticRow.yesNo(session.isOtherAudioPlaying)),
             DiagnosticRow(title: "Audio engine running", value: DiagnosticRow.yesNo(running), isWarning: !running),
-            DiagnosticRow(title: "Engine starts", value: "\(engineStarts)"),
+            DiagnosticRow(title: "Engine starts", value: "\(engineStarts) · failed in a row \(startFailures)",
+                          isWarning: startFailures > 0),
             DiagnosticRow(title: "Render callbacks", value: "\(stats.callbacks) (climbs while audio flows)",
                           isWarning: stats.callbacks == 0),
             DiagnosticRow(title: "Output level now", value: AudioMix.decibels(stats.recentPeak)),

@@ -364,6 +364,7 @@ struct CollectionTests {
     @Test func retiredAchievementDoesNotCorruptTheCollection() throws {
         let (store, folder) = makeStore()
         press(store, .egg)
+        store.flushSaves()
         let file = folder.appendingPathComponent("collection.json")
         let data = try Data(contentsOf: file)
         var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -409,12 +410,12 @@ struct CollectionTests {
 
     // MARK: Persistence
 
-    @Test func persistenceRoundTrip() throws {
+    @Test func persistenceRoundTrip() async throws {
         let (store, folder) = makeStore()
         press(store, .bubbleWrap, perfect: true, fractures: 24)
         press(store, .rubberDuck)
         let golden = press(store, .jelly, golden: true)
-        store.attachThumbnail(tinyPNG(), to: golden.specimen.id)
+        await store.attachThumbnail(tinyPNG(), to: golden.specimen.id).value
 
         let (reloaded, _) = makeStore(at: folder)
         #expect(reloaded.specimens == store.specimens)
@@ -427,7 +428,7 @@ struct CollectionTests {
         #expect(best.id == golden.specimen.id)
         let url = try #require(reloaded.thumbnailURL(for: best))
         #expect(FileManager.default.fileExists(atPath: url.path))
-        let image = try #require(reloaded.thumbnail(for: best))
+        let image = try #require(reloaded.loadThumbnail(for: best))
         #expect(image.size.width == CollectionStore.thumbnailSize)
         #expect(image.size.width == image.size.height)
     }
@@ -443,6 +444,155 @@ struct CollectionTests {
         press(store, .egg)
         let (reloaded, _) = makeStore(at: folder)
         #expect(reloaded.totalPresses == 1)
+    }
+
+    // MARK: Launch QA: forward-compatible files, background saves, pruning, traces
+
+    /// A newer build's file (an extra field, an object, surprise and stat this build doesn't know) loads everything this
+    /// build does know: it used to fail as a whole, get set aside as corrupt, and leave an empty collection.
+    @Test func newerFileWithUnknownKindsStillLoads() throws {
+        let (store, folder) = makeStore()
+        press(store, .bubbleWrap, fractures: 12)
+        press(store, .egg, perfect: true)
+        store.flushSaves()
+        let file = folder.appendingPathComponent("collection.json")
+        var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        object["futureField"] = ["anything": 1]
+        var specimens = try #require(object["specimens"] as? [[String: Any]])
+        var alien = try #require(specimens.first)
+        alien["kind"] = "spaceship"
+        alien["id"] = UUID().uuidString
+        specimens.append(alien)
+        object["specimens"] = specimens
+        object["unlocked"] = ((object["unlocked"] as? [String]) ?? []) + ["spaceship"]
+        var stats = try #require(object["stats"] as? [String: Any])
+        stats["squishedKinds"] = ((stats["squishedKinds"] as? [String]) ?? []) + ["spaceship"]
+        stats["surprisesFound"] = ["dragonEgg"]
+        stats["warpCount"] = 7
+        object["stats"] = stats
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+
+        let (reloaded, _) = makeStore(at: folder)
+        #expect(reloaded.specimens.count == 2)
+        #expect(reloaded.totalPresses == 2)
+        #expect(reloaded.stats.squishedKinds == [.bubbleWrap, .egg])
+        #expect(reloaded.stats.perfectCount == 1)
+        #expect(reloaded.stats.bubblesPopped == 12)
+        #expect(reloaded.stats.surprisesFound.isEmpty)
+        #expect(reloaded.best(for: .egg) != nil)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(!leftovers.contains { $0.hasPrefix("collection.corrupt") })
+    }
+
+    /// Missing fields (an older or hand-trimmed file) take their defaults instead of failing.
+    @Test func statsWithMissingFieldsTakeDefaults() throws {
+        let data = Data(#"{"squishedKinds":["egg","sparkle"],"perfectCount":3}"#.utf8)
+        let stats = try JSONDecoder().decode(CollectionStore.Stats.self, from: data)
+        #expect(stats.squishedKinds == [.egg])
+        #expect(stats.perfectCount == 3)
+        #expect(stats.goldenCount == 0)
+        #expect(stats.longestPress == 0)
+    }
+
+    /// Real seeds span the whole UInt64 range; one above Int64.max survives a save and a reload exactly.
+    @Test func seedsAboveInt64MaxRoundTrip() {
+        let (store, folder) = makeStore()
+        let seeds: [UInt64] = [UInt64(Int64.max) + 1, UInt64.max, UInt64.max - 12_345]
+        for seed in seeds {
+            let result = PressResult(kind: .crayon, seed: seed, failureAngle: 90, fractureCount: 3, maxCompression: 0.9,
+                                     duration: 5, wasSlammed: false, isPerfect: false, reversals: 0)
+            _ = store.record(result, variant: PressVariant(kind: .crayon, seed: seed))
+        }
+        let (reloaded, _) = makeStore(at: folder)
+        #expect(reloaded.specimens.map(\.variant.seed).sorted() == seeds.sorted())
+    }
+
+    /// At the 500-specimen cap the oldest cards go with their photos and traces, but a best card stays, photo and all.
+    @Test func pruningAtTheCapDeletesPhotosAndTracesButKeepsBests() async throws {
+        let (store, folder) = makeStore()
+        // The oldest two: a Golden duck (the duck's best, forever) and a plain bubble wrap.
+        let golden = press(store, .rubberDuck, golden: true)
+        let plain = press(store, .bubbleWrap)
+        await store.attachThumbnail(tinyPNG(), to: golden.specimen.id).value
+        await store.attachThumbnail(tinyPNG(), to: plain.specimen.id).value
+        let traces = store.traceDirectory
+        try FileManager.default.createDirectory(at: traces, withIntermediateDirectories: true)
+        for id in [golden.specimen.id, plain.specimen.id] {
+            try Data("{}".utf8).write(to: traces.appendingPathComponent("\(id.uuidString).json"))
+        }
+        let goldenCard = try #require(store.specimen(withID: golden.specimen.id))
+        let plainCard = try #require(store.specimen(withID: plain.specimen.id))
+        let goldenPhoto = try #require(store.thumbnailURL(for: goldenCard))
+        let plainPhoto = try #require(store.thumbnailURL(for: plainCard))
+        // Fill the shelf past the cap with plain bubble wrap: both old cards fall off the end.
+        for _ in 0..<CollectionStore.capacity {
+            press(store, .bubbleWrap)
+        }
+        #expect(store.specimens.count == CollectionStore.capacity)
+        #expect(!store.specimens.contains { $0.id == plain.specimen.id })
+        #expect(!store.specimens.contains { $0.id == golden.specimen.id })
+        // The plain card's photo and trace are gone; the Golden best keeps both.
+        #expect(!FileManager.default.fileExists(atPath: plainPhoto.path))
+        #expect(FileManager.default.fileExists(atPath: goldenPhoto.path))
+        #expect(store.best(for: .rubberDuck)?.id == golden.specimen.id)
+        let plainTrace = traces.appendingPathComponent("\(plain.specimen.id.uuidString).json")
+        let goldenTrace = traces.appendingPathComponent("\(golden.specimen.id.uuidString).json")
+        for _ in 0..<40 where FileManager.default.fileExists(atPath: plainTrace.path) {
+            try await Task.sleep(for: .milliseconds(50))   // the trace delete runs off the main thread
+        }
+        #expect(!FileManager.default.fileExists(atPath: plainTrace.path))
+        #expect(FileManager.default.fileExists(atPath: goldenTrace.path))
+        // And the cap survives a reload (the save went to the background writer).
+        let (reloaded, _) = makeStore(at: folder)
+        #expect(reloaded.specimens.count == CollectionStore.capacity)
+        #expect(reloaded.best(for: .rubberDuck)?.id == golden.specimen.id)
+    }
+
+    /// Deleting a card deletes its share-clip trace; progress stays.
+    @Test func deletingACardDeletesItsTrace() async throws {
+        let (store, _) = makeStore()
+        press(store, .jelly)
+        let second = press(store, .jelly)
+        let traces = store.traceDirectory
+        try FileManager.default.createDirectory(at: traces, withIntermediateDirectories: true)
+        let trace = traces.appendingPathComponent("\(second.specimen.id.uuidString).json")
+        try Data("{}".utf8).write(to: trace)
+        // Delete the newest jelly (the best): the best falls back to the older card, and this card's trace goes.
+        store.delete(second.specimen.id)
+        for _ in 0..<40 where FileManager.default.fileExists(atPath: trace.path) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(!FileManager.default.fileExists(atPath: trace.path))
+        #expect(store.totalPresses == 2)
+    }
+
+    /// A photo attached to a card that was deleted meanwhile leaves no file behind.
+    @Test func photoForADeletedCardLeavesNoFile() async throws {
+        let (store, folder) = makeStore()
+        let outcome = press(store, .egg)
+        let task = store.attachThumbnail(tinyPNG(), to: outcome.specimen.id)
+        store.delete(outcome.specimen.id)
+        await task.value
+        let file = folder.appendingPathComponent("\(outcome.specimen.id.uuidString).png")
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// Thumbnails decode off the main thread on demand, at the size asked for.
+    @Test func rowThumbnailsAreSmallAndArriveAsync() async throws {
+        let (store, folder) = makeStore()
+        let outcome = press(store, .crayon)
+        await store.attachThumbnail(tinyPNG(), to: outcome.specimen.id).value
+        let (reloaded, _) = makeStore(at: folder)   // a cold cache
+        let card = try #require(reloaded.specimen(withID: outcome.specimen.id))
+        #expect(reloaded.rowThumbnail(for: card) == nil)   // a miss starts the decode and returns at once
+        var row: UIImage?
+        for _ in 0..<40 {
+            row = reloaded.rowThumbnail(for: card)
+            if row != nil { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let image = try #require(row)
+        #expect(image.size.width <= CollectionStore.rowThumbnailPixels)
     }
 
     // MARK: Copy
@@ -704,7 +854,7 @@ struct CollectionTests {
 
     /// A square card (the specimen shot, the Fold diptych) is stored whole, upright, only downscaled: the full-screen
     /// crop used to cut a rotated 58 % window out of it.
-    @Test func squareCardsAreStoredWhole() throws {
+    @Test func squareCardsAreStoredWhole() async throws {
         let (store, _) = makeStore()
         let outcome = press(store, .rubberDuck)
         let format = UIGraphicsImageRendererFormat()
@@ -715,9 +865,10 @@ struct CollectionTests {
             UIColor.blue.setFill()
             context.fill(CGRect(x: 0, y: 360, width: 720, height: 360))   // the specimen half
         }
-        store.attachThumbnail(try #require(card.pngData()), to: outcome.specimen.id)
+        let png = try #require(card.pngData())
+        await store.attachThumbnail(png, to: outcome.specimen.id).value
         let first = try #require(store.specimens.first)   // #require can't nest inside #require
-        let stored = try #require(store.thumbnail(for: first))
+        let stored = try #require(store.loadThumbnail(for: first))
         #expect(stored.size == CGSize(width: CollectionStore.thumbnailSize, height: CollectionStore.thumbnailSize))
         let top = try #require(pixel(stored, x: 8, y: 8))
         let bottom = try #require(pixel(stored, x: 8, y: 500))
@@ -787,7 +938,7 @@ struct CollectionTests {
         store.seedDemo(count: 7, onHinge: true)
         #expect(store.specimens.count == 7)
         for specimen in store.specimens {
-            let image = try #require(store.thumbnail(for: specimen), "\(specimen.kind) has no thumbnail")
+            let image = try #require(store.loadThumbnail(for: specimen), "\(specimen.kind) has no thumbnail")
             #expect(image.size.width == CollectionStore.thumbnailSize && image.size.height == CollectionStore.thumbnailSize)
             #expect(store.best(for: specimen.kind)?.thumbnailFile != nil, "\(specimen.kind) best card")
             #expect(specimen.fractureCount == SpecimenPrint.fractureCount(specimen.kind, seed: specimen.variant.seed,

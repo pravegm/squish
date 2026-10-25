@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Menu → About (S8): credits, Golden odds, privacy, support and the version. The Tuning Lab stays a long-press on the
-/// version, so nobody finds it by accident.
+/// Menu → About (S8): credits, Golden odds, privacy, support and the version. In Debug builds only, a long-press on the
+/// version opens the Tuning Lab; Release builds have no route to it (App Review 2.5.19).
 struct AboutView: View {
     let director: PressDirector
     @Environment(\.dismiss) private var dismiss
@@ -49,9 +49,7 @@ struct AboutView: View {
                 }
             }
         }
-        .sheet(isPresented: $showTuning) {
-            TuningLabView(director: director)
-        }
+        .tuningLabSheet($showTuning, director: director)
     }
 
     private var closeRow: some View {
@@ -145,11 +143,8 @@ struct AboutRows: View {
         let build = info?["CFBundleVersion"] as? String ?? "1"
         return row("Version", value: "\(version) (\(build))")
             .contentShape(Rectangle())
-            .onLongPressGesture(minimumDuration: 0.8) {
-                UIFeel.press()
-                showTuning = true
-            }
-            .accessibilityAction(named: "Open Tuning Lab") { showTuning = true }
+            // Debug builds only (no route in Release: App Review 2.5.19).
+            .tuningLabEntry($showTuning)
     }
 
     private var divider: some View {

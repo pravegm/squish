@@ -3,7 +3,7 @@ import UIKit
 
 /// Settings (S9, UX-AUDIT-2 §4.2): one calm sheet, one tap from the press room, the reveal and the cover. Every
 /// change saves immediately. Sound and vibration can be tested right here; "Sound & vibration check" mirrors the Tuning
-/// Lab's diagnostics. Long-press the version row to open the Tuning Lab (on-device tuning and the hinge log).
+/// Lab's diagnostics. In Debug builds, long-press the version row to open the Tuning Lab (Release builds have none).
 struct SettingsView: View {
     let director: PressDirector
     /// Replays the first-run lesson (S1) on the press; nil hides the row.
@@ -76,9 +76,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .sheet(isPresented: $showTuning) {
-            TuningLabView(director: director)
-        }
+        .tuningLabSheet($showTuning, director: director)   // Debug builds only
         .sheet(isPresented: $showSoundCheck) {
             SoundCheckView(director: director)
                 .presentationDetents([.large])

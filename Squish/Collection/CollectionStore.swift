@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Observation
 import UIKit
 import os
@@ -29,13 +30,26 @@ final class CollectionStore {
     @ObservationIgnored private var awardsPatience = true
 
     let directory: URL
-    @ObservationIgnored private var imageCache: [String: UIImage] = [:]
+    /// Decoded thumbnails, evicted under memory pressure and capped by cost (bytes): a Shelf of 200 cards no longer
+    /// keeps ~200 MB of 512 px images alive. Misses decode off the main thread (ImageIO, downsampled to the size asked).
+    @ObservationIgnored private let imageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 48 * 1024 * 1024
+        return cache
+    }()
+    @ObservationIgnored private var decoding: Set<String> = []
+    /// Bumped when an off-main decode lands, so views that asked for a thumbnail draw it.
+    private var thumbnailsVersion = 0
+    /// The share-clip traces of this collection's specimens (`TraceStore`, Application Support/Squish/traces).
+    var traceDirectory: URL { directory.appendingPathComponent("traces", isDirectory: true) }
     private let log = Logger(subsystem: "com.pravegm.squish", category: "collection")
 
     /// Specimens kept on disk. The Squished tab shows the most recent 200 (bible §5).
     static let capacity = 500
     /// Thumbnails are cropped square around the anvil and stored at this size (px).
-    static let thumbnailSize: CGFloat = 512
+    nonisolated static let thumbnailSize: CGFloat = 512
+    /// A Shelf row draws a thumbnail at 60 pt (180 px at 3×).
+    nonisolated static let rowThumbnailPixels: CGFloat = 180
 
     struct Stats: Codable, Equatable, Sendable {
         var squishedKinds: Set<ObjectKind> = []
@@ -45,6 +59,10 @@ final class CollectionStore {
         var bubblesPopped = 0
         var surprisesFound: Set<Surprise> = []
         var longestPress: Double = 0
+
+        enum CodingKeys: String, CodingKey {
+            case squishedKinds, perfectKinds, perfectCount, goldenCount, bubblesPopped, surprisesFound, longestPress
+        }
     }
 
     // MARK: - Init
@@ -69,7 +87,14 @@ final class CollectionStore {
     init(directory: URL) {
         self.directory = directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // A save still being written (this or an earlier store on the same folder) lands before we read.
+        CollectionWriter.shared.flush()
         load()
+    }
+
+    /// Waits for every pending save to reach the disk (tests; the app going to the background).
+    func flushSaves() {
+        CollectionWriter.shared.flush()
     }
 
     static var defaultDirectory: URL {
@@ -107,13 +132,70 @@ final class CollectionStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// Decoded thumbnail, cached in memory.
-    func thumbnail(for specimen: SpecimenRecord) -> UIImage? {
+    /// The specimen photo at up to `maxPixel` px, from the cache. On a miss it returns nil and decodes off the main
+    /// thread (ImageIO, downsampled); the view that asked redraws when it lands (`thumbnailsVersion` is observed).
+    func thumbnail(for specimen: SpecimenRecord, maxPixel: CGFloat = CollectionStore.thumbnailSize) -> UIImage? {
+        _ = thumbnailsVersion
         guard let file = specimen.thumbnailFile else { return nil }
-        if let cached = imageCache[file] { return cached }
-        guard let url = thumbnailURL(for: specimen), let image = UIImage(contentsOfFile: url.path) else { return nil }
-        imageCache[file] = image
+        let key = Self.cacheKey(file, maxPixel)
+        if let cached = imageCache.object(forKey: key) { return cached }
+        guard !decoding.contains(key as String), let url = thumbnailURL(for: specimen) else { return nil }
+        let name = key as String
+        decoding.insert(name)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let image = Self.downsample(url, maxPixel: maxPixel)
+            await self?.decoded(image, key: name)
+        }
+        return nil
+    }
+
+    private func decoded(_ image: UIImage?, key: String) {
+        decoding.remove(key)
+        guard let image else { return }
+        cache(image, key: key as NSString)
+        thumbnailsVersion += 1
+    }
+
+    /// A Shelf row's photo (60 pt): a small decode, so a long list stays light.
+    func rowThumbnail(for specimen: SpecimenRecord) -> UIImage? {
+        thumbnail(for: specimen, maxPixel: Self.rowThumbnailPixels)
+    }
+
+    /// The photo now, decoding on this thread if it isn't cached (tests; places that can't wait for a redraw).
+    func loadThumbnail(for specimen: SpecimenRecord, maxPixel: CGFloat = CollectionStore.thumbnailSize) -> UIImage? {
+        guard let file = specimen.thumbnailFile else { return nil }
+        let key = Self.cacheKey(file, maxPixel)
+        if let cached = imageCache.object(forKey: key) { return cached }
+        guard let url = thumbnailURL(for: specimen), let image = Self.downsample(url, maxPixel: maxPixel) else { return nil }
+        cache(image, key: key)
         return image
+    }
+
+    private func cache(_ image: UIImage, key: NSString) {
+        let pixels = (image.cgImage?.width ?? 1) * (image.cgImage?.height ?? 1)
+        imageCache.setObject(image, forKey: key, cost: pixels * 4)
+    }
+
+    private func evictThumbnail(_ file: String) {
+        for size in [Self.thumbnailSize, Self.rowThumbnailPixels] { imageCache.removeObject(forKey: Self.cacheKey(file, size)) }
+    }
+
+    private nonisolated static func cacheKey(_ file: String, _ maxPixel: CGFloat) -> NSString {
+        "(file)@(Int(maxPixel))" as NSString
+    }
+
+    /// ImageIO thumbnail decode: never inflates the full file first, and never upsizes.
+    nonisolated static func downsample(_ url: URL, maxPixel: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(Int(maxPixel), 1),
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 
     // MARK: - Recording
@@ -174,18 +256,54 @@ final class CollectionStore {
                              newAchievements: newAchievements, isNewBest: isNewBest)
     }
 
-    /// Stores the specimen photo. The full-screen snapshot is cropped square around the anvil and downscaled.
-    func attachThumbnail(_ png: Data, to id: UUID) {
-        guard let image = UIImage(data: png) else { return }
-        let data = Self.specimenCrop(image)?.pngData() ?? png
+    /// Stores the specimen photo. The full-screen snapshot is cropped square around the anvil and downscaled. The crop
+    /// and the PNG encode run off the main thread (they used to stall the reveal); the card links the file when it
+    /// lands. Returns that work, for callers (tests) that need to wait for it.
+    @discardableResult
+    func attachThumbnail(_ png: Data, to id: UUID) -> Task<Void, Never> {
         let file = "\(id.uuidString).png"
-        do {
-            try data.write(to: directory.appendingPathComponent(file), options: .atomic)
-        } catch {
-            log.error("Thumbnail write failed: \(error.localizedDescription, privacy: .public)")
-            return
+        let url = directory.appendingPathComponent(file)
+        let work = Task.detached(priority: .userInitiated) { () -> UIImage? in
+            Self.writeThumbnail(png, to: url)
         }
-        imageCache[file] = nil
+        return Task { @MainActor [weak self] in
+            guard let image = await work.value, let self else { return }
+            // Deleted (or pruned) while the photo was being made: don't leave an orphan file behind.
+            guard self.specimen(withID: id) != nil else {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            self.link(file, image: image, to: id)
+        }
+    }
+
+    /// Crop, encode and write one photo; nil if it couldn't be decoded or written. Any thread.
+    private nonisolated static func writeThumbnail(_ png: Data, to url: URL) -> UIImage? {
+        guard let image = UIImage(data: png) else { return nil }
+        let card = specimenCrop(image) ?? image
+        let data = card.pngData() ?? png
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            Logger(subsystem: "com.pravegm.squish", category: "collection")
+                .error("Thumbnail write failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        return card
+    }
+
+    #if DEBUG
+    /// The same, on this thread (demo seeding builds its shelf in one go for the CI frames).
+    private func attachThumbnailNow(_ png: Data, to id: UUID) {
+        let file = "\(id.uuidString).png"
+        guard let image = Self.writeThumbnail(png, to: directory.appendingPathComponent(file)) else { return }
+        link(file, image: image, to: id)
+    }
+    #endif
+
+    private func link(_ file: String, image: UIImage, to id: UUID) {
+        evictThumbnail(file)
+        cache(image, key: Self.cacheKey(file, Self.thumbnailSize))
         if let index = specimens.firstIndex(where: { $0.id == id }) {
             specimens[index].thumbnailFile = file
         }
@@ -207,7 +325,16 @@ final class CollectionStore {
             bestsVersion += 1
         }
         deleteThumbnailIfUnused(removed)
+        deleteTrace(of: removed)
         save()
+    }
+
+    /// The share-clip trace goes with its card (a best card still on the shelf keeps it).
+    private func deleteTrace(of specimen: SpecimenRecord) {
+        guard bests[specimen.kind]?.id != specimen.id else { return }
+        let id = specimen.id
+        let folder = traceDirectory
+        Task.detached(priority: .utility) { TraceStore.delete(id, in: folder) }
     }
 
     // MARK: - Rules
@@ -314,7 +441,7 @@ final class CollectionStore {
 
     // MARK: - Persistence
 
-    private struct Stored: Codable {
+    struct Stored: Codable, Sendable {
         var version = 1
         var specimens: [SpecimenRecord]
         /// Keyed by `ObjectKind.rawValue`.
@@ -338,18 +465,22 @@ final class CollectionStore {
             self.stats = stats
         }
 
-        /// `earned` decodes leniently: an achievement this build no longer has (1.0's "pumped") is dropped instead of
-        /// failing the whole file, which would set the collection aside as corrupt.
+        /// Forward-compatible and lossy: one thing this build doesn't know (an object, surprise or achievement from a
+        /// newer build, a field it never had, one broken record) is skipped, never the whole collection. A strict
+        /// decode used to fail on any of them, set the file aside as corrupt and start an empty collection.
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-            specimens = try container.decode([SpecimenRecord].self, forKey: .specimens)
-            bests = try container.decode([String: SpecimenRecord].self, forKey: .bests)
-            totalPresses = try container.decode(Int.self, forKey: .totalPresses)
-            unlocked = try container.decode([ObjectKind].self, forKey: .unlocked)
-            let rawEarned = try container.decodeIfPresent([String].self, forKey: .earned) ?? []
-            earned = rawEarned.compactMap(Achievement.init(rawValue:))
-            stats = try container.decode(Stats.self, forKey: .stats)
+            version = (try? container.decodeIfPresent(Int.self, forKey: .version)) ?? 1
+            let list = ((try? container.decodeIfPresent([Lossy<SpecimenRecord>].self, forKey: .specimens)) ?? nil)?
+                .compactMap(\.value) ?? []
+            specimens = list
+            bests = ((try? container.decodeIfPresent([String: Lossy<SpecimenRecord>].self, forKey: .bests)) ?? nil)?
+                .compactMapValues(\.value) ?? [:]
+            totalPresses = ((try? container.decodeIfPresent(Int.self, forKey: .totalPresses)) ?? nil)
+                ?? list.map(\.number).max() ?? 0
+            unlocked = Lossy.rawValues(container, .unlocked)
+            earned = Lossy.rawValues(container, .earned)
+            stats = ((try? container.decodeIfPresent(Stats.self, forKey: .stats)) ?? nil) ?? Stats()
         }
     }
 
@@ -387,31 +518,31 @@ final class CollectionStore {
             earned: earnedAchievements.sorted { $0.rawValue < $1.rawValue },
             stats: stats
         )
-        do {
-            let data = try JSONEncoder().encode(stored)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            log.error("Collection save failed: \(error.localizedDescription, privacy: .public)")
-        }
+        // Encoding up to 500 records and writing them used to run here, twice per reveal; now the snapshot goes to a
+        // serial background writer (atomic, latest wins). The in-memory collection stays the truth.
+        CollectionWriter.shared.schedule(stored, to: fileURL)
     }
 
     private func pruneIfNeeded() {
         guard specimens.count > Self.capacity else { return }
         let dropped = specimens[Self.capacity...]
         specimens.removeLast(specimens.count - Self.capacity)
-        for specimen in dropped { deleteThumbnailIfUnused(specimen) }
+        for specimen in dropped {
+            deleteThumbnailIfUnused(specimen)
+            deleteTrace(of: specimen)
+        }
     }
 
     private func deleteThumbnailIfUnused(_ specimen: SpecimenRecord) {
         guard let file = specimen.thumbnailFile else { return }
         let stillUsed = specimens.contains { $0.thumbnailFile == file } || bests.values.contains { $0.thumbnailFile == file }
         guard !stillUsed else { return }
-        imageCache[file] = nil
+        evictThumbnail(file)
         try? FileManager.default.removeItem(at: directory.appendingPathComponent(file))
     }
 
     /// Square crop around the anvil (the object sits ~62% down the screen in portrait), downscaled.
-    static func specimenCrop(_ image: UIImage) -> UIImage? {
+    nonisolated static func specimenCrop(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let width = CGFloat(cg.width), height = CGFloat(cg.height)
         let target = CGSize(width: thumbnailSize, height: thumbnailSize)
@@ -503,7 +634,7 @@ final class CollectionStore {
             if let print = SpecimenPrint.printImage(kind: kind, variant: variant, maxCompression: result.maxCompression,
                                                     fractureCount: result.fractureCount),
                let png = SpecimenPrint.cardImage(print: print).pngData() {
-                attachThumbnail(png, to: outcome.specimen.id)
+                attachThumbnailNow(png, to: outcome.specimen.id)
             }
             if let i = specimens.firstIndex(where: { $0.id == outcome.specimen.id }) {
                 specimens[i].date = Date().addingTimeInterval(-daysAgo * 86_400)
@@ -614,5 +745,84 @@ enum PressEngagement {
             }
         }
         return min(longest, pressDuration)
+    }
+}
+
+// MARK: - Lenient decoding
+
+extension CollectionStore.Stats {
+    /// Every field optional (defaults), unknown objects and surprises skipped: a newer build's data never wipes this one.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        squishedKinds = Set(Lossy.rawValues(container, .squishedKinds))
+        perfectKinds = Set(Lossy.rawValues(container, .perfectKinds))
+        perfectCount = ((try? container.decodeIfPresent(Int.self, forKey: .perfectCount)) ?? nil) ?? 0
+        goldenCount = ((try? container.decodeIfPresent(Int.self, forKey: .goldenCount)) ?? nil) ?? 0
+        bubblesPopped = ((try? container.decodeIfPresent(Int.self, forKey: .bubblesPopped)) ?? nil) ?? 0
+        surprisesFound = Set(Lossy.rawValues(container, .surprisesFound))
+        longestPress = ((try? container.decodeIfPresent(Double.self, forKey: .longestPress)) ?? nil) ?? 0
+    }
+}
+
+/// One element that decodes or is skipped (nil), so a list survives an entry this build can't read.
+struct Lossy<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
+extension Lossy where Value: RawRepresentable, Value.RawValue == String {
+    /// A list of raw values with the unknown ones skipped (an object or surprise from a newer build).
+    static func rawValues<Key: CodingKey>(_ container: KeyedDecodingContainer<Key>, _ key: Key) -> [Value] {
+        let raw = ((try? container.decodeIfPresent([String].self, forKey: key)) ?? nil) ?? []
+        return raw.compactMap(Value.init(rawValue:))
+    }
+}
+
+// MARK: - Background saves
+
+/// Writes the collection off the main thread: one serial queue, atomic writes, and only the newest snapshot for a file
+/// is written (a reveal saves twice in a row; the second makes the first moot). `flush()` waits for the disk.
+final class CollectionWriter: @unchecked Sendable {
+    static let shared = CollectionWriter()
+
+    private let queue = DispatchQueue(label: "com.pravegm.squish.collection-writer", qos: .utility)
+    private let lock = NSLock()
+    private var pending: [URL: CollectionStore.Stored] = [:]
+
+    private init() {
+        // Leaving the app finishes the write instead of risking the last reveal.
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil,
+                                               queue: nil) { [weak self] _ in self?.flush() }
+    }
+
+    func schedule(_ stored: CollectionStore.Stored, to url: URL) {
+        lock.lock()
+        let first = pending[url] == nil
+        pending[url] = stored
+        lock.unlock()
+        guard first else { return }
+        queue.async { [weak self] in self?.drain(url) }
+    }
+
+    /// Blocks until every scheduled save has been written.
+    func flush() {
+        queue.sync {}
+    }
+
+    private func drain(_ url: URL) {
+        lock.lock()
+        let stored = pending.removeValue(forKey: url)
+        lock.unlock()
+        guard let stored else { return }
+        do {
+            let data = try JSONEncoder().encode(stored)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            Logger(subsystem: "com.pravegm.squish", category: "collection")
+                .error("Collection save failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
