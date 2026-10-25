@@ -1916,12 +1916,40 @@ struct PressTrace: Codable, Sendable {
 final class TraceStore {
     private let directory: URL?
 
-    init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        directory = base?.appendingPathComponent("Squish/traces", isDirectory: true)
+    /// Application Support/Squish/traces (`root` overrides it, for tests).
+    nonisolated static func defaultDirectory() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Squish/traces", isDirectory: true)
+    }
+
+    init(directory: URL? = TraceStore.defaultDirectory()) {
+        self.directory = directory
         if let directory {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
+    }
+
+    /// Deletes the trace file of one specimen (no-op if it has none). For `CollectionStore.delete`.
+    nonisolated static func delete(_ id: UUID, in directory: URL? = TraceStore.defaultDirectory()) {
+        guard let url = directory?.appendingPathComponent("\(id.uuidString).json") else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Deletes every trace file (`<UUID>.json`) whose specimen is not in `ids` (the collection's specimen IDs); other
+    /// files are left alone. Returns how many were removed. For a prune after the collection changes.
+    @discardableResult
+    nonisolated static func prune(keeping ids: Set<UUID>, in directory: URL? = TraceStore.defaultDirectory()) -> Int {
+        guard let directory,
+              let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        else { return 0 }
+        var removed = 0
+        for file in files where file.pathExtension == "json" {
+            guard let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent), !ids.contains(id) else {
+                continue
+            }
+            if (try? FileManager.default.removeItem(at: file)) != nil { removed += 1 }
+        }
+        return removed
     }
 
     func save(_ trace: PressTrace, for id: UUID) {
