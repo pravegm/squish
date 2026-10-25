@@ -116,11 +116,17 @@ jobs:
 
       - name: Summary
         if: success()
+        env:
+          NOTES: ${{ inputs.notes }}
         run: |
           {
             echo "### Uploaded Squish build ${{ github.run_number }} to App Store Connect"
             echo "It shows up in TestFlight after Apple's processing (usually 10–30 min)."
-            [ -n "${{ inputs.notes }}" ] && echo "" && echo "**What to test:** ${{ inputs.notes }}"
+            # An `if`, not `[ … ] && …`: with no notes the test fails and, as the block's last command, failed the step.
+            if [ -n "$NOTES" ]; then
+              echo ""
+              echo "**What to test:** $NOTES"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove the key
