@@ -113,7 +113,7 @@ How the set is made, and the order of the frames, is in `docs/appstore/screensho
   - the version is 1.0;
   - selected chips carry a non-colour outline.
 - **Final assets: GitHub release [press-kit](https://github.com/pravegm/squish/releases/tag/press-kit).** It holds:
-  - the 19 App Store frames, from `store.yml` run 39996965349 (0 missing / 0 flagged);
+  - the 19 App Store frames, from `store.yml` run 40222956174 (0 missing / 0 flagged);
   - `appstore-screenshots-1.0.zip`, laid out for `tools/appstore/asc.swift`;
   - both App Previews, 886×1920 with sound: 6.9" (26 s) and iPhone Duo (19 s);
   - the icon, the press clips and the Game Center badges.

@@ -11,7 +11,7 @@
 | Video | H.264 High 4.0, 30 fps constant, 10 Mbit/s | H.264 High 4.0, 30 fps constant, ~3.5 Mbit/s (the encoder needs less for the flat panels; master High 5.0) |
 | Audio | **Yes.** Stereo AAC 256 kbit/s, 48 kHz, −16 LUFS target (measured −17.3 LUFS, −1.4 dBFS peak; AAC averages ~190 kbit/s on this sparse sound) | **Yes**, same (measured −17.0 LUFS, −1.3 dBFS peak) |
 | Poster frame | **00:03.55** (the duck mid-squash, in its hold) | **00:03.48** (the duck mid-squash on the anvil half) |
-| Delivered by | `preview.yml` run 39992130391 (artifacts `preview-69`, `preview-duo`) | the same run |
+| Delivered by | `preview.yml` run 40222962649 (artifacts `preview-69`, `preview-duo`) | the same run |
 | Beats | duck slow press → reveal card · soda can buckles → sealed · glass creaks, holds, breaks · the shelf | duck close (to 58°) → hard cut to the reopen and reveal card · glass close and break |
 
 **How it's made** (`ci/preview.sh`, `ci/preview-duo.sh`, `ci/preview-lib.sh`, `ci/preview-retime.swift`):

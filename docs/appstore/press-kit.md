@@ -58,7 +58,7 @@
 
 ## Asset list (zip: `squish-press-kit.zip`, attached to the `press-kit` GitHub Release)
 
-The live page already shows web-sized copies (≈900 px tall JPEGs in `site/assets/shots/`, from `store.yml` run 39952047687) and a 512 px icon. At minimum the release needs the 1024 icon and the full-size store PNGs from that run; the rest below can follow.
+The live page already shows web-sized copies (≈900 px tall JPEGs in `site/assets/shots/`, from `store.yml` run 40222956174) and a 512 px icon. At minimum the release needs the 1024 icon and the full-size store PNGs from that run; the rest below can follow.
 
 | File | Spec | Notes |
 |---|---|---|

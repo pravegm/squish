@@ -150,7 +150,7 @@ Scores so far:
 
 ## Status (23 Oct 2026, after round 9 and the pre-submission pass) and what's next
 
-- **Code and art:** submittable as 1.0. The final store run is `store.yml` 39996965349: 0 missing and 0 flagged. Its assets are published as the GitHub release `press-kit`: every frame, an upload zip for `asc.swift`, both App Previews, the icon, the press clips and the badges.
+- **Code and art:** submittable as 1.0. The final store run is `store.yml` 40222956174: 0 missing and 0 flagged. Its assets are published as the GitHub release `press-kit`: every frame, an upload zip for `asc.swift`, both App Previews, the icon, the press clips and the badges.
   - Achievement toasts have been seen on screen (`verify/duo-reveal-toast-app.png`).
 - **Pre-submission pass:**
   - the privacy manifest (`Squish/PrivacyInfo.xcprivacy`; CI checks it is in the app);

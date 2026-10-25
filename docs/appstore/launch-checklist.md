@@ -19,7 +19,7 @@
 | App Privacy answers | ✅ Done (Claude) | Data Not Collected; grep evidence in `privacy-labels.md` |
 | Accessibility Nutrition Label answers | ✅ Done (Claude) | VoiceOver + Reduced Motion only (`accessibility.md`) |
 | Achievement copy and IDs checked against the code | ✅ Done (Claude) | `achievements.md`; 700 points |
-| Screenshot frames and captions sign-off (19 frames, run 39952047687) | ✅ Done (Claude) | `DECISIONS.md` §4 |
+| Screenshot frames and captions sign-off (19 frames, run 40222956174) | ✅ Done (Claude) | `DECISIONS.md` §4 |
 | Frame 1 photo vs render | ✅ Done (Claude) | Render in 1.0; real-Duo photo in 1.0.1 |
 | App Preview decision | ✅ Done (Claude) | Optional 6.9" preview, only if delivered by Mon 9 Nov |
 | Duo App Store slots research | ✅ Done (Claude) | No API type exists; upload by hand in the web UI if the slot shows (`DECISIONS.md` §3) |
@@ -42,7 +42,7 @@
 | Release candidate | Name, subtitle, description, keywords, promo text, URLs (en-GB, en-US) | ⚙️ Automated (tool) | `asc.swift push` |
 | Release candidate | Categories, age rating, review notes, scheduled release, price | ⚙️ Automated (tool) | `asc.swift push` |
 | Release candidate | 10 Game Center achievements + images | ⚙️ Automated (tool) | `asc.swift push` (images from `tools/appstore/badges.swift`) |
-| Release candidate | 6.9" and 6.1" screenshot sets (P1–P5 each) | ⚙️ Automated (tool) | `asc.swift push` from run 39952047687's artifacts |
+| Release candidate | 6.9" and 6.1" screenshot sets (P1–P5 each) | ⚙️ Automated (tool) | `asc.swift push` from run 40222956174's artifacts |
 | Release candidate | 6.9" App Preview (if delivered by 9 Nov) | ⚙️ Automated (tool) | `asc.swift push` (`IPHONE_67`) |
 | Release candidate | Copyright line + review contact | 👤 Founder-only | Your legal name and contact details; given to the tool locally, never committed |
 | Release candidate | App Privacy "Data Not Collected" → Publish | 👤 Founder-only | Web UI only; answers in `privacy-labels.md` |

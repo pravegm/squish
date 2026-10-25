@@ -88,7 +88,7 @@ Everything else is decided, written or automated.
 The tool is `tools/appstore/asc.swift`. Its usage, environment variables and flags are in **`tools/appstore/README.md`**; follow that file. In outline:
 
 1. **Get the frames and badges:**
-   - Download the screenshot artifacts into an empty folder: `gh run download 39952047687 -R pravegm/squish -D <artifacts-root>`. You get `store-69/`, `store-61/` and `store-duo/`, matching the paths in `asc-metadata.json`.
+   - Download the screenshot artifacts into an empty folder: `gh run download 40222956174 -R pravegm/squish -D <artifacts-root>`. You get `store-69/`, `store-61/` and `store-duo/`, matching the paths in `asc-metadata.json`.
    - Render the achievement art with `xcrun swift tools/appstore/badges.swift`. It also re-checks the 10 IDs.
 2. **Give the founder-only values to the tool locally** (legal name, review contact), as the README says. Don't edit them into the committed JSON.
 3. **Run `tools/appstore/asc.swift push`.** It sends, from `asc-metadata.json`:
