@@ -50,7 +50,9 @@ for (const sc of STORY_CUTS) {
   const t = fs.existsSync(sheet) ? await thumb(sheet, sc.id + ".jpg", 540) : null;
   L.push(`| \`${rel(r.file)}\` | ${(+r.facts.dur).toFixed(1)} s, H.264 + AAC, ${r.loud.I} LUFS | ${sc.use} | ${t ? `![](${t})` : "–"} |`);
 }
-const statics = JSON.parse(fs.readFileSync(path.join(KIT, "_work", "statics.json"), "utf8"));
+// The stills, found on disk (the kit artifact leaves _work/ out).
+const walk = (d) => fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]) : [];
+const statics = { made: ["feed", "stories", "profile"].flatMap((d) => walk(path.join(KIT, d))).filter((f) => f.endsWith(".png") && !f.includes("guides")).map(rel).sort() };
 const groups = [["feed/carousel/", "Launch carousel (1080 × 1350, 4:5; post the slides in order)"], ["feed/post-", "Single posts (1080 × 1350)"],
   ["stories/story", "Story stills (1080 × 1920); the `stories/guides/` copies mark the sticker spaces"], ["profile/", "Profile kit"]];
 for (const [prefix, title] of groups) {

@@ -136,7 +136,8 @@ const LAYOUTS = {
   // The sealed card drawn full screen on the 6.9" canvas (p-cover-*): the card, big, mid frame.
   pcover: { zoom: 1.1, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.5] },
   // The P-48's specimen card drops in over the top of the machine: frame the card, not the anvil.
-  p69card: { zoom: 1.15, fx: 0.5, fy: 0.25, ox: 0.5, oy: 0.35, bg: PAPER, obj: [0.5, 0.25], clampY: false },
+  p69card: { zoom: 1.15, top: 0.045, fx: 0.5, fy: 0.25, ox: 0.5, oy: 0.35, bg: PAPER, obj: [0.5, 0.25] },   // under the status bar
+  "p69-ram": { zoom: 1.75, fx: 0.5, fy: 0.6, ox: 0.5, oy: 0.47, bg: PAPER, obj: [0.5, 0.66], clampY: false },
   cover: { zoom: 1.25, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.48, bg: GRAPHITE, obj: [0.5, 0.5] },
   book: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.40, bg: PAPER, obj: [0.75, 0.5] },
   p69: { zoom: 1.13, fx: 0.5, fy: 0.703, ox: 0.5, oy: 0.64, bg: PAPER, obj: [0.5, 0.703], clampY: false },

@@ -68,7 +68,7 @@ export const CUTS = [
       ad: { headline: { default: "£2,000 phone. *£2.49* press.", "ad-us": "$2,000 phone. *$2.49* press." },
         line: "no ads · no in-app purchases", price: "", fine: true },
     },
-    cover: "0:failure+0.5",
+    cover: "2:start+1.3",
   },
   {
     id: "c3-bubbles", concept: "C3", title: "24 bubbles. one at a time.", length: 9, week: "launch",
@@ -92,7 +92,8 @@ export const CUTS = [
     touch: { seg: 0, clip: "p-can", slow: 5, y0: 0.405, y1: 0.765, until: "0:failure+0.5" },
     segments: [
       { clip: "p-can", from: "phase-pressing-0.3", to: "failure+0.8", maxDur: 5.0, layout: "p69", real: "S10" },
-      { clip: "p-can", from: "reveal+0.2", dur: { organic: 2.0, default: 1.7 }, layout: "p69card" },
+      // The P-48's specimen card lands ~1.8 s after the reveal mark (the ram lifts first).
+      { clip: "p-can", from: "reveal+1.5", dur: { organic: 2.0, default: 1.7 }, layout: "p69card" },
       { clip: "p-duck", from: "failure-0.45", dur: 0.7, layout: "p69" },
       { clip: "p-jelly", from: "failure-0.45,phase-sealed-0.6", dur: 0.7, layout: "p69" },
       { clip: "p-cake", from: "failure-0.45,phase-sealed-0.6", dur: 0.7, layout: "p69" },
@@ -136,14 +137,16 @@ export const CUTS = [
     caption: "There is a tenth object. It does not squish. Press the other nine to meet it.",
     hook: "this one *fights back*.",
     segments: [
-      { clip: "p-ball", from: "phase-pressing-0.5", to: "failure+0.9", maxDur: 5.4, layout: "p69", real: "S9" },
-      { clip: "p-ball", from: "reveal+0.2", dur: { organic: 3.4, default: 3.0 }, layout: "p69card", real: "S9" },
+      { clip: "p-ball", from: "phase-pressing-0.5", to: "failure-0.4", maxDur: 4.4, layout: "p69", real: "S9" },
+      // The moment it fights back, close on the ram: the crack is the machine's, on its yellow ram and plate.
+      { clip: "p-ball", from: "failure-0.4", dur: 1.8, layout: "p69-ram" },
+      { clip: "p-ball", from: "reveal+1.5", dur: { organic: 2.6, default: 2.2 }, layout: "p69card" },
       // No Duo pull-back yet: the Duo's reveal draws the press damage as crack lines on the upper screen, which would read
       // as a cracked phone (CrackGate). The founder's S9 (phone open and intact) goes here.
       { clip: "p-ball", from: "phase-pressing-1.1", dur: 0.6, layout: "p69", only: "organic", loop: true },
     ],
     end: { organic: { line: "find the other *nine* first." }, ad: { line: "find the other *nine* first." } },
-    cover: "0:failure+0.5",
+    cover: "1:failure+0.5",
   },
 ];
 
