@@ -132,7 +132,7 @@
   - **7.0–10.0:** pull back to show the phone intact and open, then the end card.
 - **Guardrails:**
   - The crack must read as the *machine's* ram, never as the phone's screen (CrackGate).
-  - **Release only after the founder OKs it.** The press kit asks outlets not to show the secret (`docs/press/fact-sheet.md`), so this is the founder's call.
+  - **Approved by the founder on 26 Oct 2026 for week 3 onwards (L+14).** Don't post it earlier. Until then the press kit still asks outlets not to show the secret (`docs/press/fact-sheet.md`).
 - **Footage:** real S9 for the pull-back.
 - **End card:** "squish · find the other nine first."
 
