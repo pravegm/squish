@@ -192,7 +192,7 @@ export function fileURL(p) { return pathToFileURL(path.resolve(p)).href; }
 
 const pillCSS = (size, pad = "0.34em 0.78em 0.40em") => `
   .wrap{position:absolute;left:0;top:40px;width:${W}px;display:flex;justify-content:center;}
-  .o{max-width:${W - 2 * 72}px;padding:${pad};background:var(--paper);color:var(--graphite);border-radius:${Math.round(size * 0.62)}px;
+  .o{max-width:900px;padding:${pad};background:var(--paper);color:var(--graphite);border-radius:${Math.round(size * 0.62)}px;
      box-shadow:0 ${Math.round(size * 0.16)}px ${Math.round(size * 0.42)}px rgba(18,18,22,.30),0 0 0 2px rgba(43,45,49,.08);
      font-size:${size}px;line-height:1.08;text-align:center;letter-spacing:-.005em;}
   .o em.hl{padding:0 .14em;}`;
@@ -297,7 +297,7 @@ export function endCardHTML({ icon, headline = "", line = "out now on the App St
 export function endPillHTML({ icon, line = "out now on the App Store" }) {
   return `<style>
   .wrap{position:absolute;left:0;top:40px;width:${W}px;display:flex;justify-content:center;}
-  .o{display:flex;align-items:center;gap:26px;max-width:${W - 2 * 72}px;padding:22px 40px 22px 22px;background:var(--paper);
+  .o{display:flex;align-items:center;gap:26px;max-width:900px;padding:22px 40px 22px 22px;background:var(--paper);
      border-radius:999px;box-shadow:0 14px 36px rgba(18,18,22,.32),0 0 0 2px rgba(43,45,49,.08);}
   .i{width:104px;height:104px;border-radius:24px;flex:none;box-shadow:0 6px 14px rgba(0,0,0,.25);}
   .t{display:flex;flex-direction:column;gap:2px;min-width:0;}

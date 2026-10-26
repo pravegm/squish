@@ -49,4 +49,4 @@ duo|b|d-glass-book|object=glassBottle;hingescript=7;duo;seed=3;nocoach;nocapture
 # ---- C6 (week 3+, approved by the founder 26 Oct): the secret steel ball. The P-48 is the hero (its yellow ram is what
 # cracks, so it can never read as the phone's screen); the Duo take is the "phone open and intact" pull-back.
 p69|a|p-ball|object=unsquishable;reveal;slowpress=6;@P69|reveal+6|phase-pressing-1.2|reveal+5.5|2
-duo|b|d-ball|object=unsquishable;hingescript=7;@DUO|script-160+5|script-begin-0.6|end|1
+duo|b|d-ball|object=unsquishable;hingescript=7;@DUO|script-160+5|script-begin-0.6|end|2

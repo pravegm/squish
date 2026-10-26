@@ -87,7 +87,7 @@ export const CUTS = [
     id: "c4-every-iphone", concept: "C4", title: "no foldable? drag it.", length: 10, week: "launch",
     use: "THE main ad cut (every iPhone), and Post 4. The finger is a touch indicator until the founder's S10.",
     caption: "Not everyone spent £2,000 on a phone. On any iPhone, the P-48 press sits under your finger.",
-    hook: "no foldable? *drag* it.",
+    hook: "no foldable? *drag* it.", hookY: 350, endY: 350,
     touch: { seg: 0, clip: "p-can", slow: 5, y0: 0.405, y1: 0.765, until: "0:end" },
     segments: [
       { clip: "p-can", from: "phase-pressing-0.3", to: "failure-0.2", maxDur: 4.0, layout: "p69", real: "S10" },
@@ -157,6 +157,6 @@ export const STORY_CUTS = [
   { id: "story-2-4-glass-answer", from: "c1-glass", variant: "organic", hook: null, lines: [], noEnd: true, segments: [0, 1, 4],
     use: "Story sequence 2, frame 4: the answer to the quiz (the glass bottle has the longest creak)." },
   { id: "story-3-3-gentle-close", variant: "organic", noEnd: true, use: "Story sequence 3, frame 3 (until the founder's S2).",
-    hook: null, lines: [{ text: "a gentle close. *always*.", from: 0.3, to: "end-0.2", y: 330 }],
+    hook: null, lines: [{ text: "a gentle close. *always*.", from: 0.3, to: "end-0.2", y: 430 }],
     segments: [{ clip: "d-glass", from: "script-begin-0.3", to: "script-58+0.3", maxDur: 7.5, layout: "duo", real: "S2", fine: true }] },
 ];

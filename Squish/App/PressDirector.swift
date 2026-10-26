@@ -1235,7 +1235,6 @@ final class PressDirector {
     /// (`origin=<epoch> seconds= rate=48000 kind= style=`). ci/preview.sh muxes it under the screen recording in sync.
     /// Logs `SQUISH-T pressaudio ok seconds= origin= bytes= kind=` or `SQUISH-T pressaudio failed: …`.
     private func writeDemoPressAudio(waitingUpTo timeout: Double) async {
-        let origin = traceStart
         let started = CACurrentMediaTime()
         while revealed == nil, CACurrentMediaTime() - started < timeout {
             try? await Task.sleep(for: .milliseconds(100))
@@ -1244,6 +1243,10 @@ final class PressDirector {
             print("SQUISH-T pressaudio failed: no reveal or no trace after \(Int(timeout))s")
             return
         }
+        // Sample 0 of the WAV is the trace's time base, read now: `recordTrace` moves `traceStart` forward while the
+        // object waits (the pre-roll trim), so on the Duo, where this task starts at launch, reading it then put the
+        // sound ~13 s early (marketing run 40299918573; ci/preview-duo.sh placed its sound by that stale origin too).
+        let origin = traceStart
         // Render only after the reveal has been on screen for a while: building the score runs on the main actor, and
         // the screen recording of the reveal card must not stall (ci/preview.sh stops recording ~4.5 s after it).
         // `pressaudiodelay=<s>` (DEBUG demo, ci/marketing.sh): a longer wait, so the render never stalls a SLO-MO

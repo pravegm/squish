@@ -133,7 +133,7 @@ const LAYOUTS = {
   slomo: { zoom: 1.35, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
   cover: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.4, bg: GRAPHITE, obj: [0.5, 0.5] },
   book: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.40, bg: PAPER, obj: [0.75, 0.5] },
-  p69: { zoom: 1.13, fx: 0.5, fy: 0.703, ox: 0.5, oy: 0.583, bg: PAPER, obj: [0.5, 0.703] },
+  p69: { zoom: 1.13, fx: 0.5, fy: 0.703, ox: 0.5, oy: 0.64, bg: PAPER, obj: [0.5, 0.703], clampY: false },
   "p69-tight": { zoom: 1.6, fx: 0.5, fy: 0.69, ox: 0.5, oy: 0.47, bg: PAPER, obj: [0.5, 0.69] },
   real: { zoom: "cover", fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.5, bg: GRAPHITE, obj: [0.5, 0.55] },
 };
@@ -263,9 +263,13 @@ function cutTime(plan, ref) {
 const sfmt = "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p";
 function layoutFilter(inLabel, src, layoutName, dur, outLabel, CW = W, CH = H, over = {}) {
   const p = place(src, layoutName, CW, CH, over);
+  // On the Duo the app's console (Menu · object chip · Shelf) is cropped to graphite: it sits in the keep-clear band
+  // anyway, and its chip names the object's failure ("EGG · CRACKS") right under the phone's screen (CrackGate).
+  const maskY = (src.pose === "tabletop" || src.pose === "book") ? Math.round(p.y + 0.925 * p.sh) : CH;
+  const mask = maskY < CH ? `,drawbox=x=0:y=${Math.max(0, maskY)}:w=${CW}:h=${CH - Math.max(0, maskY)}:color=${GRAPHITE}:t=fill` : "";
   return `${inLabel}scale=${p.sw}:${p.sh}:flags=lanczos,setsar=1[sv_${outLabel}];` +
     `color=c=${p.bg}:s=${CW}x${CH}:r=${FPS}:d=${f3(dur)}[bg_${outLabel}];` +
-    `[bg_${outLabel}][sv_${outLabel}]overlay=${p.x}:${p.y}:shortest=1:eof_action=repeat,format=yuv420p[${outLabel}]`;
+    `[bg_${outLabel}][sv_${outLabel}]overlay=${p.x}:${p.y}:shortest=1:eof_action=repeat${mask},format=yuv420p[${outLabel}]`;
 }
 const aOut = (dur) => `aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=0:${f3(dur)},asetpts=PTS-STARTPTS`;
 const venc = ["-r", String(FPS), "-c:v", "libx264", "-preset", "fast", "-crf", "12", "-pix_fmt", "yuv420p", "-g", "30"];
@@ -386,7 +390,7 @@ async function buildOverlays(cut, variant, plan, browser, assets) {
   fs.mkdirSync(dir, { recursive: true });
   const ovs = [];
   let n = 0;
-  async function add(html, o, clipPad = 26) {
+  async function add(html, o, clipPad = 12) {
     const png = path.join(dir, `o${String(++n).padStart(2, "0")}.png`);
     const box = DRY ? { width: 600, height: 140 } : await browser.png(html, png, { clip: ".o", pad: clipPad });
     ovs.push({ png, w: box.width, h: box.height, fadeIn: 0.12, fadeOut: 0.18, ...o });
@@ -408,7 +412,7 @@ async function buildOverlays(cut, variant, plan, browser, assets) {
   if (variant === "organic" && end) {
     const at = end.at ? cutTime(plan, end.at) : plan.contentEnd - 1.5;
     await add(R.endPillHTML({ icon: R.fileURL(assets.icon), line: pick(end.line, variant) || OUT_NOW }),
-      { cx: W / 2, cy: cut.endY ?? 430, from: at, to: plan.contentEnd, rise: 14, fadeOut: 0, text: true, role: "end" }, 30);
+      { cx: W / 2, cy: cut.endY ?? 430, from: at, to: plan.contentEnd, rise: 14, fadeOut: 0, text: true, role: "end" }, 12);
     if (end.fine) await add(R.finePrintHTML(FINE), { cx: W / 2, cy: 1205, from: at + 0.05, to: plan.contentEnd, fadeOut: 0, text: true, role: "fine" }, 10);
   }
   if (cut.watermark && (cut.watermark === variant || cut.watermark === "all")) {
@@ -558,7 +562,7 @@ function contactSheet(file, out, total, n = 6) {
 /** Sync at a break: the brightness jump and the sound's biggest onset near the expected time, both in the master. */
 function syncCheck(file, t) {
   if (DRY) return null;
-  const a = Math.max(0, t - 0.5), d = 1.0;
+  const a = Math.max(0, t - 0.3), d = 0.6;
   const v = run("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-vf", `trim=start=${f3(a)}:duration=${d},setpts=PTS-STARTPTS,scale=180:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`, "-f", "null", "-"], { quiet: true, allowFail: true }).stdout || "";
   const au = run("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-af", `atrim=start=${f3(a)}:duration=${d},asetpts=PTS-STARTPTS,asetnsamples=480,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`, "-f", "null", "-"], { quiet: true, allowFail: true }).stdout || "";
   const rise = (txt, key) => {
@@ -571,7 +575,7 @@ function syncCheck(file, t) {
     return at === null ? null : { t: a + at, rise: best };
   };
   const fv = rise(v, "lavfi.signalstats.YAVG"), fa = rise(au, "lavfi.astats.Overall.RMS_level");
-  if (!fv || !fa) return null;
+  if (!fv || !fa || fv.rise < 6 || fa.rise < 6) return null;   // no clear flash or onset: not a measurable break
   return { flash: fv.t, flashRise: fv.rise, onset: fa.t, onsetRise: fa.rise, offset: fa.t - fv.t };
 }
 
@@ -631,10 +635,18 @@ async function buildMaster(cut, variant, outFile, { safe = SAFE, safePng = "safe
     if (!ok) problem(`${cut.id}/${variant}: ${o.role} overlay ${b.w}×${b.h} at ${b.x},${top} leaves the safe zone`);
   }
   encodeMaster(base, wav, ovs, outFile, plan.total);
+  // AAC can overshoot the limiter at hard cuts: re-master with a lower ceiling until the file's true peak is ≤ −1 dBTP.
+  let lq = loudness(outFile), limit = TP_LIMIT;
+  for (let k = 0; k < 3 && Number.isFinite(lq.TP) && lq.TP > -1.05; k++) {
+    limit -= lq.TP + 1.25;
+    log(`${path.basename(outFile)}: true peak ${lq.TP} dBTP; re-mastering with a ${limit.toFixed(2)} dBFS ceiling`);
+    masterAudio(joinedWav, sfx, wav, plan.total, limit);
+    encodeMaster(base, wav, ovs, outFile, plan.total);
+    lq = loudness(outFile);
+  }
   // QC
   const name = path.basename(outFile, ".mp4");
   const facts = probeFacts(outFile);
-  const lq = loudness(outFile);
   const breaks = [];
   for (const s of plan.segs) {
     if (s.kind !== "clip" || s.isReal || s.audio === "slomo" || s.layout === "cover") continue;

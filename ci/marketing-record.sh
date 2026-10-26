@@ -156,15 +156,24 @@ record_take() {
   rot=$(ffprobe -v error -select_streams v:0 -show_entries stream_side_data=rotation -of csv=p=0 "$OUT_ABS/raw/$name.mp4" 2>/dev/null | head -1)
   echo "rec_epoch=$REC_EPOCH rotation=${rot:-0}" > "$OUT_ABS/raw/$name.timing"
   RETIMED=0
-  local r; r=$(retime "$OUT_ABS/raw/$name.mp4"); say "   $name $r"
-  if [[ "$r" != *"retimed "* ]]; then sleep 3; r=$(retime "$OUT_ABS/raw/$name.mp4"); say "   $name (retry) $r"; fi
-  [[ "$r" == *"retimed "* ]] && RETIMED=1
+  # Re-time (preview-lib.sh). AVFoundation sometimes stops early ("partial: … Cannot Decode", runs 39987522022 and
+  # 40299918573) and the re-timer still replaces the file, so keep the original and retry from it; a take that stays
+  # partial is never picked (take_gap).
+  local r raw="$OUT_ABS/raw/$name.mp4"
+  cp "$raw" "$raw.orig" 2>/dev/null || true
+  for try in 1 2 3; do
+    r=$(retime "$raw"); say "   $name (re-time $try) $r"
+    [[ "$r" == *"retimed "* && "$r" != *partial* ]] && { RETIMED=1; break; }
+    sleep 4; [[ -f "$raw.orig" ]] && cp "$raw.orig" "$raw"
+  done
+  rm -f "$raw.orig"
   if [[ "$scen" == *pressaudio* ]]; then
     wait_for_log "$log" "SQUISH-T pressaudio (ok|failed)" 150 || say "WARN $name: no pressaudio line"
     grep -h "SQUISH-T pressaudio" "$log" | tee -a "$REPORT" >&2 || true
   fi
   merged_marks "$docs" > "$OUT_ABS/raw/$name.marks.txt"
   cp "$docs/press-audio.wav" "$OUT_ABS/raw/$name.wav" 2>/dev/null || true
+  cp "$docs/press-audio.txt" "$OUT_ABS/raw/$name.audio.txt" 2>/dev/null || true
   grep -h "SQUISH-T \(slomo\|hingescript\|orient\|mark\|demo\)" "$log" | cut -c1-200 | tee -a "$REPORT" >&2 || true
   say "   $name raw: $(probe_video "$OUT_ABS/raw/$name.mp4" 2>/dev/null) rotation=${rot:-0}; marks: $(awk '{print $1}' "$OUT_ABS/raw/$name.marks.txt" | tr '\n' ' ' | cut -c1-400)"
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
@@ -198,7 +207,7 @@ take_gap() {
   say "   $1 action window ${a}s → ${b}s: $g" >&2
   g="${g#*maxgap=}"; echo "${g%% *}"
 }
-TAKE_FILES="mp4 marks.txt wav timing"
+TAKE_FILES="mp4 marks.txt wav audio.txt timing"
 keep_take() { local x; for x in $TAKE_FILES; do [[ -f "$OUT_ABS/raw/$1.$x" ]] && mv "$OUT_ABS/raw/$1.$x" "$OUT_ABS/raw/$1.take$2.$x"; done; return 0; }
 use_take() { local x; for x in $TAKE_FILES; do rm -f "$OUT_ABS/raw/$1.$x"; [[ -f "$OUT_ABS/raw/$1.take$2.$x" ]] && mv "$OUT_ABS/raw/$1.take$2.$x" "$OUT_ABS/raw/$1.$x"; done; return 0; }
 
@@ -237,7 +246,11 @@ export_clip() {
   dur=$(calc "$b - $a")
   calc_ok "$dur > 0.5" || { say "WARN $name: empty clip window ${a}s → ${b}s"; return 1; }
   cal=$(calibrate "$name"); rec=$(rec_of "$name")
-  origin=$(mark_epoch "$OUT_ABS/raw/$name.marks.txt" origin)
+  # The WAV's sample 0 is the trace start the app rendered from (press-audio.txt `origin=`), which on the Duo is the
+  # hinge script's first sample, ~13 s after the `origin` placement mark (run 40299918573: every Duo clip's sound sat
+  # 13 s early). The mark is only the fallback.
+  origin=$(sed -nE 's/.*origin=([0-9.]+).*/\1/p' "$OUT_ABS/raw/$name.audio.txt" 2>/dev/null | head -1)
+  [[ -n "$origin" ]] || origin=$(mark_epoch "$OUT_ABS/raw/$name.marks.txt" origin)
   rot=$(rot_of "$name")
   if [[ "$DEVICE_KIND" == p69 ]]; then
     vf="fps=30,setsar=1,format=yuv420p"; pose=p69
