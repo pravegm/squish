@@ -300,8 +300,9 @@ function segAudio(seg, inputs, dur) {
   if (a === "none") return null;
   if (a === "slomo") {
     // The SLO-MO film replays the break at 0.35×: the clip's own break sound, slowed to match (pitch 0.55, tempo 0.636).
-    const c = seg.clip, fail = clipTime(c, "failure") ?? clipTime(c, "fracture-1");
-    if (fail === null) return null;
+    const c = seg.clip, fail0 = clipTime(c, "failure") ?? clipTime(c, "fracture-1");
+    if (fail0 === null) return null;
+    const fail = fail0 + audioShift(c);   // where the break is in the clip's sound
     const idx = inputs.length; inputs.push(["-i", c.file]);
     const lead = 0.5, at = (seg.slomoAt ? clipTime(c, seg.slomoAt) : null) ?? detectFlash(c, seg.from, seg.from + dur) ?? (seg.from + 0.45);
     const delay = Math.max(0, (at - seg.from) - lead / 0.35);
@@ -316,9 +317,51 @@ function segAudio(seg, inputs, dur) {
     return `[${idx}:a]atrim=start=${f3(Math.max(0, from))}:duration=${f3(dur)},asetpts=PTS-STARTPTS,${aOut(dur)},afade=t=out:st=${f3(Math.max(0, dur - 0.2))}:d=0.2`;
   }
   if (seg.kind === "clip") {
-    return `[0:a]atrim=start=${f3(seg.from)}:duration=${f3(dur)},asetpts=PTS-STARTPTS,${aOut(dur)},afade=t=in:d=0.02,afade=t=out:st=${f3(Math.max(0, dur - 0.03))}:d=0.03`;
+    const sh = seg.isReal ? 0 : audioShift(seg.clip);
+    if (sh < 0 && seg.from + sh < 0) {   // the sound must start before the clip does: pad the front with silence
+      return `[0:a]atrim=start=0:duration=${f3(dur)},asetpts=PTS-STARTPTS,adelay=delays=${Math.round(-(seg.from + sh) * 1000)}:all=1,${aOut(dur)},afade=t=in:d=0.02,afade=t=out:st=${f3(Math.max(0, dur - 0.03))}:d=0.03`;
+    }
+    return `[0:a]atrim=start=${f3(seg.from + sh)}:duration=${f3(dur)},asetpts=PTS-STARTPTS,${aOut(dur)},afade=t=in:d=0.02,afade=t=out:st=${f3(Math.max(0, dur - 0.03))}:d=0.03`;
   }
   return null;
+}
+
+/**
+ * Seconds the clip's own sound runs behind its picture at the break (positive: late), so segments read their sound from
+ * `from + shift`. The app's sound is re-rendered offline from the press's trace, and the replay's failure can land up to
+ * ~1 s from the live one (preview.yml run 40350252050: glass +0.96 s), so line the sound's loudest onset near the break
+ * up with the failure flash in the picture. 0 when either can't be found or the shift is implausible (> 1.5 s).
+ */
+const shiftCache = new Map();
+function audioShift(clip) {
+  if (shiftCache.has(clip.name)) return shiftCache.get(clip.name);
+  let shift = 0;
+  const f = clipTime(clip, "failure");
+  if (f !== null && !DRY && clip.info.sound === "app") {
+    const flash = detectFlash(clip, Math.max(0, f - 0.15), f + 0.6);
+    const onset = audioOnset(clip.file, Math.max(0, f - 0.4), f + 1.5);
+    if (flash !== null && onset !== null && Math.abs(onset - flash) <= 1.5) shift = Math.abs(onset - flash) > 0.03 ? onset - flash : 0;
+    log(`audio ${clip.name}: break flash ${flash === null ? "none" : f3(flash)} s, sound onset ${onset === null ? "none" : f3(onset)} s: shift ${f3(shift)} s`);
+  }
+  shiftCache.set(clip.name, shift);
+  return shift;
+}
+/** The loudest onset (s, in the file) of a file's sound in [a, b]: the 10 ms bin rising most over the 50 ms before it, louder than -18 dBFS. */
+function audioOnset(file, a, b) {
+  const r = run("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-af",
+    `atrim=start=${f3(a)}:duration=${f3(b - a)},asetpts=PTS-STARTPTS,asetnsamples=480,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
+    "-f", "null", "-"], { quiet: true, allowFail: true });
+  const lv = [], tm = []; let t = 0;
+  for (const l of (r.stdout || "").split(/\r?\n/)) {
+    const pm = l.match(/pts_time:([0-9.]+)/); if (pm) t = parseFloat(pm[1]);
+    const m = l.match(/RMS_level=(-?[0-9.]+|-inf)/); if (m) { lv.push(m[1] === "-inf" ? -120 : parseFloat(m[1])); tm.push(t); }
+  }
+  let best = -1e9, at = null;
+  for (let i = 5; i < lv.length; i++) {
+    const prev = Math.max(...lv.slice(i - 5, i));
+    if (lv[i] > -18 && lv[i] - prev > best) { best = lv[i] - prev; at = tm[i]; }
+  }
+  return at === null || best < 6 ? null : a + at;
 }
 
 /** The time (clip s) of the biggest frame-to-frame brightness rise in [a, b] of a clip (a failure flash), or null. */

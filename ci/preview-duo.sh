@@ -220,18 +220,34 @@ window() {
 }
 # calibrate <press> <recording>: delay the sound by where the failure flash shows in the recording (as ci/preview.sh).
 calibrate() {
-  local m="$OUT_ABS/raw/$1.marks.txt" f rec fv ft d rise
+  local m="$OUT_ABS/raw/$1.marks.txt" f rec fv ft d rise o w0 wt cal
   printf -v "CAL_$1" %s 0
   f=$(mark_epoch "$m" failure); rec=$(rec_of "$2")
   [[ -n "$f" && -n "$rec" ]] || { say "calibrate $1: no failure mark or recording"; return 0; }
   fv=$(calc "$f - $rec")
-  ft=$(flash_time "$OUT_ABS/raw/$2.mp4" "$(calc "$fv - 0.3")" "$(calc "$fv + 0.8")")
-  if [[ -n "$ft" ]]; then
-    d=$(calc "${ft%% *} - $fv"); rise="${ft##* }"
-    if calc_ok "$d >= -0.5 && $d <= 0.7 && $rise >= 8"; then
-      printf -v "CAL_$1" %s "$d"; say "calibrate $1: flash ${d}s after the failure mark (dY $rise): sound delayed ${d}s"
-    else say "calibrate $1: flash at +${d}s (dY $rise) is implausible; sound by clock only"; fi
-  else say "calibrate $1: no flash found; sound by clock only"; fi
+  ft=$(flash_time "$OUT_ABS/raw/$2.mp4" "$(calc "$fv - 0.1")" "$(calc "$fv + 0.8")")
+  [[ -n "$ft" ]] || { say "calibrate $1: no flash found; sound by clock only"; return 0; }
+  rise="${ft##* }"; ft="${ft%% *}"
+  calc_ok "$rise >= 8" || { say "calibrate $1: flash too faint (dY $rise); sound by clock only"; return 0; }
+  # Line the WAV's own break up with the flash. The offline render re-runs the press from its trace, and its failure can
+  # land up to ~1 s from the live one (run 40350252050: glass +0.96 s), so the clock alone is not enough: find the
+  # loudest onset in the WAV near where the clock puts the failure and move it onto the flash.
+  o=$(sed -nE 's/.*origin=([0-9.]+).*/\1/p' "$OUT_ABS/raw/$1.audio.txt" 2>/dev/null | head -1)
+  [[ -n "$o" ]] || o=$(mark_epoch "$m" origin)
+  w0=$(calc "$f - $o")
+  wt=$(wav_transient "$OUT_ABS/raw/$1.wav" "$(calc "$w0 - 0.4")" "$(calc "$w0 + 1.5")")
+  if [[ -n "$wt" ]]; then
+    cal=$(calc "$ft - $wt - ($o - $rec)")
+    if calc_ok "$cal >= -2 && $cal <= 2"; then
+      printf -v "CAL_$1" %s "$cal"
+      say "calibrate $1: flash at ${ft}s (dY $rise), the WAV's break at ${wt}s (clock said ${w0}s): sound moved ${cal}s"
+      return 0
+    fi
+    say "calibrate $1: the WAV's break at ${wt}s would move the sound ${cal}s; implausible"
+  fi
+  d=$(calc "$ft - $fv")
+  calc_ok "$d >= -0.5 && $d <= 0.7" && { printf -v "CAL_$1" %s "$d"; say "calibrate $1: by the flash only: sound delayed ${d}s"; }
+  return 0
 }
 # first_lit <recording> <from s>: the first time after <from> the recording's mean brightness passes 25 (the inner
 # panel wakes ~150° into the reopen).

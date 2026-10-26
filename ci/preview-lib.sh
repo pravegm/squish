@@ -141,6 +141,21 @@ flash_time() {
         END { if (have && best > 0) printf "%.3f %.1f", base + at, best }'
 }
 
+# wav_transient <wav> <from s> <to s>: the time (s, in the WAV) of its loudest onset in the window: the 10 ms bin with the
+# biggest rise over the 50 ms before it, among bins louder than -18 dBFS RMS (a failure is the loudest event of a press).
+# Prints nothing when no bin rises by 6 dB or more.
+wav_transient() {
+  local from="$2" dur
+  calc_ok "$from < 0" && from=0
+  dur=$(calc "$3 - $from")
+  ffmpeg -nostdin -v error -i "$1" -af "atrim=start=$from:duration=$dur,asetpts=PTS-STARTPTS,asetnsamples=480,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-" -f null - 2>/dev/null \
+    | awk -v base="$from" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
+        /RMS_level/ { split($0, y, "="); v = (y[2] == "-inf") ? -120 : y[2] + 0; n++; lv[n] = v; tm[n] = t }
+        END { best = -1e9; at = ""; for (i = 6; i <= n; i++) { m = -1e9; for (k = i - 5; k < i; k++) if (lv[k] > m) m = lv[k];
+              if (lv[i] > -18 && lv[i] - m > best) { best = lv[i] - m; at = tm[i] } }
+              if (at != "" && best >= 6) printf "%.3f", base + at }'
+}
+
 # audio_chain <wav start seconds (may be negative)> <duration>: an ffmpeg audio filter chain (after the input label)
 # that takes [start, start + duration) of the WAV, padding silence before 0 and after its end, with 30 ms fades at the
 # cut points so a hard cut never clicks, as 48 kHz stereo.

@@ -217,6 +217,19 @@ for seg in "${SEGMENTS[@]}"; do
     if calc_ok "$d >= -0.5 && $d <= 0.7 && $rise >= 8"; then
       printf -v "CAL_$name" %s "$d"
       say "calibrate $name: failure mark at ${fv}s, flash at ${ft%% *}s (dY $rise): sound delayed ${d}s"
+      # Then line the WAV's own break up with that flash: the offline render re-runs the press from its trace and its
+      # failure can land a little off the live one (glass in run 40222962649: the shatter ~0.1 s before the flash).
+      om=$(mark_epoch "$m" origin)
+      oa=$(sed -nE 's/.*origin=([0-9.]+).*/\1/p' "$OUT_ABS/raw/$name.audio.txt" 2>/dev/null | head -1)
+      w0=$(calc "$f - ${oa:-$om}")
+      wt=$(wav_transient "$OUT_ABS/raw/$name.wav" "$(calc "$w0 - 0.4")" "$(calc "$w0 + 1.5")")
+      if [[ -n "$wt" && -n "$om" ]]; then
+        c2=$(calc "${ft%% *} - $wt - ($om - $rec)")
+        if calc_ok "$c2 >= -2 && $c2 <= 2"; then
+          printf -v "CAL_$name" %s "$c2"
+          say "calibrate $name: the WAV's break at ${wt}s (clock said ${w0}s): sound moved ${c2}s instead"
+        fi
+      fi
     else
       say "calibrate $name: flash at ${ft%% *}s (dY $rise) vs mark ${fv}s is implausible; sound placed by clock only"
     fi
