@@ -135,7 +135,8 @@ const LAYOUTS = {
   "anvil-wide": { zoom: 1.85, fx: 0.5, fy: 0.66, ox: 0.5, oy: 0.56, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
   // The reveal ceremony: the PRESSED print and the specimen ticket, cut just under the bezel (no gauge, lamps or keys).
   reveal: { zoom: 1.8, top: 0.115, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.5, bg: GRAPHITE, obj: [0.5, 0.42] },
-  slomo: { zoom: 2.0, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
+  // The SLO-MO film fills the anvil half: framed from the crease down, so the specimen ticket above it stays out.
+  slomo: { zoom: 2.6, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.48, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
   // The sealed card drawn full screen on the 6.9" canvas (p-cover-*): the card, big, mid frame.
   pcover: { zoom: 1.1, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.5] },
   // The P-48's specimen card drops in over the top of the machine: frame the card, not the anvil.
