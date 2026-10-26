@@ -138,7 +138,7 @@ export async function browser({ port = 9300 + Math.floor(Math.random() * 500) } 
    * opts: width, height (viewport), transparent (default true), clip: CSS selector to crop to (its bounding box, with
    * `pad` px), returns { width, height, x, y } of the written image (x, y: where it sat on the page).
    */
-  async function png(html, out, { width = W, height = H, transparent = true, clip = null, pad = 0, format = "png", quality = 82 } = {}) {
+  async function png(html, out, { width = W, height = H, transparent = true, clip = null, pad = 0, format = "png", quality = 82, waitFor = null } = {}) {
     const doc = /<html/i.test(html) ? html
       : `<!doctype html><html><head><meta charset="utf-8"><style>${baseCSS()}</style></head><body>${html}</body></html>`;
     const file = path.join(tmp, `p${++count}.html`);
@@ -149,6 +149,7 @@ export async function browser({ port = 9300 + Math.floor(Math.random() * 500) } 
     await send("Page.navigate", { url: pathToFileURL(file).href });
     await loaded;
     await send("Runtime.evaluate", { expression: FIT_JS, awaitPromise: true });
+    if (waitFor) await send("Runtime.evaluate", { expression: waitFor, awaitPromise: true });
     let box = { x: 0, y: 0, width, height };
     if (clip) {
       const r = await send("Runtime.evaluate", {

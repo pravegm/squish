@@ -134,7 +134,9 @@ const LAYOUTS = {
   reveal: { zoom: 1.8, top: 0.115, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.5, bg: GRAPHITE, obj: [0.5, 0.42] },
   slomo: { zoom: 2.0, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
   // The sealed card drawn full screen on the 6.9" canvas (p-cover-*): the card, big, mid frame.
-  pcover: { zoom: 1.12, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.47, bg: GRAPHITE, obj: [0.5, 0.5] },
+  pcover: { zoom: 1.1, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.5] },
+  // The P-48's specimen card drops in over the top of the machine: frame the card, not the anvil.
+  p69card: { zoom: 1.15, fx: 0.5, fy: 0.25, ox: 0.5, oy: 0.35, bg: PAPER, obj: [0.5, 0.25], clampY: false },
   cover: { zoom: 1.25, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.48, bg: GRAPHITE, obj: [0.5, 0.5] },
   book: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.40, bg: PAPER, obj: [0.75, 0.5] },
   p69: { zoom: 1.13, fx: 0.5, fy: 0.703, ox: 0.5, oy: 0.64, bg: PAPER, obj: [0.5, 0.703], clampY: false },
@@ -291,7 +293,7 @@ function segAudio(seg, inputs, dur) {
     const c = seg.clip, fail = clipTime(c, "failure") ?? clipTime(c, "fracture-1");
     if (fail === null) return null;
     const idx = inputs.length; inputs.push(["-i", c.file]);
-    const lead = 0.5, at = seg.slomoAt ?? detectFlash(c, seg.from, seg.from + dur) ?? (seg.from + 0.45);
+    const lead = 0.5, at = (seg.slomoAt ? clipTime(c, seg.slomoAt) : null) ?? detectFlash(c, seg.from, seg.from + dur) ?? (seg.from + 0.45);
     const delay = Math.max(0, (at - seg.from) - lead / 0.35);
     return `[${idx}:a]atrim=start=${f3(Math.max(0, fail - lead))}:duration=2.2,asetpts=PTS-STARTPTS,asetrate=48000*0.55,aresample=48000,atempo=0.636,` +
       `adelay=delays=${Math.round(delay * 1000)}:all=1,volume=1.4,${aOut(dur)},afade=t=out:st=${f3(Math.max(0, dur - 0.25))}:d=0.25`;
@@ -662,7 +664,7 @@ async function buildMaster(cut, variant, outFile, { safe = SAFE, safePng = "safe
     if (f !== null && f > s.from + 0.35 && f < s.from + s.dur - 0.35) breaks.push(s.start + (f - s.from));
   }
   const coverT = cut.cover ? cutTime(plan, cut.cover) : null;
-  const times = [["hook", 0.5], ["break", breaks[0] !== undefined ? breaks[0] + 0.3 : (coverT ?? plan.total / 2)], ["mid", plan.total / 2], ["end", plan.total - 0.1]];
+  const times = [["hook", 0.5], ["break", breaks[0] !== undefined ? breaks[0] + 0.5 : (coverT ?? plan.total / 2)], ["mid", plan.total / 2], ["end", plan.total - 0.1]];
   const fr = DRY ? [] : stills(outFile, name, times);
   if (!DRY) {
     safeComposite(fr[0], path.join(WORK, safePng), path.join(QC, "frames", `${name}-hook-safe.png`));
