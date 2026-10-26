@@ -343,8 +343,19 @@ struct RootView: View {
     }
 
     private var showsCaptions: Bool {
-        director.settings.showCaptions || director.completedPresses < CoachLine.presses || lessonReplay
+        // `nocoach` (DEBUG, ci/marketing.sh): the first presses' coaching captions go too, so captions follow the
+        // setting alone (`captions=off`).
+        if Self.demoNoCoach { return director.settings.showCaptions }
+        return director.settings.showCaptions || director.completedPresses < CoachLine.presses || lessonReplay
     }
+
+    private static let demoNoCoach: Bool = {
+        #if DEBUG
+        return DemoScenario.current?.has("nocoach") == true
+        #else
+        return false
+        #endif
+    }()
 
     // MARK: - S2 Press room: console and next-unlock line
 

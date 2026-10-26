@@ -88,7 +88,8 @@ import UIKit
 ///   display is dark there), reopen to 160° (the reveal). Writes Documents/preview-script.txt (`script-begin|58|sealed|
 ///   reopen|160 epoch=…`) and logs `SQUISH-T hingescript <step> at …`.
 /// - Marketing capture (ci/marketing.sh, .github/workflows/marketing.yml, docs/marketing/ASSETS.md):
-///   - `nocoach` hides the first-run coach line (RootView `PressCoachSlot`), `nocapture` turns off the app's own
+///   - `nocoach` hides the first-run coach line (RootView `PressCoachSlot`) and the first presses' forced captions
+///     (captions then follow the setting: pass `captions=off`), `nocapture` turns off the app's own
 ///     window captures (`DemoCapture.window`) so nothing hitches a recording.
 ///   - `slowcurve=steady` (touch `slowpress`) and `hingecurve=steady` (`hingescript`): one even squeeze with no
 ///     hold, for the bubble-wrap ASMR take. `hingescript` with `orient=landscape` presses in book pose.
