@@ -16,6 +16,10 @@ on:
         description: "Delete the iPhone Duo App Preview (after the version is editable)"
         type: boolean
         default: false
+      delete_all_previews:
+        description: "Delete every App Preview on the editable version (screenshots stay)"
+        type: boolean
+        default: false
 
 jobs:
   fix:
@@ -28,6 +32,7 @@ jobs:
       BUNDLE_ID: com.pravegm.squish
       CANCEL: ${{ inputs.cancel }}
       DELETE_DUO: ${{ inputs.delete_duo_preview }}
+      DELETE_ALL: ${{ inputs.delete_all_previews }}
     steps:
       - name: Act on App Store Connect
         run: |
@@ -68,22 +73,23 @@ jobs:
                       break
                   time.sleep(15)
 
-          if os.environ["DELETE_DUO"] == "true":
+          everything = os.environ["DELETE_ALL"] == "true"
+          if os.environ["DELETE_DUO"] == "true" or everything:
               locs = call("GET", f"/appStoreVersions/{v['id']}/appStoreVersionLocalizations").json().get("data", [])
               for l in locs:
                   loc = l["attributes"]["locale"]
                   pl = call("GET", f"/appStoreVersionLocalizations/{l['id']}/placements",
                             params={"filter[placementType]": "APP_PREVIEW", "limit": 50}).json().get("data", [])
                   for p in pl:
-                      if p["attributes"].get("placementGroup", "").startswith("IPHONE_DUO"):
-                          print(loc, "deleting library Duo preview placement", p["id"])
+                      if everything or p["attributes"].get("placementGroup", "").startswith("IPHONE_DUO"):
+                          print(loc, "deleting library preview placement", p["attributes"].get("placementGroup"), p["id"])
                           call("DELETE", f"/appAssetLibraryPlacements/{p['id']}")
                   sets = call("GET", f"/appStoreVersionLocalizations/{l['id']}/appPreviewSets",
                               params={"include": "appPreviews"}).json()
                   for s in sets.get("data", []):
-                      if "DUO" in (s["attributes"].get("previewType") or ""):
+                      if everything or "DUO" in (s["attributes"].get("previewType") or ""):
                           for ref in (s.get("relationships", {}).get("appPreviews", {}) or {}).get("data", []) or []:
-                              print(loc, "deleting Duo appPreview", ref["id"])
+                              print(loc, "deleting appPreview", s["attributes"].get("previewType"), ref["id"])
                               call("DELETE", f"/appPreviews/{ref['id']}")
               # Report what is left.
               for l in locs:
