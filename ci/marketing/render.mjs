@@ -309,17 +309,18 @@ export function endPillHTML({ icon, line = "out now on the App Store" }) {
 }
 
 /** The C5 grid matte: the background with rounded windows for the 2 × 2 tiles. */
-export function gridMatteHTML({ x0, y0, tile, gap, radius = 34, color = C.graphite }) {
+export function gridMatteHTML({ x0, y0, tile, gap, radius = 34 }) {
   const holes = [0, 1, 2, 3].map((i) => {
     const x = x0 + (i % 2) * (tile + gap), y = y0 + Math.floor(i / 2) * (tile + gap), r = radius;
     return `M${x + r},${y} h${tile - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${tile - 2 * r} a${r},${r} 0 0 1 -${r},${r} h-${tile - 2 * r} a${r},${r} 0 0 1 -${r},-${r} v-${tile - 2 * r} a${r},${r} 0 0 1 ${r},-${r} z`;
   }).join(" ");
   return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:transparent;}</style></head><body>
   <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34363b"/><stop offset="1" stop-color="${color}"/></linearGradient></defs>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F7F3EC"/><stop offset="1" stop-color="#E7E0D4"/></linearGradient>
+  <filter id="s" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#2B2D31" flood-opacity=".28"/></filter></defs>
   <path fill="url(#g)" fill-rule="evenodd" d="M0,0 H${W} V${H} H0 Z ${holes}"/>
   ${[0, 1, 2, 3].map((i) => { const x = x0 + (i % 2) * (tile + gap), y = y0 + Math.floor(i / 2) * (tile + gap);
-    return `<rect x="${x + 1.5}" y="${y + 1.5}" width="${tile - 3}" height="${tile - 3}" rx="${radius}" fill="none" stroke="rgba(243,238,230,.55)" stroke-width="3"/>`; }).join("")}
+    return `<rect x="${x + 1.5}" y="${y + 1.5}" width="${tile - 3}" height="${tile - 3}" rx="${radius}" fill="none" stroke="rgba(43,45,49,.18)" stroke-width="3"/>`; }).join("")}
   </svg></body></html>`;
 }
 

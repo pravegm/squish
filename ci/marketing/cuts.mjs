@@ -29,7 +29,7 @@ export const CUTS = [
     hook: "it *creaks*.",
     lines: [{ text: "then it *doesn't*.", from: "0:failure+0.0", to: "0:failure+1.8" }],
     segments: [
-      { clip: "d-glass", from: "failure-3.0", dur: 3.6, layout: "anvil", real: "S1" },
+      { clip: "d-glass", from: "failure-3.0", dur: 3.8, layout: "anvil", real: "S1" },
       // The SLO-MO film replays the press at 0.35×; its break lands ~1.15 s before the film ends (marketing run 40309703073).
       { clip: "d-glass", from: "slomo-end-2.4", dur: 1.9, layout: "slomo", audio: "slomo", slomoAt: "slomo-end-1.15" },
       // The pull-back to the phone: the 112° render (the hero render draws the glass's cracked print on the upper screen,
@@ -118,10 +118,10 @@ export const CUTS = [
         { clip: "d-glass", from: "script-begin+0.6" }, { clip: "d-jelly", from: "script-begin+0.6" },
         { clip: "d-can", from: "script-begin+0.6" }, { clip: "d-duck", from: "script-begin+0.6" }],
         dur: 1.5, layout: "anvil", audio: { clip: "d-glass", from: "script-begin+0.6" } },
-      { clip: "d-glass", from: "failure-2.2", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 1 },
-      { clip: "d-jelly", from: "failure-2.2,phase-pressing+2.0", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 2 },
-      { clip: "d-can", from: "failure-2.2", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 3 },
-      { clip: "d-duck", from: "failure-2.2", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 4 },
+      { clip: "d-glass", from: "failure-1.8", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 1 },
+      { clip: "d-jelly", from: "failure-1.8,phase-pressing+2.0", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 2 },
+      { clip: "d-can", from: "failure-1.8", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 3 },
+      { clip: "d-duck", from: "failure-1.8", dur: { organic: 2.7, default: 2.5 }, layout: "anvil", number: 4 },
       { grid: [
         { clip: "d-glass", from: "reveal+1.3" }, { clip: "d-jelly", from: "reveal+1.3" },
         { clip: "d-can", from: "reveal+1.3" }, { clip: "d-duck", from: "reveal+1.3" }],

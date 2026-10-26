@@ -362,7 +362,7 @@ function renderSegment(seg, out, cut, variant, assets) {
       parts.push(layoutFilter(trim, tile.clip, seg.layout || "anvil", dur, `t${i}`, g.tile, g.tile, { oy: 0.5 }));
     });
     const matte = inputs.length; inputs.push(["-loop", "1", "-framerate", String(FPS), "-t", f3(dur + 0.1), "-i", assets.gridMatte]);
-    let chain = `color=c=${GRAPHITE}:s=${W}x${H}:r=${FPS}:d=${f3(dur)}[g0]`;
+    let chain = `color=c=${PAPER}:s=${W}x${H}:r=${FPS}:d=${f3(dur)}[g0]`;
     seg.tiles.forEach((_, i) => {
       const x = g.x0 + (i % 2) * (g.tile + g.gap), y = g.y0 + Math.floor(i / 2) * (g.tile + g.gap);
       chain += `;[g${i}][t${i}]overlay=${x}:${y}:shortest=1[g${i + 1}]`;
@@ -390,7 +390,7 @@ function renderSegment(seg, out, cut, variant, assets) {
   ff([...inputs.flat(), "-filter_complex", `${vf};${af}[a]`, "-map", "[v]", "-map", "[a]", "-t", f3(dur), ...venc, ...aenc, out]);
 }
 
-const GRID = { x0: 170, y0: 520, tile: 360, gap: 20 };
+const GRID = { x0: 130, y0: 500, tile: 400, gap: 20 };
 
 // ---- overlays -----------------------------------------------------------------------------------------------------
 // Each: { png, w, h, cx, cy | yExpr, from, to, fadeIn, fadeOut, rise, text: true when it must respect the safe zone }
