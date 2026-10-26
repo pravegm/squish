@@ -219,7 +219,8 @@ function planCut(cut, variant) {
           if (s.maxDur) dur = Math.min(dur, s.maxDur);
           if (to === null) problem(`${cut.id}/${variant}: ${clip.name} has no mark for '${s.to}'; used ${f3(dur)} s`);
         }
-        seg.dur = Math.max(0.3, Math.min(dur, clip.dur - seg.from));
+        // `hold`: a still-like shot (the sealed card) may run past its clip; the last frame is held (tpad).
+        seg.dur = Math.max(0.3, s.hold ? Math.min(dur, clip.dur - seg.from + 0.9) : Math.min(dur, clip.dur - seg.from));
         if (seg.dur < (durWanted ?? 0) - 0.05) problem(`${cut.id}/${variant}: ${clip.name} ends early (${f3(seg.dur)} of ${durWanted} s)`);
       }
     } else if (seg.kind === "still") {

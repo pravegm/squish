@@ -143,8 +143,8 @@ async function main() {
   // Pictures from this run's clips (Duo tabletop 2006 × 2852; P-48 1320 × 2868) and the store renders.
   const S = {
     shelf: still("d-shelf", "shelffill-done+1.6", "shelf-full"),
-    eggCard: still("d-egg", "reveal+2.2", "egg-card"),
-    glassCard: still("d-glass", "reveal+2.2", "glass-card"),
+    eggCard: still("d-egg", "reveal+3.4", "egg-card"),   // after the tons count-up has settled
+    glassCard: still("d-glass", "reveal+3.4", "glass-card"),
     open: still("d-glass", "script-begin+0.3", "glass-open"),
     closing: still("d-glass", "failure-1.2", "glass-closing"),
     glassIdle: still("d-glass", "script-begin+0.3", "glass-idle"),
@@ -197,7 +197,7 @@ async function main() {
     ${sub("pops, splats, snaps, fizz. the same press every time.", { y: 1180, size: 34 })}`), `${C}/04-each-gives.png`, FW, FH);
 
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("open up. file the *evidence*.", { y: 150, size: 88, lines: 2 })}
-    ${pic(S.eggCard, { x: 120, y: 400, w: 840, h: 840, crop: [0.08, 0.115, 0.84, 0.5], radius: 40, shadow: true })}
+    ${pic(S.eggCard, { x: 120, y: 400, w: 840, h: 840, crop: [0.06, 0.1, 0.88, 0.52], radius: 40, shadow: true })}
     ${sub("every press is stamped, measured and kept.", { y: 1262, size: 34 })}`), `${C}/05-specimens.png`, FW, FH);
 
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("collect every pressed *specimen*.", { y: 150, size: 88, lines: 2 })}
@@ -245,7 +245,7 @@ async function main() {
     ${pic(S.shelf, { x: 90, y: 600, w: 900, h: 640, crop: [0, 0.02, 1, 0.5], radius: 40, shadow: true })}`,
   [[[140, 1270, 800, 250], "poll sticker: how do you close it?"]]);
   await story("stories/story-1-4-card.png", `${wordmark(90, 300)}${sh("every press, *filed*.", 400)}
-    ${pic(S.eggCard, { x: 140, y: 580, w: 800, h: 640, crop: [0.08, 0.115, 0.84, 0.5], radius: 40, shadow: true })}
+    ${pic(S.eggCard, { x: 140, y: 580, w: 800, h: 640, crop: [0.06, 0.1, 0.88, 0.52], radius: 40, shadow: true })}
     <div class="s" style="left:90px;top:1460px;width:900px;text-align:center;font-size:36px">${PRICE["ad-uk"]}</div>`,
   [[[240, 1260, 600, 160], "link sticker: get squish"]]);
   const vs = async (rel, a, an, bb, bn) => story(rel, `${wordmark(90, 300)}${sh("which one *first*?", 400, 84, 1)}

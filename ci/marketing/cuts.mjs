@@ -36,7 +36,7 @@ export const CUTS = [
       // which could read as a cracked phone: CrackGate). Replaced by the founder's S2 when it exists.
       { still: "store/glassBottle-storeshot-112.png", crop: [0, 0.27, 1, 0.70], dur: 1.1, kb: [1.1, 1.0],
         audio: { clip: "d-glass", from: "failure+0.6" }, fine: true, real: "S2" },
-      { clip: "p-cover-glass", from: "@flash-0.12,origin+3.85", dur: 1.5, layout: "pcover", sfx: [KACHUNK], fine: true, real: "S7" },
+      { clip: "p-cover-glass", from: "@flash-0.12,origin+3.85", dur: 1.5, hold: true, layout: "pcover", sfx: [KACHUNK], fine: true, real: "S7" },
       { clip: "d-glass", from: "reveal-0.2", dur: { organic: 2.3, default: 2.0 }, layout: "reveal" },
       { clip: "d-glass", from: "failure-3.7", dur: 0.6, layout: "anvil", only: "organic", loop: true },
     ],
@@ -54,7 +54,7 @@ export const CUTS = [
     ],
     segments: [
       { clip: "d-egg", from: "failure-3.9", to: "script-58+0.3", maxDur: 5.6, layout: "anvil", real: "S4" },
-      { clip: "p-cover-egg", from: "@flash-0.12,origin+3.85", dur: 2.0, layout: "pcover", sfx: [KACHUNK], real: "S6" },
+      { clip: "p-cover-egg", from: "@flash-0.12,origin+3.85", dur: 2.0, hold: true, layout: "pcover", sfx: [KACHUNK], real: "S6" },
       { clip: "d-egg", from: "reveal-0.2", dur: 1.8, layout: "reveal", real: "S7" },
       { clip: "d-egg", from: "slomo-end-2.3", dur: 1.5, layout: "slomo", audio: "slomo", slomoAt: "slomo-end-1.15" },
       { clip: "d-duck", from: "failure-0.45", dur: 0.7, layout: "anvil" },
@@ -68,7 +68,7 @@ export const CUTS = [
       ad: { headline: { default: "£2,000 phone. *£2.49* press.", "ad-us": "$2,000 phone. *$2.49* press." },
         line: "no ads · no in-app purchases", price: "", fine: true },
     },
-    cover: "2:start+1.3",
+    cover: "3:start+1.0",
   },
   {
     id: "c3-bubbles", concept: "C3", title: "24 bubbles. one at a time.", length: 9, week: "launch",
@@ -93,14 +93,14 @@ export const CUTS = [
     segments: [
       { clip: "p-can", from: "phase-pressing-0.3", to: "failure+0.8", maxDur: 5.0, layout: "p69", real: "S10" },
       // The P-48's specimen card lands ~1.8 s after the reveal mark (the ram lifts first).
-      { clip: "p-can", from: "reveal+1.5", dur: { organic: 2.0, default: 1.7 }, layout: "p69card" },
+      { clip: "p-can", from: "reveal+2.0", dur: { organic: 2.0, default: 1.7 }, layout: "p69card" },
       { clip: "p-duck", from: "failure-0.45", dur: 0.7, layout: "p69" },
       { clip: "p-jelly", from: "failure-0.45,phase-sealed-0.6", dur: 0.7, layout: "p69" },
       { clip: "p-cake", from: "failure-0.45,phase-sealed-0.6", dur: 0.7, layout: "p69" },
-      { clip: "p-can", from: "phase-pressing-0.9", dur: 0.6, layout: "p69", only: "organic", loop: true },
+      { clip: "p-can", from: "phase-pressing-1.5", dur: 1.2, layout: "p69", only: "organic", loop: true },
     ],
     end: {
-      organic: { line: "works on every iPhone. made for the *fold*." },
+      organic: { line: "works on every iPhone. made for the *fold*.", at: "end-1.2" },
       ad: { headline: "works on every iPhone. made for the *fold*.", line: "no ads · no in-app purchases",
         price: { "ad-uk": "£2.49", "ad-us": "$2.49" } },
     },
@@ -140,12 +140,12 @@ export const CUTS = [
       { clip: "p-ball", from: "phase-pressing-0.5", to: "failure-0.4", maxDur: 4.4, layout: "p69", real: "S9" },
       // The moment it fights back, close on the ram: the crack is the machine's, on its yellow ram and plate.
       { clip: "p-ball", from: "failure-0.4", dur: 1.8, layout: "p69-ram" },
-      { clip: "p-ball", from: "reveal+1.5", dur: { organic: 2.6, default: 2.2 }, layout: "p69card" },
+      { clip: "p-ball", from: "reveal+1.9", dur: 2.2, layout: "p69card" },
       // No Duo pull-back yet: the Duo's reveal draws the press damage as crack lines on the upper screen, which would read
       // as a cracked phone (CrackGate). The founder's S9 (phone open and intact) goes here.
-      { clip: "p-ball", from: "phase-pressing-1.1", dur: 0.6, layout: "p69", only: "organic", loop: true },
+      { clip: "p-ball", from: "phase-pressing-1.7", dur: 1.2, layout: "p69", only: "organic", loop: true },
     ],
-    end: { organic: { line: "find the other *nine* first." }, ad: { line: "find the other *nine* first." } },
+    end: { organic: { line: "find the other *nine* first.", at: "end-1.2" }, ad: { line: "find the other *nine* first." } },
     cover: "1:failure+0.5",
   },
 ];
