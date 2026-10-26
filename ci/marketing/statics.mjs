@@ -157,14 +157,15 @@ async function main() {
     p48can: still("p-can", "failure-0.6", "p48-can"),
   };
   const ST = {
-    heroDuck: asset("store/rubberDuck-storeshot-hero.png"),
+    // The front-on "eye" render: no store caption and no angle tag (cards no longer show hinge angles).
+    heroDuck: asset("store/rubberDuck-storeshot-hero-eye.png"),
     heroGlass: asset("store/glassBottle-storeshot-hero.png"),
     pairCan: asset("store/sodaCan-storeshot-pair.png"),
     revealDuck: asset("store/rubberDuck-storeshot-reveal.png"),
     open112: asset("store/glassBottle-storeshot-112.png"),
   };
   // Crops (fractions of 2007 × 2853) that keep each render's device and drop its baked-in store caption.
-  const HERO = [0, 0.185, 1, 0.75], REVEAL = [0, 0.18, 1, 0.78], PAIR = [0, 0.125, 1, 0.84];
+  const HERO = [0, 0.215, 1, 0.575], REVEAL = [0, 0.18, 1, 0.78], PAIR = [0, 0.125, 1, 0.84];
   const R1 = { fit: "contain", feather: 70 };
   const ANVIL = [0.18, 0.52, 0.64, 0.33];   // the object on the lower half of a tabletop still
   const TABLETOP = [0, 0, 1, 1];
@@ -265,7 +266,7 @@ async function main() {
     ${pic(S.closing, { x: 140, y: 600, w: 800, h: 420, crop: [0.05, 0.42, 0.9, 0.42], radius: 40, shadow: true })}`,
   [[[140, 1060, 800, 440], "quiz sticker: how do you get a Perfect Squish?"]]);
   await story("stories/story-3-2-golden-rule.png", `${wordmark(90, 300)}${sh("and the golden rule:", 400, 84, 1)}
-    ${pic(ST.open112, { x: 20, y: 510, w: 1040, h: 780, crop: [0, 0.2, 1, 0.7], ...R1 })}
+    ${pic(ST.open112, { x: 20, y: 510, w: 1040, h: 780, crop: [0, 0.27, 1, 0.7], ...R1 })}
     <div class="h fit" data-max="62" data-min="40" data-lines="2" style="left:90px;top:1300px;width:900px;font-size:62px;text-align:center">everything's on screen. <em class="hl">nothing real</em> goes inside.</div>`);
   await story("stories/story-3-4-whats-next.png", `${wordmark(90, 300)}${sh("what should we press *next*?", 400, 84, 2)}
     <div class="s" style="left:90px;top:1440px;width:900px;text-align:center;font-size:40px">ice cube? marshmallow? fortune cookie?</div>`,

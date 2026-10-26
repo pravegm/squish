@@ -44,7 +44,7 @@ case "$cmd" in
     cp "$dir/_dl/squish-icon-1024.png" "$dir/icon.png"
     # The uncaptioned FoldStoreShot renders (store-duo) are what the stills crop; a missing run is not fatal.
     if gh run download "$run" -R pravegm/squish -n store-duo -D "$dir/_dl/store-duo" 2>/dev/null; then
-      for f in rubberDuck-storeshot-hero glassBottle-storeshot-hero sodaCan-storeshot-pair rubberDuck-storeshot-reveal \
+      for f in rubberDuck-storeshot-hero rubberDuck-storeshot-hero-eye glassBottle-storeshot-hero sodaCan-storeshot-pair rubberDuck-storeshot-reveal \
                glassBottle-storeshot-112 duo-storeshot-grid duo-shelf; do
         src=$(find "$dir/_dl/store-duo" -name "$f.png" -not -path "*/verify/*" -not -path "*/raw/*" | head -1)
         [[ -n "$src" ]] && cp "$src" "$dir/store/$f.png" || echo "warning: store render $f.png not in run $run"

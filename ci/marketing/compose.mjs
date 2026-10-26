@@ -128,10 +128,12 @@ const LAYOUTS = {
   duo: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.4, bg: GRAPHITE, obj: [0.5, 0.677] },
   // The anvil crops may leave graphite below the source (in the bottom keep-clear band, under Instagram's own UI) so
   // the object sits in the middle of the safe zone instead of low in it.
-  anvil: { zoom: 1.9, fx: 0.5, fy: 0.677, ox: 0.5, oy: 0.435, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
-  "anvil-wide": { zoom: 1.4, fx: 0.5, fy: 0.66, ox: 0.5, oy: 0.43, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
-  slomo: { zoom: 1.35, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
-  cover: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.4, bg: GRAPHITE, obj: [0.5, 0.5] },
+  anvil: { zoom: 2.1, fx: 0.5, fy: 0.677, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
+  "anvil-wide": { zoom: 1.85, fx: 0.5, fy: 0.66, ox: 0.5, oy: 0.56, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
+  // The reveal ceremony: the PRESSED print and the specimen ticket, cut just under the bezel (no gauge, lamps or keys).
+  reveal: { zoom: 1.8, top: 0.115, fx: 0.5, bg: GRAPHITE, obj: [0.5, 0.42] },
+  slomo: { zoom: 2.0, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
+  cover: { zoom: 1.25, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.48, bg: GRAPHITE, obj: [0.5, 0.5] },
   book: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.40, bg: PAPER, obj: [0.75, 0.5] },
   p69: { zoom: 1.13, fx: 0.5, fy: 0.703, ox: 0.5, oy: 0.64, bg: PAPER, obj: [0.5, 0.703], clampY: false },
   "p69-tight": { zoom: 1.6, fx: 0.5, fy: 0.69, ox: 0.5, oy: 0.47, bg: PAPER, obj: [0.5, 0.69] },
@@ -144,8 +146,9 @@ function place(src, layoutName, CW = W, CH = H, over = {}) {
   const sw = even(CW * zoom), sh = even(src.h * sw / src.w);
   let x = Math.round(L.ox * CW - L.fx * sw), y = Math.round(L.oy * CH - L.fy * sh);
   x = sw >= CW ? clamp(x, CW - sw, 0) : Math.round((CW - sw) / 2);
-  if (sh >= CH && L.clampY !== false) y = clamp(y, CH - sh, 0);
-  if (L.clampY === false) y = Math.min(0, y);
+  if (L.top !== undefined) y = Math.round(-L.top * sh);
+  else if (sh >= CH && L.clampY !== false) y = clamp(y, CH - sh, 0);
+  if (L.clampY === false && L.top === undefined) y = Math.min(0, y);
   const obj = [x + L.obj[0] * sw, y + L.obj[1] * sh];
   return { sw, sh, x, y, bg: L.bg, obj, gapBottom: Math.max(0, CH - (y + sh)), gapTop: Math.max(0, y) };
 }
@@ -407,14 +410,14 @@ async function buildOverlays(cut, variant, plan, browser, assets) {
   const fineSegs = plan.segs.filter((s) => s.fine || s.isReal);
   if (fineSegs.length) {
     const html = R.finePrintHTML(FINE);
-    for (const s of fineSegs) await add(html, { cx: W / 2, cy: 1205, from: s.start + 0.05, to: s.start + s.dur - 0.02, fadeIn: 0.1, fadeOut: 0.1, text: true, role: "fine" }, 10);
+    for (const s of fineSegs) await add(html, { cx: W / 2, cy: cut.fineY ?? 560, from: s.start + 0.05, to: s.start + s.dur - 0.02, fadeIn: 0.1, fadeOut: 0.1, text: true, role: "fine" }, 10);
   }
   const end = pick(cut.end, variant);
   if (variant === "organic" && end) {
     const at = end.at ? cutTime(plan, end.at) : plan.contentEnd - 1.5;
     await add(R.endPillHTML({ icon: R.fileURL(assets.icon), line: pick(end.line, variant) || OUT_NOW }),
       { cx: W / 2, cy: cut.endY ?? 430, from: at, to: plan.contentEnd, rise: 14, fadeOut: 0, text: true, role: "end" }, 12);
-    if (end.fine) await add(R.finePrintHTML(FINE), { cx: W / 2, cy: 1205, from: at + 0.05, to: plan.contentEnd, fadeOut: 0, text: true, role: "fine" }, 10);
+    if (end.fine) await add(R.finePrintHTML(FINE), { cx: W / 2, cy: cut.fineY ?? 560, from: at + 0.05, to: plan.contentEnd, fadeOut: 0, text: true, role: "fine" }, 10);
   }
   if (cut.watermark && (cut.watermark === variant || cut.watermark === "all")) {
     await add(R.watermarkHTML(), { x: 86, y: 292, from: 0, to: plan.contentEnd, fadeIn: 0, fadeOut: 0, text: true, role: "watermark" }, 10);
@@ -722,7 +725,29 @@ for (const sc of STORY_CUTS) {
   try { await buildMaster(cut, "organic", path.join(dir, `${sc.id}.mp4`), { safe: R.SAFE.stories, safePng: "safe-stories.png" }); }
   catch (e) { problem(`${sc.id}: ${e.message.split("\n").slice(0, 6).join(" | ")}`); }
 }
-if (browser) await browser.close();
+// One sheet of every cover (qc/contact-sheet.png) and one of every master's hook / break / end frames
+// (qc/frames-sheet.png), for review at a glance.
+if (browser) {
+  const covers = CUTS.map((c) => path.join(OUT, c.week === "launch" ? "reels" : "reels-week3+", `${c.id}-cover.png`)).filter((f) => fs.existsSync(f));
+  if (covers.length) {
+    await browser.png(`<!doctype html><html><head><meta charset="utf-8"><style>${R.baseCSS()}
+      body{margin:0;background:#1d1e21;width:${covers.length * 370 + 10}px;height:720px;display:flex;gap:10px;padding:10px;box-sizing:border-box}
+      figure{margin:0;width:360px;color:#F3EEE6;font-size:22px;text-align:center} img{width:360px;height:640px;display:block;border-radius:12px}</style></head>
+      <body>${covers.map((f) => `<figure><img src="${R.fileURL(f)}"><figcaption>${path.basename(f, "-cover.png")}</figcaption></figure>`).join("")}</body></html>`,
+    path.join(QC, "contact-sheet.png"), { width: covers.length * 370 + 10, height: 720, transparent: false });
+  }
+  const rows = results.filter((r) => r.variant === "organic" || r.variant === "ad-uk");
+  const cell = (r, label) => { const f = path.join(QC, "frames", `${path.basename(r.file, ".mp4")}-${label}.png`); return fs.existsSync(f) ? `<img src="${R.fileURL(f)}">` : "<div></div>"; };
+  if (rows.length) {
+    const h = rows.length * 330 + 20;
+    await browser.png(`<!doctype html><html><head><meta charset="utf-8"><style>${R.baseCSS()}
+      body{margin:0;background:#1d1e21;width:1060px;height:${h}px;padding:10px;box-sizing:border-box;color:#F3EEE6;font-size:20px}
+      .r{display:flex;gap:8px;height:322px;margin-bottom:8px;align-items:center} .r span{width:220px} img,.r div{width:180px;height:320px;border-radius:8px}</style></head>
+      <body>${rows.map((r) => `<div class="r"><span>${path.basename(r.file, ".mp4")}</span>${cell(r, "hook")}${cell(r, "break")}${cell(r, "mid")}${cell(r, "end")}</div>`).join("")}</body></html>`,
+    path.join(QC, "frames-sheet.png"), { width: 1060, height: h, transparent: false });
+  }
+  await browser.close();
+}
 
 // ---- report ---------------------------------------------------------------------------------------------------------------
 const lines = ["# Marketing kit: compose report", "", `Generated ${new Date().toISOString()}.`, "",
