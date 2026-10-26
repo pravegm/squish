@@ -16,8 +16,8 @@
 # Base keys. P69: seed 3 (plain variant), no reveal toasts, no coach line, no self-captures, an off-record warm-up press,
 # the app's own sound. DUO: the same on the Duo, tabletop (orient=portrait); no `notoasts`, so the Fold reveal ceremony
 # plays in full (a fresh demo collection's first reveal shows no toasts anyway).
-@P69=seed=3;notoasts;nocoach;nocapture;captions=off;prewarm;pressaudio
-@DUO=duo;seed=3;nocoach;nocapture;captions=off;orient=portrait;pressaudio
+@P69=seed=3;notoasts;nocoach;nocapture;nochrome;captions=off;prewarm;pressaudio
+@DUO=duo;seed=3;nocoach;nocapture;nochrome;captions=off;orient=portrait;pressaudio
 
 # ---- P-48 (every other iPhone): C4 -----------------------------------------------------------------------------------
 p69|a|p-can|object=sodaCan;reveal;slowpress=5;@P69|reveal+6|phase-pressing-1.6|reveal+5.5|3

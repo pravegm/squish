@@ -131,7 +131,7 @@ const LAYOUTS = {
   anvil: { zoom: 2.1, fx: 0.5, fy: 0.677, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
   "anvil-wide": { zoom: 1.85, fx: 0.5, fy: 0.66, ox: 0.5, oy: 0.56, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
   // The reveal ceremony: the PRESSED print and the specimen ticket, cut just under the bezel (no gauge, lamps or keys).
-  reveal: { zoom: 1.8, top: 0.115, fx: 0.5, bg: GRAPHITE, obj: [0.5, 0.42] },
+  reveal: { zoom: 1.8, top: 0.115, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.5, bg: GRAPHITE, obj: [0.5, 0.42] },
   slomo: { zoom: 2.0, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
   // The sealed card drawn full screen on the 6.9" canvas (p-cover-*): the card, big, mid frame.
   pcover: { zoom: 1.12, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.47, bg: GRAPHITE, obj: [0.5, 0.5] },
@@ -270,7 +270,8 @@ function layoutFilter(inLabel, src, layoutName, dur, outLabel, CW = W, CH = H, o
   const p = place(src, layoutName, CW, CH, over);
   // On the Duo the app's console (Menu · object chip · Shelf) is cropped to graphite: it sits in the keep-clear band
   // anyway, and its chip names the object's failure ("EGG · CRACKS") right under the phone's screen (CrackGate).
-  const maskAt = src.pose === "tabletop" || src.pose === "book" ? 0.925 : src.pose === "p69" ? 0.82 : null;
+  // (The P-48 takes run with `nochrome`, so their console is never drawn and needs no mask.)
+  const maskAt = src.pose === "tabletop" || src.pose === "book" ? 0.925 : null;
   const maskY = maskAt === null ? CH : Math.round(p.y + maskAt * p.sh);
   const mask = maskY < CH ? `,drawbox=x=0:y=${Math.max(0, maskY)}:w=${CW}:h=${CH - Math.max(0, maskY)}:color=${GRAPHITE}:t=fill` : "";
   return `${inLabel}scale=${p.sw}:${p.sh}:flags=lanczos,setsar=1[sv_${outLabel}];` +

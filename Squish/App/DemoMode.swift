@@ -91,6 +91,7 @@ import UIKit
 ///   - `nocoach` hides the first-run coach line (RootView `PressCoachSlot`) and the first presses' forced captions
 ///     (captions then follow the setting: pass `captions=off`), `nocapture` turns off the app's own
 ///     window captures (`DemoCapture.window`) so nothing hitches a recording.
+///   - `nochrome` hides the press-room console (Menu · object chip · Shelf) and the next-unlock line.
 ///   - `slowcurve=steady` (touch `slowpress`) and `hingecurve=steady` (`hingescript`): one even squeeze with no
 ///     hold, for the bubble-wrap ASMR take. `hingescript` with `orient=landscape` presses in book pose.
 ///   - `slomo` also writes Documents/slomo-marks.txt (`slomo-key`, `slomo-begin`, `slomo-end`); `pressaudiodelay=<s>`

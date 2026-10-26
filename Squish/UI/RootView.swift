@@ -357,11 +357,22 @@ struct RootView: View {
         #endif
     }()
 
+    /// `nochrome` (DEBUG, ci/marketing.sh): no press-room console or next-unlock line, so a marketing take shows the
+    /// press and the object only. Release builds always show them.
+    private static let demoNoChrome: Bool = {
+        #if DEBUG
+        return DemoScenario.current?.has("nochrome") == true
+        #else
+        return false
+        #endif
+    }()
+
     // MARK: - S2 Press room: console and next-unlock line
 
     @ViewBuilder
     private func pressRoom(_ bands: ScreenBands) -> some View {
-        if (director.canChooseObject || collecting || consoleHoldsChip) && !isCoverUp && launchPhase >= .opening {
+        if (director.canChooseObject || collecting || consoleHoldsChip) && !isCoverUp && launchPhase >= .opening
+            && !Self.demoNoChrome {
             console(bands)
                 .transition(.opacity)
             if director.canChooseObject && !collecting && director.revealed == nil, let spot = nextUnlockSpot(bands) {
