@@ -10,7 +10,11 @@ const KIT = path.resolve(process.argv[2] || "marketing-kit");
 const DOCS = path.resolve(process.argv[3] || "docs/marketing");
 const THUMBS = path.join(DOCS, "thumbs");
 fs.mkdirSync(THUMBS, { recursive: true });
-const results = JSON.parse(fs.readFileSync(path.join(KIT, "results.json"), "utf8"));
+// results.json carries the composing machine's absolute paths: re-root each under this kit folder.
+const results = JSON.parse(fs.readFileSync(path.join(KIT, "results.json"), "utf8")).map((r) => {
+  const m = String(r.file).split("\\").join("/").match(/(reels(?:-week3\+)?|stories)\/[^/]+$/);
+  return { ...r, file: m ? path.join(KIT, m[0]) : r.file };
+});
 const rel = (f) => path.relative(KIT, f).replace(/\\/g, "/");
 const browser = await R.browser();
 function size(file) { const b = fs.readFileSync(file); if (b.readUInt32BE(0) === 0x89504e47) return [b.readUInt32BE(16), b.readUInt32BE(20)];
