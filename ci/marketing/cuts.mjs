@@ -130,7 +130,7 @@ export const CUTS = [
         dur: { organic: 2.7, default: 1.9 }, layout: "reveal", audio: { clip: "d-duck", from: "reveal+1.3" } },
     ],
     end: { organic: { line: "10 objects. all break *differently*.", at: "end-1.5" }, ad: { line: "10 objects. all break *differently*." } },
-    cover: "0:start+2.0",
+    cover: "0:start+0.9",
   },
   {
     id: "c6-fights-back", concept: "C6", title: "this one fights back.", length: 10, week: "week 3+",
