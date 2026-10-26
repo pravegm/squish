@@ -56,6 +56,18 @@ const f3 = (x) => (Math.round(x * 1000) / 1000).toFixed(3);
 const even = (x) => Math.max(2, 2 * Math.round(x / 2));
 const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
 
+function imageSize(file) {
+  const b = fs.readFileSync(file);
+  if (b.readUInt32BE(0) === 0x89504e47) return [b.readUInt32BE(16), b.readUInt32BE(20)];
+  let i = 2;
+  while (i < b.length) {
+    if (b[i] !== 0xff) { i++; continue; }
+    const m = b[i + 1];
+    if (m >= 0xc0 && m <= 0xc3) return [b.readUInt16BE(i + 7), b.readUInt16BE(i + 5)];
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return [1, 1];
+}
 function probeDuration(file) {
   if (DRY) return 10;
   const r = run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { quiet: true });
@@ -114,9 +126,11 @@ function pick(v, variant) {
 const GRAPHITE = "0x2B2D31", PAPER = "0xF3EEE6";
 const LAYOUTS = {
   duo: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.4, bg: GRAPHITE, obj: [0.5, 0.677] },
-  anvil: { zoom: 1.9, fx: 0.5, fy: 0.675, ox: 0.5, oy: 0.44, bg: GRAPHITE, obj: [0.5, 0.677] },
-  "anvil-wide": { zoom: 1.4, fx: 0.5, fy: 0.64, ox: 0.5, oy: 0.43, bg: GRAPHITE, obj: [0.5, 0.677] },
-  slomo: { zoom: 1.35, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.70] },
+  // The anvil crops may leave graphite below the source (in the bottom keep-clear band, under Instagram's own UI) so
+  // the object sits in the middle of the safe zone instead of low in it.
+  anvil: { zoom: 1.9, fx: 0.5, fy: 0.677, ox: 0.5, oy: 0.435, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
+  "anvil-wide": { zoom: 1.4, fx: 0.5, fy: 0.66, ox: 0.5, oy: 0.43, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
+  slomo: { zoom: 1.35, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
   cover: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.4, bg: GRAPHITE, obj: [0.5, 0.5] },
   book: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.40, bg: PAPER, obj: [0.75, 0.5] },
   p69: { zoom: 1.13, fx: 0.5, fy: 0.703, ox: 0.5, oy: 0.583, bg: PAPER, obj: [0.5, 0.703] },
@@ -130,7 +144,8 @@ function place(src, layoutName, CW = W, CH = H, over = {}) {
   const sw = even(CW * zoom), sh = even(src.h * sw / src.w);
   let x = Math.round(L.ox * CW - L.fx * sw), y = Math.round(L.oy * CH - L.fy * sh);
   x = sw >= CW ? clamp(x, CW - sw, 0) : Math.round((CW - sw) / 2);
-  if (sh >= CH) y = clamp(y, CH - sh, 0);
+  if (sh >= CH && L.clampY !== false) y = clamp(y, CH - sh, 0);
+  if (L.clampY === false) y = Math.min(0, y);
   const obj = [x + L.obj[0] * sw, y + L.obj[1] * sh];
   return { sw, sh, x, y, bg: L.bg, obj, gapBottom: Math.max(0, CH - (y + sh)), gapTop: Math.max(0, y) };
 }
@@ -316,9 +331,13 @@ function renderSegment(seg, out, cut, variant, assets) {
     const [cx, cy, cw, ch] = seg.crop || [0, 0, 1, 1];
     const n = Math.round(dur * FPS);
     const [k0, k1] = seg.kb || [1, 1];
-    // Fit the crop to 2× the frame's width, pad to a 2× frame on paper, then zoompan down to 1080 × 1920 (smooth).
-    vf = `[0:v]crop=iw*${cw}:ih*${ch}:iw*${cx}:ih*${cy},scale=${2 * W}:-2:flags=lanczos,` +
-      `pad=${2 * W}:${2 * H}:(ow-iw)/2:(oh-ih)/2*0.82:color=${seg.bg || PAPER},` +
+    // Fit the crop to 2× the frame's width, extend it to a 2× frame by smearing its own top and bottom rows (the
+    // render's backdrop carries on, no box edge), then zoompan down to 1080 × 1920 (smooth at 2×).
+    const [iw, ih] = DRY ? [2007, 2853] : imageSize(seg.file);
+    const hs = Math.min(2 * H, even(2 * W * (ch * ih) / (cw * iw)));
+    const top = even(((2 * H - hs) / 2) * 0.82), bottom = 2 * H - hs - top;
+    vf = `[0:v]crop=iw*${cw}:ih*${ch}:iw*${cx}:ih*${cy},scale=${2 * W}:${hs}:flags=lanczos,format=gbrp,` +
+      `pad=${2 * W}:${2 * H}:0:${top}:color=${seg.bg || PAPER}${top > 0 || bottom > 0 ? `,fillborders=top=${top}:bottom=${bottom}:mode=smear` : ""},` +
       `zoompan=z='${k0}+(${k1}-${k0})*on/${Math.max(1, n - 1)}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${n}:s=${W}x${H}:fps=${FPS},` +
       `${sfmt}[v]`;
   } else if (seg.kind === "grid") {

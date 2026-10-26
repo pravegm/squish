@@ -16,8 +16,8 @@
 # Base keys. P69: seed 3 (plain variant), no reveal toasts, no coach line, no self-captures, an off-record warm-up press,
 # the app's own sound. DUO: the same on the Duo, tabletop (orient=portrait); no `notoasts`, so the Fold reveal ceremony
 # plays in full (a fresh demo collection's first reveal shows no toasts anyway).
-@P69=seed=3;notoasts;nocoach;nocapture;prewarm;pressaudio
-@DUO=duo;seed=3;nocoach;nocapture;orient=portrait;pressaudio
+@P69=seed=3;notoasts;nocoach;nocapture;captions=off;prewarm;pressaudio
+@DUO=duo;seed=3;nocoach;nocapture;captions=off;orient=portrait;pressaudio
 
 # ---- P-48 (every other iPhone): C4 -----------------------------------------------------------------------------------
 p69|a|p-can|object=sodaCan;reveal;slowpress=5;@P69|reveal+6|phase-pressing-1.6|reveal+5.5|3
@@ -35,16 +35,16 @@ duo|a|d-glass|object=glassBottle;hingescript=7;slomo;pressaudiodelay=22;@DUO|slo
 duo|a|d-egg|object=egg;hingescript=6;slomo;pressaudiodelay=22;@DUO|slomo-settled+1.5,script-160+16|script-begin-0.6|end|2
 duo|a|d-bubble|object=bubbleWrap;hingescript=11;hingecurve=steady;@DUO|script-160+5|script-begin-0.6|end|2
 # The sealed card the cover display shows after a press (CoverView), on the tabletop canvas: the stand-in for S6.
-duo|a|d-cover-egg|cover=sealed;object=egg;duo;orient=portrait;nocoach;nocapture;previewmarks|origin+7|origin-1.5|origin+6.5|1
-duo|a|d-cover-glass|cover=sealed;object=glassBottle;duo;orient=portrait;nocoach;nocapture;previewmarks|origin+7|origin-1.5|origin+6.5|1
-duo|a|d-shelf|shelf;shelffill=0.6;duo;orient=portrait;notoasts;nocoach;nocapture;previewmarks|shelffill-done+3|shelffill-begin-1.5|shelffill-done+2.5|1
+duo|a|d-cover-egg|cover=sealed;object=egg;duo;orient=portrait;nocoach;nocapture;captions=off;previewmarks|origin+7|origin-1.5|origin+6.5|1
+duo|a|d-cover-glass|cover=sealed;object=glassBottle;duo;orient=portrait;nocoach;nocapture;captions=off;previewmarks|origin+7|origin-1.5|origin+6.5|1
+duo|a|d-shelf|shelf;shelffill=0.6;duo;orient=portrait;notoasts;nocoach;nocapture;captions=off;previewmarks|shelffill-done+3|shelffill-begin-1.5|shelffill-done+2.5|1
 duo|b|d-duck|object=rubberDuck;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|1
 duo|b|d-jelly|object=jelly;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|1
 duo|b|d-can|object=sodaCan;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|2
 duo|b|d-cake|object=cakeSlice;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|1
 duo|b|d-crayon|object=crayon;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|1
 duo|b|d-gummy|object=gummyBear;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|1
-duo|b|d-glass-book|object=glassBottle;hingescript=7;duo;seed=3;nocoach;nocapture;orient=landscape;pressaudio|script-160+5|script-begin-0.6|end|1
+duo|b|d-glass-book|object=glassBottle;hingescript=7;duo;seed=3;nocoach;nocapture;captions=off;orient=landscape;pressaudio|script-160+5|script-begin-0.6|end|1
 
 # ---- C6 (week 3+, approved by the founder 26 Oct): the secret steel ball. The P-48 is the hero (its yellow ram is what
 # cracks, so it can never read as the phone's screen); the Duo take is the "phone open and intact" pull-back.

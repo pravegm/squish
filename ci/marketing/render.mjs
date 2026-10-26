@@ -138,7 +138,7 @@ export async function browser({ port = 9300 + Math.floor(Math.random() * 500) } 
    * opts: width, height (viewport), transparent (default true), clip: CSS selector to crop to (its bounding box, with
    * `pad` px), returns { width, height, x, y } of the written image (x, y: where it sat on the page).
    */
-  async function png(html, out, { width = W, height = H, transparent = true, clip = null, pad = 0 } = {}) {
+  async function png(html, out, { width = W, height = H, transparent = true, clip = null, pad = 0, format = "png", quality = 82 } = {}) {
     const doc = /<html/i.test(html) ? html
       : `<!doctype html><html><head><meta charset="utf-8"><style>${baseCSS()}</style></head><body>${html}</body></html>`;
     const file = path.join(tmp, `p${++count}.html`);
@@ -167,7 +167,7 @@ export async function browser({ port = 9300 + Math.floor(Math.random() * 500) } 
       }
     }
     const shot = await send("Page.captureScreenshot", {
-      format: "png", fromSurface: true, captureBeyondViewport: false,
+      format, ...(format === "jpeg" ? { quality } : {}), fromSurface: true, captureBeyondViewport: false,
       clip: { x: box.x, y: box.y, width: box.width, height: box.height, scale: 1 },
     });
     fs.mkdirSync(path.dirname(out), { recursive: true });

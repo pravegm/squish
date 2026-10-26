@@ -122,12 +122,12 @@ open_flat() {
   esac
 }
 MARK_FILES="preview-marks.txt preview-script.txt slomo-marks.txt shelffill-marks.txt"
-merged_marks() { local d="$1" f; for f in $MARK_FILES; do cat "$d/$f" 2>/dev/null; done; }
+merged_marks() { local d="$1" f; for f in $MARK_FILES; do [[ -f "$d/$f" ]] && cat "$d/$f"; done; return 0; }
 
 # ---- one recording ---------------------------------------------------------------------------------------------------
 # record_take <name> <scenario> <stop spec>: raw/<name>.mp4 (re-timed), .marks.txt, .wav, .timing, logs/<name>.txt.
 record_take() {
-  local name="$1" scen="$2" stop="$3" docs log="$OUT_ABS/logs/$1.txt" display="" waited=0 st alt f rot
+  local name="$1" scen="$2" stop="$3" docs log="$OUT_ABS/logs/$1.txt" display="" st alt f rot m t0
   to 30 xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
   [[ "$DEVICE_KIND" == duo ]] && { open_flat; display="$INNER"; }
   docs="$(app_docs)"; mkdir -p "$docs"
@@ -138,16 +138,18 @@ record_take() {
   fsleep 0.8
   to 60 xcrun simctl launch --terminate-running-process --stdout="$log" --stderr="$log" \
     "$UDID" "$BUNDLE" -squishDemo "$scen" >>"$RUNLOG" 2>&1 || say "WARN $name: launch failed"
-  # Stop: the first alternative whose mark appears (180 s cap), plus its seconds.
-  st=""
-  while (( waited < 1800 )); do
-    IFS=',' read -r -a alts <<< "$stop"
+  # Stop: the first alternative whose mark appears (180 s cap), plus its seconds. No pipe into `grep -q` here: under
+  # pipefail a reader that quits early, or a marks file not written yet, reads as "not found" (run 40292182261).
+  st=""; t0=$SECONDS
+  IFS=',' read -r -a alts <<< "$stop"
+  while (( SECONDS - t0 < 180 )); do
+    m=$'\n'"$(merged_marks "$docs")"
     for alt in "${alts[@]}"; do
-      if [[ "$alt" =~ ^(.+)\+([0-9.]+)$ ]] && merged_marks "$docs" | grep -q "^${BASH_REMATCH[1]} "; then
-        st="${BASH_REMATCH[2]}"; say "   $name: stop mark ${BASH_REMATCH[1]} seen after $((waited / 10)) s; recording ${st} s more"; break 2
+      if [[ "$alt" =~ ^(.+)\+([0-9.]+)$ ]] && [[ "$m" == *$'\n'"${BASH_REMATCH[1]} "* ]]; then
+        st="${BASH_REMATCH[2]}"; say "   $name: stop mark ${BASH_REMATCH[1]} seen after $((SECONDS - t0)) s; recording ${st} s more"; break 2
       fi
     done
-    fsleep 0.1; waited=$((waited + 1))
+    fsleep 0.25
   done
   [[ -n "$st" ]] && fsleep "$st" || say "WARN $name: no stop mark ($stop) after 180 s"
   stop_recording >>"$RUNLOG" 2>&1
@@ -169,7 +171,7 @@ record_take() {
   return 0
 }
 
-is_book() { grep "|$1|" "$TAKES" | grep -q "orient=landscape"; }
+is_book() { [[ "$(grep -F "|$1|" "$TAKES")" == *orient=landscape* ]]; }
 rec_of() { sed -E 's/.*rec_epoch=([0-9.]+).*/\1/' "$OUT_ABS/raw/$1.timing" 2>/dev/null; }
 rot_of() { sed -E 's/.*rotation=(-?[0-9]+).*/\1/' "$OUT_ABS/raw/$1.timing" 2>/dev/null; }
 len_of() { ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT_ABS/raw/$1.mp4" 2>/dev/null; }

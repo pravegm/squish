@@ -31,7 +31,9 @@ export const CUTS = [
     segments: [
       { clip: "d-glass", from: "failure-3.0", dur: 3.6, layout: "anvil", real: "S1" },
       { clip: "d-glass", from: "slomo-begin+0.1", dur: 1.9, layout: "slomo", audio: "slomo" },
-      { still: "store/glassBottle-storeshot-hero.png", crop: [0, 0.205, 1, 0.74], dur: 1.1, kb: [1.08, 1.0],
+      // The pull-back to the phone: the 112° render (the hero render draws the glass's cracked print on the upper screen,
+      // which could read as a cracked phone: CrackGate). Replaced by the founder's S2 when it exists.
+      { still: "store/glassBottle-storeshot-112.png", crop: [0, 0.18, 1, 0.74], dur: 1.1, kb: [1.1, 1.0],
         audio: { clip: "d-glass", from: "failure+0.6" }, fine: true, real: "S2" },
       { clip: "d-cover-glass", from: "origin+0.4", dur: 1.5, layout: "cover", sfx: [KACHUNK], fine: true, real: "S7" },
       { clip: "d-glass", from: "reveal-0.2", dur: { organic: 2.3, default: 2.0 }, layout: "duo" },

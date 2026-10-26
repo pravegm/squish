@@ -72,7 +72,7 @@ const art = (kind, state = "rest") => path.join(REPO, "Squish/Resources/ObjectAr
  * A picture cropped into a box: `crop` = [x, y, w, h] fractions of the source, scaled to cover the box (so the crop's
  * centre is the box's centre). Returns an absolutely positioned <div> with the <img> inside.
  */
-function pic(file, { x, y, w, h, crop = [0, 0, 1, 1], radius = 0, shadow = false, extra = "", fit = "cover" }) {
+function pic(file, { x, y, w, h, crop = [0, 0, 1, 1], radius = 0, shadow = false, extra = "", fit = "cover", feather = 0 }) {
   if (!file) return `<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:#ddd6cb;border-radius:${radius}px"></div>`;
   const { w: iw, h: ih } = imageSize(file);
   const [cx, cy, cw, ch] = crop;
@@ -80,9 +80,12 @@ function pic(file, { x, y, w, h, crop = [0, 0, 1, 1], radius = 0, shadow = false
   const s = fit === "cover" ? Math.max(w / cropW, h / cropH) : Math.min(w / cropW, h / cropH);
   const dw = iw * s, dh = ih * s;
   const left = w / 2 - (cx + cw / 2) * dw, top = h / 2 - (cy + ch / 2) * dh;
-  return `<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;border-radius:${radius}px;${shadow ? "box-shadow:0 22px 50px rgba(30,28,25,.28),0 0 0 2px rgba(43,45,49,.06);" : ""}${extra}">
+  return `<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;border-radius:${radius}px;${feather ? featherCSS(feather) : ""}${shadow ? "box-shadow:0 22px 50px rgba(30,28,25,.28),0 0 0 2px rgba(43,45,49,.06);" : ""}${extra}">
     <img src="${R.fileURL(file)}" style="position:absolute;left:${left.toFixed(1)}px;top:${top.toFixed(1)}px;width:${dw.toFixed(1)}px;height:${dh.toFixed(1)}px;max-width:none"></div>`;
 }
+
+/** Soft edges, so a render's own backdrop melts into the page instead of showing a box. */
+const featherCSS = (f) => `-webkit-mask-image:linear-gradient(to right,transparent 0,#000 ${f}px,#000 calc(100% - ${f}px),transparent 100%),linear-gradient(to bottom,transparent 0,#000 ${f}px,#000 calc(100% - ${f}px),transparent 100%);-webkit-mask-composite:source-in;mask-composite:intersect;`;
 
 // ---- page chrome --------------------------------------------------------------------------------------------------------
 const icon = asset("icon.png");
@@ -149,6 +152,8 @@ async function main() {
     canIdle: still("d-can", "script-begin+0.3", "can-idle"),
     duckIdle: still("d-duck", "script-begin+0.3", "duck-idle"),
     p48: still("p-duck", "failure-0.9", "p48-duck"),
+    glassStrain: still("d-glass", "failure-0.7", "glass-strain"),
+    glassGone: still("d-glass", "failure+0.45", "glass-gone"),
     p48can: still("p-can", "failure-0.6", "p48-can"),
   };
   const ST = {
@@ -159,7 +164,8 @@ async function main() {
     open112: asset("store/glassBottle-storeshot-112.png"),
   };
   // Crops (fractions of 2007 × 2853) that keep each render's device and drop its baked-in store caption.
-  const HERO = [0, 0.205, 1, 0.73], REVEAL = [0, 0.18, 1, 0.78], PAIR = [0, 0.16, 1, 0.80];
+  const HERO = [0, 0.185, 1, 0.75], REVEAL = [0, 0.18, 1, 0.78], PAIR = [0, 0.125, 1, 0.84];
+  const R1 = { fit: "contain", feather: 70 };
   const ANVIL = [0.18, 0.52, 0.64, 0.33];   // the object on the lower half of a tabletop still
   const TABLETOP = [0, 0, 1, 1];
 
@@ -167,7 +173,7 @@ async function main() {
   const C = "feed/carousel";
   await render(page(FW, FH, `<div class="band" style="top:0"></div>${wordmark(84, 66)}
     ${headline("your phone is a *hydraulic press*.", { y: 160, size: 96 })}
-    ${pic(ST.heroDuck, { x: 40, y: 400, w: 1000, h: 860, crop: HERO })}
+    ${pic(ST.heroDuck, { x: 20, y: 390, w: 1040, h: 880, crop: HERO, ...R1 })}
     <div class="fine" style="top:1272px">${FINE}</div>`), `${C}/01-hero.png`, FW, FH);
 
   const steps = [[S.open, "lay it *open*.", "the object lands on the lower screen."],
@@ -210,15 +216,20 @@ async function main() {
     </div>`), `${C}/08-get-it.png`, FW, FH);
 
   // ---- feed: three single posts (COPY.md posts 0, 5, 7) -------------------------------------------------------------------
+  // The glass post shows the object only: the Duo renders draw the shattered glass's print on the upper screen, which
+  // could read as a cracked phone screen (CrackGate, PLAN.md §0.1 hard no's).
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("it creaks. then it *doesn't*.", { y: 150, size: 92, lines: 2 })}
-    ${pic(ST.heroGlass, { x: 40, y: 380, w: 1000, h: 880, crop: HERO })}<div class="fine" style="top:1272px">${FINE}</div>`),
+    ${pic(S.glassStrain, { x: 84, y: 400, w: 448, h: 800, crop: [0.2, 0.5, 0.6, 0.38], radius: 40, shadow: true })}
+    ${pic(S.glassGone, { x: 548, y: 400, w: 448, h: 800, crop: [0.2, 0.5, 0.6, 0.38], radius: 40, shadow: true })}
+    <div class="tag" style="left:110px;top:1140px">creak…</div><div class="tag" style="left:574px;top:1140px">…then not.</div>
+    <div class="fine" style="top:1262px">a glass bottle, on screen. nothing real goes inside.</div>`),
   "feed/post-1-glass.png", FW, FH);
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("he'll be fine. *probably*.", { y: 150, size: 92, lines: 2 })}
-    ${pic(ST.heroDuck, { x: 40, y: 380, w: 1000, h: 880, crop: HERO })}<div class="fine" style="top:1272px">${FINE}</div>`),
+    ${pic(ST.heroDuck, { x: 20, y: 380, w: 1040, h: 890, crop: HERO, ...R1 })}<div class="fine" style="top:1272px">${FINE}</div>`),
   "feed/post-2-duck.png", FW, FH);
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("count the *buckles*.", { y: 150, size: 92, lines: 1 })}
     ${sub("five, if you go slowly enough. then the fizz goes.", { y: 270, size: 38 })}
-    ${pic(ST.pairCan, { x: 40, y: 380, w: 1000, h: 880, crop: PAIR })}<div class="fine" style="top:1272px">${FINE}</div>`),
+    ${pic(ST.pairCan, { x: 20, y: 360, w: 1040, h: 910, crop: PAIR, ...R1 })}<div class="fine" style="top:1272px">${FINE}</div>`),
   "feed/post-3-can.png", FW, FH);
 
   // ---- Story stills (1080 × 1920; text inside y 270–1536; sticker spaces left empty) ---------------------------------------
@@ -254,7 +265,7 @@ async function main() {
     ${pic(S.closing, { x: 140, y: 600, w: 800, h: 420, crop: [0.05, 0.42, 0.9, 0.42], radius: 40, shadow: true })}`,
   [[[140, 1060, 800, 440], "quiz sticker: how do you get a Perfect Squish?"]]);
   await story("stories/story-3-2-golden-rule.png", `${wordmark(90, 300)}${sh("and the golden rule:", 400, 84, 1)}
-    ${pic(ST.open112, { x: 40, y: 520, w: 1000, h: 760, crop: [0, 0.22, 1, 0.66] })}
+    ${pic(ST.open112, { x: 20, y: 510, w: 1040, h: 780, crop: [0, 0.2, 1, 0.7], ...R1 })}
     <div class="h fit" data-max="62" data-min="40" data-lines="2" style="left:90px;top:1300px;width:900px;font-size:62px;text-align:center">everything's on screen. <em class="hl">nothing real</em> goes inside.</div>`);
   await story("stories/story-3-4-whats-next.png", `${wordmark(90, 300)}${sh("what should we press *next*?", 400, 84, 2)}
     <div class="s" style="left:90px;top:1440px;width:900px;text-align:center;font-size:40px">ice cube? marshmallow? fortune cookie?</div>`,

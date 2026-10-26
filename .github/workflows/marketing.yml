@@ -120,7 +120,7 @@ jobs:
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$udid"
       - name: Tools (duo-hinge, ffmpeg, xcodegen)
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           # The press is the app's own hingescript; the host CLI only lays the device open at 180°.
           if gtimeout 60 git clone --depth 1 https://github.com/tosbaha/duo-fold-control "$HOME/duo-fold-control"; then
