@@ -1,0 +1,227 @@
+name: Marketing kit
+
+# The Instagram kit (docs/marketing/ASSETS.md; brief docs/marketing/PLAN.md §0), manual only. Three recording jobs run
+# in parallel on the preview.yml runners (real app presses in the simulator, the app's own sound; ci/marketing/takes.txt):
+#   • record-p69: the P-48 on the iPhone 6.9" simulator (C4, C6);
+#   • record-duo (groups a, b): the iPhone Duo simulator, tabletop and book pose (C1, C2, C3, C5, the Stories, stills).
+# Then compose cuts the Reels / ad masters, the Story clips and every still with ffmpeg and headless Chrome (Nunito),
+# checks them (REPORT.md, qc/), and uploads the artifact `marketing-kit`. Set record=false and clips_run=<run id> to
+# re-compose from an earlier run's clips (about 15 min instead of about 50).
+on:
+  workflow_dispatch:
+    inputs:
+      record:
+        description: "Record fresh takes (false = re-use clips_run's clips)"
+        type: boolean
+        default: true
+      clips_run:
+        description: "With record=false: the marketing.yml run whose mk-clips-* artifacts to compose"
+        type: string
+        default: ""
+      store_run:
+        description: "store.yml run whose uncaptioned FoldStoreShot renders the stills crop"
+        type: string
+        default: "40222956174"
+      only:
+        description: "Compose only cuts whose id matches this regex (empty = all)"
+        type: string
+        default: ""
+
+concurrency:
+  group: marketing-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+jobs:
+  record-p69:
+    if: inputs.record
+    runs-on: xcode-27
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27.1
+        run: sudo xcode-select -s /Applications/Xcode_27.1.app && xcodebuild -version
+      - name: Tools
+        run: |
+          brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          command -v gtimeout >/dev/null || brew install coreutils
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild build -project Squish.xcodeproj -scheme Squish \
+            -destination "platform=iOS Simulator,name=iPhone 18 Pro" -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|\*\* " || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+      - name: Record the P-48 takes
+        timeout-minutes: 50
+        env:
+          DEVICE_KIND: p69
+          DEVICE: "auto:Pro Max"
+          OUT: mk-raw
+        run: bash ci/marketing.sh record
+      - name: Upload clips
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mk-clips-p69
+          path: |
+            mk-raw/clips/
+            mk-raw/frames/
+            mk-raw/REPORT-*.txt
+            mk-raw/logs/
+          if-no-files-found: ignore
+
+  record-duo:
+    if: inputs.record
+    runs-on: xcode-27
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [a, b]
+    env:
+      XCODE_APP: /Applications/Xcode_27.1.app
+      RUNTIME_ID: com.apple.CoreSimulator.SimRuntime.iOS-27-1
+      DUO_TYPE_FALLBACK: com.apple.CoreSimulator.SimDeviceType.iPhone-Duo
+    steps:
+      - uses: actions/checkout@v4
+      # The runtime and device steps are preview.yml's (docs/DUO-CI.md).
+      - name: Select Xcode 27.1
+        timeout-minutes: 8
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          command -v gtimeout >/dev/null || brew install coreutils
+      - name: Install the iOS 27.1 runtime if missing
+        timeout-minutes: 30
+        run: |
+          installed() {
+            xcrun simctl list runtimes -j | python3 -c "import json,sys,os; sys.exit(0 if any(r['identifier']==os.environ['RUNTIME_ID'] and r.get('isAvailable') for r in json.load(sys.stdin)['runtimes']) else 1)"
+          }
+          if installed; then echo "iOS 27.1 runtime already installed"; exit 0; fi
+          for attempt in 1 2 3; do
+            gtimeout 1500 xcodebuild -downloadPlatform iOS 2>&1 | grep -v "Downloading iOS" | tail -20 || true
+            installed && break
+            sleep 15
+          done
+          installed || { echo "::error::iOS 27.1 runtime not installed"; exit 1; }
+      - name: Create and boot the iPhone Duo
+        id: sim
+        timeout-minutes: 10
+        run: |
+          type=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; print(next((d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']=='iPhone Duo'), ''))")
+          type="${type:-$DUO_TYPE_FALLBACK}"
+          udid=$(xcrun simctl create "Squish Duo Marketing" "$type" "$RUNTIME_ID")
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid"
+      - name: Tools (duo-hinge, ffmpeg, xcodegen)
+        timeout-minutes: 10
+        run: |
+          # The press is the app's own hingescript; the host CLI only lays the device open at 180°.
+          if gtimeout 60 git clone --depth 1 https://github.com/tosbaha/duo-fold-control "$HOME/duo-fold-control"; then
+            (cd "$HOME/duo-fold-control/tools" && clang -fobjc-arc -framework Foundation -o duo-hinge duo-hinge.m) \
+              || echo "::warning::duo-hinge build failed"
+          fi
+          brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+      - name: Build for the Duo
+        timeout-minutes: 30
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          xcodegen generate
+          gtimeout 1700 xcodebuild build -project Squish.xcodeproj -scheme Squish -destination "id=$UDID" \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO 2>&1 | tee build.log | grep -E "error:|\*\* " || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+      - name: Wait for boot
+        timeout-minutes: 15
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: gtimeout 840 xcrun simctl bootstatus "$UDID" -b
+      - name: Record the Duo takes (group ${{ matrix.group }})
+        timeout-minutes: 60
+        env:
+          DEVICE_KIND: duo
+          GROUP: ${{ matrix.group }}
+          UDID: ${{ steps.sim.outputs.udid }}
+          OUT: mk-raw
+        run: bash ci/marketing.sh record
+      - name: Upload clips
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mk-clips-duo-${{ matrix.group }}
+          path: |
+            mk-raw/clips/
+            mk-raw/frames/
+            mk-raw/REPORT-*.txt
+            mk-raw/logs/
+          if-no-files-found: ignore
+      - name: Shut down simulator
+        if: always()
+        continue-on-error: true
+        run: xcrun simctl shutdown all || true
+
+  compose:
+    needs: [record-p69, record-duo]
+    if: ${{ always() && (inputs.record == false || needs.record-duo.result != 'skipped') }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          ffmpeg -version | head -1
+          node --version
+          ls "/Applications/Google Chrome.app/Contents/MacOS/" || true
+      - name: Clips from this run
+        if: inputs.record
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mk-clips-*
+          path: mk-in
+      - name: Clips from an earlier run
+        if: ${{ !inputs.record }}
+        run: |
+          [[ -n "${{ inputs.clips_run }}" ]] || { echo "::error::record=false needs clips_run"; exit 1; }
+          for n in mk-clips-p69 mk-clips-duo-a mk-clips-duo-b; do
+            gh run download "${{ inputs.clips_run }}" -R "$GITHUB_REPOSITORY" -n "$n" -D "mk-in/$n" || echo "::warning::$n missing"
+          done
+      - name: Gather clips
+        run: |
+          mkdir -p mk-clips
+          find mk-in -path "*/clips/*" -type f -exec cp {} mk-clips/ \;
+          ls -la mk-clips
+          cat mk-in/*/REPORT-*.txt > mk-record-report.txt 2>/dev/null || true
+      - name: Font and stills
+        run: |
+          bash ci/marketing.sh font "$RUNNER_TEMP/fonts"
+          bash ci/marketing.sh assets mk-assets "${{ inputs.store_run }}"
+      - name: Compose and check
+        timeout-minutes: 45
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          export NUNITO_FONT="$RUNNER_TEMP/fonts/Nunito[wght].ttf"
+          bash ci/marketing.sh compose mk-clips mk-assets marketing-kit
+          cp mk-record-report.txt marketing-kit/ 2>/dev/null || true
+          sed -n '1,/## Cut lists/p' marketing-kit/REPORT.md
+          sed -n '/## Problems/,/## Log/p' marketing-kit/REPORT.md
+      - name: Upload the kit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-kit
+          path: |
+            marketing-kit/
+            !marketing-kit/_work/
+          if-no-files-found: ignore

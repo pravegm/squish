@@ -94,8 +94,8 @@ import UIKit
 ///     hold, for the bubble-wrap ASMR take. `hingescript` with `orient=landscape` presses in book pose.
 ///   - `slomo` also writes Documents/slomo-marks.txt (`slomo-key`, `slomo-begin`, `slomo-end`); `pressaudiodelay=<s>`
 ///     (default 8) waits longer before the offline sound render, so it never stalls the film.
-///   - `shelffill[=seconds]` (with `shelf`): the shelf opens empty and the ten objects' specimens are filed one by one,
-///     every `seconds` (default 0.8), writing Documents/shelffill-marks.txt (`shelffill-begin`, `shelffill-<n>`,
+///   - `shelffill[=seconds]` (with `shelf`): the shelf opens empty and the nine open objects are filed one by one (never
+///     the secret ball), every `seconds` (default 0.8), writing Documents/shelffill-marks.txt (`shelffill-begin`, `shelffill-<n>`,
 ///     `shelffill-done`).
 /// - Also used by the preview: `object=`, `reveal`, `seed=3`, `notoasts`, `shelf` (UI key, RootView: opens the shelf
 ///   1.2 s after launch with the seeded collection), `duo`, `orient=portrait`.

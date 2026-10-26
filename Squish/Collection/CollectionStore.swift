@@ -655,14 +655,13 @@ final class CollectionStore {
         }
     }
 
-    /// `shelffill[=seconds]` (with `shelf`, ci/marketing.sh): the ten objects in museum order, one Golden, so the
+    /// `shelffill[=seconds]` (with `shelf`, ci/marketing.sh): the nine open objects in museum order, one Golden, so the
     /// marketing take can show the shelf filling up. (kind, perfect, golden, surprise, duration.)
     private static let demoFill: [(ObjectKind, Bool, Bool, Bool, Double)] = [
         (.bubbleWrap, true, false, false, 11.2), (.rubberDuck, false, false, false, 6.4), (.jelly, true, false, true, 9.8),
         (.crayon, false, false, false, 4.1), (.egg, false, true, false, 8.7), (.cakeSlice, true, false, true, 13.5),
         (.sodaCan, false, false, false, 7.2), (.gummyBear, true, false, false, 9.1), (.glassBottle, false, false, false, 8.2),
-        (.unsquishable, false, false, false, 6.0),
-    ]
+    ]   // never the secret steel ball: its slot stays "???" (docs/marketing/PLAN.md C6 is held)
     private static var demoFillStarted = false
 
     /// Run by ShelfView once it is up: waits for the sheet to settle, then files one specimen every `seconds`,
