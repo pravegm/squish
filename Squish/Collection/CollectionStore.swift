@@ -584,6 +584,8 @@ final class CollectionStore {
     /// Seeds fake specimens for CI screenshots. `specimens=N` seeds the first N; any of `shelf`, `detail`,
     /// `cover`, `settings` seeds the standard set (7 objects pressed, one Golden, one surprise).
     func seedDemo(for demo: DemoScenario) {
+        // `shelffill` (ci/marketing.sh): the shelf starts empty and `runDemoShelfFill` files the ten one by one.
+        if demo.has("shelffill") { return }
         let count: Int
         if let raw = demo.string("specimens"), let n = Int(raw) {
             count = n
@@ -626,24 +628,60 @@ final class CollectionStore {
     func seedDemo(count: Int, onHinge: Bool = false) {
         for (index, entry) in Self.demoPresses.prefix(max(0, count)).enumerated() {
             let (kind, perfect, golden, surprise, duration, daysAgo) = entry
-            let seed = Self.demoSeed(for: kind, golden: golden, surprise: surprise, salt: UInt64(index))
-            let variant = PressVariant(kind: kind, seed: seed)
-            let result = Self.demoResult(kind: kind, seed: seed, perfect: perfect, duration: duration)
-            let outcome = record(result, variant: variant, onHinge: onHinge)
-            // The card a real Fold press stores: the platen's print of this very press (FOLD-REVIEW-8 N2), through the
-            // same attach path, so the Shelf, the cover's recent tiles and the card detail all show a print.
-            if let print = SpecimenPrint.printImage(kind: kind, variant: variant, maxCompression: result.maxCompression,
-                                                    fractureCount: result.fractureCount),
-               let png = SpecimenPrint.cardImage(print: print).pngData() {
-                attachThumbnailNow(png, to: outcome.specimen.id)
-            }
-            if let i = specimens.firstIndex(where: { $0.id == outcome.specimen.id }) {
-                specimens[i].date = Date().addingTimeInterval(-daysAgo * 86_400)
-                if bests[kind]?.id == outcome.specimen.id { bests[kind] = specimens[i] }
-            }
+            seedDemoPress(kind: kind, perfect: perfect, golden: golden, surprise: surprise, duration: duration,
+                          daysAgo: daysAgo, salt: UInt64(index), onHinge: onHinge)
         }
         bestsVersion += 1
         save()
+    }
+
+    /// One seeded press, filed exactly as `seedDemo(count:)` files each of its entries.
+    private func seedDemoPress(kind: ObjectKind, perfect: Bool, golden: Bool, surprise: Bool, duration: Double,
+                               daysAgo: Double, salt: UInt64, onHinge: Bool) {
+        let seed = Self.demoSeed(for: kind, golden: golden, surprise: surprise, salt: salt)
+        let variant = PressVariant(kind: kind, seed: seed)
+        let result = Self.demoResult(kind: kind, seed: seed, perfect: perfect, duration: duration)
+        let outcome = record(result, variant: variant, onHinge: onHinge)
+        // The card a real Fold press stores: the platen's print of this very press (FOLD-REVIEW-8 N2), through the
+        // same attach path, so the Shelf, the cover's recent tiles and the card detail all show a print.
+        if let print = SpecimenPrint.printImage(kind: kind, variant: variant, maxCompression: result.maxCompression,
+                                                fractureCount: result.fractureCount),
+           let png = SpecimenPrint.cardImage(print: print).pngData() {
+            attachThumbnailNow(png, to: outcome.specimen.id)
+        }
+        if let i = specimens.firstIndex(where: { $0.id == outcome.specimen.id }) {
+            specimens[i].date = Date().addingTimeInterval(-daysAgo * 86_400)
+            if bests[kind]?.id == outcome.specimen.id { bests[kind] = specimens[i] }
+        }
+    }
+
+    /// `shelffill[=seconds]` (with `shelf`, ci/marketing.sh): the ten objects in museum order, one Golden, so the
+    /// marketing take can show the shelf filling up. (kind, perfect, golden, surprise, duration.)
+    private static let demoFill: [(ObjectKind, Bool, Bool, Bool, Double)] = [
+        (.bubbleWrap, true, false, false, 11.2), (.rubberDuck, false, false, false, 6.4), (.jelly, true, false, true, 9.8),
+        (.crayon, false, false, false, 4.1), (.egg, false, true, false, 8.7), (.cakeSlice, true, false, true, 13.5),
+        (.sodaCan, false, false, false, 7.2), (.gummyBear, true, false, false, 9.1), (.glassBottle, false, false, false, 8.2),
+        (.unsquishable, false, false, false, 6.0),
+    ]
+    private static var demoFillStarted = false
+
+    /// Run by ShelfView once it is up: waits for the sheet to settle, then files one specimen every `seconds`,
+    /// writing Documents/shelffill-marks.txt (`shelffill-begin`, `shelffill-<n>`, `shelffill-done`).
+    func runDemoShelfFill(every seconds: Double, onHinge: Bool) async {
+        guard !Self.demoFillStarted else { return }
+        Self.demoFillStarted = true
+        try? await Task.sleep(for: .seconds(2.5))
+        DemoCapture.mark("shelffill-begin", file: "shelffill-marks.txt")
+        for (index, entry) in Self.demoFill.enumerated() {
+            let (kind, perfect, golden, surprise, duration) = entry
+            seedDemoPress(kind: kind, perfect: perfect, golden: golden, surprise: surprise, duration: duration,
+                          daysAgo: 0, salt: UInt64(index), onHinge: onHinge)
+            bestsVersion += 1
+            DemoCapture.mark("shelffill-\(index + 1)", file: "shelffill-marks.txt")
+            try? await Task.sleep(for: .seconds(max(seconds, 0.2)))
+        }
+        save()
+        DemoCapture.mark("shelffill-done", file: "shelffill-marks.txt")
     }
 
     /// Finds a seed whose variant matches the wanted traits (golden is 1 in 50, so this is a short search).

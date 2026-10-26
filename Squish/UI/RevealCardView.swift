@@ -610,18 +610,25 @@ struct RevealCardView: View {
         print("SQUISH-T slomo key \(slomo.showsKey(replayAvailable: replayAvailable) ? "shown" : "missing") "
               + "(replay available=\(replayAvailable ? 1 : 0), takes=\(slomo.takes))")
         DemoCapture.window("slomo-button")
+        DemoCapture.mark("slomo-key", file: "slomo-marks.txt")
         try? await Task.sleep(for: .milliseconds(400))
         playSloMo()
         guard let take = slomo.take else {
             print("SQUISH-T slomo done (no film: nothing to replay)")
             return
         }
+        DemoCapture.mark("slomo-begin", file: "slomo-marks.txt")
         print("SQUISH-T slomo playing take \(take)")
         try? await Task.sleep(for: .milliseconds(1_400))
         DemoCapture.window("slomo-playing")
+        for _ in 0..<160 where slomo.isPlaying {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        DemoCapture.mark("slomo-end", file: "slomo-marks.txt")
         for _ in 0..<100 where !slomo.canPlay {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        DemoCapture.mark("slomo-settled", file: "slomo-marks.txt")
         try? await Task.sleep(for: .milliseconds(700))
         DemoCapture.window("slomo-after")
         print("SQUISH-T slomo done (takes=\(slomo.takes), key \(slomo.canPlay ? "back" : "missing"))")

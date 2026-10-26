@@ -1068,10 +1068,26 @@ private struct PressCoachSlot: View {
 
     private var restingAfterBreak: Bool { broken && director.engine.isHolding }
 
+    /// `-squishDemo …;nocoach` (DEBUG, ci/marketing.sh): marketing takes show the press without the first-run coach
+    /// line over it. Release builds always coach.
+    private static let demoHidesCoach: Bool = {
+        #if DEBUG
+        return DemoScenario.current?.has("nocoach") == true
+        #else
+        return false
+        #endif
+    }()
+
     var body: some View {
         // Ticks only so "Shut it all the way" can appear once the hand has rested 1.5 s past the break.
-        TimelineView(.periodic(from: .now, by: 0.25)) { context in
-            slot(now: context.date)
+        Group {
+            if Self.demoHidesCoach {
+                Color.clear.frame(width: 0, height: 0)
+            } else {
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                    slot(now: context.date)
+                }
+            }
         }
         .onChange(of: restingAfterBreak, initial: true) { _, resting in
             restingSince = resting ? Date() : nil

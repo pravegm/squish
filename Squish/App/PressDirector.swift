@@ -1011,7 +1011,10 @@ final class PressDirector {
             if t < leadIn {
                 angle = 180 + (start - 180) * PressDirector.smooth(t / leadIn)
             } else {
-                let curve = PressDirector.slowPressDepth(at: t - leadIn, duration: duration)
+                // `slowcurve=steady` (ci/marketing.sh, the bubble-wrap ASMR take): one even squeeze, no hold.
+                let curve = demo.string("slowcurve") == "steady"
+                    ? PressDirector.steadyPressProgress(at: t - leadIn, duration: duration, contact: 0.30)
+                    : PressDirector.slowPressDepth(at: t - leadIn, duration: duration)
                 done = curve >= targetDepth - 0.0005 || t - leadIn >= duration + 0.5
                 angle = PressMapping.angle(forDepth: min(curve, targetDepth), start: start, config: mapping)
             }
@@ -1060,15 +1063,19 @@ final class PressDirector {
     /// epoch=<unix s>`: begin, 58, sealed, reopen, 160) for ci/preview-duo.sh, and logs `SQUISH-T hingescript …`.
     private func runHingeScript(_ demo: DemoScenario) async {
         let close = max(demo.double("hingescript") ?? 7, 2)
+        // `orient=landscape` (ci/marketing.sh): the same press in book pose (vertical fold); otherwise tabletop.
+        let wantsBook = demo.string("orient") == "landscape"
+        // `hingecurve=steady` (ci/marketing.sh, the bubble-wrap ASMR take): one even close, no hold.
+        let steady = demo.string("hingecurve") == "steady"
         var lines: [String] = []
         let waitStart = CACurrentMediaTime()
         while CACurrentMediaTime() - waitStart < 60 {
-            if renderedFrames >= 120, let layout = fold.layout, !layout.isBook { break }
+            if renderedFrames >= 120, let layout = fold.layout, layout.isBook == wantsBook { break }
             try? await Task.sleep(for: .milliseconds(100))
         }
         try? await Task.sleep(for: .seconds(2))
         scriptMark("begin", into: &lines)
-        await scriptSweep(from: 180, to: 58, seconds: close, eased: false)
+        await scriptSweep(from: 180, to: 58, seconds: close, eased: false, steady: steady)
         scriptMark("58", into: &lines)
         await scriptHold(58, seconds: 0.6)
         await scriptSweep(from: 58, to: 44, seconds: 0.5, eased: true)
@@ -1095,11 +1102,15 @@ final class PressDirector {
     }
 
     /// from → to over `seconds` at 60 Hz: `eased` = smoothstep; otherwise the `slowPressDepth` pacing.
-    private func scriptSweep(from: Double, to: Double, seconds: Double, eased: Bool) async {
+    private func scriptSweep(from: Double, to: Double, seconds: Double, eased: Bool, steady: Bool = false) async {
         let began = CACurrentMediaTime()
+        // `steady`: a quick approach to contact (about 132°, 39% of the way from 180° to 58°), then one even close.
+        let contact = (180 - 132) / (180 - 58.0)
         while true {
             let t = min(CACurrentMediaTime() - began, seconds)
-            let p = eased ? PressDirector.smooth(t / seconds) : PressDirector.slowPressDepth(at: t, duration: seconds)
+            let p = eased ? PressDirector.smooth(t / seconds)
+                : steady ? PressDirector.steadyPressProgress(at: t, duration: seconds, contact: contact)
+                : PressDirector.slowPressDepth(at: t, duration: seconds)
             hingeUpdate(angle: from + (to - from) * p, closed: false)
             if t >= seconds { break }
             try? await Task.sleep(for: .milliseconds(16))
@@ -1126,6 +1137,28 @@ final class PressDirector {
         case ..<0.66: return 0.52 + 0.015 * ((u - 0.52) / 0.14)            // the hold: it creaks
         default: return 0.535 + 0.465 * smooth((u - 0.66) / 0.34)          // through it, easing onto the bottom
         }
+    }
+
+    /// `slowcurve=steady` / `hingecurve=steady` (DEBUG demo): progress 0…1 at `t` of `duration`. Eases onto the
+    /// object (to `contact` in the first 12%), then one even squeeze to the bottom with soft ends. Monotonic. For the
+    /// ASMR takes, where the slowpress hold would stop the pops.
+    nonisolated static func steadyPressProgress(at t: Double, duration: Double, contact: Double) -> Double {
+        guard duration > 0 else { return 1 }
+        let u = min(max(t / duration, 0), 1)
+        let approach = 0.12
+        if u < approach { return contact * smooth(u / approach) }
+        let v = (u - approach) / (1 - approach)
+        let a = 0.08
+        let even: Double
+        if v < a {
+            even = v * v / (2 * a * (1 - a))
+        } else if v > 1 - a {
+            let w = 1 - v
+            even = 1 - w * w / (2 * a * (1 - a))
+        } else {
+            even = (v - a / 2) / (1 - a)
+        }
+        return contact + (1 - contact) * min(max(even, 0), 1)
     }
 
     nonisolated private static func smooth(_ x: Double) -> Double {
@@ -1213,7 +1246,10 @@ final class PressDirector {
         }
         // Render only after the reveal has been on screen for a while: building the score runs on the main actor, and
         // the screen recording of the reveal card must not stall (ci/preview.sh stops recording ~4.5 s after it).
-        try? await Task.sleep(for: .seconds(Self.pressAudioDelay))
+        // `pressaudiodelay=<s>` (DEBUG demo, ci/marketing.sh): a longer wait, so the render never stalls a SLO-MO
+        // film recorded after the reveal.
+        let delay = DemoScenario.current?.double("pressaudiodelay") ?? Self.pressAudioDelay
+        try? await Task.sleep(for: .seconds(max(delay, 1)))
         let seconds = last.time + Self.pressAudioTail
         let style = settings.soundStyle
         let score = Self.pressAudioScore(trace: trace, seconds: seconds, style: style)

@@ -66,6 +66,12 @@ struct ShelfView: View {
                 .environment(\.windowIsLandscape, windowIsLandscape)
         }
         .task {
+            #if DEBUG
+            // `shelffill` (ci/marketing.sh): the marketing take files the ten specimens while the shelf is open.
+            if let demo = DemoScenario.current, demo.has("shelffill") {
+                await collection.runDemoShelfFill(every: demo.double("shelffill") ?? 0.8, onHinge: demo.has("duo"))
+            }
+            #endif
             guard let demoDetail else { return }
             try? await Task.sleep(for: .milliseconds(700))
             detail = DetailRef(id: demoDetail)

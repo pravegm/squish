@@ -5,7 +5,22 @@ import UIKit
 /// CI verify frames that need exact timing (a toast is up for 3 s; the scripts see log lines late): the app writes
 /// its own key window, SwiftUI overlays included, to Documents/<name>.png.
 @MainActor enum DemoCapture {
+    /// `nocapture` (ci/marketing.sh): no self-captures, whose `drawHierarchy` would hitch a screen recording.
+    static let enabled: Bool = DemoScenario.current?.has("nocapture") != true
+
+    /// Appends `<name> epoch=<unix s> t=0` to Documents/<file> (ci/marketing.sh reads it beside preview-marks.txt,
+    /// on the same wall clock as `simctl io recordVideo`).
+    static func mark(_ name: String, file: String) {
+        guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let url = directory.appendingPathComponent(file)
+        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let line = String(format: "%@ epoch=%.3f t=0\n", name, Date().timeIntervalSince1970)
+        try? (existing + line).write(to: url, atomically: true, encoding: .utf8)
+        print("SQUISH-T mark \(name) (\(file))")
+    }
+
     static func window(_ name: String) {
+        guard enabled else { return }
         guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
             .flatMap(\.windows).first(where: \.isKeyWindow) else {
             print("SQUISH-T capture \(name) failed: no key window")
@@ -72,6 +87,16 @@ import UIKit
 ///   layout is up, close 180° → 58° on the `slowpress` pacing, hold, on to 44° until it seals (out of shot: a real inner
 ///   display is dark there), reopen to 160° (the reveal). Writes Documents/preview-script.txt (`script-begin|58|sealed|
 ///   reopen|160 epoch=…`) and logs `SQUISH-T hingescript <step> at …`.
+/// - Marketing capture (ci/marketing.sh, .github/workflows/marketing.yml, docs/marketing/ASSETS.md):
+///   - `nocoach` hides the first-run coach line (RootView `PressCoachSlot`), `nocapture` turns off the app's own
+///     window captures (`DemoCapture.window`) so nothing hitches a recording.
+///   - `slowcurve=steady` (touch `slowpress`) and `hingecurve=steady` (`hingescript`): one even squeeze with no
+///     hold, for the bubble-wrap ASMR take. `hingescript` with `orient=landscape` presses in book pose.
+///   - `slomo` also writes Documents/slomo-marks.txt (`slomo-key`, `slomo-begin`, `slomo-end`); `pressaudiodelay=<s>`
+///     (default 8) waits longer before the offline sound render, so it never stalls the film.
+///   - `shelffill[=seconds]` (with `shelf`): the shelf opens empty and the ten objects' specimens are filed one by one,
+///     every `seconds` (default 0.8), writing Documents/shelffill-marks.txt (`shelffill-begin`, `shelffill-<n>`,
+///     `shelffill-done`).
 /// - Also used by the preview: `object=`, `reveal`, `seed=3`, `notoasts`, `shelf` (UI key, RootView: opens the shelf
 ///   1.2 s after launch with the seeded collection), `duo`, `orient=portrait`.
 ///
