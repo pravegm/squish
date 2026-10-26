@@ -151,14 +151,14 @@ wav_transient() {
   from=$(calc "$exp - 0.3"); calc_ok "$from < 0" && from=0
   dur=$(calc "$exp + $late + 0.3 - $from")
   ffmpeg -nostdin -v error -i "$1" -af "atrim=start=$from:duration=$dur,asetpts=PTS-STARTPTS,asetnsamples=480,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-" -f null - 2>/dev/null \
-    | awk -v base="$from" -v exp="$exp" -v late="$late" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
+    | awk -v base="$from" -v ex="$exp" -v late="$late" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
         /RMS_level/ { split($0, y, "="); v = (y[2] == "-inf") ? -120 : y[2] + 0; n++; lv[n] = v; tm[n] = base + t }
         END { nb = -1; na = ""; lb = -1; la = "";
               for (i = 6; i <= n; i++) { m = -1e9; for (k = i - 5; k < i; k++) if (lv[k] > m) m = lv[k];
                 r = lv[i] - m; if (lv[i] <= -18 || r < 6) continue;
-                d = tm[i] - exp; if (d < 0) d = -d;
+                d = tm[i] - ex; if (d < 0) d = -d;
                 if (d <= 0.25 && r > nb) { nb = r; na = tm[i] }
-                if (late > 0 && tm[i] > exp + 0.25 && tm[i] <= exp + late && r > lb) { lb = r; la = tm[i] } }
+                if (late > 0 && tm[i] > ex + 0.25 && tm[i] <= ex + late && r > lb) { lb = r; la = tm[i] } }
               if (na != "") printf "%.3f", na; else if (la != "") printf "%.3f", la }'
 }
 
