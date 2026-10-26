@@ -188,8 +188,13 @@ jobs:
       - name: Clips from an earlier run
         if: inputs.clips_run != ''
         run: |
-          for n in mk-clips-p69 mk-clips-duo-a mk-clips-duo-b; do
-            gh run download "${{ inputs.clips_run }}" -R "$GITHUB_REPOSITORY" -n "$n" -D "mk-old/$n" || echo "::warning::$n missing"
+          # A comma-separated list is fine: later runs' clips replace earlier ones (e.g. "<all-takes run>,<p69 re-take>").
+          k=0
+          for run in $(echo "${{ inputs.clips_run }}" | tr ',' ' '); do
+            k=$((k + 1))
+            for n in mk-clips-p69 mk-clips-duo-a mk-clips-duo-b; do
+              gh run download "$run" -R "$GITHUB_REPOSITORY" -n "$n" -D "mk-old/$k-$n" 2>/dev/null || echo "run $run has no $n"
+            done
           done
       - name: Clips from this run
         if: inputs.record != 'none'
@@ -200,7 +205,7 @@ jobs:
       - name: Gather clips (this run's override the earlier run's)
         run: |
           mkdir -p mk-clips mk-old mk-in
-          find mk-old -path "*/clips/*" -type f -exec cp {} mk-clips/ \;
+          for d in $(ls -d mk-old/*/ 2>/dev/null | sort -V); do cp "$d"clips/* mk-clips/ 2>/dev/null || true; done
           find mk-in -path "*/clips/*" -type f -exec cp {} mk-clips/ \;
           ls -la mk-clips
           cat mk-old/*/REPORT-*.txt mk-in/*/REPORT-*.txt > mk-record-report.txt 2>/dev/null || true
