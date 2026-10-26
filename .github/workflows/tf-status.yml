@@ -42,6 +42,25 @@ jobs:
               d = beta.get((b["relationships"].get("buildBetaDetail", {}).get("data") or {}).get("id"), {})
               lines.append(f"| {v} ({a['version']}) | {a['uploadedDate']} | {a['processingState']} | "
                            f"{d.get('internalBuildState', '?')} | {a['expired']} |")
+          # App Store versions, their review state, and any App Previews attached (legacy sets and asset-library placements).
+          vers = requests.get(f"{api}/apps/{app['id']}/appStoreVersions", headers=h, params={"limit": 5}).json()
+          lines += ["", "| Version | State | Locale | App Previews |", "|---|---|---|---|"]
+          for v in vers.get("data", []):
+              va = v["attributes"]
+              state = va.get("appVersionState") or va.get("appStoreState")
+              locs = requests.get(f"{api}/appStoreVersions/{v['id']}/appStoreVersionLocalizations", headers=h).json()
+              for l in locs.get("data", []):
+                  found = []
+                  sets = requests.get(f"{api}/appStoreVersionLocalizations/{l['id']}/appPreviewSets", headers=h,
+                                      params={"include": "appPreviews"}).json()
+                  for s in sets.get("data", []):
+                      n = len((s.get("relationships", {}).get("appPreviews", {}) or {}).get("data", []) or [])
+                      found.append(f"{s['attributes'].get('previewType')}×{n}")
+                  pl = requests.get(f"{api}/appStoreVersionLocalizations/{l['id']}/placements", headers=h,
+                                    params={"filter[placementType]": "APP_PREVIEW", "limit": 50}).json()
+                  for p in pl.get("data", []):
+                      found.append(f"{p['attributes'].get('placementGroup')} (library)")
+                  lines.append(f"| {va.get('versionString')} | {state} | {l['attributes']['locale']} | {', '.join(found) or 'none'} |")
           out = "\n".join(lines)
           print(out)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
