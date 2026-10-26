@@ -68,7 +68,8 @@ export const CUTS = [
       ad: { headline: { default: "£2,000 phone. *£2.49* press.", "ad-us": "$2,000 phone. *$2.49* press." },
         line: "no ads · no in-app purchases", price: "", fine: true },
     },
-    cover: "3:start+1.0",
+    // The egg big on the anvil just after the hook (the cover step lays the hook pill on it).
+    cover: "0:start+2.0",
   },
   {
     id: "c3-bubbles", concept: "C3", title: "24 bubbles. one at a time.", length: 9, week: "launch",
@@ -129,7 +130,7 @@ export const CUTS = [
         dur: { organic: 2.7, default: 1.9 }, layout: "reveal", audio: { clip: "d-duck", from: "reveal+1.3" } },
     ],
     end: { organic: { line: "10 objects. all break *differently*.", at: "end-1.5" }, ad: { line: "10 objects. all break *differently*." } },
-    cover: "0:start+0.9",
+    cover: "0:start+2.0",
   },
   {
     id: "c6-fights-back", concept: "C6", title: "this one fights back.", length: 10, week: "week 3+",

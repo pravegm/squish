@@ -136,7 +136,9 @@ const LAYOUTS = {
   // The reveal ceremony: the PRESSED print and the specimen ticket, cut just under the bezel (no gauge, lamps or keys).
   reveal: { zoom: 1.8, top: 0.115, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.5, bg: GRAPHITE, obj: [0.5, 0.42] },
   // The SLO-MO film fills the anvil half: framed from the crease down, so the specimen ticket above it stays out.
-  slomo: { zoom: 2.6, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.48, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
+  // (The anvil framing: the app's console band below the anvil, masked in graphite, stays under the frame's bottom edge,
+  // so no dark band shows.)
+  slomo: { zoom: 2.1, fx: 0.5, fy: 0.677, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.677], clampY: false },
   // The sealed card drawn full screen on the 6.9" canvas (p-cover-*): the card, big, mid frame.
   pcover: { zoom: 1.1, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.45, bg: GRAPHITE, obj: [0.5, 0.5] },
   // The P-48's specimen card drops in over the top of the machine: frame the card, not the anvil.
@@ -282,7 +284,9 @@ function layoutFilter(inLabel, src, layoutName, dur, outLabel, CW = W, CH = H, o
   const maskAt = src.pose === "tabletop" || src.pose === "book" ? 0.925 : null;
   const maskY = maskAt === null ? CH : Math.round(p.y + maskAt * p.sh);
   const mask = maskY < CH ? `,drawbox=x=0:y=${Math.max(0, maskY)}:w=${CW}:h=${CH - Math.max(0, maskY)}:color=${GRAPHITE}:t=fill` : "";
-  return `${inLabel}scale=${p.sw}:${p.sh}:flags=lanczos,setsar=1[sv_${outLabel}];` +
+  // Upscaled crops (the Duo clips are 1440 px wide) get a light unsharp so the zoomed object stays crisp.
+  const sharpen = p.sw / src.w > 1.3 ? ",unsharp=5:5:0.55:5:5:0" : "";
+  return `${inLabel}scale=${p.sw}:${p.sh}:flags=lanczos${sharpen},setsar=1[sv_${outLabel}];` +
     `color=c=${p.bg}:s=${CW}x${CH}:r=${FPS}:d=${f3(dur)}[bg_${outLabel}];` +
     `[bg_${outLabel}][sv_${outLabel}]overlay=${p.x}:${p.y}:shortest=1:eof_action=repeat${mask},format=yuv420p[${outLabel}]`;
 }

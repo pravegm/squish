@@ -181,7 +181,12 @@ export async function browser({ port = 9300 + Math.floor(Math.random() * 500) } 
     proc.kill();
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* still locked on Windows */ }
   }
-  return { png, close };
+  /** Evaluates an expression in the page last rendered (QC tools read measurements back this way). */
+  async function evaluate(expression) {
+    const r = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+    return r.result ? r.result.value : undefined;
+  }
+  return { png, close, eval: evaluate };
 }
 
 export function fileURL(p) { return pathToFileURL(path.resolve(p)).href; }

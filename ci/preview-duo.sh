@@ -147,6 +147,7 @@ collect() {   # collect <press> <scenario>: marks and wav, once the app has rend
   docs="$(app_docs)"
   cp "$docs/preview-marks.txt" "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null || say "WARN $name: no marks file"
   cp "$docs/press-audio.wav" "$OUT_ABS/raw/$name.wav" 2>/dev/null || true
+  cp "$docs/press-audio.txt" "$OUT_ABS/raw/$name.audio.txt" 2>/dev/null || true
   cat "$docs/preview-script.txt" >> "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null || true   # hingescript steps
   say "$name marks: $(tr '\n' ' ' < "$OUT_ABS/raw/$name.marks.txt" 2>/dev/null | cut -c1-600)"
   grep -E "SQUISH-H" "$log" > "$OUT_ABS/logs/$name.hinge.txt" 2>/dev/null || true
@@ -204,7 +205,12 @@ window() {
   local m="$OUT_ABS/raw/$1.marks.txt" rec s e o len cal="CAL_$1"
   rec=$(rec_of "$2"); len=$(rec_len "$2")
   [[ -n "$rec" && -n "$len" ]] || { say "WARN $2: no recording"; return 1; }
-  s=$(spec_epoch "$m" "$3"); e=$(spec_epoch "$m" "$4"); o=$(mark_epoch "$m" origin)
+  s=$(spec_epoch "$m" "$3"); e=$(spec_epoch "$m" "$4")
+  # The WAV's sample 0 is press-audio.txt's origin= (the trace start the app rendered from). The `origin` mark is the
+  # object's placement, ~12 s earlier on the Duo (the trace's pre-roll trim moves its start up to the press): run
+  # 40222962649's preview placed the sound by the mark, so both breaks were silent. The mark is only the fallback.
+  o=$(sed -nE 's/.*origin=([0-9.]+).*/\1/p' "$OUT_ABS/raw/$1.audio.txt" 2>/dev/null | head -1)
+  [[ -n "$o" ]] || o=$(mark_epoch "$m" origin)
   [[ -n "$s" && -n "$e" && -n "$o" ]] || { say "WARN $1/$2: missing marks for '$3' / '$4'"; return 1; }
   A=$(calc "$s - $rec"); OFF=$(calc "$o - $rec + ${!cal:-0}")
   calc_ok "$A < 0" && A=0

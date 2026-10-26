@@ -268,7 +268,8 @@ export_clip() {
       esac
       vf="${vf}scale=2048:-2:flags=lanczos,fps=30,setsar=1,format=yuv420p"
     else
-      pose=tabletop; vf="${vf}scale=1440:-2:flags=lanczos,fps=30,setsar=1,format=yuv420p"
+      # Native width (2006 px), so the composer's tight crops upscale as little as possible.
+      pose=tabletop; vf="${vf}fps=30,setsar=1,format=yuv420p"
     fi
   fi
   [[ -f "$wav" && -n "$origin" ]] || wav=""
