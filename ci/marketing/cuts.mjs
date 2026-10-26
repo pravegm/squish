@@ -36,7 +36,7 @@ export const CUTS = [
       // which could read as a cracked phone: CrackGate). Replaced by the founder's S2 when it exists.
       { still: "store/glassBottle-storeshot-112.png", crop: [0, 0.27, 1, 0.70], dur: 1.1, kb: [1.1, 1.0],
         audio: { clip: "d-glass", from: "failure+0.6" }, fine: true, real: "S2" },
-      { clip: "p-cover-glass", from: "origin+3.85", dur: 1.5, layout: "pcover", sfx: [KACHUNK], fine: true, real: "S7" },
+      { clip: "p-cover-glass", from: "@flash-0.12,origin+3.85", dur: 1.5, layout: "pcover", sfx: [KACHUNK], fine: true, real: "S7" },
       { clip: "d-glass", from: "reveal-0.2", dur: { organic: 2.3, default: 2.0 }, layout: "reveal" },
       { clip: "d-glass", from: "failure-3.7", dur: 0.6, layout: "anvil", only: "organic", loop: true },
     ],
@@ -54,7 +54,7 @@ export const CUTS = [
     ],
     segments: [
       { clip: "d-egg", from: "failure-3.9", to: "script-58+0.3", maxDur: 5.6, layout: "anvil", real: "S4" },
-      { clip: "p-cover-egg", from: "origin+3.85", dur: 2.0, layout: "pcover", sfx: [KACHUNK], real: "S6" },
+      { clip: "p-cover-egg", from: "@flash-0.12,origin+3.85", dur: 2.0, layout: "pcover", sfx: [KACHUNK], real: "S6" },
       { clip: "d-egg", from: "reveal-0.2", dur: 1.8, layout: "reveal", real: "S7" },
       { clip: "d-egg", from: "slomo-end-2.3", dur: 1.5, layout: "slomo", audio: "slomo", slomoAt: "slomo-end-1.15" },
       { clip: "d-duck", from: "failure-0.45", dur: 0.7, layout: "anvil" },

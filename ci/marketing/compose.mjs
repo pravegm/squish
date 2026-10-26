@@ -104,7 +104,10 @@ function clipTime(clip, spec) {
     const m = alt.trim().match(/^(.+?)(?:([+-])([0-9.]+))?$/);
     if (!m) continue;
     let base = null;
-    if (m[1] === "start") base = 0; else if (m[1] === "end") base = clip.dur; else if (clip.marks.has(m[1])) base = clip.marks.get(m[1]);
+    if (m[1] === "start") base = 0; else if (m[1] === "end") base = clip.dur;
+    // the clip's biggest brightness jump after its first 2.5 s (the sealed card landing)
+    else if (m[1] === "@flash") base = DRY ? 1 : detectFlash(clip, Math.min(2.5, clip.dur / 3), clip.dur);
+    else if (clip.marks.has(m[1])) base = clip.marks.get(m[1]);
     if (base === null || Number.isNaN(base)) continue;
     const d = m[3] ? parseFloat(m[3]) * (m[2] === "-" ? -1 : 1) : 0;
     return base + d;
