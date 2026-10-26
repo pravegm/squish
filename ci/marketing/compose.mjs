@@ -655,7 +655,8 @@ async function buildMaster(cut, variant, outFile, { safe = SAFE, safePng = "safe
   for (const s of plan.segs) {
     if (s.kind !== "clip" || s.isReal || s.audio === "slomo" || s.layout === "cover") continue;
     const f = clipTime(s.clip, "failure");
-    if (f !== null && f > s.from + 0.15 && f < s.from + s.dur - 0.1) breaks.push(s.start + (f - s.from));
+    // Only breaks at least 0.35 s from a cut: a cut is itself a brightness jump and a sound onset.
+    if (f !== null && f > s.from + 0.35 && f < s.from + s.dur - 0.35) breaks.push(s.start + (f - s.from));
   }
   const coverT = cut.cover ? cutTime(plan, cut.cover) : null;
   const times = [["hook", 0.5], ["break", breaks[0] ?? coverT ?? plan.total / 2], ["mid", plan.total / 2], ["end", plan.total - 0.1]];
