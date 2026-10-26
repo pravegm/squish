@@ -1,0 +1,94 @@
+name: App Review submission fix
+
+# Manual, founder-approved actions on the live App Store Connect submission:
+#   cancel   – remove the waiting 1.0 submission from review (nothing is deleted; the version becomes editable)
+#   delete-duo-preview – delete the iPhone Duo App Preview from every localization of the editable version
+# Uses the ASC_* secrets; the key never leaves the runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cancel:
+        description: "Remove the waiting submission from review"
+        type: boolean
+        default: false
+      delete_duo_preview:
+        description: "Delete the iPhone Duo App Preview (after the version is editable)"
+        type: boolean
+        default: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+      BUNDLE_ID: com.pravegm.squish
+      CANCEL: ${{ inputs.cancel }}
+      DELETE_DUO: ${{ inputs.delete_duo_preview }}
+    steps:
+      - name: Act on App Store Connect
+        run: |
+          pip install --quiet pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, time, jwt, requests, sys
+          def token():
+              return jwt.encode({"iss": os.environ["ASC_ISSUER_ID"], "iat": int(time.time()), "exp": int(time.time()) + 900,
+                                 "aud": "appstoreconnect-v1"}, os.environ["ASC_PRIVATE_KEY"], algorithm="ES256",
+                                headers={"kid": os.environ["ASC_KEY_ID"], "typ": "JWT"})
+          api = "https://api.appstoreconnect.apple.com/v1"
+          def call(method, path, **kw):
+              r = requests.request(method, path if path.startswith("http") else f"{api}{path}",
+                                   headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json"}, **kw)
+              print(f"{method} {path} -> {r.status_code}")
+              if r.status_code >= 400: print(r.text[:1500])
+              return r
+          app = call("GET", "/apps", params={"filter[bundleId]": os.environ["BUNDLE_ID"]}).json()["data"][0]
+          def version():
+              v = call("GET", f"/apps/{app['id']}/appStoreVersions", params={"limit": 5}).json()["data"]
+              v = [x for x in v if x["attributes"].get("versionString") == "1.0"][0]
+              print("version 1.0 state:", v["attributes"].get("appVersionState"), "/", v["attributes"].get("appStoreState"))
+              return v
+          v = version()
+
+          if os.environ["CANCEL"] == "true":
+              subs = call("GET", "/reviewSubmissions", params={"filter[app]": app["id"], "limit": 20}).json().get("data", [])
+              live = [s for s in subs if s["attributes"].get("state") in ("WAITING_FOR_REVIEW", "READY_FOR_REVIEW", "IN_REVIEW")]
+              for s in subs: print("submission", s["id"], s["attributes"].get("state"), s["attributes"].get("submittedDate"))
+              if not live: print("no waiting submission found")
+              for s in live:
+                  call("PATCH", f"/reviewSubmissions/{s['id']}",
+                       json={"data": {"type": "reviewSubmissions", "id": s["id"], "attributes": {"canceled": True}}})
+              # Cancelling is asynchronous: wait until the version is editable again.
+              for _ in range(40):
+                  v = version()
+                  if v["attributes"].get("appVersionState") not in ("WAITING_FOR_REVIEW", "IN_REVIEW", "READY_FOR_REVIEW"):
+                      break
+                  time.sleep(15)
+
+          if os.environ["DELETE_DUO"] == "true":
+              locs = call("GET", f"/appStoreVersions/{v['id']}/appStoreVersionLocalizations").json().get("data", [])
+              for l in locs:
+                  loc = l["attributes"]["locale"]
+                  pl = call("GET", f"/appStoreVersionLocalizations/{l['id']}/placements",
+                            params={"filter[placementType]": "APP_PREVIEW", "limit": 50}).json().get("data", [])
+                  for p in pl:
+                      if p["attributes"].get("placementGroup", "").startswith("IPHONE_DUO"):
+                          print(loc, "deleting library Duo preview placement", p["id"])
+                          call("DELETE", f"/appAssetLibraryPlacements/{p['id']}")
+                  sets = call("GET", f"/appStoreVersionLocalizations/{l['id']}/appPreviewSets",
+                              params={"include": "appPreviews"}).json()
+                  for s in sets.get("data", []):
+                      if "DUO" in (s["attributes"].get("previewType") or ""):
+                          for ref in (s.get("relationships", {}).get("appPreviews", {}) or {}).get("data", []) or []:
+                              print(loc, "deleting Duo appPreview", ref["id"])
+                              call("DELETE", f"/appPreviews/{ref['id']}")
+              # Report what is left.
+              for l in locs:
+                  sets = call("GET", f"/appStoreVersionLocalizations/{l['id']}/appPreviewSets", params={"include": "appPreviews"}).json()
+                  left = [f"{s['attributes'].get('previewType')}×{len((s.get('relationships',{}).get('appPreviews',{}) or {}).get('data',[]) or [])}" for s in sets.get("data", [])]
+                  print("REMAINING", l["attributes"]["locale"], left)
+          version()
+          PY
