@@ -339,15 +339,25 @@ function audioShift(clip) {
   const f = clipTime(clip, "failure");
   if (f !== null && !DRY && clip.info.sound === "app") {
     const flash = detectFlash(clip, Math.max(0, f - 0.15), f + 0.6);
-    const onset = audioOnset(clip.file, Math.max(0, f - 0.4), f + 1.5);
-    if (flash !== null && onset !== null && Math.abs(onset - flash) <= 1.5) shift = Math.abs(onset - flash) > 0.03 ? onset - flash : 0;
+    // The strongest onset within 0.25 s of the flash corrects the clock; with none there, a Fold press's replay may
+    // have landed its failure late, so take the strongest onset up to 1.5 s after (Duo clips only: the P-48 replay is
+    // close, and its next loud event after the failure is the seal or the fizz, not the break).
+    let onset = null;
+    if (flash !== null) {
+      const list = audioOnsets(clip.file, Math.max(0, flash - 0.3), flash + 1.55);
+      const best = (xs) => xs.reduce((m, x) => (!m || x.rise > m.rise ? x : m), null);
+      const near = best(list.filter((x) => Math.abs(x.t - flash) <= 0.25));
+      const late = clip.info.device === "duo" ? best(list.filter((x) => x.t > flash + 0.25 && x.t <= flash + 1.5)) : null;
+      onset = (near || late || {}).t ?? null;
+    }
+    if (flash !== null && onset !== null) shift = Math.abs(onset - flash) > 0.03 ? onset - flash : 0;
     log(`audio ${clip.name}: break flash ${flash === null ? "none" : f3(flash)} s, sound onset ${onset === null ? "none" : f3(onset)} s: shift ${f3(shift)} s`);
   }
   shiftCache.set(clip.name, shift);
   return shift;
 }
-/** The loudest onset (s, in the file) of a file's sound in [a, b]: the 10 ms bin rising most over the 50 ms before it, louder than -18 dBFS. */
-function audioOnset(file, a, b) {
+/** The onsets (s, in the file) of a file's sound in [a, b]: 10 ms bins louder than -18 dBFS that rise 6 dB or more over the 50 ms before them. */
+function audioOnsets(file, a, b) {
   const r = run("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-af",
     `atrim=start=${f3(a)}:duration=${f3(b - a)},asetpts=PTS-STARTPTS,asetnsamples=480,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
     "-f", "null", "-"], { quiet: true, allowFail: true });
@@ -356,12 +366,12 @@ function audioOnset(file, a, b) {
     const pm = l.match(/pts_time:([0-9.]+)/); if (pm) t = parseFloat(pm[1]);
     const m = l.match(/RMS_level=(-?[0-9.]+|-inf)/); if (m) { lv.push(m[1] === "-inf" ? -120 : parseFloat(m[1])); tm.push(t); }
   }
-  let best = -1e9, at = null;
+  const out = [];
   for (let i = 5; i < lv.length; i++) {
-    const prev = Math.max(...lv.slice(i - 5, i));
-    if (lv[i] > -18 && lv[i] - prev > best) { best = lv[i] - prev; at = tm[i]; }
+    const rise = lv[i] - Math.max(...lv.slice(i - 5, i));
+    if (lv[i] > -18 && rise >= 6) out.push({ t: a + tm[i], rise });
   }
-  return at === null || best < 6 ? null : a + at;
+  return out;
 }
 
 /** The time (clip s) of the biggest frame-to-frame brightness rise in [a, b] of a clip (a failure flash), or null. */

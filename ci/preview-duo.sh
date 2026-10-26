@@ -235,7 +235,7 @@ calibrate() {
   o=$(sed -nE 's/.*origin=([0-9.]+).*/\1/p' "$OUT_ABS/raw/$1.audio.txt" 2>/dev/null | head -1)
   [[ -n "$o" ]] || o=$(mark_epoch "$m" origin)
   w0=$(calc "$f - $o")
-  wt=$(wav_transient "$OUT_ABS/raw/$1.wav" "$(calc "$w0 - 0.4")" "$(calc "$w0 + 1.5")")
+  wt=$(wav_transient "$OUT_ABS/raw/$1.wav" "$w0" 1.5)
   if [[ -n "$wt" ]]; then
     cal=$(calc "$ft - $wt - ($o - $rec)")
     if calc_ok "$cal >= -2 && $cal <= 2"; then

@@ -141,19 +141,25 @@ flash_time() {
         END { if (have && best > 0) printf "%.3f %.1f", base + at, best }'
 }
 
-# wav_transient <wav> <from s> <to s>: the time (s, in the WAV) of its loudest onset in the window: the 10 ms bin with the
-# biggest rise over the 50 ms before it, among bins louder than -18 dBFS RMS (a failure is the loudest event of a press).
-# Prints nothing when no bin rises by 6 dB or more.
+# wav_transient <wav> <expected s> <late window s>: where the WAV's break is, near where the clock expects it. The onsets
+# are the 10 ms bins louder than -18 dBFS RMS that rise 6 dB or more over the 50 ms before them. The strongest onset
+# within 0.25 s of <expected> wins; failing that, with <late window> > 0, the strongest one in the <late window> seconds
+# after it (the offline replay of a Fold press can land its failure up to ~1 s late: Duo glass in run 40350252050).
+# Prints nothing when there is none.
 wav_transient() {
-  local from="$2" dur
-  calc_ok "$from < 0" && from=0
-  dur=$(calc "$3 - $from")
+  local exp="$2" late="${3:-0}" from dur
+  from=$(calc "$exp - 0.3"); calc_ok "$from < 0" && from=0
+  dur=$(calc "$exp + $late + 0.3 - $from")
   ffmpeg -nostdin -v error -i "$1" -af "atrim=start=$from:duration=$dur,asetpts=PTS-STARTPTS,asetnsamples=480,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-" -f null - 2>/dev/null \
-    | awk -v base="$from" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
-        /RMS_level/ { split($0, y, "="); v = (y[2] == "-inf") ? -120 : y[2] + 0; n++; lv[n] = v; tm[n] = t }
-        END { best = -1e9; at = ""; for (i = 6; i <= n; i++) { m = -1e9; for (k = i - 5; k < i; k++) if (lv[k] > m) m = lv[k];
-              if (lv[i] > -18 && lv[i] - m > best) { best = lv[i] - m; at = tm[i] } }
-              if (at != "" && best >= 6) printf "%.3f", base + at }'
+    | awk -v base="$from" -v exp="$exp" -v late="$late" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
+        /RMS_level/ { split($0, y, "="); v = (y[2] == "-inf") ? -120 : y[2] + 0; n++; lv[n] = v; tm[n] = base + t }
+        END { nb = -1; na = ""; lb = -1; la = "";
+              for (i = 6; i <= n; i++) { m = -1e9; for (k = i - 5; k < i; k++) if (lv[k] > m) m = lv[k];
+                r = lv[i] - m; if (lv[i] <= -18 || r < 6) continue;
+                d = tm[i] - exp; if (d < 0) d = -d;
+                if (d <= 0.25 && r > nb) { nb = r; na = tm[i] }
+                if (late > 0 && tm[i] > exp + 0.25 && tm[i] <= exp + late && r > lb) { lb = r; la = tm[i] } }
+              if (na != "") printf "%.3f", na; else if (la != "") printf "%.3f", la }'
 }
 
 # audio_chain <wav start seconds (may be negative)> <duration>: an ffmpeg audio filter chain (after the input label)

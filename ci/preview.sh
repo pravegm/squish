@@ -222,7 +222,7 @@ for seg in "${SEGMENTS[@]}"; do
       om=$(mark_epoch "$m" origin)
       oa=$(sed -nE 's/.*origin=([0-9.]+).*/\1/p' "$OUT_ABS/raw/$name.audio.txt" 2>/dev/null | head -1)
       w0=$(calc "$f - ${oa:-$om}")
-      wt=$(wav_transient "$OUT_ABS/raw/$name.wav" "$(calc "$w0 - 0.4")" "$(calc "$w0 + 1.5")")
+      wt=$(wav_transient "$OUT_ABS/raw/$name.wav" "$w0" 0)   # the P-48 replay is close: only a small correction
       if [[ -n "$wt" && -n "$om" ]]; then
         c2=$(calc "${ft%% *} - $wt - ($om - $rec)")
         if calc_ok "$c2 >= -2 && $c2 <= 2"; then
