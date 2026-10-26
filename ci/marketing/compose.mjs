@@ -133,6 +133,8 @@ const LAYOUTS = {
   // The reveal ceremony: the PRESSED print and the specimen ticket, cut just under the bezel (no gauge, lamps or keys).
   reveal: { zoom: 1.8, top: 0.115, fx: 0.5, bg: GRAPHITE, obj: [0.5, 0.42] },
   slomo: { zoom: 2.0, fx: 0.5, fy: 0.70, ox: 0.5, oy: 0.58, bg: GRAPHITE, obj: [0.5, 0.70], clampY: false },
+  // The sealed card drawn full screen on the 6.9" canvas (p-cover-*): the card, big, mid frame.
+  pcover: { zoom: 1.12, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.47, bg: GRAPHITE, obj: [0.5, 0.5] },
   cover: { zoom: 1.25, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.48, bg: GRAPHITE, obj: [0.5, 0.5] },
   book: { zoom: 1.0, fx: 0.5, fy: 0.5, ox: 0.5, oy: 0.40, bg: PAPER, obj: [0.75, 0.5] },
   p69: { zoom: 1.13, fx: 0.5, fy: 0.703, ox: 0.5, oy: 0.64, bg: PAPER, obj: [0.5, 0.703], clampY: false },
@@ -659,7 +661,7 @@ async function buildMaster(cut, variant, outFile, { safe = SAFE, safePng = "safe
     if (f !== null && f > s.from + 0.35 && f < s.from + s.dur - 0.35) breaks.push(s.start + (f - s.from));
   }
   const coverT = cut.cover ? cutTime(plan, cut.cover) : null;
-  const times = [["hook", 0.5], ["break", breaks[0] ?? coverT ?? plan.total / 2], ["mid", plan.total / 2], ["end", plan.total - 0.1]];
+  const times = [["hook", 0.5], ["break", breaks[0] !== undefined ? breaks[0] + 0.3 : (coverT ?? plan.total / 2)], ["mid", plan.total / 2], ["end", plan.total - 0.1]];
   const fr = DRY ? [] : stills(outFile, name, times);
   if (!DRY) {
     safeComposite(fr[0], path.join(WORK, safePng), path.join(QC, "frames", `${name}-hook-safe.png`));

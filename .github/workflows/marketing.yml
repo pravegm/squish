@@ -5,17 +5,19 @@ name: Marketing kit
 #   • record-p69: the P-48 on the iPhone 6.9" simulator (C4, C6);
 #   • record-duo (groups a, b): the iPhone Duo simulator, tabletop and book pose (C1, C2, C3, C5, the Stories, stills).
 # Then compose cuts the Reels / ad masters, the Story clips and every still with ffmpeg and headless Chrome (Nunito),
-# checks them (REPORT.md, qc/), and uploads the artifact `marketing-kit`. Set record=false and clips_run=<run id> to
-# re-compose from an earlier run's clips (about 15 min instead of about 50).
+# checks them (REPORT.md, qc/), and uploads the artifact `marketing-kit`. record=none with clips_run=<run id>
+# re-composes from an earlier run's clips (about 15 min instead of about 50); record=p69 or duo re-records one device
+# and takes the other's clips from clips_run.
 on:
   workflow_dispatch:
     inputs:
       record:
-        description: "Record fresh takes (false = re-use clips_run's clips)"
-        type: boolean
-        default: true
+        description: "Which takes to record fresh (the rest come from clips_run)"
+        type: choice
+        options: [all, p69, duo, none]
+        default: all
       clips_run:
-        description: "With record=false: the marketing.yml run whose mk-clips-* artifacts to compose"
+        description: "The marketing.yml run whose mk-clips-* artifacts fill in what is not recorded"
         type: string
         default: ""
       store_run:
@@ -37,7 +39,7 @@ env:
 
 jobs:
   record-p69:
-    if: inputs.record
+    if: inputs.record == 'all' || inputs.record == 'p69'
     runs-on: xcode-27
     timeout-minutes: 70
     steps:
@@ -77,7 +79,7 @@ jobs:
           if-no-files-found: ignore
 
   record-duo:
-    if: inputs.record
+    if: inputs.record == 'all' || inputs.record == 'duo'
     runs-on: xcode-27
     timeout-minutes: 85
     strategy:
@@ -170,7 +172,7 @@ jobs:
 
   compose:
     needs: [record-p69, record-duo]
-    if: ${{ always() && (inputs.record == false || needs.record-duo.result != 'skipped') }}
+    if: ${{ always() && !cancelled() }}
     runs-on: xcode-27
     timeout-minutes: 60
     env:
@@ -183,25 +185,25 @@ jobs:
           ffmpeg -version | head -1
           node --version
           ls "/Applications/Google Chrome.app/Contents/MacOS/" || true
+      - name: Clips from an earlier run
+        if: inputs.clips_run != ''
+        run: |
+          for n in mk-clips-p69 mk-clips-duo-a mk-clips-duo-b; do
+            gh run download "${{ inputs.clips_run }}" -R "$GITHUB_REPOSITORY" -n "$n" -D "mk-old/$n" || echo "::warning::$n missing"
+          done
       - name: Clips from this run
-        if: inputs.record
+        if: inputs.record != 'none'
         uses: actions/download-artifact@v4
         with:
           pattern: mk-clips-*
           path: mk-in
-      - name: Clips from an earlier run
-        if: ${{ !inputs.record }}
+      - name: Gather clips (this run's override the earlier run's)
         run: |
-          [[ -n "${{ inputs.clips_run }}" ]] || { echo "::error::record=false needs clips_run"; exit 1; }
-          for n in mk-clips-p69 mk-clips-duo-a mk-clips-duo-b; do
-            gh run download "${{ inputs.clips_run }}" -R "$GITHUB_REPOSITORY" -n "$n" -D "mk-in/$n" || echo "::warning::$n missing"
-          done
-      - name: Gather clips
-        run: |
-          mkdir -p mk-clips
+          mkdir -p mk-clips mk-old mk-in
+          find mk-old -path "*/clips/*" -type f -exec cp {} mk-clips/ \;
           find mk-in -path "*/clips/*" -type f -exec cp {} mk-clips/ \;
           ls -la mk-clips
-          cat mk-in/*/REPORT-*.txt > mk-record-report.txt 2>/dev/null || true
+          cat mk-old/*/REPORT-*.txt mk-in/*/REPORT-*.txt > mk-record-report.txt 2>/dev/null || true
       - name: Font and stills
         run: |
           bash ci/marketing.sh font "$RUNNER_TEMP/fonts"

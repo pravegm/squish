@@ -24,6 +24,10 @@ p69|a|p-can|object=sodaCan;reveal;slowpress=5;@P69|reveal+6|phase-pressing-1.6|r
 p69|a|p-duck|object=rubberDuck;reveal;slowpress=5;@P69|reveal+6|phase-pressing-1.0|reveal+5.5|2
 p69|a|p-jelly|object=jelly;reveal;slowpress=4.5;@P69|reveal+6|phase-pressing-1.0|reveal+5.5|2
 p69|a|p-cake|object=cakeSlice;reveal;slowpress=4.5;@P69|reveal+6|phase-pressing-1.0|reveal+5.5|2
+# The sealed card (CoverView, what the Duo's outer display shows after a press), drawn full screen on the 6.9" canvas:
+# the stand-in for the founder's S6. (On the Duo simulator the inner display records black while the cover is up.)
+p69|a|p-cover-egg|cover=sealed;object=egg;notoasts;nocoach;nocapture;captions=off;previewmarks|origin+7|origin-1.0|origin+6.5|1
+p69|a|p-cover-glass|cover=sealed;object=glassBottle;notoasts;nocoach;nocapture;captions=off;previewmarks|origin+7|origin-1.0|origin+6.5|1
 p69|a|p-glass|object=glassBottle;reveal;slowpress=5;@P69|reveal+6|phase-pressing-1.0|reveal+5.5|2
 
 # ---- iPhone Duo, tabletop (the hero) and book pose: C1, C2, C3, C5, Stories, statics ---------------------------------
@@ -34,9 +38,6 @@ p69|a|p-glass|object=glassBottle;reveal;slowpress=5;@P69|reveal+6|phase-pressing
 duo|a|d-glass|object=glassBottle;hingescript=7;slomo;pressaudiodelay=22;@DUO|slomo-settled+1.5,script-160+16|script-begin-0.6|end|2
 duo|a|d-egg|object=egg;hingescript=6;slomo;pressaudiodelay=22;@DUO|slomo-settled+1.5,script-160+16|script-begin-0.6|end|2
 duo|a|d-bubble|object=bubbleWrap;hingescript=11;hingecurve=steady;@DUO|script-160+5|script-begin-0.6|end|2
-# The sealed card the cover display shows after a press (CoverView), on the tabletop canvas: the stand-in for S6.
-duo|a|d-cover-egg|cover=sealed;object=egg;duo;orient=portrait;nocoach;nocapture;captions=off;previewmarks|origin+7|origin-1.5|origin+6.5|1
-duo|a|d-cover-glass|cover=sealed;object=glassBottle;duo;orient=portrait;nocoach;nocapture;captions=off;previewmarks|origin+7|origin-1.5|origin+6.5|1
 duo|a|d-shelf|shelf;shelffill=0.6;duo;orient=portrait;notoasts;nocoach;nocapture;captions=off;previewmarks|shelffill-done+3|shelffill-begin-1.5|shelffill-done+2.5|1
 duo|b|d-duck|object=rubberDuck;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|1
 duo|b|d-jelly|object=jelly;hingescript=6;@DUO|script-160+5|script-begin-0.6|end|1
