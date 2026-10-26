@@ -1,0 +1,95 @@
+name: Featuring nomination
+
+# Manual: creates (and optionally submits) Squish's App Store featuring nomination through the App Store Connect API.
+# Text source of truth: docs/appstore/featuring-nomination.md. Uses the ASC_* secrets; the key never leaves the runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: "Submit to Apple (false = create a draft only)"
+        type: boolean
+        default: false
+      publish_date:
+        description: "Expected publish date (UTC, YYYY-MM-DD)"
+        type: string
+        default: "2026-10-28"
+
+jobs:
+  nominate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+      BUNDLE_ID: com.pravegm.squish
+      SUBMIT: ${{ inputs.submit }}
+      PUBLISH_DATE: ${{ inputs.publish_date }}
+    steps:
+      - name: Create the nomination
+        run: |
+          pip install --quiet pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, time, jwt, requests, json
+          def token():
+              return jwt.encode({"iss": os.environ["ASC_ISSUER_ID"], "iat": int(time.time()), "exp": int(time.time()) + 900,
+                                 "aud": "appstoreconnect-v1"}, os.environ["ASC_PRIVATE_KEY"], algorithm="ES256",
+                                headers={"kid": os.environ["ASC_KEY_ID"], "typ": "JWT"})
+          api = "https://api.appstoreconnect.apple.com/v1"
+          def call(method, path, **kw):
+              r = requests.request(method, path if path.startswith("http") else f"{api}{path}",
+                                   headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json"}, **kw)
+              print(f"{method} {path} -> {r.status_code}")
+              if r.status_code >= 400: print(r.text[:2000])
+              return r
+          app = call("GET", "/apps", params={"filter[bundleId]": os.environ["BUNDLE_ID"]}).json()["data"][0]
+
+          name = "Squish - App Launch - iPhone Duo hinge press"
+          description = (
+              "Squish turns iPhone Duo into a hydraulic press. The two halves of the inner screen are the press plates: "
+              "pick a virtual object, close the phone slowly, and watch, hear and feel it strain, crack and give way, "
+              "following the hinge degree by degree. Shut it for a heavy ka-chunk on the outer display, then reopen to "
+              "reveal a pressed specimen card for your shelf.\n\n"
+              "The hinge is the whole interface: the live angle drives deformation, sound and haptics in the same frame. "
+              "Ten launch objects each fail their own way, from bubble wrap that pops bubble by bubble to a glass bottle "
+              "that creaks, then shatters.\n\n"
+              "Built for everyone: the same press works on every iPhone with a drag, and Press without folding brings it "
+              "to Duo owners who can't or don't want to fold. Every unlock works either way. VoiceOver can press step by "
+              "step, and Reduce Motion calms every effect.\n\n"
+              "One price, no ads, no in-app purchases, no timers, no data collected. Free object drops follow.")
+          notes = (
+              "Optimized for iPhone Duo: tabletop and book poses, inner and outer displays (the sealed press and an object "
+              "picker live on the cover). Built with Xcode 27.1 on the public hinge API. A one-person studio: every object "
+              "is generated in code and every sound is synthesized live from the hinge, layered with CC0 foley, so free "
+              "drops can come every few weeks (Holiday Object Drop planned for December). Version 1.0 is in App Review "
+              "and releases automatically on approval.")
+          assert len(name) <= 60 and len(description) <= 1000 and len(notes) <= 500, (len(name), len(description), len(notes))
+          print("lengths: name", len(name), "description", len(description), "notes", len(notes))
+
+          terr = []
+          url = f"{api}/territories?limit=200"
+          while url:
+              j = call("GET", url).json()
+              terr += [t["id"] for t in j.get("data", [])]
+              url = (j.get("links") or {}).get("next")
+          terr = [t for t in terr if t != "CHN"]
+          print("territories:", len(terr))
+
+          body = {"data": {"type": "nominations", "attributes": {
+                      "name": name, "type": "APP_LAUNCH", "description": description, "notes": notes,
+                      "publishStartDate": os.environ["PUBLISH_DATE"] + "T08:00:00Z",
+                      "submitted": os.environ["SUBMIT"] == "true",
+                      "deviceFamilies": ["IPHONE"], "locales": ["en-GB", "en-US"],
+                      "hasInAppEvents": False, "preOrderEnabled": False, "launchInSelectMarketsFirst": False,
+                      "supplementalMaterialsUris": ["https://pravegm.github.io/squish/", "https://pravegm.github.io/squish/press/"]},
+                  "relationships": {
+                      "relatedApps": {"data": [{"type": "apps", "id": app["id"]}]},
+                      "supportedTerritories": {"data": [{"type": "territories", "id": t} for t in terr]}}}}
+          r = call("POST", "/nominations", json=body)
+          if r.status_code < 300:
+              d = r.json()["data"]
+              print("NOMINATION", d["id"], "state:", d["attributes"].get("state"), "submitted:", d["attributes"].get("submitted"))
+          else:
+              raise SystemExit(1)
+          PY
