@@ -1,6 +1,6 @@
 # Squish: Featuring nomination and In-App Events
 
-*Nomination 1 is final as of 23 Oct 2026, ready to paste. The founder submits it, because it needs an App Store Connect login.*
+*Nomination 1 was **SUBMITTED on 26 Oct 2026** through the App Store Connect API (`nomination.yml`, nomination id `4ad9ad31-6b36-47c7-a709-0531fba440ef`), at the founder's request. App Launch, iPhone, en-GB and en-US, 174 territories, expected publish date 28 Oct: 1.0 releases automatically on approval, so the 24 Nov date below no longer applies. The description drops "synthesized" from the hinge line, and Helpful Details now says 1.0 is in review and releases on approval. Nominations 2 and 3 can go the same way.*
 
 ## Timing (important)
 
