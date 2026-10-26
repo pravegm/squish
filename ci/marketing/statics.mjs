@@ -200,7 +200,7 @@ async function main() {
     ${sub("every press is stamped, measured and kept.", { y: 1262, size: 34 })}`), `${C}/05-specimens.png`, FW, FH);
 
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("collect every pressed *specimen*.", { y: 150, size: 88, lines: 2 })}
-    ${pic(S.shelf, { x: 90, y: 400, w: 900, h: 860, crop: [0, 0, 1, 0.47], radius: 40, shadow: true })}`), `${C}/06-shelf.png`, FW, FH);
+    ${pic(S.shelf, { x: 90, y: 400, w: 900, h: 860, crop: [0, 0, 1, 0.67], radius: 40, shadow: true })}`), `${C}/06-shelf.png`, FW, FH);
 
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("no foldable? *drag* it.", { y: 150, size: 92, lines: 1 })}
     ${sub("works on every iPhone. made for the fold.", { y: 270, size: 38 })}
@@ -240,8 +240,8 @@ async function main() {
     }
   };
   const sh = (t, y, size = 84, lines = 2) => headline(t, { y, size, lines, x: 90, w: 900 });
-  await story("stories/story-1-2-shelf.png", `${wordmark(90, 300)}${sh("nine down. one to *go*.", 400)}
-    ${pic(S.shelf, { x: 90, y: 600, w: 900, h: 640, crop: [0, 0.03, 1, 0.42], radius: 40, shadow: true })}`,
+  await story("stories/story-1-2-shelf.png", `${wordmark(90, 300)}${sh("8 down. *2* to go.", 400)}
+    ${pic(S.shelf, { x: 90, y: 600, w: 900, h: 640, crop: [0, 0.02, 1, 0.5], radius: 40, shadow: true })}`,
   [[[140, 1270, 800, 250], "poll sticker: how do you close it?"]]);
   await story("stories/story-1-4-card.png", `${wordmark(90, 300)}${sh("every press, *filed*.", 400)}
     ${pic(S.eggCard, { x: 140, y: 580, w: 800, h: 640, crop: [0.02, 0.08, 0.96, 0.62], radius: 40, shadow: true })}

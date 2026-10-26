@@ -265,7 +265,8 @@ function layoutFilter(inLabel, src, layoutName, dur, outLabel, CW = W, CH = H, o
   const p = place(src, layoutName, CW, CH, over);
   // On the Duo the app's console (Menu · object chip · Shelf) is cropped to graphite: it sits in the keep-clear band
   // anyway, and its chip names the object's failure ("EGG · CRACKS") right under the phone's screen (CrackGate).
-  const maskY = (src.pose === "tabletop" || src.pose === "book") ? Math.round(p.y + 0.925 * p.sh) : CH;
+  const maskAt = src.pose === "tabletop" || src.pose === "book" ? 0.925 : src.pose === "p69" ? 0.82 : null;
+  const maskY = maskAt === null ? CH : Math.round(p.y + maskAt * p.sh);
   const mask = maskY < CH ? `,drawbox=x=0:y=${Math.max(0, maskY)}:w=${CW}:h=${CH - Math.max(0, maskY)}:color=${GRAPHITE}:t=fill` : "";
   return `${inLabel}scale=${p.sw}:${p.sh}:flags=lanczos,setsar=1[sv_${outLabel}];` +
     `color=c=${p.bg}:s=${CW}x${CH}:r=${FPS}:d=${f3(dur)}[bg_${outLabel}];` +
