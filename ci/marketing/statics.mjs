@@ -178,11 +178,11 @@ async function main() {
     <div class="fine" style="top:1272px">${FINE}</div>`), `${C}/01-hero.png`, FW, FH);
 
   const steps = [[S.open, "lay it *open*.", "the object lands on the lower screen."],
-    [S.closing, "close it *slowly*.", "the hinge is the lever. feel it give."],
+    [ST.open112, "close it *slowly*.", "the hinge is the lever. feel it give."],
     [S.eggCard, "open it. it's *filed*.", "every press becomes a pressed specimen."]];
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("how it *works*.", { y: 150, size: 92, lines: 1 })}
     ${steps.map(([f, t, d], i) => `
-      ${pic(f, { x: 84, y: 330 + i * 320, w: 300, h: 280, crop: i === 2 ? [0.05, 0.1, 0.9, 0.8] : [0.1, 0.3, 0.8, 0.55], radius: 34, shadow: true })}
+      ${pic(f, { x: 84, y: 330 + i * 320, w: 300, h: 280, crop: [[0.15, 0.53, 0.7, 0.33], [0.02, 0.27, 0.96, 0.7], [0.08, 0.115, 0.84, 0.5]][i], radius: 34, shadow: true, ...(i === 1 ? { fit: "contain", extra: "background:#efe9e0;" } : {}) })}
       <div style="position:absolute;left:420px;top:${360 + i * 320}px;width:70px;height:70px;border-radius:50%;background:var(--graphite);color:var(--paper);display:flex;align-items:center;justify-content:center;font-size:42px">${i + 1}</div>
       <div class="h" style="left:510px;top:${356 + i * 320}px;width:500px;font-size:56px">${R.rich(t)}</div>
       <div class="s" style="left:420px;top:${450 + i * 320}px;width:590px;font-size:34px">${R.rich(d)}</div>`).join("")}`),
@@ -197,7 +197,7 @@ async function main() {
     ${sub("pops, splats, snaps, fizz. the same press every time.", { y: 1180, size: 34 })}`), `${C}/04-each-gives.png`, FW, FH);
 
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("open up. file the *evidence*.", { y: 150, size: 88, lines: 2 })}
-    ${pic(S.eggCard, { x: 120, y: 400, w: 840, h: 840, crop: [0.02, 0.06, 0.96, 0.66], radius: 40, shadow: true })}
+    ${pic(S.eggCard, { x: 120, y: 400, w: 840, h: 840, crop: [0.08, 0.115, 0.84, 0.5], radius: 40, shadow: true })}
     ${sub("every press is stamped, measured and kept.", { y: 1262, size: 34 })}`), `${C}/05-specimens.png`, FW, FH);
 
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("collect every pressed *specimen*.", { y: 150, size: 88, lines: 2 })}
@@ -220,8 +220,8 @@ async function main() {
   // The glass post shows the object only: the Duo renders draw the shattered glass's print on the upper screen, which
   // could read as a cracked phone screen (CrackGate, PLAN.md §0.1 hard no's).
   await render(page(FW, FH, `${wordmark(84, 66)}${headline("it creaks. then it *doesn't*.", { y: 150, size: 92, lines: 2 })}
-    ${pic(S.glassStrain, { x: 84, y: 400, w: 448, h: 800, crop: [0.2, 0.5, 0.6, 0.38], radius: 40, shadow: true })}
-    ${pic(S.glassGone, { x: 548, y: 400, w: 448, h: 800, crop: [0.2, 0.5, 0.6, 0.38], radius: 40, shadow: true })}
+    ${pic(S.glassStrain, { x: 84, y: 400, w: 448, h: 800, crop: [0.2, 0.535, 0.6, 0.36], radius: 40, shadow: true })}
+    ${pic(S.glassGone, { x: 548, y: 400, w: 448, h: 800, crop: [0.2, 0.535, 0.6, 0.36], radius: 40, shadow: true })}
     <div class="tag" style="left:110px;top:1140px">creak…</div><div class="tag" style="left:574px;top:1140px">…then not.</div>
     <div class="fine" style="top:1262px">a glass bottle, on screen. nothing real goes inside.</div>`),
   "feed/post-1-glass.png", FW, FH);
@@ -245,7 +245,7 @@ async function main() {
     ${pic(S.shelf, { x: 90, y: 600, w: 900, h: 640, crop: [0, 0.02, 1, 0.5], radius: 40, shadow: true })}`,
   [[[140, 1270, 800, 250], "poll sticker: how do you close it?"]]);
   await story("stories/story-1-4-card.png", `${wordmark(90, 300)}${sh("every press, *filed*.", 400)}
-    ${pic(S.eggCard, { x: 140, y: 580, w: 800, h: 640, crop: [0.02, 0.08, 0.96, 0.62], radius: 40, shadow: true })}
+    ${pic(S.eggCard, { x: 140, y: 580, w: 800, h: 640, crop: [0.08, 0.115, 0.84, 0.5], radius: 40, shadow: true })}
     <div class="s" style="left:90px;top:1460px;width:900px;text-align:center;font-size:36px">${PRICE["ad-uk"]}</div>`,
   [[[240, 1260, 600, 160], "link sticker: get squish"]]);
   const vs = async (rel, a, an, bb, bn) => story(rel, `${wordmark(90, 300)}${sh("which one *first*?", 400, 84, 1)}
@@ -263,7 +263,7 @@ async function main() {
       <div class="s" style="position:static;margin-top:24px;font-size:40px">${OUT_NOW}</div></div>`,
   [[[240, 1180, 600, 160], "link sticker: press it yourself"]]);
   await story("stories/story-3-1-quiz.png", `${wordmark(90, 300)}${sh("quick *quiz*.", 420, 110, 1)}
-    ${pic(S.closing, { x: 140, y: 600, w: 800, h: 420, crop: [0.05, 0.42, 0.9, 0.42], radius: 40, shadow: true })}`,
+    ${pic(S.closing, { x: 140, y: 600, w: 800, h: 420, crop: [0.1, 0.535, 0.8, 0.34], radius: 40, shadow: true })}`,
   [[[140, 1060, 800, 440], "quiz sticker: how do you get a Perfect Squish?"]]);
   await story("stories/story-3-2-golden-rule.png", `${wordmark(90, 300)}${sh("and the golden rule:", 400, 84, 1)}
     ${pic(ST.open112, { x: 20, y: 510, w: 1040, h: 780, crop: [0, 0.27, 1, 0.7], ...R1 })}
