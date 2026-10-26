@@ -356,7 +356,7 @@ function audioShift(clip) {
   shiftCache.set(clip.name, shift);
   return shift;
 }
-/** The onsets (s, in the file) of a file's sound in [a, b]: 10 ms bins louder than -18 dBFS that rise 6 dB or more over the 50 ms before them. */
+/** The onsets (s, in the file) of a file's sound in [a, b]: 10 ms bins louder than -18 dBFS that stand 6 dB or more above the mean of the 100 ms before them. */
 function audioOnsets(file, a, b) {
   const r = run("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-af",
     `atrim=start=${f3(a)}:duration=${f3(b - a)},asetpts=PTS-STARTPTS,asetnsamples=480,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
@@ -367,8 +367,9 @@ function audioOnsets(file, a, b) {
     const m = l.match(/RMS_level=(-?[0-9.]+|-inf)/); if (m) { lv.push(m[1] === "-inf" ? -120 : parseFloat(m[1])); tm.push(t); }
   }
   const out = [];
-  for (let i = 5; i < lv.length; i++) {
-    const rise = lv[i] - Math.max(...lv.slice(i - 5, i));
+  for (let i = 10; i < lv.length; i++) {   // above the mean power of the 100 ms before (a short ramp still counts)
+    const mean = 10 * Math.log10(lv.slice(i - 10, i).reduce((acc, v) => acc + 10 ** (v / 10), 0) / 10 + 1e-12);
+    const rise = lv[i] - mean;
     if (lv[i] > -18 && rise >= 6) out.push({ t: a + tm[i], rise });
   }
   return out;

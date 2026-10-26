@@ -131,9 +131,17 @@ rec_end() {
   # ffmpeg's timeline drifts (run 39987522022's glass). Retry once; RETIMED says whether it worked.
   RETIMED=0
   if [[ -f "$OUT_ABS/raw/$1.mp4" ]]; then
-    local r; r=$(retime "$OUT_ABS/raw/$1.mp4"); say "$1 $r"
-    if [[ "$r" != *"retimed "* ]]; then sleep 3; r=$(retime "$OUT_ABS/raw/$1.mp4"); say "$1 (retry) $r"; fi
-    [[ "$r" == *"retimed "* ]] && RETIMED=1
+    # AVFoundation sometimes stops early ("partial: … Cannot Decode") and the re-timer still replaces the file (run
+    # 40371298984's glass lost its break that way), so keep the original and retry from it; a take that stays partial
+    # counts as not re-timed, and the press is recorded again.
+    local r try raw="$OUT_ABS/raw/$1.mp4"
+    cp "$raw" "$raw.orig"
+    for try in 1 2 3; do
+      r=$(retime "$raw"); say "$1 (re-time $try) $r"
+      [[ "$r" == *"retimed "* && "$r" != *partial* ]] && { RETIMED=1; break; }
+      sleep 4; cp "$raw.orig" "$raw"
+    done
+    rm -f "$raw.orig"
     say "$1 raw: $(probe_video "$OUT_ABS/raw/$1.mp4")"
   fi
   REC_PID=""
@@ -187,7 +195,7 @@ press_take warmup "object=rubberDuck;duo;$BASE;hingescript=4"
 rm -f "$OUT_ABS/raw/warmup.mp4"
 
 for take in duck:rubberDuck glass:glassBottle; do
-  for attempt in 1 2; do
+  for attempt in 1 2 3; do
     press_take "${take%%:*}" "object=${take##*:};duo;$BASE;pressaudio;hingescript=7"
     (( RETIMED == 1 )) && break
     say "WARN ${take%%:*}: the recording could not be re-timed (attempt $attempt); recording it again"

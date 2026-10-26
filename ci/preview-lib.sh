@@ -142,7 +142,8 @@ flash_time() {
 }
 
 # wav_transient <wav> <expected s> <late window s>: where the WAV's break is, near where the clock expects it. The onsets
-# are the 10 ms bins louder than -18 dBFS RMS that rise 6 dB or more over the 50 ms before them. The strongest onset
+# are the 10 ms bins louder than -18 dBFS RMS that stand 6 dB or more above the mean power of the 100 ms before them
+# (a mean, not a max, so a 20–30 ms ramp still counts as one onset). The strongest onset
 # within 0.25 s of <expected> wins; failing that, with <late window> > 0, the strongest one in the <late window> seconds
 # after it (the offline replay of a Fold press can land its failure up to ~1 s late: Duo glass in run 40350252050).
 # Prints nothing when there is none.
@@ -154,7 +155,7 @@ wav_transient() {
     | awk -v base="$from" -v ex="$exp" -v late="$late" '/pts_time/ { split($0, p, "pts_time:"); t = p[2] + 0 }
         /RMS_level/ { split($0, y, "="); v = (y[2] == "-inf") ? -120 : y[2] + 0; n++; lv[n] = v; tm[n] = base + t }
         END { nb = -1; na = ""; lb = -1; la = "";
-              for (i = 6; i <= n; i++) { m = -1e9; for (k = i - 5; k < i; k++) if (lv[k] > m) m = lv[k];
+              for (i = 11; i <= n; i++) { pw = 0; for (k = i - 10; k < i; k++) pw += 10 ^ (lv[k] / 10); m = 10 * log(pw / 10 + 1e-12) / log(10);
                 r = lv[i] - m; if (lv[i] <= -18 || r < 6) continue;
                 d = tm[i] - ex; if (d < 0) d = -d;
                 if (d <= 0.25 && r > nb) { nb = r; na = tm[i] }
